@@ -24,10 +24,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// <item><c>EspTrackingWin32Apps\&lt;userGuid&gt;\&lt;appGuid&gt;_&lt;rev&gt;</c> — which apps IME
     /// registered for ESP tracking and in which phase.</item>
     /// <item><c>SideCarPolicies\StatusServiceReports\&lt;userGuid&gt;\&lt;appId&gt;</c> — the exact
-    /// AppInstallStatusReport the ESP page renders (Status 1000=Installed .. 3000=Failed).</item>
+    /// AppInstallStatusReport the ESP page renders (Status 1000=Installed, 1001=Installing,
+    /// 1003=InstallingPendingReboot, 2000=NotApplicable, 3000=Failed).</item>
+    /// <item><c>Win32Apps\OperationalState\&lt;userGuid&gt;\&lt;appGuid&gt;</c> (bare GUIDs) — IME's
+    /// per-app operational state: the install deadline a downloaded app is waiting for
+    /// (<c>ExecutionDeadlineTime</c>, IME 1.106+) and the app-in-use deferral counters
+    /// (<c>DeferralsUsed</c>, <c>DeferUntilTime</c>, ..., IME 1.105+).</item>
     /// </list>
     /// The observer is snapshot-and-diff driven (RegistryWatcher gives key-scope edges only,
-    /// coalesced — a per-write parse is impossible by design): every tick re-reads the three
+    /// coalesced — a per-write parse is impossible by design): every tick re-reads the four
     /// surfaces and emits <c>registry_app_state</c> on real field changes. Pre-existing state at
     /// agent start is the silent baseline — Win32Apps keys survive re-enrollments, so replaying
     /// them as fresh events would be the registry twin of the historic-IME-replay bug.
@@ -162,6 +167,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             ReadWin32Apps(root, snapshot);
             ReadEspTracking(root, snapshot);
             ReadStatusServiceReports(root, snapshot);
+            ReadOperationalState(root, snapshot);
             return snapshot;
         }
 
@@ -250,6 +256,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        // Only the two wait states are read; the download/execution bookkeeping next to them
+        // (DownloadStatus, DownloadStartTime, ExecutionStatus, ...) duplicates the log narrative
+        // and would double the event volume without adding a state the timeline lacks.
+        private static void ReadOperationalState(RegistryKey root, ImeRegistrySnapshot snapshot)
+        {
+            using var operational = root.OpenSubKey(@"Win32Apps\OperationalState");
+            if (operational == null) return;
+
+            foreach (var userName in operational.GetSubKeyNames())
+            {
+                if (!LooksLikeGuid(userName)) continue;
+                using var userKey = operational.OpenSubKey(userName);
+                if (userKey == null) continue;
+
+                foreach (var appKeyName in userKey.GetSubKeyNames())
+                {
+                    var appId = ExtractAppId(appKeyName);
+                    if (appId == null) continue;
+
+                    using var appKey = userKey.OpenSubKey(appKeyName);
+                    if (appKey == null) continue;
+
+                    var deadline = TryParseRegistryDateTime(appKey.GetValue("ExecutionDeadlineTime"));
+                    var deferralsUsed = TryReadInt(appKey.GetValue("DeferralsUsed"));
+                    if (deadline == null && deferralsUsed == null) continue; // no wait state — no entry of its own
+
+                    var entry = snapshot.GetOrAdd(userName, appId);
+                    entry.InstallDeadlineUtc = deadline;
+                    entry.DeferralsUsed = deferralsUsed;
+                    entry.DeferralMaxDeferrals = TryReadInt(appKey.GetValue("DeferralMaxDeferrals"));
+                    entry.DeferUntilUtc = TryParseRegistryDateTime(appKey.GetValue("DeferUntilTime"));
+                    entry.DeferralAutoDeferred = TryReadBool(appKey.GetValue("DeferralAutoDeferred"));
+                }
+            }
+        }
+
         // ── pure helpers (unit-tested directly) ─────────────────────────────────
 
         internal static bool LooksLikeGuid(string name) =>
@@ -301,6 +343,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        internal static bool? TryReadBool(object? value) =>
+            value is string s && bool.TryParse(s, out var parsed) ? parsed : (bool?)null;
+
+        /// <summary>
+        /// OperationalState timestamps are UTC but stored in two InvariantCulture shapes:
+        /// <c>ExecutionDeadlineTime</c> as <c>MM/dd/yyyy HH:mm:ss</c> without a kind marker,
+        /// <c>DeferUntilTime</c> round-trip ("o", trailing Z). Both come back as UTC here.
+        /// </summary>
+        internal static DateTime? TryParseRegistryDateTime(object? value)
+        {
+            if (!(value is string s) || string.IsNullOrWhiteSpace(s)) return null;
+            return DateTime.TryParse(s, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+                ? parsed
+                : (DateTime?)null;
+        }
+
         /// <summary>StateMessageEnforcementState bands (verified against decompiled IME 1.97/1.104).</summary>
         internal static string ClassifyEnforcementState(int state)
         {
@@ -312,14 +371,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             return "unknown";
         }
 
-        /// <summary>AppInstallStatus (StatusService/ESP page): 1000er = installed, 3000 = failed.</summary>
+        /// <summary>
+        /// AppInstallStatus as IME writes it to StatusServiceReports (unchanged IME 1.50 .. 1.106):
+        /// 1000 Installed, 1001 Installing, 1002 InstalledButDependenciesNotPresent,
+        /// 1003 InstallingPendingReboot, 1004 InstalledPendingReboot, 2000 NotApplicable, 3000 Failed.
+        /// The 1000 band is NOT uniformly terminal — IME maps every InProgress enforcement state to
+        /// 1001 — so the mapping is explicit and an unknown value is not judged.
+        /// </summary>
         internal static string? ClassifyStatusServiceStatus(int status)
         {
-            if (status >= 1000 && status < 2000) return "installed";
-            if (status == 3000) return "failed";
+            switch (status)
+            {
+                case 1000:
+                case 1002:
+                case 1004:
+                    return "installed";
+                case 1001:
+                case 1003:
+                    return "installing";
+                case 3000:
+                    return "failed";
+            }
             if (status >= 2000 && status < 3000) return "notApplicable";
             return null;
         }
+
+        /// <summary>
+        /// Human-readable suffix for the two IME wait states (install deadline, app-in-use
+        /// deferral); empty when neither applies. Culture-invariant on purpose — the agent runs
+        /// under whatever culture the SYSTEM account carries.
+        /// </summary>
+        internal static string DescribeWaitState(AppRegistryEntry entry)
+        {
+            var parts = new List<string>(2);
+            if (entry.InstallDeadlineUtc is DateTime deadline)
+                parts.Add("downloaded, install deadline " + FormatUtcMinute(deadline));
+
+            if (entry.DeferralsUsed is int used && used > 0)
+            {
+                var kind = entry.DeferralAutoDeferred == true ? "auto-deferred" : "deferred by user";
+                var count = entry.DeferralMaxDeferrals is int max
+                    ? used.ToString(CultureInfo.InvariantCulture) + "/" + max.ToString(CultureInfo.InvariantCulture)
+                    : used.ToString(CultureInfo.InvariantCulture);
+                parts.Add(entry.DeferUntilUtc is DateTime until
+                    ? kind + " " + count + " until " + FormatUtcMinute(until)
+                    : kind + " " + count);
+            }
+
+            return parts.Count == 0 ? string.Empty : ", " + string.Join(", ", parts);
+        }
+
+        private static string FormatUtcMinute(DateTime utc) =>
+            utc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
 
         internal static List<AppRegistryChange> DiffSnapshots(ImeRegistrySnapshot previous, ImeRegistrySnapshot next)
         {
@@ -343,6 +446,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (prev?.StatusServiceStatus != next.StatusServiceStatus) changed.Add("statusServiceStatus");
             if ((prev?.EspTracked ?? false) != next.EspTracked) changed.Add("espTracked");
             if (!string.Equals(prev?.EspPhase, next.EspPhase, StringComparison.OrdinalIgnoreCase)) changed.Add("espPhase");
+            // Wait states: the deadline and each recorded deferral are transitions worth an event;
+            // MaxDeferrals / AutoDeferred only travel along as data.
+            if (prev?.InstallDeadlineUtc != next.InstallDeadlineUtc) changed.Add("installDeadline");
+            if (prev?.DeferralsUsed != next.DeferralsUsed) changed.Add("deferralsUsed");
+            if (prev?.DeferUntilUtc != next.DeferUntilUtc) changed.Add("deferUntil");
             return changed;
         }
 
@@ -445,6 +553,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
             if (e.EspTracked) data["espTracked"] = "true";
             if (!string.IsNullOrEmpty(e.EspPhase)) data["espPhase"] = e.EspPhase!;
+            if (e.InstallDeadlineUtc is DateTime deadline) data["installDeadlineUtc"] = deadline.ToString("o", CultureInfo.InvariantCulture);
+            if (e.DeferralsUsed is int used) data["deferralsUsed"] = used.ToString(CultureInfo.InvariantCulture);
+            if (e.DeferralMaxDeferrals is int max) data["deferralMaxDeferrals"] = max.ToString(CultureInfo.InvariantCulture);
+            if (e.DeferUntilUtc is DateTime until) data["deferUntilUtc"] = until.ToString("o", CultureInfo.InvariantCulture);
+            if (e.DeferralAutoDeferred is bool auto) data["deferralAutoDeferred"] = auto ? "true" : "false";
 
             var summary = data.TryGetValue("enforcementClass", out var encls) ? encls
                         : data.TryGetValue("statusServiceClass", out var sscls) ? sscls
@@ -453,7 +566,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _post.Emit(
                 eventType: SharedEventTypes.RegistryAppState,
                 source: SourceLabel,
-                message: $"Registry app state: {e.AppId} ({(e.UserContext == ImeRegistrySnapshot.DeviceContext ? "device" : "user")}) -> {summary}",
+                message: $"Registry app state: {e.AppId} ({(e.UserContext == ImeRegistrySnapshot.DeviceContext ? "device" : "user")}) -> {summary}{DescribeWaitState(e)}",
                 severity: EventSeverity.Info,
                 data: data,
                 occurredAtUtc: nowUtc);
@@ -625,6 +738,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public int? StatusServiceStatus { get; set; }
         public bool EspTracked { get; set; }
         public string? EspPhase { get; set; }
+
+        // Win32Apps\OperationalState — the two IME wait states (all UTC).
+        public DateTime? InstallDeadlineUtc { get; set; }
+        public int? DeferralsUsed { get; set; }
+        public int? DeferralMaxDeferrals { get; set; }
+        public DateTime? DeferUntilUtc { get; set; }
+        public bool? DeferralAutoDeferred { get; set; }
     }
 
     internal sealed class AppRegistryChange

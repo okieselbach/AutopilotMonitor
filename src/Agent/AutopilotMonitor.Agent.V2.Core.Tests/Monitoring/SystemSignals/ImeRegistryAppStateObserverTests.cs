@@ -59,9 +59,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public void ClassifyEnforcementState_bands(int state, string expected)
             => Assert.Equal(expected, ImeRegistryAppStateObserver.ClassifyEnforcementState(state));
 
+        // IME AppInstallStatus values (StatusServiceReports\..\Status), stable IME 1.50 .. 1.106.
+        // 1001/1003 sit inside the 1000 band but are NOT terminal — IME maps every InProgress
+        // enforcement state to 1001 (verified in the decompiled 1.106 StatusServiceHelpers).
         [Theory]
         [InlineData(1000, "installed")]
-        [InlineData(1999, "installed")]
+        [InlineData(1002, "installed")]
+        [InlineData(1004, "installed")]
+        [InlineData(1001, "installing")]
+        [InlineData(1003, "installing")]
+        [InlineData(1005, null)]
+        [InlineData(1999, null)]
         [InlineData(3000, "failed")]
         [InlineData(2000, "notApplicable")]
         [InlineData(2999, "notApplicable")]
@@ -71,6 +79,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         [InlineData(4000, null)]
         public void ClassifyStatusServiceStatus_bands(int status, string? expected)
             => Assert.Equal(expected, ImeRegistryAppStateObserver.ClassifyStatusServiceStatus(status));
+
+        [Fact]
+        public void TryParseRegistryDateTime_reads_both_ime_shapes_as_utc()
+        {
+            // ExecutionDeadlineTime: DateTime.ToString(InvariantCulture), UTC without a kind marker.
+            var deadline = ImeRegistryAppStateObserver.TryParseRegistryDateTime("09/23/2026 18:00:00");
+            Assert.Equal(new DateTime(2026, 9, 23, 18, 0, 0, DateTimeKind.Utc), deadline);
+            Assert.Equal(DateTimeKind.Utc, deadline!.Value.Kind);
+
+            // DeferUntilTime: round-trip "o" with trailing Z.
+            var until = ImeRegistryAppStateObserver.TryParseRegistryDateTime("2026-09-23T10:30:00.0000000Z");
+            Assert.Equal(new DateTime(2026, 9, 23, 10, 30, 0, DateTimeKind.Utc), until);
+            Assert.Equal(DateTimeKind.Utc, until!.Value.Kind);
+
+            Assert.Null(ImeRegistryAppStateObserver.TryParseRegistryDateTime(null));
+            Assert.Null(ImeRegistryAppStateObserver.TryParseRegistryDateTime(""));
+            Assert.Null(ImeRegistryAppStateObserver.TryParseRegistryDateTime("not a date"));
+            Assert.Null(ImeRegistryAppStateObserver.TryParseRegistryDateTime(42));
+        }
+
+        [Fact]
+        public void TryReadBool_parses_registry_strings_only()
+        {
+            Assert.True(ImeRegistryAppStateObserver.TryReadBool("True"));
+            Assert.False(ImeRegistryAppStateObserver.TryReadBool("false"));
+            Assert.Null(ImeRegistryAppStateObserver.TryReadBool("yes"));
+            Assert.Null(ImeRegistryAppStateObserver.TryReadBool(1));
+            Assert.Null(ImeRegistryAppStateObserver.TryReadBool(null));
+        }
 
         [Fact]
         public void TerminalOutcome_prefers_enforcement_state_then_status_service()
@@ -88,6 +125,49 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 3000)));
             Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(statusServiceStatus: 2500)));
             Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry()));
+            // Installing (1001) / InstallingPendingReboot (1003) share the 1000 band but are not terminal.
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(statusServiceStatus: 1001)));
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 2009, statusServiceStatus: 1003)));
+        }
+
+        [Fact]
+        public void ChangedFields_reports_wait_state_triggers_only()
+        {
+            var prev = Entry(enforcementState: 2009);
+            var next = Entry(enforcementState: 2009,
+                installDeadlineUtc: T0.AddHours(2),
+                deferralsUsed: 1, deferralMaxDeferrals: 3, deferUntilUtc: T0.AddMinutes(30), deferralAutoDeferred: false);
+
+            Assert.Equal(new[] { "installDeadline", "deferralsUsed", "deferUntil" },
+                ImeRegistryAppStateObserver.ChangedFields(prev, next));
+
+            // MaxDeferrals / AutoDeferred alone are data, not a transition.
+            var sameCounters = Entry(enforcementState: 2009,
+                installDeadlineUtc: T0.AddHours(2),
+                deferralsUsed: 1, deferralMaxDeferrals: 5, deferUntilUtc: T0.AddMinutes(30), deferralAutoDeferred: true);
+            Assert.Empty(ImeRegistryAppStateObserver.ChangedFields(next, sameCounters));
+
+            // A cleared deadline is a transition too (IME clears it when the next download starts).
+            Assert.Equal(new[] { "installDeadline" },
+                ImeRegistryAppStateObserver.ChangedFields(
+                    Entry(installDeadlineUtc: T0.AddHours(2)), Entry()));
+        }
+
+        [Fact]
+        public void DescribeWaitState_texts()
+        {
+            Assert.Equal(string.Empty, ImeRegistryAppStateObserver.DescribeWaitState(Entry(enforcementState: 2009)));
+            Assert.Equal(", downloaded, install deadline 2026-08-18 10:00 UTC",
+                ImeRegistryAppStateObserver.DescribeWaitState(Entry(installDeadlineUtc: T0.AddHours(2))));
+            Assert.Equal(", deferred by user 1/3 until 2026-08-18 08:30 UTC",
+                ImeRegistryAppStateObserver.DescribeWaitState(Entry(
+                    deferralsUsed: 1, deferralMaxDeferrals: 3, deferUntilUtc: T0.AddMinutes(30), deferralAutoDeferred: false)));
+            Assert.Equal(", auto-deferred 2/3",
+                ImeRegistryAppStateObserver.DescribeWaitState(Entry(
+                    deferralsUsed: 2, deferralMaxDeferrals: 3, deferralAutoDeferred: true)));
+            // Zero deferrals used is not a deferral; a missing max falls back to the bare count.
+            Assert.Equal(string.Empty, ImeRegistryAppStateObserver.DescribeWaitState(Entry(deferralsUsed: 0, deferralMaxDeferrals: 3)));
+            Assert.Equal(", deferred by user 1", ImeRegistryAppStateObserver.DescribeWaitState(Entry(deferralsUsed: 1)));
         }
 
         [Fact]
@@ -182,6 +262,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.Equal(App1, evt.Payload!["appId"]);
             Assert.Equal("1000", evt.Payload["enforcementState"]);
             Assert.Equal("success", evt.Payload["enforcementClass"]);
+        }
+
+        [Fact]
+        public void Wait_state_changes_emit_state_events_with_data_and_text()
+        {
+            var (sink, clock, observer) = CreateObserver(trackerApps: null);
+            var current = Snapshot((App1, 2009, null));
+
+            using (new ImeRegistryAppStateObserver.ScopedSnapshotOverride(() => current))
+            {
+                observer.Tick("baseline");
+
+                // Download finished, IME parks the app until its install deadline (1.106 ExecutionDeadlineTime).
+                var withDeadline = Snapshot((App1, 2009, null));
+                withDeadline.Entries.Values.Single().InstallDeadlineUtc = T0.AddHours(2);
+                current = withDeadline;
+                observer.Tick("registry_change");
+
+                // A required app hits a running process and the user defers (1.105 app-in-use deferral).
+                var deferred = Snapshot((App1, 2014, null));
+                var entry = deferred.Entries.Values.Single();
+                entry.InstallDeadlineUtc = T0.AddHours(2);
+                entry.DeferralsUsed = 1;
+                entry.DeferralMaxDeferrals = 3;
+                entry.DeferUntilUtc = T0.AddMinutes(30);
+                entry.DeferralAutoDeferred = false;
+                current = deferred;
+                observer.Tick("registry_change");
+            }
+
+            var events = Events(sink, SharedEventTypes.RegistryAppState);
+            Assert.Equal(2, events.Count);
+
+            var deadlineEvent = events[0];
+            Assert.Equal("installDeadline", deadlineEvent.Payload!["changedFields"]);
+            Assert.Equal("2026-08-18T10:00:00.0000000Z", deadlineEvent.Payload["installDeadlineUtc"]);
+            Assert.DoesNotContain("deferralsUsed", deadlineEvent.Payload.Keys);
+            Assert.Contains("-> inProgress, downloaded, install deadline 2026-08-18 10:00 UTC",
+                deadlineEvent.Payload[SignalPayloadKeys.Message]);
+
+            var deferralEvent = events[1];
+            Assert.Equal("enforcementState,deferralsUsed,deferUntil", deferralEvent.Payload!["changedFields"]);
+            Assert.Equal("2014", deferralEvent.Payload["enforcementState"]);
+            Assert.Equal("1", deferralEvent.Payload["deferralsUsed"]);
+            Assert.Equal("3", deferralEvent.Payload["deferralMaxDeferrals"]);
+            Assert.Equal("2026-08-18T08:30:00.0000000Z", deferralEvent.Payload["deferUntilUtc"]);
+            Assert.Equal("false", deferralEvent.Payload["deferralAutoDeferred"]);
+            Assert.Contains("deferred by user 1/3 until 2026-08-18 08:30 UTC", deferralEvent.Payload[SignalPayloadKeys.Message]);
         }
 
         [Fact]
@@ -331,7 +459,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
         private static AppRegistryEntry Entry(
             int? enforcementState = null, long? errorCode = null, int? exitCode = null,
-            int? statusServiceStatus = null, bool espTracked = false, string? espPhase = null)
+            int? statusServiceStatus = null, bool espTracked = false, string? espPhase = null,
+            DateTime? installDeadlineUtc = null, int? deferralsUsed = null, int? deferralMaxDeferrals = null,
+            DateTime? deferUntilUtc = null, bool? deferralAutoDeferred = null)
         {
             var entry = new AppRegistryEntry($"{ImeRegistrySnapshot.DeviceContext}|{App1}", ImeRegistrySnapshot.DeviceContext, App1);
             entry.EnforcementState = enforcementState;
@@ -340,6 +470,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             entry.StatusServiceStatus = statusServiceStatus;
             entry.EspTracked = espTracked;
             entry.EspPhase = espPhase;
+            entry.InstallDeadlineUtc = installDeadlineUtc;
+            entry.DeferralsUsed = deferralsUsed;
+            entry.DeferralMaxDeferrals = deferralMaxDeferrals;
+            entry.DeferUntilUtc = deferUntilUtc;
+            entry.DeferralAutoDeferred = deferralAutoDeferred;
             return entry;
         }
 
