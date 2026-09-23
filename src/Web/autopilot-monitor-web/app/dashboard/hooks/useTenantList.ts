@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { fetchJson } from "@/lib/apiClient";
+import { cachedAuthFetchJson, TENANT_LIST_TTL_MS } from "@/lib/cachedAuthFetch";
 
 export interface TenantListItem {
   tenantId: string;
@@ -29,7 +29,7 @@ export function useTenantList(
       }
       try {
         // config/all is a bare array of tenant configurations (deliberately untyped, D-043).
-        const configs = await fetchJson<{ tenantId?: string; domainName?: string }[]>(api.config.all(), getAccessToken);
+        const configs = await cachedAuthFetchJson<{ tenantId?: string; domainName?: string }[]>(api.config.all(), getAccessToken, { ttlMs: TENANT_LIST_TTL_MS });
         if (cancelled) return;
         setTenantList(
           configs

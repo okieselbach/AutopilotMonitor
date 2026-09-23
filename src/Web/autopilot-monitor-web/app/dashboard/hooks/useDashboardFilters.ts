@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "@/lib/appInsights";
 import type { Session } from "../types";
 import { buildSessionSearchMatcher, parseSessionSearchQuery } from "../utils/sessionSearchQuery";
@@ -114,9 +114,19 @@ export function useDashboardFilters({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // The input and the page-reset key below stay on the immediate query; the filter pass follows
+  // the deferred value, so a keystroke never waits for it.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
   // Search grammar (terms AND-ed, `-` excludes, quotes, `field=value`) — see
   // utils/sessionSearchQuery. Null while the query carries no filter.
-  const searchMatcher = useMemo(() => buildSessionSearchMatcher(searchQuery), [searchQuery]);
+  const searchMatcher = useMemo(() => buildSessionSearchMatcher(deferredSearchQuery), [deferredSearchQuery]);
+  // The client-derived `extra` text is read by free terms only (a qualified term reads its one
+  // field), so it is built only while the query has one.
+  const searchNeedsExtra = useMemo(() => {
+    const { include, exclude } = parseSessionSearchQuery(deferredSearchQuery);
+    return include.some((t) => !t.field) || exclude.some((t) => !t.field);
+  }, [deferredSearchQuery]);
 
   // Reset to page 1 whenever the displayed set or its ordering changes —
   // includes external scope changes (tenant switch, global-admin toggle, tenant filter).
@@ -161,6 +171,8 @@ export function useDashboardFilters({
   }, [sessions, globalAdminMode, tenantIdFilter, tenantId]);
 
   const filteredSessions = useMemo(() => {
+    const query = deferredSearchQuery.toLowerCase().trim();
+    const durationMatch = query.match(/^([><]=?)\s*(\d+)$/);
     return effectiveSessions.filter((session) => {
       // Fleet-context rule filter: only while the hit set is loaded (null = still
       // loading → unfiltered, so the table never flashes empty before the fetch).
@@ -174,11 +186,8 @@ export function useDashboardFilters({
         if (!allowedValues.has(value)) return false;
       }
 
-      if (!searchQuery.trim()) return true;
+      if (!query) return true;
 
-      const query = searchQuery.toLowerCase().trim();
-
-      const durationMatch = query.match(/^([><]=?)\s*(\d+)$/);
       if (durationMatch) {
         const operator = durationMatch[1];
         const value = parseInt(durationMatch[2]);
@@ -193,20 +202,24 @@ export function useDashboardFilters({
       if (!searchMatcher) return true;
 
       // Client-derived tokens only a free term can reach; the session fields themselves
-      // are read by the matcher. Newline-joined so no term spans two tokens.
-      const extra = [
-        new Date(session.startedAt).toLocaleString(),
-        `${Math.round((session.durationSeconds ?? 0) / 60)} min`,
-        blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) ? "blocked" : "",
-        // Tenant column is cross-tenant only; keep single-tenant search free of a value
-        // every row shares.
-        globalAdminMode ? session.tenantId : "",
-        globalAdminMode ? tenantDomainById?.get(session.tenantId) ?? "" : "",
-      ].join("\n");
+      // are read by the matcher. Newline-joined so no term spans two tokens. Formatted
+      // per pass on purpose (no per-session cache, D-274); the deferred query keeps
+      // typing responsive.
+      const extra = searchNeedsExtra
+        ? [
+            new Date(session.startedAt).toLocaleString(),
+            `${Math.round((session.durationSeconds ?? 0) / 60)} min`,
+            blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) ? "blocked" : "",
+            // Tenant column is cross-tenant only; keep single-tenant search free of a value
+            // every row shares.
+            globalAdminMode ? session.tenantId : "",
+            globalAdminMode ? tenantDomainById?.get(session.tenantId) ?? "" : "",
+          ].join("\n")
+        : undefined;
 
       return searchMatcher(session, extra);
     });
-  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, searchMatcher, blockedDevicesSet, globalAdminMode, tenantDomainById]);
+  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, deferredSearchQuery, searchMatcher, searchNeedsExtra, blockedDevicesSet, globalAdminMode, tenantDomainById]);
 
   const sortedSessions = useMemo(() => {
     if (!sortColumn) return filteredSessions;

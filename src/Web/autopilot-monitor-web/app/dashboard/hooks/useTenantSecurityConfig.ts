@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
+import { cachedAuthFetchJson, FEATURE_FLAGS_TTL_MS } from "@/lib/cachedAuthFetch";
 import { missingContactProfileParts } from "@/lib/edition";
 
 /** NotificationContext.notifyError, injected so the hook stays free of the provider. */
@@ -89,7 +89,7 @@ export function useTenantSecurityConfig(
       if (!user.isTenantAdmin && !user.isGlobalAdmin && user.role == null) return;
 
       try {
-        const data = await dedupedFetchJson<TenantConfigurationSummary>(api.config.featureFlags(tenantId), getAccessToken);
+        const data = await cachedAuthFetchJson<TenantConfigurationSummary>(api.config.featureFlags(tenantId), getAccessToken, { ttlMs: FEATURE_FLAGS_TTL_MS });
         setSummary(summarizeTenantSecurityConfig(data));
       } catch (error) {
         // Fail-soft on a backend refusal (the banners just stay quiet); a token expiry is the

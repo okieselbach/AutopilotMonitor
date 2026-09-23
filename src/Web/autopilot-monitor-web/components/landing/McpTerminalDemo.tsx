@@ -42,35 +42,47 @@ const TYPE_MS = 32;
 const TOOL_MS = 950;
 const OUT_MS = 240;
 const RESTART_PAUSE_MS = 7000;
+const START_THRESHOLD = 0.3;
 
 export function McpTerminalDemo() {
   const ref = useRef<HTMLDivElement>(null);
-  const [started, setStarted] = useState(false);
+  const [active, setActive] = useState(false);
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [stepIndex, setStepIndex] = useState(0);
   const [charCount, setCharCount] = useState(0);
   // Reduced motion shows the finished transcript immediately — derived, not seeded.
   const effectiveStepIndex = reduced ? SCRIPT.length : stepIndex;
 
+  // The typing chain below is a setTimeout loop (every 32 ms while typing) that
+  // would otherwise run forever once started. It starts when 30% of the terminal
+  // is in view and then runs only while the terminal is on screen in a visible
+  // tab: scrolled away or tab hidden = no timers; back = resume at the current step.
   useEffect(() => {
     if (reduced) return;
     const el = ref.current;
     if (!el) return;
+    let started = false;
+    let inView = false;
+    const update = () => setActive(started && inView && !document.hidden);
     const observer = new IntersectionObserver(
       entries => {
-        if (entries.some(e => e.isIntersecting)) {
-          setStarted(true);
-          observer.disconnect();
-        }
+        const latest = entries[entries.length - 1];
+        inView = latest.isIntersecting;
+        if (latest.intersectionRatio >= START_THRESHOLD) started = true;
+        update();
       },
-      { threshold: 0.3 }
+      { threshold: [0, START_THRESHOLD] }
     );
     observer.observe(el);
-    return () => observer.disconnect();
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", update);
+    };
   }, [reduced]);
 
   useEffect(() => {
-    if (!started || reduced) return;
+    if (!active || reduced) return;
 
     if (stepIndex >= SCRIPT.length) {
       const timer = window.setTimeout(() => {
@@ -89,7 +101,7 @@ export function McpTerminalDemo() {
     const delay = step.kind === "tool" ? TOOL_MS : step.kind === "user" ? 500 : OUT_MS;
     const timer = window.setTimeout(() => setStepIndex(i => i + 1), delay);
     return () => window.clearTimeout(timer);
-  }, [started, reduced, stepIndex, charCount]);
+  }, [active, reduced, stepIndex, charCount]);
 
   const finished = effectiveStepIndex >= SCRIPT.length;
 

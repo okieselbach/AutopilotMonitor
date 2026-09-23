@@ -48,7 +48,6 @@ function DiagnosisContent() {
 
   const hasInitialFetch = useRef(false);
   const lastFetchedSessionId = useRef<string | null>(null);
-  const hasJoinedGroups = useRef(false);
   const sessionIdRef = useRef(sessionId);
   // Eager tenant hydration lets the session + analysis fetches run in parallel,
   // so the loading gate must wait for BOTH — otherwise a fast analysis response
@@ -178,20 +177,22 @@ function DiagnosisContent() {
   useEffect(() => {
     const effectiveTenantId = sessionTenantId || tenantId;
     if (!sessionId || !isConnected || !effectiveTenantId) return;
-    if (!hasJoinedGroups.current) {
-      const joinAndCatchUp = async () => {
-        await joinGroup(`session-${effectiveTenantId}-${sessionId}`);
-        hasJoinedGroups.current = true;
-        // Re-fetch after group join to catch any missed during join
-        Promise.all([fetchEvents(), fetchAnalysisResults()]);
-      };
-      joinAndCatchUp();
-    }
+    const group = `session-${effectiveTenantId}-${sessionId}`;
+    // Cleared by the cleanup: a run superseded while its join was in flight (typically because
+    // sessionTenantId resolved) must not fetch on behalf of the run that replaced it.
+    let current = true;
+    const joinAndCatchUp = async () => {
+      await joinGroup(group);
+      if (!current) return;
+      // Re-fetch after group join to catch any missed during join
+      void Promise.all([fetchEvents(), fetchAnalysisResults()]);
+    };
+    void joinAndCatchUp();
+    // Every run that joined leaves in its own cleanup: group membership is reference-counted in
+    // the SignalR layer, and a leave that arrives before the join resolved is settled there.
     return () => {
-      if (hasJoinedGroups.current && effectiveTenantId) {
-        leaveGroup(`session-${effectiveTenantId}-${sessionId}`);
-        hasJoinedGroups.current = false;
-      }
+      current = false;
+      leaveGroup(group);
     };
   }, [sessionId, isConnected, sessionTenantId, tenantId, joinGroup, leaveGroup, fetchEvents, fetchAnalysisResults]);
 

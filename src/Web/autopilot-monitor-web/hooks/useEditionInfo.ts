@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
+import { cachedAuthFetchJson, FEATURE_FLAGS_TTL_MS } from "@/lib/cachedAuthFetch";
 import { parseEditionInfo, type EditionInfo } from "@/lib/edition";
 
 /**
@@ -14,8 +14,8 @@ import { parseEditionInfo, type EditionInfo } from "@/lib/edition";
  * renders a "Community Edition" label and a Pro tenant must never see it flash
  * while flags load. Errors also resolve to null (no label beats a wrong label).
  *
- * Uses dedupedAuthFetch so a concurrent dashboard/session fetch of the same
- * feature-flags URL collapses into one request.
+ * Served from the feature-flags cache (FEATURE_FLAGS_TTL_MS): a concurrent dashboard/session
+ * read of the same URL shares one request, and a fresh hit costs no round-trip.
  */
 export function useEditionInfo(): EditionInfo | null {
   const { isAuthenticated, user, getAccessToken } = useAuth();
@@ -30,7 +30,7 @@ export function useEditionInfo(): EditionInfo | null {
     let cancelled = false;
     const run = async () => {
       try {
-        const parsed = parseEditionInfo(await dedupedFetchJson<unknown>(api.config.featureFlags(tenantId), getAccessToken));
+        const parsed = parseEditionInfo(await cachedAuthFetchJson<unknown>(api.config.featureFlags(tenantId), getAccessToken, { ttlMs: FEATURE_FLAGS_TTL_MS }));
         if (!cancelled) setInfo(parsed);
       } catch {
         // Leave null — chrome renders nothing rather than a guessed edition.

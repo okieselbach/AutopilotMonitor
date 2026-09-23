@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo, useCallback, ReactNode } from "react";
-import Link from "next/link";
+import { NavLink } from "@/components/NavLink";
 import { usePathname } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
@@ -248,14 +248,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200";
   };
 
-  // Every nav Link below sets prefetch={false} on purpose. The sidebar renders the whole
-  // navigation on every page, so the App Router's default viewport prefetch fires one RSC
-  // request per visible link against the SWA-hosted Next.js runtime on each page load
-  // (measured: ~10k requests / 14 days). The SSR runtime queues that burst server-side and
-  // drains it all at once (p95 ~0.9s but a tail reaching 150s+), so the navigation the user
-  // actually wants is stuck behind it and the portal freezes. Every route here is a client component behind
-  // ProtectedRoute that fetches its own data after mount, so the prefetched RSC payload
-  // buys nothing. See internal/docs/web/portal-navigation-prefetch.md.
+  // Every nav link below is a NavLink: no viewport prefetch (the sidebar renders ~20 links on
+  // every page, which would be ~60 payload requests per page load), the route payload is
+  // requested on hover/focus/touch instead. See components/NavLink.tsx and
+  // internal/docs/web/portal-navigation-prefetch.md.
   // --- Render a global nav link ---
   const renderGlobalItem = (item: NavItem, isGlobal = false) => {
     const active = isNavActive(item.href);
@@ -264,9 +260,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     if (collapseState === "icons") {
       return (
         <li key={item.id}>
-          <Link
+          <NavLink
             href={item.href}
-            prefetch={false}
             onClick={() => setMobileDrawerOpen(false)}
             className={`${base} px-2 py-2 justify-center relative group`}
             title={item.label}
@@ -277,17 +272,17 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
             <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
               {item.label}
             </span>
-          </Link>
+          </NavLink>
         </li>
       );
     }
 
     return (
       <li key={item.id}>
-        <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
+        <NavLink href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
           <span className="truncate">{item.label}</span>
-        </Link>
+        </NavLink>
       </li>
     );
   };
@@ -307,10 +302,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       if (pageSectionsMode === "route" && item.href) {
         return (
           <li key={item.id}>
-            <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-2 py-2 justify-center relative group`} title={item.label}>
+            <NavLink href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-2 py-2 justify-center relative group`} title={item.label}>
               {inner}
               <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">{item.label}</span>
-            </Link>
+            </NavLink>
           </li>
         );
       }
@@ -329,10 +324,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     if (pageSectionsMode === "route" && item.href) {
       return (
         <li key={item.id}>
-          <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
+          <NavLink href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
             {renderIcon(item.icon, "w-4 h-4")}
             <span className="truncate">{item.label}</span>
-          </Link>
+          </NavLink>
         </li>
       );
     }
@@ -438,9 +433,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                     // Icons mode: show group icon as link
                     return (
                       <li key={expandItem.id}>
-                        <Link
+                        <NavLink
                           href={firstHref}
-                          prefetch={false}
                           onClick={() => setMobileDrawerOpen(false)}
                           className={`flex items-center justify-center px-2 py-2 rounded-md text-sm transition-colors relative group ${
                             itemHasActive
@@ -457,7 +451,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                           <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
                             {expandItem.label}
                           </span>
-                        </Link>
+                        </NavLink>
                       </li>
                     );
                   }
@@ -504,9 +498,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                             const subActive = sub.href === winningSubHref;
                             return (
                               <li key={sub.id}>
-                                <Link
+                                <NavLink
                                   href={sub.href}
-                                  prefetch={false}
                                   onClick={() => setMobileDrawerOpen(false)}
                                   className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                     subActive
@@ -517,7 +510,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                   }`}
                                 >
                                   {sub.label}
-                                </Link>
+                                </NavLink>
                               </li>
                             );
                           })}
@@ -582,9 +575,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                 // In icons mode: show group icon as a link to the first item
                 return (
                   <li key={group.name}>
-                    <Link
+                    <NavLink
                       href={firstHref ?? "#"}
-                      prefetch={false}
                       onClick={() => setMobileDrawerOpen(false)}
                       className={`flex items-center justify-center px-2 py-2 rounded-md text-sm transition-colors relative group ${
                         groupHasActive
@@ -599,7 +591,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
                         {group.name}
                       </span>
-                    </Link>
+                    </NavLink>
                   </li>
                 );
               }
@@ -640,9 +632,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                         if (pageSectionsMode === "route" && item.href) {
                           return (
                             <li key={item.id}>
-                              <Link
+                              <NavLink
                                 href={item.href}
-                                prefetch={false}
                                 onClick={() => setMobileDrawerOpen(false)}
                                 className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                   active
@@ -651,7 +642,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                 }`}
                               >
                                 {item.label}
-                              </Link>
+                              </NavLink>
                             </li>
                           );
                         }

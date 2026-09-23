@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Session, RuleResult } from "@/types";
 import { isTerminalStatus } from "@/utils/sessionStatus";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
+import type { FetchEventsReason } from "./useSessionEvents";
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,11 +26,24 @@ interface UseSessionSignalRParams {
   sessionRef: React.RefObject<Session | null>;
   resolveEffectiveTenantId: () => string | null;
   signalR: SignalRApi;
-  scheduleFetchEvents: () => void;
+  scheduleFetchEvents: (reason?: FetchEventsReason) => void;
   setSession: React.Dispatch<React.SetStateAction<Session | null>>;
   setSessionTenantId: React.Dispatch<React.SetStateAction<string | null>>;
   fetchAnalysisResults: (reanalyze?: boolean) => Promise<void>;
   fetchVulnerabilityReport: (rescan?: boolean) => Promise<void>;
+}
+
+/**
+ * Applies a "newevents" session delta. Returns `prev` itself when every field of the update
+ * already holds the same value, so React bails out of the re-render: a live session pushes a
+ * delta with every agent batch, and most of them repeat the status and phase the page already
+ * shows. Shallow comparison only — a nested object with a fresh identity counts as a change
+ * (a pure derivation, recomputed on every push; nothing is cached across pushes).
+ */
+export function applySessionUpdate(prev: Session, update: Partial<Session>): Session {
+  const keys = Object.keys(update) as (keyof Session)[];
+  if (keys.every((key) => Object.is(prev[key], update[key]))) return prev;
+  return { ...prev, ...update };
 }
 
 /**
@@ -55,7 +69,6 @@ export function useSessionSignalR({
   fetchVulnerabilityReport,
 }: UseSessionSignalRParams): void {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
-  const hasJoinedGroups = useRef(false);
 
   // Join SignalR groups when connected (for multi-tenancy and cost optimization)
   // Uses "subscribe-then-fetch" pattern: join groups first, then re-fetch events
@@ -64,31 +77,32 @@ export function useSessionSignalR({
     const effectiveTenantId = resolveEffectiveTenantId();
     if (!sessionId || !isConnected || !effectiveTenantId) return;
 
-    if (!hasJoinedGroups.current) {
-      const tenantGroupName = `tenant-${effectiveTenantId}`;
-      const sessionGroupName = `session-${effectiveTenantId}-${sessionId}`;
+    const tenantGroupName = `tenant-${effectiveTenantId}`;
+    const sessionGroupName = `session-${effectiveTenantId}-${sessionId}`;
+    // Cleared by the cleanup: a run superseded while its joins were in flight (typically because
+    // sessionTenantId resolved) must not schedule a catch-up of its own.
+    let current = true;
 
-      const joinAndCatchUp = async () => {
-        await joinGroup(tenantGroupName);
-        await joinGroup(sessionGroupName);
-        hasJoinedGroups.current = true;
+    const joinAndCatchUp = async () => {
+      await Promise.all([joinGroup(tenantGroupName), joinGroup(sessionGroupName)]);
+      if (!current) return;
 
-        // Re-fetch events after group join to catch any SignalR messages
-        // that were sent before the client joined the session group.
-        // The frontend deduplicates by eventId, so no duplicates.
-        scheduleFetchEvents();
-      };
-      joinAndCatchUp();
-    }
+      // Re-fetch events after group join to catch any SignalR messages that were sent
+      // before the client joined the session group — unless a fetch is still walking the
+      // pages, which reads them anyway (see shouldScheduleFetch in useSessionEvents).
+      // The frontend deduplicates by eventId, so no duplicates.
+      scheduleFetchEvents("join-catch-up");
+    };
+    void joinAndCatchUp();
 
+    // Every run that joined leaves in its own cleanup, whether or not its joins have resolved:
+    // the SignalR layer counts references per group and settles a leave that arrives before the
+    // join resolved. (A "joined" flag set after the await used to skip this leave when the effect
+    // re-ran mid-join, and the re-run then took a second reference nobody released.)
     return () => {
-      if (hasJoinedGroups.current && effectiveTenantId) {
-        const tenantGroupName = `tenant-${effectiveTenantId}`;
-        const sessionGroupName = `session-${effectiveTenantId}-${sessionId}`;
-        leaveGroup(tenantGroupName);
-        leaveGroup(sessionGroupName);
-        hasJoinedGroups.current = false;
-      }
+      current = false;
+      leaveGroup(tenantGroupName);
+      leaveGroup(sessionGroupName);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, isConnected, sessionTenantId, tenantId, sessionTenantIdFromSession, globalAdminMode]);
@@ -130,8 +144,9 @@ export function useSessionSignalR({
     const handleNewEvents = (data: { sessionId: string; tenantId: string; sessionUpdate?: Partial<Session> }) => {
       if (data.sessionId !== sessionIdRef.current) return;
 
-      if (data.sessionUpdate) {
-        setSession(prev => prev ? { ...prev, ...data.sessionUpdate } : prev);
+      const update = data.sessionUpdate;
+      if (update) {
+        setSession(prev => prev ? applySessionUpdate(prev, update) : prev);
       }
       if (data.tenantId) {
         setSessionTenantId(prev => prev || data.tenantId);

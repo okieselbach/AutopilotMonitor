@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { PublicClientApplication, AccountInfo, InteractionStatus, InteractionRequiredAuthError, BrowserAuthError } from '@azure/msal-browser';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
-import { msalConfig, loginRequest, apiRequest, activeAuthApp, buildMsalConfig, clientIdForApp } from '@/lib/msalConfig';
+import { msalConfig, loginRequest, buildLoginRequest, apiRequest, activeAuthApp, buildMsalConfig, clientIdForApp } from '@/lib/msalConfig';
 import {
   classifyEntraAuthError,
   clearLoginAttemptApp,
@@ -20,7 +20,9 @@ import {
   tryBeginLoginFallback,
 } from '@/lib/authApp';
 import { api } from '@/lib/api';
+import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
+import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
 import type { AuthMeResponse } from '@/types/auth';
 
 // Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
@@ -76,7 +78,8 @@ async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
     const fallbackInstance = new PublicClientApplication(buildMsalConfig(clientIdForApp(target)));
     await fallbackInstance.initialize();
     // No prompt: the user just entered credentials, so the Entra session completes silently.
-    await fallbackInstance.loginRedirect({ ...loginRequest, prompt: undefined });
+    // The login scopes follow the app: each registration exposes its own API scope.
+    await fallbackInstance.loginRedirect({ ...buildLoginRequest(target), prompt: undefined });
     return true;
   } catch (fallbackError) {
     console.error('[Auth] Cross-app fallback login failed:', fallbackError);
@@ -114,6 +117,9 @@ const msalInitPromise = msalInstance
         scopes: apiRequest.scopes,
         account: accounts[0],
       }).then(async (tokenResponse) => {
+        // The dashboard's first list/stats requests run in parallel with auth/me instead of
+        // behind it (consumed once by authenticatedFetch, see lib/dashboardSeed.ts).
+        seedDashboardFirstFetch(tokenResponse.accessToken, accounts[0].tenantId);
         const res = await fetch(api.auth.me(), {
           headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}` },
           signal: AbortSignal.timeout(8000),
@@ -509,6 +515,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
    * Initiates logout flow
    */
   const logout = useCallback(async () => {
+    // The per-tab lookup cache (feature flags, tenant list) must not outlive the account.
+    clearCachedAuthFetch();
     try {
       await instance.logoutRedirect({
         account: accounts[0],

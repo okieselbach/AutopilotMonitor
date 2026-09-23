@@ -670,90 +670,6 @@ html:hover ::-webkit-scrollbar-thumb {
   color: #14b8a6 !important; /* teal-500 */
 }
 
-/* ===== LANDING PAGE DARK MODE =====
-   Scoped to .landing-page to avoid affecting the authenticated app.
-   The landing page uses many opacity-variant Tailwind classes (bg-white/80,
-   bg-gray-50/60, etc.) that are not covered by the global solid-color overrides
-   above — those need explicit handling here. */
-
-/* Page background gradient (from-blue-50 via-indigo-50 to-purple-50) */
-.dark .landing-page {
-  background: linear-gradient(135deg, #0c1020 0%, #1a1b3b 50%, #0c1020 100%) !important;
-}
-
-/* Navigation sticky bar (bg-white/80 backdrop-blur) */
-.dark .landing-page nav {
-  background-color: rgba(15, 23, 42, 0.9) !important;
-  border-bottom-color: #334155 !important;
-}
-
-/* Nav anchor hover (hover:bg-blue-50/50 — not caught by global hover overrides) */
-.dark .landing-page nav a:hover {
-  background-color: rgba(30, 58, 95, 0.3) !important;
-}
-
-/* -- White opacity variants (nav, quick-start cards, step cards, sections, footer) -- */
-.dark .landing-page [class*="bg-white/"] {
-  background-color: #1e293b !important;
-}
-
-/* -- Gray opacity variants -- */
-.dark .landing-page [class*="bg-gray-50/"] {
-  background-color: #0f172a !important;
-}
-.dark .landing-page [class*="bg-gray-200/"] {
-  background-color: #334155 !important;
-}
-
-/* -- Colored bg opacity variants (KPI cards, comparison monitor column) -- */
-.dark .landing-page [class*="bg-blue-50/"] {
-  background-color: rgba(30, 58, 95, 0.4) !important;
-}
-.dark .landing-page [class*="bg-green-50/"] {
-  background-color: rgba(20, 51, 42, 0.5) !important;
-}
-.dark .landing-page [class*="bg-red-50/"] {
-  background-color: rgba(59, 28, 28, 0.5) !important;
-}
-.dark .landing-page [class*="bg-indigo-50/"] {
-  background-color: rgba(30, 27, 75, 0.5) !important;
-}
-
-/* -- Gradient overrides for child elements -- */
-
-/* Pipeline "One pipeline" container: from-white via-blue-50/60 to-indigo-50/60 */
-.dark .landing-page [class*="from-white"] {
-  --tw-gradient-from: #1e293b !important;
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(30, 41, 59, 0)) !important;
-}
-.dark .landing-page [class*="via-blue-50"] {
-  --tw-gradient-to: rgba(30, 58, 95, 0) var(--tw-gradient-to-position) !important;
-  --tw-gradient-stops: var(--tw-gradient-from), #1e3a5f var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
-}
-
-/* Hero community banner: from-blue-50 via-indigo-50 to-blue-50 */
-.dark .landing-page [class*="from-blue-50"] {
-  --tw-gradient-from: #1e3a5f !important;
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(30, 58, 95, 0)) !important;
-}
-.dark .landing-page [class*="via-indigo-50"] {
-  --tw-gradient-to: rgba(30, 27, 75, 0) var(--tw-gradient-to-position) !important;
-  --tw-gradient-stops: var(--tw-gradient-from), #1e1b4b var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
-}
-
-/* -- Border opacity variants -- */
-.dark .landing-page [class*="border-gray-200/"] {
-  border-color: #334155 !important;
-}
-.dark .landing-page [class*="border-blue-300/"] {
-  border-color: rgba(59, 130, 246, 0.3) !important;
-}
-
-/* -- Dot-pulse timeline rings (ring-white → match dark card surface) -- */
-.dark .landing-page .ring-white {
-  --tw-ring-color: #1e293b !important;
-}
-
 /* -- Scrollbar (dark mode) -- */
 .dark ::-webkit-scrollbar {
   width: 8px;
@@ -774,48 +690,53 @@ html:hover ::-webkit-scrollbar-thumb {
   background: #94a3b8 !important;
 }
 
-/* ===== LANDING PAGE ANIMATIONS ===== */
-@keyframes stepReveal {
-  0% {
-    transform: translateY(8px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
+/* ===== AUTH-PENDING OVERLAY (public page opened by a signed-in browser) =====
+   lib/authHint.ts: the inline <head> script adds `auth-pending` to <html> before first paint
+   when the browser carries an auth hint (MSAL account keys, #code=/#state= of a sign-in
+   return); components/landing/AuthGate.tsx drops the class once auth settles or the page
+   navigates away. The content stays mounted but invisible under a backdrop with a spinner,
+   so a returning user sees no landing flash — and the prerendered HTML carries no overlay,
+   so an anonymous visitor sees the page at first paint. */
+/* Safety net: if nothing lifts the class (a script error, a stalled sign-in), the page shows
+   after AUTH_PENDING_MAX seconds instead of a spinner forever; a normal load lifts it within
+   a second. Keep the value in sync with lib/authHint.ts's contract comment. */
+html.auth-pending .landing-v2 > * {
+  visibility: hidden;
+  animation: auth-pending-reveal 0s 8s forwards;
 }
-
-@keyframes dotPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.04);
-    transform: scale(1);
-  }
-  2% {
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.16);
-    transform: scale(1.01);
-  }
-  8% {
-    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.30);
-    transform: scale(1.05);
-  }
-  14.5% {
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
-    transform: scale(1.02);
-  }
-  15.87% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.04);
-    transform: scale(1);
-  }
+html.auth-pending .landing-v2::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--lp-bg);
+  animation: auth-pending-expire 0s 8s forwards;
 }
-
-.landing-page .step-card {
-  animation: stepReveal 0.45s ease-out both;
+html.auth-pending .landing-v2::after {
+  content: "";
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 61;
+  width: 3rem;
+  height: 3rem;
+  margin: -1.5rem 0 0 -1.5rem;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  border-bottom-color: var(--lp-accent-ink);
+  animation: auth-pending-spin 0.8s linear infinite, auth-pending-expire 0s 8s forwards;
 }
-
-.landing-page .dot-pulse {
-  animation: dotPulse 12.6s linear infinite;
+@keyframes auth-pending-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes auth-pending-reveal {
+  to { visibility: visible; }
+}
+@keyframes auth-pending-expire {
+  to { visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.auth-pending .landing-v2::after { animation: auth-pending-expire 0s 8s forwards; }
 }
 
 /* ===== LANDING V2 (scroll reveals, event stream, terminal) ===== */

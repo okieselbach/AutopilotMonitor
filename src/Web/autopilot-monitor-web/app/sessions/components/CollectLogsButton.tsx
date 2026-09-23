@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EnrollmentEvent } from "@/types";
 import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { NotificationType } from "@/contexts/NotificationContext";
 import type { QueueSessionActionRequest, TenantConfiguration } from "@/utils/wire-types.generated";
 import {
@@ -145,6 +146,7 @@ export default function CollectLogsButton({
         method: "PUT",
         body: jsonBody<TenantConfiguration>(updated),
       });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
 
       onDiagnosticsConfigured();
       setShowQuickConfig(false);

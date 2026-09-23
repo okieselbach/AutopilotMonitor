@@ -21,6 +21,7 @@ import type {
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { classifyClientId, legacyConfigured } from "@/lib/authApp";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
@@ -294,6 +295,7 @@ function TenantManagementSectionInner({
         method: "PUT",
         body: jsonBody<TenantConfiguration>(tenant),
       });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
 
       // Update tenant in list
       setTenants(prev => prev.map(t => t.tenantId === tenant.tenantId ? result.config : t));
@@ -331,6 +333,7 @@ function TenantManagementSectionInner({
           payingCustomer: tenant.payingCustomer === true,
         }),
       });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       const apply = (t: TenantConfiguration): TenantConfiguration => ({
         ...t,
         planTier: result.planTier,
@@ -376,6 +379,7 @@ function TenantManagementSectionInner({
         }
         throw err;
       }
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       trackEvent("app_homing_manual_flip", {
         tenantId: tenant.tenantId,
         target,
@@ -425,6 +429,7 @@ function TenantManagementSectionInner({
         });
         throw err;
       }
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       trackEvent("admin_tenant_offboarded", {
         tenantId: tenant.tenantId,
         status: data.status ?? "unknown",
@@ -456,6 +461,7 @@ function TenantManagementSectionInner({
       setSuccessMessage(null);
       const data = await fetchJson<OffboardResponse>(
         api.tenants.offboardingRetry(tenant.tenantId), getAccessToken, { method: "POST" });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       trackEvent("admin_tenant_offboard_retried", {
         tenantId: tenant.tenantId,
         failedPhase: editingRecord?.failedPhase ?? "unknown",

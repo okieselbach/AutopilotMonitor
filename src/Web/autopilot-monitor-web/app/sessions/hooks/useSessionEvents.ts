@@ -28,6 +28,22 @@ const EVENT_REFRESH_MAX_WAIT_MS = 1_000;
 // drop them until the user manually refreshes. One nachfass-fetch covers the window.
 const TERMINAL_TRAILING_REFETCH_DELAY_MS = 12_000;
 
+/** Why a timeline refetch is requested; decides whether a walk already in flight makes it redundant. */
+export type FetchEventsReason = "signal" | "join-catch-up";
+
+/**
+ * A live SignalR signal always schedules a refetch: a walk already in flight queues one
+ * follow-up (see fetchEvents), because the signal may concern events past the page the walk
+ * is reading. The one-shot catch-up after the SignalR group join only exists for events whose
+ * signal was sent before the join completed; a walk still in flight reads those on its
+ * remaining pages anyway, so the catch-up is dropped instead of queueing a second full walk
+ * behind the first. A burst that arrives after the walk finished comes in as signals and is
+ * fetched regardless.
+ */
+export function shouldScheduleFetch(reason: FetchEventsReason, fetchInFlight: boolean): boolean {
+  return reason === "signal" || !fetchInFlight;
+}
+
 /**
  * Stable event key — mirrors the React `key` used by the timeline rows so that
  * merge identity and React reconciliation identity agree.
@@ -85,8 +101,11 @@ export interface UseSessionEventsReturn {
   events: EnrollmentEvent[];
   setEvents: React.Dispatch<React.SetStateAction<EnrollmentEvent[]>>;
   fetchEvents: () => Promise<void>;
-  /** Coalesced live refetch — call on every SignalR signal, the scheduler decides when to fetch. */
-  scheduleFetchEvents: () => void;
+  /**
+   * Coalesced live refetch — call on every SignalR signal, the scheduler decides when to fetch.
+   * The "join-catch-up" reason is dropped while a walk is in flight (see shouldScheduleFetch).
+   */
+  scheduleFetchEvents: (reason?: FetchEventsReason) => void;
   /**
    * True while a Pattern-A eager-fetch is still streaming pages after the first
    * batch has rendered. Surfaces a "loading more events…" indicator on the
@@ -255,7 +274,8 @@ export function useSessionEvents({
     fetchEventsRef.current = fetchEvents;
   }, [fetchEvents]);
 
-  const scheduleFetchEvents = useCallback(() => {
+  const scheduleFetchEvents = useCallback((reason: FetchEventsReason = "signal") => {
+    if (!shouldScheduleFetch(reason, fetchEventsInFlight.current)) return;
     eventRefreshScheduler.current ??= createBurstScheduler(
       () => { void fetchEventsRef.current(); },
       { trailingMs: EVENT_REFRESH_TRAILING_MS, maxWaitMs: EVENT_REFRESH_MAX_WAIT_MS },

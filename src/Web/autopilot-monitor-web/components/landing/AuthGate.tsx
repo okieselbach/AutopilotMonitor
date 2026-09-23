@@ -11,11 +11,13 @@ import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRout
 import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
 import { activeAuthApp } from "../../lib/msalConfig";
 import { trackEvent } from "../../lib/appInsights";
+import { AUTH_PENDING_CLASS, hasAuthHint } from "../../lib/authHint";
 
 /**
  * Invisible client component that handles auth redirect logic.
  * Renders nothing visible — just redirects authenticated users.
- * When auth is still loading, shows a loading overlay on top of the static page.
+ * While auth is still loading for a browser that carries an auth hint, the page sits under
+ * the CSS `auth-pending` overlay (see below); anonymous visitors see the page immediately.
  */
 export function AuthGate() {
   const { isAuthenticated, isLoading, user, isActivationPending } = useAuth();
@@ -68,19 +70,19 @@ export function AuthGate() {
     }
   }, [isAuthenticated, isLoading, user, isActivationPending, router]);
 
-  // While auth is loading and we might need to redirect, show overlay.
-  // This prevents a flash of the landing page for authenticated users.
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 z-50 bg-[var(--lp-bg)] flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  // Overlay contract (lib/authHint.ts): the inline <head> script marks the document
+  // `auth-pending` before first paint when an auth hint exists, and globals.css draws the
+  // loading overlay from that class — the prerendered HTML carries no overlay, so an
+  // anonymous visitor sees the page at first paint. This effect keeps the class only while
+  // auth is still settling for a hinted browser and drops it as soon as the page either
+  // stays (anonymous) or navigates away (unmount cleanup).
+  useEffect(() => {
+    document.documentElement.classList.toggle(AUTH_PENDING_CLASS, isLoading && hasAuthHint());
+    return () => {
+      document.documentElement.classList.remove(AUTH_PENDING_CLASS);
+    };
+  }, [isLoading]);
 
-  // Once loaded, render nothing — the static page shows through.
+  // Renders nothing — the static page shows through (or sits under the CSS overlay).
   return null;
 }

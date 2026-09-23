@@ -6,7 +6,7 @@ import { useSignalR } from '@/contexts/SignalRContext';
 import { useTenant } from '@/contexts/TenantContext';
 import { useGlobalAdminUi } from '@/hooks/useGlobalAdminUi';
 import { useState, useEffect, useCallback } from 'react';
-import * as signalR from '@microsoft/signalr';
+import { HubConnectionState } from '@microsoft/signalr';
 import { api } from '@/lib/api';
 import {
   isUrlDetail,
@@ -218,20 +218,20 @@ export default function HealthCheckPage() {
     }
   }, [tenantId, isConnected, joinGroup]);
 
-  const getConnectionStateLabel = (state: signalR.HubConnectionState) => {
+  const getConnectionStateLabel = (state: HubConnectionState) => {
     switch (state) {
-      case signalR.HubConnectionState.Connected: return 'Connected';
-      case signalR.HubConnectionState.Connecting: return 'Connecting';
-      case signalR.HubConnectionState.Reconnecting: return 'Reconnecting';
-      case signalR.HubConnectionState.Disconnecting: return 'Disconnecting';
-      case signalR.HubConnectionState.Disconnected: return 'Disconnected';
+      case HubConnectionState.Connected: return 'Connected';
+      case HubConnectionState.Connecting: return 'Connecting';
+      case HubConnectionState.Reconnecting: return 'Reconnecting';
+      case HubConnectionState.Disconnecting: return 'Disconnecting';
+      case HubConnectionState.Disconnected: return 'Disconnected';
       default: return 'Unknown';
     }
   };
 
   const getConnectionStatus = (): 'healthy' | 'unhealthy' | 'warning' => {
-    if (connectionState === signalR.HubConnectionState.Connected) return 'healthy';
-    if (connectionState === signalR.HubConnectionState.Reconnecting || connectionState === signalR.HubConnectionState.Connecting) return 'warning';
+    if (connectionState === HubConnectionState.Connected) return 'healthy';
+    if (connectionState === HubConnectionState.Reconnecting || connectionState === HubConnectionState.Connecting) return 'warning';
     return 'unhealthy';
   };
 

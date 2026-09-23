@@ -9,6 +9,7 @@ import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import type { SessionStatsResponse } from "@/utils/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
+import { DASHBOARD_STATS_DEFAULT_DAYS } from "./sessionsPageSize";
 
 export interface DashboardStats {
   days: number;
@@ -64,7 +65,8 @@ export interface UseDashboardStatsReturn {
   refresh: () => void;
 }
 
-const DEFAULT_DAYS = 7;
+// Shared with the auth bootstrap's seed of the first stats request (lib/dashboardSeed.ts).
+const DEFAULT_DAYS = DASHBOARD_STATS_DEFAULT_DAYS;
 const SIGNALR_DEBOUNCE_MS = 3000;
 /**
  * Debounce for the Global-Admin AGGREGATE scope (no tenant filter). In that scope every

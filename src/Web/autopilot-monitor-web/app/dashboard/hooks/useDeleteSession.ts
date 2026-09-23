@@ -49,11 +49,13 @@ export function useDeleteSession(
     });
     const tenantId = pendingTenantsRef.current.get(sessionId);
     pendingTenantsRef.current.delete(sessionId);
-    if (tenantId && isConnected) {
-      // Fire-and-forget leave; the SignalR layer no-ops if we're not in the group.
+    if (tenantId) {
+      // Fire-and-forget leave, also while disconnected: it only drops this hook's reference in
+      // the SignalR layer, which no-ops if the group was never joined and otherwise leaves it
+      // once the last holder is gone.
       leaveGroup(`session-${tenantId}-${sessionId}`).catch(() => { /* best-effort */ });
     }
-  }, [isConnected, leaveGroup]);
+  }, [leaveGroup]);
 
   // Single SignalR subscription that dispatches by sessionId — one listener handles N
   // concurrent pending deletions without registering / unregistering per-session handlers.

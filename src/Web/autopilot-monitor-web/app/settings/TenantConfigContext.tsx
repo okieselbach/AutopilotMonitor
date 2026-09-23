@@ -8,6 +8,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
 import { primaryClientId } from "@/lib/authApp";
@@ -509,6 +510,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     trackEvent("app_homing_flipped", { source });
     setHomingFlipped(true);
     setAppHomingFunnelActive(false);
+    // The flip changed appHomingFunnelActive in the feature flags the dashboard banner reads.
+    invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
     setHomingMissingRoles(null);
     homingPendingRef.current = false;
     setConfig(prev => (prev ? { ...prev, homedAppClientId: primaryClientId() ?? prev.homedAppClientId } : prev));
@@ -843,6 +846,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           method: "PATCH",
           body: jsonBody<PatchTenantConfigurationFieldsRequest>({ fields: patchFields, reason: `settings:${sectionName}` }),
         });
+        // The feature flags derive from these fields: the cached copy is stale from here on.
+        invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
         setConfig({ ...config, ...patchFields } as TenantConfiguration);
       }
 
@@ -1508,6 +1513,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setOffboardError(null);
 
       const body = await fetchJson<OffboardResponse>(api.tenants.offboard(tenantId), getAccessToken, { method: 'DELETE' });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
 
       // Backend returns 202 (or 200 for idempotent re-clicks) with the History row pointer
       // and EarliestProcessingAt (cache-drain barrier deadline). Switch the UI into the
@@ -1551,6 +1557,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       await fetchOk(api.config.trial(tenantId), getAccessToken, {
         method: "POST",
       });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
 
       // Refetch the authoritative edition surface (server-resolved).
       const flags = await fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(tenantId), getAccessToken).catch(() => null);

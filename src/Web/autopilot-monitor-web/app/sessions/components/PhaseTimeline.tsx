@@ -1,8 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { EnrollmentEvent } from "@/types";
 import { resolvePhaseLayout } from "../utils/phaseConstants";
+import { summarizeEventsByPhase } from "./phaseEventSummary";
 
 interface PhaseTimelineProps {
   currentPhase: number;
@@ -18,96 +19,22 @@ interface PhaseTimelineProps {
 export default function PhaseTimeline({ currentPhase, completedPhases, events = [], sessionStatus, enrollmentType, isPreProvisioned, isSkipUserStatusPage, onPhaseClick }: PhaseTimelineProps) {
   const { phases, useSkipLayout, skippedPhaseIds } = resolvePhaseLayout({ enrollmentType, isSkipUserStatusPage, isPreProvisioned });
 
+  // One pass over the list per change of `events`: first/last timestamps, live activity and the
+  // WhiteGlove signals per phase. Every per-phase helper below is a lookup into this.
+  const phaseSummary = useMemo(() => summarizeEventsByPhase(events), [events]);
+
   // Derive current activity for the active phase from events
   const getCurrentActivity = (phaseId: number): string | null => {
     if (sessionStatus === 'Succeeded' || sessionStatus === 'Failed') return null;
     if (phaseId !== effectiveCurrentPhase) return null;
-
-    // Event types that are not useful as activity status display
-    const ignoredEventTypes = new Set([
-      "performance_snapshot",
-      "system_info",
-      "network_info",
-    ]);
-
-    // Get events for this phase, sorted by sequence desc, excluding noise
-    const phaseEvents = events
-      .filter(e => e.phase === phaseId && !ignoredEventTypes.has(e.eventType))
-      .sort((a, b) => b.sequence - a.sequence);
-
-    if (phaseEvents.length === 0) return null;
-
-    // Check for app_tracking_summary events (new strategic events)
-    const trackingSummary = phaseEvents.find(e => e.eventType === "app_tracking_summary");
-    if (trackingSummary?.data) {
-      // Counters are serialized as strings on the wire.
-      const d = trackingSummary.data as Record<string, string | undefined>;
-      const completed = parseInt(d.completedApps ?? d.appsCompleted ?? "0", 10);
-      const total = parseInt(d.totalApps ?? "0", 10);
-      if (total > 0) {
-        return `Installing apps (${completed}/${total})`;
-      }
-    }
-
-    // Check for esp_ui_state events (legacy) to show app install progress
-    const espState = phaseEvents.find(e => e.eventType === "esp_ui_state");
-    if (espState?.data) {
-      const d = espState.data as Record<string, string | undefined>;
-      const completed = parseInt(d.blocking_apps_completed ?? d.blockingAppsCompleted ?? "0", 10);
-      const total = parseInt(d.blocking_apps_total ?? d.blockingAppsTotal ?? "0", 10);
-      const currentItem = d.current_item ?? d.currentItem ?? d.status_text ?? d.statusText;
-      if (total > 0 && currentItem) {
-        return `${currentItem} (${completed}/${total})`;
-      }
-      if (total > 0) {
-        return `Installing apps (${completed}/${total})`;
-      }
-    }
-
-    // Check for app install events (new strategic events)
-    const appInstallEvt = phaseEvents.find(e =>
-      e.eventType === "app_download_started" || e.eventType === "app_install_started"
-    );
-    if (appInstallEvt?.data) {
-      const appName = appInstallEvt.data.appName ?? appInstallEvt.data.appId ?? "app";
-      if (appInstallEvt.eventType === "app_download_started") return `Downloading ${appName}`;
-      return `Installing ${appName}`;
-    }
-
-    // Check for download_progress to show active download (legacy)
-    const downloadEvt = phaseEvents.find(e => e.eventType === "download_progress");
-    if (downloadEvt?.data) {
-      const d = downloadEvt.data as Record<string, string | undefined>;
-      const appName = d.app_name ?? d.appName ?? "content";
-      const pct = d.bytes_total && d.bytes_downloaded
-        ? Math.round((parseInt(d.bytes_downloaded) / parseInt(d.bytes_total)) * 100)
-        : null;
-      if (pct !== null) return `Downloading ${appName} - ${pct}%`;
-      return `Downloading ${appName}`;
-    }
-
-    // Fall back to latest event message
-    const latest = phaseEvents[0];
-    if (latest && latest.message && latest.message.length < 80) {
-      return latest.message;
-    }
-
-    return null;
+    return phaseSummary.byPhase.get(phaseId)?.currentActivity ?? null;
   };
 
   // Helper: get first/last event timestamp for a phase
-  const getFirstEventTime = (phaseId: number): number | null => {
-    const ts = events
-      .filter(e => e.phase === phaseId)
-      .map(e => new Date(e.timestamp).getTime());
-    return ts.length > 0 ? Math.min(...ts) : null;
-  };
-  const getLastEventTime = (phaseId: number): number | null => {
-    const ts = events
-      .filter(e => e.phase === phaseId)
-      .map(e => new Date(e.timestamp).getTime());
-    return ts.length > 0 ? Math.max(...ts) : null;
-  };
+  const getFirstEventTime = (phaseId: number): number | null =>
+    phaseSummary.byPhase.get(phaseId)?.firstMs ?? null;
+  const getLastEventTime = (phaseId: number): number | null =>
+    phaseSummary.byPhase.get(phaseId)?.lastMs ?? null;
 
   const formatDuration = (ms: number): string | null => {
     const durationSec = Math.round(ms / 1000);
@@ -209,8 +136,8 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
   };
 
   // WhiteGlove signal detection: check if pre-provisioning completed and/or user enrollment resumed
-  const hasWhiteGloveComplete = isPreProvisioned && events.some(e => e.eventType === 'whiteglove_complete');
-  const hasWhiteGloveResumed = isPreProvisioned && events.some(e => e.eventType === 'whiteglove_resumed');
+  const hasWhiteGloveComplete = isPreProvisioned && phaseSummary.hasWhiteGloveComplete;
+  const hasWhiteGloveResumed = isPreProvisioned && phaseSummary.hasWhiteGloveResumed;
 
   // Helper: get display-order index of a phase ID in the phases array.
   // Handles non-sequential phase IDs (e.g. SkipUser: 0,1,2,3,6,5,7).
@@ -224,13 +151,10 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
   // background events with their phase tag (e.g. esp_phase_changed → AccountSetup) must
   // not pull the active marker into a phase the policy says is skipped.
   const maxEventPhase = (() => {
-    const realPhases = events
-      .filter(e => e.phase >= 0 && e.phase <= 7 && !skippedPhaseIds.has(e.phase))
-      .map(e => e.phase);
-
     let maxPhase = -1;
     let maxIdx = -1;
-    for (const p of realPhases) {
+    for (const p of phaseSummary.byPhase.keys()) {
+      if (p < 0 || p > 7 || skippedPhaseIds.has(p)) continue;
       const idx = phaseIndex(p);
       if (idx > maxIdx) {
         maxIdx = idx;

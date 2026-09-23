@@ -20,7 +20,7 @@ export default function FeedbackBubble() {
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Check eligibility on mount
+  // Check eligibility shortly after mount
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
@@ -48,8 +48,10 @@ export default function FeedbackBubble() {
       }
     };
 
-    checkEligibility();
-    return () => { cancelled = true; };
+    // Deferred off the mount wave: the bubble is not first-paint content, and its status call
+    // used to compete with the page's own data fetches.
+    const timer = setTimeout(() => { void checkEligibility(); }, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [isAuthenticated, user, getAccessToken]);
 
   const handleDismiss = useCallback(async () => {

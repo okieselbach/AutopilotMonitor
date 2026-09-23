@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { authenticatedFetch } from "./authenticatedFetch";
+import { cachedAuthFetchJson, LATEST_VERSIONS_TTL_MS } from "./cachedAuthFetch";
 
 type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;
 
@@ -21,10 +21,10 @@ export interface UseLatestVersionsResult {
 }
 
 /**
- * Fetches latest published agent/bootstrap versions from the backend
- * once per mount. Backend cache and browser Cache-Control are both minutes,
- * not hours, so a fresh release shows up almost immediately — the What's new
- * panel announces this number, and the panel mounts on every open.
+ * Fetches latest published agent/bootstrap versions from the backend, served
+ * from the per-tab lookup cache (LATEST_VERSIONS_TTL_MS, matching the backend's
+ * own 5-min manifest cache) so the What's new panel and the version badges do
+ * not re-fetch on every mount; a fresh release still shows up within minutes.
  *
  * Silently swallows all errors — on failure, returns nulls so callers
  * can gracefully hide "outdated" badges.
@@ -38,9 +38,7 @@ export function useLatestVersions(getAccessToken: GetAccessToken): UseLatestVers
 
     (async () => {
       try {
-        const res = await authenticatedFetch(api.config.latestVersions(), getAccessToken, { method: "GET" });
-        if (!res.ok) return;
-        const json = (await res.json()) as LatestVersionsResponse;
+        const json = await cachedAuthFetchJson<LatestVersionsResponse>(api.config.latestVersions(), getAccessToken, { ttlMs: LATEST_VERSIONS_TTL_MS });
         if (!cancelled) setData(json);
       } catch {
         // swallow — badges just won't render

@@ -18,9 +18,12 @@ import AppInsightsInit from "../components/AppInsightsInit";
 import ChunkReloadRecovery from "../components/ChunkReloadRecovery";
 import { HostRoutingGuard } from "../components/HostRoutingGuard";
 import { LegacyPathRedirect } from "../components/LegacyPathRedirect";
-import { DOCS_URL, SITE_URL } from "@/utils/config";
+import { API_BASE_URL, DOCS_URL, SITE_URL } from "@/utils/config";
+import { AUTH_HINT_INLINE_SCRIPT } from "@/lib/authHint";
 
 const inter = Inter({ subsets: ["latin"] });
+
+const apiOrigin = new URL(API_BASE_URL).origin;
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -174,8 +177,17 @@ export default function RootLayout({
   // data-scroll-behavior: Next 16 no longer auto-suppresses CSS smooth-scroll
   // during route navigation; without the opt-in, globals.css's
   // `scroll-behavior: smooth` would animate every route change to top.
+  // suppressHydrationWarning on <html> only: lib/authHint.ts's inline <head> script may add the
+  // `auth-pending` class before React hydrates; the class is meant to survive hydration (React
+  // leaves attribute mismatches in place) and must not be reported as one.
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
+      <head>
+        {/* Runs before first paint: hides the landing for browsers that will leave it (lib/authHint.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: AUTH_HINT_INLINE_SCRIPT }} />
+        {/* The first API call (auth/me) otherwise pays DNS+TCP+TLS only once the JS runs. */}
+        <link rel="preconnect" href={apiOrigin} crossOrigin="anonymous" />
+      </head>
       <body className={inter.className}>
         <script
           type="application/ld+json"

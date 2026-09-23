@@ -42,7 +42,6 @@ export const PUBLIC_PATH_PREFIXES = [
   "/sitemap.xml",
   "/IndexNow.txt",
   "/opengraph-image",
-  "/twitter-image",
   "/apple-icon",
   "/icon",
 ];

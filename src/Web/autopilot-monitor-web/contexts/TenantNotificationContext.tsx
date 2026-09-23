@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { useSignalR } from './SignalRContext';
 import { canFetchTenantNotifications } from './tenantNotificationsGate';
@@ -157,14 +157,18 @@ export function TenantNotificationProvider({ children }: { children: React.React
     : EMPTY_TENANT_NOTIFICATIONS;
   const tenantUnreadCount = visibleTenantNotifications.length;
 
+  // Memoised so the context's consumers re-render on a change of the data, not on every render
+  // of the provider (which sits above every page).
+  const value = useMemo<TenantNotificationContextType>(() => ({
+    tenantNotifications: visibleTenantNotifications,
+    tenantUnreadCount,
+    dismissTenantNotification,
+    dismissAllTenant,
+    isLoading,
+  }), [visibleTenantNotifications, tenantUnreadCount, dismissTenantNotification, dismissAllTenant, isLoading]);
+
   return (
-    <TenantNotificationContext.Provider value={{
-      tenantNotifications: visibleTenantNotifications,
-      tenantUnreadCount,
-      dismissTenantNotification,
-      dismissAllTenant,
-      isLoading,
-    }}>
+    <TenantNotificationContext.Provider value={value}>
       {children}
     </TenantNotificationContext.Provider>
   );

@@ -72,10 +72,14 @@ export function LandingNavbar() {
     return null;
   }
 
+  // Every <Link> here sets prefetch={false}: the App Router's viewport prefetch would
+  // otherwise fetch the / and /get-started payloads on every landing visit, for a public
+  // visitor who rarely navigates. (The portal chrome prefetches on hover intent instead,
+  // see components/NavLink.tsx.)
   return (
     <nav className="sticky top-0 z-40 bg-[var(--lp-nav)] backdrop-blur-xl border-b border-[var(--lp-line-soft)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-8">
-        <Link href="/" className="flex items-center gap-2.5 shrink-0">
+        <Link href="/" prefetch={false} className="flex items-center gap-2.5 shrink-0">
           <BrandMark className="w-6 h-6" />
           {/* Wordmark needs ~360px alongside CTA + burger; mark alone below that */}
           <span className="hidden min-[360px]:block text-[15px] font-bold tracking-tight text-[var(--lp-ink)] whitespace-nowrap">
@@ -134,6 +138,7 @@ export function LandingNavbar() {
           </button>
           <Link
             href="/get-started"
+            prefetch={false}
             className="px-4 py-2 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-md text-white text-sm font-semibold shadow-sm transition-all whitespace-nowrap"
           >
             Get started

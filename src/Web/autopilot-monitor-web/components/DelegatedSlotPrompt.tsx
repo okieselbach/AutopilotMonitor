@@ -3,6 +3,7 @@
 import { api } from "@/lib/api";
 import { nextSlotLimit, slotTenantLabel, type SlotLimitError } from "@/lib/delegatedSlots";
 import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import type { PatchTenantPlanRequest } from "@/utils/wire-types.generated";
 
 /**
@@ -20,6 +21,7 @@ export async function raiseDelegatedSlotLimit(
       method: "PATCH",
       body: jsonBody<PatchTenantPlanRequest>({ maxDelegatedTenants: newLimit }),
     });
+    invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
     return null;
   } catch (err) {
     if (!(err instanceof ApiError)) throw err;

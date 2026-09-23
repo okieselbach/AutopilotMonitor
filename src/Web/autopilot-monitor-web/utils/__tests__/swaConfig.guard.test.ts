@@ -22,6 +22,7 @@ interface SwaRoute {
   rewrite?: string;
   serve?: string;
   statusCode?: number;
+  headers?: Record<string, string>;
 }
 
 interface SwaConfig {
@@ -117,6 +118,28 @@ describe("staticwebapp.config.json guard", () => {
         routes.indexOf(exact),
         `${exact} must precede ${wildcard}`,
       ).toBeLessThan(routes.indexOf(wildcard));
+    }
+  });
+
+  it("caches content-hashed build assets immutably and revalidates everything else", () => {
+    // SWA's platform default for un-configured paths is `public, must-revalidate, max-age=30`
+    // (measured 2026-09-23): without this route every reload revalidated all 18 hashed chunks,
+    // fonts and stylesheets (one 304 round trip each) before the first script could run.
+    // Next's /_next/static names are content hashes, so a year-long immutable cache is safe;
+    // ChunkReloadRecovery already assumes those assets never change under a name.
+    const byRoute = Object.fromEntries(config.routes.map((r) => [r.route, r]));
+    expect(byRoute["/_next/static/*"]?.headers?.["Cache-Control"]).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    // Landing images are NOT hashed: a bounded lifetime, never immutable.
+    expect(byRoute["/landing/*"]?.headers?.["Cache-Control"]).toBe("public, max-age=86400");
+    // The version stamp is polled to detect deploys and must never be cached.
+    expect(byRoute["/version.json"]?.headers?.["Cache-Control"]).toBe("no-store");
+    // HTML routes stay on the platform default (revalidated) — no route may cache them long.
+    for (const r of config.routes) {
+      const cc = r.headers?.["Cache-Control"];
+      if (!cc || !cc.includes("immutable")) continue;
+      expect(r.route, `${r.route} must be a hashed asset path to be immutable`).toMatch(/^\/_next\/static\//);
     }
   });
 

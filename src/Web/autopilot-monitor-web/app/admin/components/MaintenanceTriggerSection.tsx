@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { parseOpsDetails, useOpsRunStatus, type OpsRunLifecycle } from "@/hooks/useOpsRunStatus";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { GetLatestVersionsResponse } from "@/utils/wire-types.generated";
@@ -51,6 +52,7 @@ export function MaintenanceTriggerSection({
       const data = await fetchJson<GetLatestVersionsResponse>(api.config.latestVersions({ refresh: true }), getAccessToken, {
         method: "GET",
       });
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       const agentVer = data.latestAgentVersion ?? "unknown";
       const bootstrapVer = data.latestBootstrapScriptVersion ?? "unknown";
       const fetchedAt = data.fetchedAtUtc ? new Date(data.fetchedAtUtc).toISOString().replace("T", " ").substring(0, 19) + " UTC" : "now";

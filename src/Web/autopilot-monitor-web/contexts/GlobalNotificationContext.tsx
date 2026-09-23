@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { useSignalR } from './SignalRContext';
 import { api } from '@/lib/api';
@@ -153,10 +153,15 @@ export function GlobalNotificationProvider({ children }: { children: React.React
   const visibleNotifications = hasGlobalScope ? notifications : EMPTY_NOTIFICATIONS;
   const unreadCount = visibleNotifications.length;
 
+  // Memoised so the context's consumers re-render on a change of the data, not on every render
+  // of the provider (which sits above every page).
+  const value = useMemo<GlobalNotificationContextType>(
+    () => ({ notifications: visibleNotifications, unreadCount, dismissNotification, dismissAll, isLoading }),
+    [visibleNotifications, unreadCount, dismissNotification, dismissAll, isLoading],
+  );
+
   return (
-    <GlobalNotificationContext.Provider
-      value={{ notifications: visibleNotifications, unreadCount, dismissNotification, dismissAll, isLoading }}
-    >
+    <GlobalNotificationContext.Provider value={value}>
       {children}
     </GlobalNotificationContext.Provider>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useDeferredValue } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
 import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../utils/eventSearchQuery";
@@ -67,12 +67,15 @@ export default function EventTimeline({
 }: EventTimelineProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [rawMode, setRawMode] = useState(false);
+  // The input stays on the immediate value; everything derived from the query (matcher, counter,
+  // visible rows) follows the deferred one, so a keystroke never waits for the per-phase filter pass.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   // Terms are AND-ed, a leading minus excludes, key=value restricts — see utils/eventSearchQuery.ts.
-  const matchesSearch = useMemo(() => buildEventSearchMatcher(searchQuery), [searchQuery]);
+  const matchesSearch = useMemo(() => buildEventSearchMatcher(deferredSearchQuery), [deferredSearchQuery]);
   const excludedTerms = useMemo(
-    () => parseEventSearchQuery(searchQuery).exclude.map(formatEventSearchTerm),
-    [searchQuery],
+    () => parseEventSearchQuery(deferredSearchQuery).exclude.map(formatEventSearchTerm),
+    [deferredSearchQuery],
   );
 
   // The counter has to follow the search, otherwise excluding event types leaves it
@@ -82,11 +85,13 @@ export default function EventTimeline({
     [filteredEvents, matchesSearch],
   );
 
+  // Only the raw view reads this flat list; the phase view must not pay for the sort.
   const sortedBySequence = useMemo(() => {
+    if (!rawMode) return [];
     let filtered = events.filter(e => severityFilters.has(e.severity));
     if (matchesSearch) filtered = filtered.filter(matchesSearch);
     return filtered.sort((a, b) => a.sequence - b.sequence);
-  }, [events, severityFilters, matchesSearch]);
+  }, [events, severityFilters, matchesSearch, rawMode]);
 
   // Ground-truth clock steps recorded by the agent's system timeline watcher — lets the
   // TimeJumpBadge name a backwards display step as an actual OS clock set instead of an

@@ -14,9 +14,7 @@ import type { Session } from "../types";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import type { BlockedDeviceListResponse, SearchSessionsResponse, SessionListResponse } from "@/utils/wire-types.generated";
 import { ApiError, fetchJson, nullOnApiError } from "@/lib/apiClient";
-
-const DEFAULT_PAGE_SIZE = 10;
-const MAX_PAGE_SIZE = 1000;
+import { getInitialSessionsPageSize } from "./sessionsPageSize";
 
 // Server-side search sweep bounds: the backend scans up to 10 Azure pages per request
 // (free-text backfill) and returns only matches; the client follows nextLink until it has
@@ -223,19 +221,10 @@ export function useDashboardSessions({
     }
   }, [getAccessToken, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
 
-  const getInitialPageSize = (): number => {
-    // Pattern B2 default first-paint pageSize is 10; localStorage may override
-    // (legacy "sessionsPerPage" key). Cap to backend MAX_PAGE_SIZE.
-    if (typeof window === "undefined") return DEFAULT_PAGE_SIZE;
-    const stored = window.localStorage.getItem("sessionsPerPage");
-    const parsed = stored ? parseInt(stored, 10) : NaN;
-    const value = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PAGE_SIZE;
-    return Math.min(value, MAX_PAGE_SIZE);
-  };
-
   // Internal batch fetcher — returns data without touching state so callers can
   // decide how to apply it (single append vs. progressive loop). For first-page
-  // calls we use getInitialPageSize() (Pattern B2: typically 10). For load-more
+  // calls we use getInitialSessionsPageSize() (Pattern B2: typically 10; the auth
+  // bootstrap seeds the same URL, see lib/dashboardSeed.ts). For load-more
   // we keep the same pageSize so the user-visible cadence is uniform.
   const fetchSessionsBatch = useCallback(async (
     loadMoreContinuation?: string,
@@ -251,7 +240,7 @@ export function useDashboardSessions({
       // bounds this too; this just keeps the client from ever asking for an unmanaged tenant.
       const effectiveTenantFilter = boundTenantToDelegatedScope(
         asGuidOrUndefined(rawFilter), isDelegatedScopeRef.current, delegatedTenantIdsRef.current);
-      const pageSize = getInitialPageSize();
+      const pageSize = getInitialSessionsPageSize();
       const opts = loadMoreContinuation
         ? { pageSize, continuation: loadMoreContinuation }
         : { pageSize };
@@ -262,7 +251,11 @@ export function useDashboardSessions({
         isHomeTenantTarget(asGuidOrUndefined(rawFilter), tenantIdRef.current ?? undefined);
       const endpoint = globalAdminModeRef.current && !homeSelected
         ? api.globalSessions.list(effectiveTenantFilter, undefined, opts)
-        : api.sessions.list(tenantIdRef.current ?? undefined, undefined, opts);
+        // Own-tenant list: the backend takes the tenant from the JWT and ignores a tenantId query
+        // (GetSessionsFunction, ParseQuery acceptFilterTenantId:false), so none is sent — and the
+        // URL is the one the auth bootstrap seeds (lib/dashboardSeed.ts), whether or not the tenant
+        // id is known yet.
+        : api.sessions.list(undefined, undefined, opts);
 
       let data: SessionListResponse;
       try {
@@ -512,28 +505,23 @@ export function useDashboardSessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, tenantId]);
 
-  // Join/leave the cross-tenant global-admins broadcast group. Real GA only (joinGlobalAdmins) — a
+  // Join the cross-tenant global-admins broadcast group while in GA mode. Real GA only (joinGlobalAdmins) — a
   // delegated ("MSP") caller has no platform scope and would be rejected (403); the dashboard still reads
-  // the bounded aggregate and recovers live state via the reconnect refetch above.
+  // the bounded aggregate and recovers live state via the reconnect refetch above. The global notification
+  // bell holds the same group for the whole session: group membership is reference-counted per name in the
+  // SignalR layer, so the cleanup's leave drops only the dashboard's own reference (an unconditional leave
+  // whenever GA mode was off used to drop the bell's membership as well).
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected || !joinGlobalAdmins) return;
 
-    if (joinGlobalAdmins) {
-      console.log("[Dashboard] joining global-admins group");
-      joinGroup("global-admins");
-    } else {
-      console.log("[Dashboard] leaving global-admins group");
-      leaveGroup("global-admins");
-    }
+    console.log("[Dashboard] joining global-admins group");
+    joinGroup("global-admins");
 
     return () => {
-      if (joinGlobalAdmins) {
-        console.log("[Dashboard] Component unmounting: leaving global-admins group");
-        leaveGroup("global-admins");
-      }
+      console.log("[Dashboard] leaving global-admins group");
+      leaveGroup("global-admins");
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, joinGlobalAdmins]);
+  }, [isConnected, joinGlobalAdmins, joinGroup, leaveGroup]);
 
   // SignalR listeners — re-register when connection cycles
   useEffect(() => {

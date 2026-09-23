@@ -32,14 +32,21 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   const [showIpv6, setShowIpv6] = useState<Record<number, boolean>>({});
   const [showOobeModal, setShowOobeModal] = useState(false);
 
-  const getEventData = <T extends Record<string, unknown> = Record<string, unknown>>(eventType: string): T | null => {
-    const matchingEvents = events.filter(e => e.eventType === eventType);
-    if (matchingEvents.length === 0) return null;
-    // Highest sequence, not "last element": the merged event list is not guaranteed to be
-    // sequence-sorted when handed to this card, and periodic snapshots must show the latest.
-    const latestEvent = matchingEvents.reduce((best, e) => (e.sequence > best.sequence ? e : best), matchingEvents[0]);
-    return (latestEvent?.data as T | undefined) ?? null;
-  };
+  // Latest event per type in one pass over the list (the card reads ~24 types per render).
+  // Highest sequence, not "last element": the merged event list is not guaranteed to be
+  // sequence-sorted when handed to this card, and periodic snapshots must show the latest;
+  // a tie keeps the first one seen.
+  const latestEventByType = useMemo(() => {
+    const byType = new Map<string, EnrollmentEvent>();
+    for (const e of events) {
+      const best = byType.get(e.eventType);
+      if (!best || e.sequence > best.sequence) byType.set(e.eventType, e);
+    }
+    return byType;
+  }, [events]);
+
+  const getEventData = <T extends Record<string, unknown> = Record<string, unknown>>(eventType: string): T | null =>
+    (latestEventByType.get(eventType)?.data as T | undefined) ?? null;
 
   const isIpv6 = (ip: string): boolean => {
     if (!ip || typeof ip !== 'string') return false;

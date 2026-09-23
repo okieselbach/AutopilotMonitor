@@ -217,7 +217,40 @@ function SessionDetailContent() {
   // bounded by the agent's last report. Live sessions pass null and keep ticking.
   const observedUntilMs = isTerminalStatus(displayStatus) ? lastObservedAtMs : null;
   // One boundary for the Download / Install / Script panels, so all three split at the same moment.
-  const userPhaseBoundary = findUserPhaseBoundary(events, session?.enrollmentType);
+  const userPhaseBoundary = useMemo(
+    () => findUserPhaseBoundary(events, session?.enrollmentType),
+    [events, session?.enrollmentType]
+  );
+
+  // Per-panel event slices keyed on the events array. Inlined filters would hand each panel a
+  // fresh array identity on every render and defeat its own useMemo([events]); any change to
+  // `events` still recomputes all four (D-274: no caching across data changes).
+  const performanceEvents = useMemo(
+    () => events.filter(e => e.eventType === "performance_snapshot"),
+    [events]
+  );
+  const scriptEvents = useMemo(
+    () => events.filter(
+      e => e.eventType === "script_started"
+        || e.eventType === "script_completed"
+        || e.eventType === "script_failed"
+    ),
+    [events]
+  );
+  const downloadEvents = useMemo(
+    () => events.filter(
+      e => e.eventType === "download_progress" || e.eventType === "app_download_started" || e.eventType === "app_install_skipped"
+    ),
+    [events]
+  );
+  const installEvents = useMemo(
+    () => events.filter(
+      e => e.eventType === "app_install_started" || e.eventType === "app_install_completed" || e.eventType === "app_install_failed" || e.eventType === "app_install_postponed" || e.eventType === "app_install_skipped"
+        || e.eventType === "office_install_started" || e.eventType === "office_install_completed" || e.eventType === "office_install_failed" || e.eventType === "office_preinstalled_detected"
+        || e.eventType === "realmjoin_package_started" || e.eventType === "realmjoin_package_completed"
+    ),
+    [events]
+  );
 
   // All phase keys currently present. For WhiteGlove sessions we use prefixed keys
   // (pre-X, user-X) to avoid collisions.
@@ -658,7 +691,7 @@ function SessionDetailContent() {
           {!isGatherRulesSession && (
             <div id="section-performance">
             <PerformanceChart
-              events={events.filter(e => e.eventType === "performance_snapshot")}
+              events={performanceEvents}
               expanded={perfExpanded}
               setExpanded={setPerfExpanded}
             />
@@ -669,11 +702,7 @@ function SessionDetailContent() {
           {!isGatherRulesSession && (
             <div id="section-scripts">
             <ScriptExecutions
-              events={events.filter(
-                e => e.eventType === "script_started"
-                  || e.eventType === "script_completed"
-                  || e.eventType === "script_failed"
-              )}
+              events={scriptEvents}
               showScriptOutput={showScriptOutput}
               latestBootstrapVersion={latestBootstrapVersion}
               displayNamesByRefKey={scriptDisplayNamesByRefKey}
@@ -687,9 +716,7 @@ function SessionDetailContent() {
           {!isGatherRulesSession && (
             <div id="section-downloads">
             <DownloadProgress
-              events={events.filter(
-                e => e.eventType === "download_progress" || e.eventType === "app_download_started" || e.eventType === "app_install_skipped"
-              )}
+              events={downloadEvents}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
               userPhaseBoundary={userPhaseBoundary}
@@ -705,11 +732,7 @@ function SessionDetailContent() {
           {!isGatherRulesSession && (
             <div id="section-install-progress">
             <InstallProgress
-              events={events.filter(
-                e => e.eventType === "app_install_started" || e.eventType === "app_install_completed" || e.eventType === "app_install_failed" || e.eventType === "app_install_postponed" || e.eventType === "app_install_skipped"
-                  || e.eventType === "office_install_started" || e.eventType === "office_install_completed" || e.eventType === "office_install_failed" || e.eventType === "office_preinstalled_detected"
-                  || e.eventType === "realmjoin_package_started" || e.eventType === "realmjoin_package_completed"
-              )}
+              events={installEvents}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
               userPhaseBoundary={userPhaseBoundary}

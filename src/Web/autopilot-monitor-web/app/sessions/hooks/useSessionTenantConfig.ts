@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
+import { cachedAuthFetchJson, FEATURE_FLAGS_TTL_MS } from "@/lib/cachedAuthFetch";
 import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
 
 interface UseSessionTenantConfigReturn {
@@ -37,7 +37,7 @@ export function useSessionTenantConfig(
         // These flags are exposed via the member-readable feature-flags endpoint so that
         // Operators and Viewers can load session details without 403'ing on the admin-only
         // full /api/config/{tenantId} response.
-        const cfg = await dedupedFetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(sessionTenantId), getAccessToken);
+        const cfg = await cachedAuthFetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(sessionTenantId), getAccessToken, { ttlMs: FEATURE_FLAGS_TTL_MS });
         if (cancelled) return;
         setShowScriptOutput(cfg.showScriptOutput ?? true);
         setEnableSoftwareInventoryAnalyzer(cfg.enableSoftwareInventoryAnalyzer ?? false);

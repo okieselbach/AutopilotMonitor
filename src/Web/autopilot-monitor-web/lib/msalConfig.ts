@@ -93,21 +93,8 @@ export const buildMsalConfig = (clientId: string): Configuration => ({
 export const msalConfig: Configuration = buildMsalConfig(clientIdForApp(activeAuthApp));
 
 /**
- * Scopes you add here will be prompted for user consent during sign-in.
- * By default, MSAL.js will add OIDC scopes (openid, profile, email) to any login request.
- * For more information about OIDC scopes, visit:
- * https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#openid-connect-scopes
- */
-export const loginRequest: RedirectRequest = {
-  scopes: [
-    "User.Read", // Microsoft Graph - read user profile
-  ],
-  prompt: "select_account", // Force account selection on login
-};
-
-/**
- * Scopes for the browser's own Microsoft Graph call (profile photo). Already consented at
- * sign-in through loginRequest, so a silent token request never prompts.
+ * Scopes for the browser's own Microsoft Graph call (profile photo). Consented at sign-in
+ * through loginRequest's extraScopesToConsent, so the silent token request never prompts.
  */
 export const graphRequest = {
   scopes: ["User.Read"],
@@ -137,6 +124,25 @@ export const buildApiScopes = (app: AuthApp): string[] => {
 export const apiRequest = {
   scopes: buildApiScopes(activeAuthApp),
 };
+
+/**
+ * Sign-in request for the given app registration. MSAL adds the OIDC scopes (openid,
+ * profile, email) itself.
+ *
+ * The API scope is the login scope on purpose: the auth-code redemption then already yields
+ * the access token the very first backend call (auth/me) needs. With Graph as the login
+ * scope every sign-in return paid a second, sequential token-endpoint round trip for the
+ * API token before anything could load (measured 2026-09-23: 302 ms + 453 ms). Graph stays
+ * consented via extraScopesToConsent; its token is acquired silently, off the critical
+ * path, by the profile-photo hook.
+ */
+export const buildLoginRequest = (app: AuthApp): RedirectRequest => ({
+  scopes: buildApiScopes(app),
+  extraScopesToConsent: graphRequest.scopes,
+  prompt: "select_account", // Force account selection on login
+});
+
+export const loginRequest: RedirectRequest = buildLoginRequest(activeAuthApp);
 
 /**
  * Protected resource map for token acquisition

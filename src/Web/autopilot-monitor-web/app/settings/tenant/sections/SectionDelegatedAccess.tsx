@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -115,6 +116,8 @@ export function SectionDelegatedAccess() {
           if (err instanceof ApiError) throw new Error(describeDelegationError(err.code, err.message));
           throw err;
         }
+        // A delegation confers Pro (MSP): the edition in the cached feature flags may have changed.
+        invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
         notify(ok);
         setConfirm(null);
         await load();

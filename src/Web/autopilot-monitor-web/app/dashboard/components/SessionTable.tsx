@@ -284,6 +284,13 @@ export function SessionTable({
     [sessions],
   );
 
+  // Status pill counts in one pass, keyed on the list — the pills used to filter it once per status.
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of sessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
+    return counts;
+  }, [sessions]);
+
   const activeFilterCount = Object.values(columnFilters).reduce(
     (sum, s) => sum + (s.size > 0 ? 1 : 0), 0
   );
@@ -720,7 +727,7 @@ export function SessionTable({
             Incomplete: { bg: "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100", bgActive: "bg-slate-600 text-white border-slate-600", text: "text-slate-600", label: "Incomplete" },
           };
           const c = config[status];
-          const count = sessions.filter(s => s.status === status).length;
+          const count = statusCounts[status] ?? 0;
           const isActive = statusFilter === status;
           return (
             <button

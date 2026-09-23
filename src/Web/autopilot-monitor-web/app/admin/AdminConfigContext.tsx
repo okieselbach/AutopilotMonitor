@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useRef, useState } from "react"
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
+import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { fromWireAdminConfiguration, toWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
 import type {
   AdminConfiguration as WireAdminConfiguration,
@@ -370,6 +371,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
       });
       setAdminConfig(fromWireAdminConfiguration(result.config));
+      // selfServiceAppHomingEnabled gates every tenant's appHomingFunnelActive feature flag.
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
       setSuccessMessage("Admin configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {

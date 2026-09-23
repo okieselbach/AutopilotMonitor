@@ -13,6 +13,7 @@
 
 import { trackEvent } from "./appInsights";
 import { CORRELATION_HEADER, newCorrelationId } from "./correlationId";
+import { takeSeed } from "./prefetchSeeds";
 
 /** Default request timeout in milliseconds */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -51,10 +52,29 @@ export async function authenticatedFetch(
     throw new TokenExpiredError();
   }
 
+  const method = (init?.method ?? 'GET').toUpperCase();
+
+  // A response seed (lib/prefetchSeeds.ts) is the identical GET already started by the auth
+  // bootstrap; it is handed to exactly one caller. A 401 seed means its token was stale —
+  // fall through to the normal path, which refreshes the token.
+  if (method === 'GET') {
+    const seed = takeSeed(url);
+    if (seed) {
+      try {
+        const seeded = await seed.response;
+        if (seeded.status !== 401) {
+          if (seeded.status >= 400) trackFailure(url, method, seeded.status, seed.correlationId);
+          return seeded;
+        }
+      } catch {
+        // Seed failed (network/timeout) — the fetch below reports its own outcome.
+      }
+    }
+  }
+
   // One id per logical call: the 401 retry below is the same call and carries the same id, so
   // both backend request rows join on it. Minted here, never read back (see correlationId.ts).
   const correlationId = newCorrelationId();
-  const method = (init?.method ?? 'GET').toUpperCase();
 
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
