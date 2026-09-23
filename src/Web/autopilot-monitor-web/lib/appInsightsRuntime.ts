@@ -4,9 +4,10 @@ import {
   type ICfgSyncConfig,
 } from "@microsoft/applicationinsights-web";
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from "web-vitals";
-import { API_BASE_URL } from "@/utils/config";
+import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/utils/config";
 import type { TelemetryContext } from "./appInsights";
 import { normalizeRoute, toWebVitalTelemetry } from "./webVitals";
+import { buildOwnOriginNonApiPatterns, shouldDropDependency } from "./webTelemetryExclusions";
 
 /**
  * The App Insights SDK and the Web Vitals reporter. Reached only through the dynamic import in
@@ -41,6 +42,7 @@ function apiHost(): string | null {
 
 export function createAppInsights(connectionString: string, context: TelemetryContext): ApplicationInsights {
   const host = apiHost();
+  const dependencyExclusions = buildOwnOriginNonApiPatterns([window.location.origin, SITE_URL, PORTAL_URL]);
   const appInsights = new ApplicationInsights({
     config: {
       connectionString,
@@ -55,6 +57,10 @@ export function createAppInsights(connectionString: string, context: TelemetryCo
       correlationHeaderDomains: host ? [host] : undefined,
       distributedTracingMode: DistributedTracingModes.W3C,
       extensionConfig: { [CFG_SYNC_PLUGIN_IDENTIFIER]: cfgSyncConfig },
+      // Own-origin fetches that are not API calls (route payloads, static JSON, the router's HEAD
+      // self-requests) are noise in `dependencies` and are not recorded; see webTelemetryExclusions.
+      // This catches string fetches; URL-object fetches are dropped by the initializer below.
+      excludeRequestFromAutoTrackingPatterns: dependencyExclusions,
     },
   });
 
@@ -68,6 +74,10 @@ export function createAppInsights(connectionString: string, context: TelemetryCo
   });
 
   appInsights.loadAppInsights();
+  // Returning false drops the item (D-277); undefined keeps it.
+  appInsights.addDependencyInitializer((details) =>
+    shouldDropDependency(details.item, dependencyExclusions) ? false : undefined
+  );
   // The page view of the document itself, on both hosts. The SDK tracks page views only for
   // history changes made after it is loaded (enableAutoRouteTracking), and Next.js writes the
   // initial replaceState in an insertion effect, before any effect can load the SDK — so without
