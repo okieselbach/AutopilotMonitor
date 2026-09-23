@@ -505,6 +505,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "imetokenfailure",
         };
 
+        /// <summary>
+        /// Snapshot of the last matched line's provenance, for a consumer that acts later than
+        /// the match (a held platform-script result, a run duration across two lines) and must
+        /// describe THAT line rather than whichever line is matched by then.
+        /// </summary>
+        internal CmTraceLineProvenance CaptureLastMatchedProvenance() => new CmTraceLineProvenance
+        {
+            SourceLocalTs = LastMatchedSourceLocalTimestamp,
+            Origin = LastMatchedSourceOffsetOrigin,
+            OffsetMinutes = LastMatchedSourceOffsetMinutes,
+            EraAnchorKind = LastMatchedEraAnchorKind,
+            MeasuredWriterOffsetMinutes = LastMatchedMeasuredWriterOffsetMinutes,
+            SourceFileName = _currentSourceFileName,
+        };
+
         private void HandlePatternMatch(CompiledPattern pattern, Match match, string message, CmTraceLogEntry entry)
         {
             LastMatchedPatternId = pattern.PatternId;

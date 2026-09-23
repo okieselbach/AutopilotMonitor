@@ -154,5 +154,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.False(tracker2.TryClaimScriptTimeoutSuspected("policyF")); // cross-restart dedup
             Assert.True(tracker2.TryClaimScriptTimeoutSuspected("policyG"));  // other policies unaffected
         }
+
+        [Fact]
+        public void Line_provenance_of_a_pending_script_survives_restart()
+        {
+            using var tmp = new TempDirectory();
+            var observedAt = new DateTime(2026, 9, 17, 13, 20, 7, DateTimeKind.Utc);
+            var start = new CmTraceLineProvenance
+            {
+                SourceLocalTs = new DateTime(2026, 9, 17, 15, 19, 57, DateTimeKind.Unspecified),
+                Origin = CmTraceOffsetOrigin.LineAnchored,
+                OffsetMinutes = 120,
+                MeasuredWriterOffsetMinutes = 120,
+                SourceFileName = "IntuneManagementExtension.log",
+            };
+            var exit = new CmTraceLineProvenance
+            {
+                SourceLocalTs = new DateTime(2026, 9, 17, 15, 20, 7, DateTimeKind.Unspecified),
+                Origin = CmTraceOffsetOrigin.None,
+                OffsetMinutes = 60,
+                SourceFileName = "AgentExecutor.log",
+            };
+
+            var tracker1 = BuildTracker(tmp, out _);
+            tracker1.SeedPendingPlatformScriptForTesting("policyH", exitCode: 0, exitObservedAtUtc: observedAt,
+                startedAtUtc: observedAt.AddSeconds(-10), startedAtProvenance: start, exitProvenance: exit);
+            tracker1.SaveStateForTest();
+
+            var tracker2 = BuildTracker(tmp, out var emitted2);
+            tracker2.LoadStateForTest();
+            tracker2.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
+
+            var script = Assert.Single(emitted2);
+            Assert.Equal(CmTraceOffsetOrigin.LineAnchored, script.StartedAtProvenance.Origin);
+            Assert.Equal(120, script.StartedAtProvenance.OffsetMinutes);
+            Assert.Equal(start.SourceLocalTs, script.StartedAtProvenance.SourceLocalTs);
+            Assert.Equal(DateTimeKind.Unspecified, script.StartedAtProvenance.SourceLocalTs!.Value.Kind); // no zone was ever attached
+            Assert.Equal("AgentExecutor.log", script.ExitProvenance.SourceFileName);
+            Assert.Equal(60, script.ExitProvenance.OffsetMinutes);
+            Assert.Null(script.ResultProvenance);
+        }
     }
 }

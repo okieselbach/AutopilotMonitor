@@ -205,8 +205,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // the remediation-script analog of the platform-script StartedAtUtc timing. Kept in a
         // dedicated map (not on _pendingHealthScript) because the early-signal HS-COMPLIANCE
         // handler clears that slot before HS-NEW-RESULT arrives. Consumed + removed on result emit.
-        private readonly Dictionary<string, DateTime> _healthScriptStartTimes =
-            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        // The start line's provenance rides along so the adapter can tell whether start and result
+        // were resolved on the same zone assumption before it subtracts them.
+        private readonly Dictionary<string, (DateTime Utc, CmTraceLineProvenance Provenance)> _healthScriptStartTimes =
+            new Dictionary<string, (DateTime Utc, CmTraceLineProvenance Provenance)>(StringComparer.OrdinalIgnoreCase);
 
         // Restart-safe dedup for the adapter's one-shot script_timeout_suspected Warning.
         // Owned by the tracker (not the adapter) solely so it rides the persisted state file —

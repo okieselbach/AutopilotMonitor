@@ -25,6 +25,11 @@ import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/er
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import PhaseDivider from "@/components/PhaseDivider";
 
+// Shown where the run time would be when the agent (or the reducer, for older events) withheld
+// it: the start and end log lines were resolved on different timezone assumptions, so their
+// span is hours of offset error rather than run time (a 10 s script once read "1h 00m").
+const DURATION_SUPPRESSED_TITLE = "Run time not measurable: the start and end log lines were resolved on different timezone assumptions, so their span would be offset error, not run time";
+
 interface ScriptExecutionsProps {
   events: ScriptInputEvent[];
   showScriptOutput?: boolean;
@@ -531,6 +536,9 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
               {durationLabel}
             </span>
           )}
+          {!durationLabel && !nested && item.state !== "Running" && item.durationSuppressedReason && (
+            <span className="font-mono text-gray-400" title={DURATION_SUPPRESSED_TITLE}>n/a</span>
+          )}
           {item.state !== "Running" && (
             <button
               onClick={() => setShowDetails(!showDetails)}
@@ -557,6 +565,9 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
             {!nested && item.targetType != null && <span><span className="font-medium text-gray-700">Target:</span> {item.targetType === 2 ? "Device" : "User"}</span>}
             {item.exitCode != null && <span><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono">{item.exitCode}</span></span>}
             {detailDurationLabel && <span><span className="font-medium text-gray-700">Duration:</span> <span className={`font-mono ${isSlowDuration ? "text-amber-600" : ""}`}>{detailDurationLabel}</span></span>}
+            {!detailDurationLabel && item.durationSuppressedReason && (
+              <span title={DURATION_SUPPRESSED_TITLE}><span className="font-medium text-gray-700">Duration:</span> <span className="font-mono text-gray-400">n/a</span></span>
+            )}
             {reportedAfterLabel && (
               <span title="Time from script start until IME reported the result to the Intune service — includes IME's batched reporting delay, so it is longer than the script actually ran">
                 <span className="font-medium text-gray-700">Reported after:</span> <span className="font-mono">{reportedAfterLabel}</span>

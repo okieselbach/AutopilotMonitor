@@ -252,8 +252,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // duration when the consolidated [HS] new result line arrives (the slot above is
                 // cleared by the early-signal HS-COMPLIANCE handler, so timing lives in its own
                 // map). Prefer the source CMTrace timestamp; latest start wins on a policy re-run.
-                var startedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow;
-                _healthScriptStartTimes[id] = startedAtUtc;
+                var startedAtUtc = LastMatchedLogTimestamp ?? UtcNowProvider();
+                _healthScriptStartTimes[id] = (startedAtUtc, CaptureLastMatchedProvenance());
                 _logger.Info($"ImeLogTracker: health script started: {id}");
 
                 // A replayed line of a previous enrollment bypasses the recurrence gate: the
@@ -281,6 +281,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         internal void HandlePlatformScriptStarted(string id, string source = null)
         {
             var currentStartTs = LastMatchedLogTimestamp ?? UtcNowProvider();
+            var currentStartProvenance = CaptureLastMatchedProvenance();
 
             // A start line older than the result this policy already emitted is the late start
             // line of THAT run: its AgentExecutor block surfaced after the IME result — the two
@@ -323,6 +324,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     // The slot was opened by its result while the start block was still hidden;
                     // the recovered start line dates the run.
                     pendingSlot.StartedAtUtc = currentStartTs;
+                    pendingSlot.StartedAtProvenance = currentStartProvenance;
                     _stateDirty = true;
                 }
             }
@@ -343,6 +345,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     // Set only at slot creation: the start line fires twice (agentexecutor + ime
                     // source) but the earliest wins.
                     StartedAtUtc = currentStartTs,
+                    StartedAtProvenance = currentStartProvenance,
                 };
                 // Live "running" indicator — same signal health scripts emit. Gated on slot
                 // creation so the duplicate start line (agentexecutor + ime source) doesn't
@@ -433,7 +436,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             var script = GetCurrentScriptForLineUpdate(parameters, out var ownerPolicyId);
             if (script != null)
-                ApplyExitCode(script, exitCode, LastMatchedLogTimestamp ?? UtcNowProvider());
+                ApplyExitCode(script, exitCode, LastMatchedLogTimestamp ?? UtcNowProvider(), CaptureLastMatchedProvenance());
             else if (ownerPolicyId != null)
                 _logger.Debug($"ImeLogTracker: exit code {exitCode} belongs to platform script {ownerPolicyId}, whose completion was already emitted — dropped");
             // An exit code means the executor just wrote its end block and IME is about to
@@ -442,15 +445,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             RequestOverwriteCheck();
         }
 
-        private void ApplyExitCode(ScriptExecutionState script, int exitCode, DateTime observedAtUtc)
+        private void ApplyExitCode(ScriptExecutionState script, int exitCode, DateTime observedAtUtc, CmTraceLineProvenance exitProvenance)
         {
             script.ExitCode = exitCode;
             // Stamp when we learned the script's exit code so the deadline-based fallback
             // (FlushPendingPlatformScriptResults) can fire if IME never logs its authoritative
             // PS-SCRIPT-RESULT line in time. Prefer the source CMTrace timestamp (already
-            // UTC-normalized by the parser) so replayed log content is dated correctly.
+            // UTC-normalized by the parser) so replayed log content is dated correctly. The
+            // line's provenance rides along: the fallback emit is bound to this line.
             if (string.Equals(script.ScriptType, "platform", StringComparison.OrdinalIgnoreCase))
+            {
                 script.ExitObservedAtUtc = observedAtUtc;
+                script.ExitProvenance = exitProvenance;
+            }
             _logger.Debug($"ImeLogTracker: script exit code {exitCode} for {script.PolicyId}");
         }
 
@@ -500,7 +507,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (string.IsNullOrEmpty(id)) return;
 
-            CompletePlatformScriptFromImeResult(id, result, LastMatchedLogTimestamp, LastMatchedPatternId);
+            CompletePlatformScriptFromImeResult(id, result, LastMatchedLogTimestamp, LastMatchedPatternId, CaptureLastMatchedProvenance());
         }
 
         /// <summary>
@@ -514,7 +521,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// line reopened the slot, produced a fallback duplicate (session e7f3c910).
         /// <see cref="FlushPendingPlatformScriptResults"/> emits the held completion.
         /// </summary>
-        internal void CompletePlatformScriptFromImeResult(string policyId, string result, DateTime? resultLineTimestampUtc, string patternId)
+        internal void CompletePlatformScriptFromImeResult(string policyId, string result, DateTime? resultLineTimestampUtc, string patternId, CmTraceLineProvenance resultProvenance)
         {
             // Dedup: the deadline-based fallback (FlushPendingPlatformScriptResults) may already have
             // emitted this script from its AgentExecutor exit code because IME's authoritative
@@ -559,6 +566,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             script.Result = result;
             script.ResultSource = "ime_policy_result";
             script.ResultObservedAtUtc = resultLineTimestampUtc ?? UtcNowProvider();
+            script.ResultProvenance = resultProvenance;
             script.ResultPatternId = patternId;
             _stateDirty = true;
 
@@ -584,7 +592,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             _logger.Info($"ImeLogTracker: platform script completed: {script.PolicyId}, result={script.Result}, exit={script.ExitCode}{(note != null ? $" ({note})" : string.Empty)}");
             EmitScriptEvent(script);
-            _platformScriptResultEmitted[script.PolicyId] = script.ResultObservedAtUtc ?? script.ExitObservedAtUtc ?? UtcNowProvider();
+            // The run's source stamp, capped at the clock: a result line cannot be read before it
+            // was written, so a stamp ahead of the clock is a wrong zone assumption on that line
+            // (a rewound result resolved in the reader's zone, session 4377911b: +1 h). Left
+            // uncapped, the marker made the genuine NEXT run's start line read as a late line of
+            // this run and its result a duplicate.
+            var runStamp = script.ResultObservedAtUtc ?? script.ExitObservedAtUtc ?? UtcNowProvider();
+            var nowUtc = UtcNowProvider();
+            _platformScriptResultEmitted[script.PolicyId] = runStamp > nowUtc ? nowUtc : runStamp;
             _pendingPlatformScripts.Remove(script.PolicyId);
             _stateDirty = true;
         }
@@ -681,7 +696,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         /// <summary>Test seam: inject a pending platform script as if AgentExecutor.log had reported
         /// its start + exit code, without an IME PS-SCRIPT-RESULT line.</summary>
-        internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null, DateTime? startedAtUtc = null)
+        internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null, DateTime? startedAtUtc = null,
+            CmTraceLineProvenance startedAtProvenance = null, CmTraceLineProvenance exitProvenance = null)
         {
             // Mirrors a fresh execution start: a new run clears any prior emitted-marker (see
             // HandleScriptStarted) so re-runs of the same policy within one lifetime emit again.
@@ -694,6 +710,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ExitObservedAtUtc = exitObservedAtUtc,
                 Stdout = stdout,
                 StartedAtUtc = startedAtUtc,
+                StartedAtProvenance = startedAtProvenance,
+                ExitProvenance = exitProvenance,
             };
             NextTestEntry();
             RecordInvocationMarker(policyId, isClose: false);
@@ -703,18 +721,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// (the production handler minus regex extraction). <paramref name="resultLineTimestampUtc"/>
         /// stands in for the CMTrace timestamp of the PS-SCRIPT-RESULT line (production reads it
         /// via <see cref="LastMatchedLogTimestamp"/>, the fallback here).</summary>
-        internal void CompletePlatformScriptFromImeResultForTesting(string policyId, string result, DateTime? resultLineTimestampUtc = null)
+        internal void CompletePlatformScriptFromImeResultForTesting(string policyId, string result, DateTime? resultLineTimestampUtc = null, CmTraceLineProvenance resultProvenance = null)
         {
             if (string.IsNullOrEmpty(policyId)) return;
-            CompletePlatformScriptFromImeResult(policyId, result, resultLineTimestampUtc ?? LastMatchedLogTimestamp, "PS-SCRIPT-RESULT");
+            CompletePlatformScriptFromImeResult(policyId, result, resultLineTimestampUtc ?? LastMatchedLogTimestamp, "PS-SCRIPT-RESULT", resultProvenance ?? CaptureLastMatchedProvenance());
         }
 
         /// <summary>Test seam: the AgentExecutor exit-code line of a pending platform script (the
         /// production handler minus regex extraction and positional ownership).</summary>
-        internal void RecordPlatformScriptExitCodeForTesting(string policyId, int exitCode, DateTime observedAtUtc)
+        internal void RecordPlatformScriptExitCodeForTesting(string policyId, int exitCode, DateTime observedAtUtc, CmTraceLineProvenance exitProvenance = null)
         {
             if (_pendingPlatformScripts.TryGetValue(policyId, out var script))
-                ApplyExitCode(script, exitCode, observedAtUtc);
+                ApplyExitCode(script, exitCode, observedAtUtc, exitProvenance);
         }
 
         /// <summary>
@@ -790,8 +808,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // HS-NEW-RESULT path whose end stamp includes IME's batched reporting latency.
                 // Peek only: HS-NEW-RESULT still consumes + removes the entry for cycle timing.
                 StartedAtUtc = _healthScriptStartTimes.TryGetValue(id, out var earlyStart)
-                    ? earlyStart
+                    ? earlyStart.Utc
                     : (DateTime?)null,
+                StartedAtProvenance = _healthScriptStartTimes.TryGetValue(id, out var earlyStartProvenance)
+                    ? earlyStartProvenance.Provenance
+                    : null,
+                // The HS-COMPLIANCE line is the end of this phase; emitted synchronously, so the
+                // last matched line is it.
+                ResultProvenance = CaptureLastMatchedProvenance(),
                 DurationBasis = "script_runtime",
             };
 
@@ -860,10 +884,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// HS-SCRIPT-START line had been observed, so a subsequent
         /// <see cref="HandleHealthScriptResultJson"/> surfaces a run duration without driving the
         /// full regex pipeline.</summary>
-        internal void SeedHealthScriptStartForTesting(string policyId, DateTime startedAtUtc)
+        internal void SeedHealthScriptStartForTesting(string policyId, DateTime startedAtUtc, CmTraceLineProvenance provenance = null)
         {
             if (string.IsNullOrEmpty(policyId)) return;
-            _healthScriptStartTimes[policyId] = startedAtUtc;
+            _healthScriptStartTimes[policyId] = (startedAtUtc, provenance);
         }
 
         private void HandleHealthScriptResult(Match match, Dictionary<string, string> parameters)
@@ -920,10 +944,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // emitted phase events — the remediation analog of platform-script timing. Consumed +
             // removed so a later re-run of the same policy re-times from its own start. Null when
             // the start line was never seen in the agent's window (e.g. a replayed result).
-            DateTime? cycleStartedAtUtc = _healthScriptStartTimes.TryGetValue(policyId, out var hsStart)
-                ? hsStart
-                : (DateTime?)null;
+            var hasCycleStart = _healthScriptStartTimes.TryGetValue(policyId, out var hsStart);
+            DateTime? cycleStartedAtUtc = hasCycleStart ? hsStart.Utc : (DateTime?)null;
+            var cycleStartProvenance = hasCycleStart ? hsStart.Provenance : null;
             _healthScriptStartTimes.Remove(policyId);
+            // Every phase ends on this HS-NEW-RESULT line.
+            var resultProvenance = CaptureLastMatchedProvenance();
 
             // Common metadata — applied to every emitted phase event.
             var remediationStatus = TryGetInt(root, "RemediationStatus");
@@ -963,7 +989,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 targetType: targetType,
                 errorCode: errorCode,
                 errorDetails: errorDetails,
-                startedAtUtc: cycleStartedAtUtc);
+                startedAtUtc: cycleStartedAtUtc,
+                startedAtProvenance: cycleStartProvenance,
+                resultProvenance: resultProvenance);
             // complianceResult mirrors the legacy HS-COMPLIANCE event semantics: True when the
             // pre-detection script reported compliant (exit 0), False otherwise.
             detection.ComplianceResult = firstDetectExit == 0 ? "True" : (firstDetectExit.HasValue ? "False" : null);
@@ -987,7 +1015,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     targetType: targetType,
                     errorCode: errorCode,
                     errorDetails: errorDetails,
-                    startedAtUtc: cycleStartedAtUtc);
+                    startedAtUtc: cycleStartedAtUtc,
+                startedAtProvenance: cycleStartProvenance,
+                resultProvenance: resultProvenance);
                 // No complianceResult on the remediation phase — there is nothing to be compliant about.
                 EmitScriptEvent(remediation);
             }
@@ -1009,7 +1039,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     targetType: targetType,
                     errorCode: errorCode,
                     errorDetails: errorDetails,
-                    startedAtUtc: cycleStartedAtUtc);
+                    startedAtUtc: cycleStartedAtUtc,
+                startedAtProvenance: cycleStartProvenance,
+                resultProvenance: resultProvenance);
                 postDetection.ComplianceResult = lastDetectExit == 0 ? "True" : (lastDetectExit.HasValue ? "False" : null);
                 EmitScriptEvent(postDetection);
             }
@@ -1032,7 +1064,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             int? targetType,
             int? errorCode,
             string errorDetails,
-            DateTime? startedAtUtc) =>
+            DateTime? startedAtUtc,
+            CmTraceLineProvenance startedAtProvenance,
+            CmTraceLineProvenance resultProvenance) =>
             new ScriptExecutionState
             {
                 PolicyId = policyId,
@@ -1049,6 +1083,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // Cycle start (HS-SCRIPT-START). Every phase carries the same cycle start so the
                 // adapter computes the total run duration; the Web surfaces it once at card level.
                 StartedAtUtc = startedAtUtc,
+                StartedAtProvenance = startedAtProvenance,
+                ResultProvenance = resultProvenance,
                 // End stamp is the HS-NEW-RESULT line — written only after IME's batched report
                 // to the service, so this duration overstates the actual script execution time.
                 DurationBasis = "cycle_including_reporting_latency"

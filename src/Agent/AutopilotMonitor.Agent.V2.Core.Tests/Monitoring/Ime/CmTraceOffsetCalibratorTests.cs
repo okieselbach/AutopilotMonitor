@@ -186,5 +186,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             DateTime resolved;
             Assert.False(sut.TryResolveUtc(Source, UtcNow, out resolved));
         }
+
+        [Theory]
+        [InlineData(3610.39, true, 4)]     // session 4377911b: +1 h on a 10 s script
+        [InlineData(61203.0, true, 68)]    // 17 h on a 3 s script
+        [InlineData(7205.66, true, 8)]     // session cbaed57b: +2 h
+        [InlineData(-3596.0, true, 4)]     // the same error on the start end
+        [InlineData(26.4, false, 0)]       // a run time below one grid step
+        [InlineData(1030.0, false, 1)]     // 17 min 10 s: residual past the tolerance
+        [InlineData(900.0, true, 1)]       // exactly one step — a genuine 15-minute run reads the same, the caller needs mixed provenance too
+        public void A_grid_sized_span_is_the_signature_of_an_offset_error(double seconds, bool onGrid, int expectedSteps)
+        {
+            int steps;
+            Assert.Equal(onGrid, CmTraceOffsetCalibrator.IsOnOffsetGrid(TimeSpan.FromSeconds(seconds), out steps));
+            if (onGrid) Assert.Equal(expectedSteps, steps);
+        }
     }
 }

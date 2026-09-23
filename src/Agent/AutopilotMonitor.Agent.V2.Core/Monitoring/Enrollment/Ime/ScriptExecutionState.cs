@@ -29,6 +29,15 @@ public class ScriptExecutionState
     /// </summary>
     public System.DateTime? StartedAtUtc { get; set; }
 
+    /// <summary>
+    /// Provenance of <see cref="StartedAtUtc"/>: how the start line's offset was obtained. Paired
+    /// with <see cref="ResultProvenance"/> / <see cref="ExitProvenance"/> by the adapter to decide
+    /// whether a run duration is measurable — two lines resolved on different zone assumptions
+    /// differ by whole offset-grid steps, not by run time (session 4377911b: a 10 s script read
+    /// as 3610 s). Null when the start was never observed or on state files from before the field.
+    /// </summary>
+    public CmTraceLineProvenance StartedAtProvenance { get; set; }
+
     /// <summary>"detection", "remediation", or "post-detection" (remediation scripts only).</summary>
     public string ScriptPart { get; set; }
 
@@ -66,6 +75,9 @@ public class ScriptExecutionState
     /// </summary>
     public System.DateTime? ExitObservedAtUtc { get; set; }
 
+    /// <summary>Provenance of the exit-code line behind <see cref="ExitObservedAtUtc"/> (the fallback emit's end).</summary>
+    public CmTraceLineProvenance ExitProvenance { get; set; }
+
     /// <summary>
     /// Source (CMTrace) timestamp of the IME <c>PS-SCRIPT-RESULT</c> line that delivered
     /// <see cref="Result"/> (platform scripts, <c>ime_policy_result</c> only). The emitted event is
@@ -75,6 +87,14 @@ public class ScriptExecutionState
     /// start line of that run, not a new run.
     /// </summary>
     public System.DateTime? ResultObservedAtUtc { get; set; }
+
+    /// <summary>
+    /// Provenance of the line that delivered <see cref="Result"/> — bound here for the same reason
+    /// as <see cref="ResultObservedAtUtc"/>: a held completion is emitted passes later, when the
+    /// tracker's "last matched" provenance describes an unrelated line. For health scripts the
+    /// result line of the phase (HS-COMPLIANCE early signal or HS-NEW-RESULT).
+    /// </summary>
+    public CmTraceLineProvenance ResultProvenance { get; set; }
 
     /// <summary>Pattern id of the line that delivered <see cref="Result"/> (surfaced as <c>patternId</c> on the event).</summary>
     public string ResultPatternId { get; set; }

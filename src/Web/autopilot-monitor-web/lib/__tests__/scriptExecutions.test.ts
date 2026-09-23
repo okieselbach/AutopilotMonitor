@@ -7,6 +7,7 @@ import {
   groupScriptItems,
   isDetectOnlyRow,
   isNonCompliantReport,
+  isOnOffsetGrid,
   mapRemediationStatus,
   partitionHistoricScriptEvents,
   reduceScriptEvents,
@@ -1067,5 +1068,136 @@ describe("applyObservationEnd", () => {
     const ended = groupScriptItems(applyObservationEnd(reduceScriptEvents(cycle), Date.parse(ts(40))))[0];
     expect(ended.headerState).toBe("Incomplete");
     expect(ended.headerLabel).toBe("Incomplete");
+  });
+});
+
+describe("reduceScriptEvents — duration provenance (offset error is not run time)", () => {
+  const start = (data: Record<string, unknown>, at = 0): ScriptInputEvent =>
+    finalEvent({ eventType: "script_started", ts: at, data: { policyId: "p1", scriptType: "platform", ...data } });
+  const final = (data: Record<string, unknown>, at = 10): ScriptInputEvent =>
+    finalEvent({ ts: at, data: { policyId: "p1", scriptType: "platform", exitCode: "0", result: "Success", ...data } });
+
+  it("drops a duration whose end line was rejected while the start line was measured (session 4377911b)", () => {
+    // Start self-anchored (+120), result re-read after a rewind in the reader's zone (+60) and
+    // rejected as one hour ahead of the clock: the stored 3610 s is offset error plus 10 s.
+    const items = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }),
+      final({
+        durationSeconds: "3610.39", durationBasis: "script_runtime",
+        sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60",
+        derivedTimestamp: "true", rejectedSourceTimestamp: "2026-09-17T14:20:07.3915051Z",
+      }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].durationSeconds).toBeUndefined();
+    expect(items[0].durationSuppressedReason).toBe("rejected-endpoint");
+  });
+
+  it("carries the agent's own verdict and never re-judges a pair the agent judged", () => {
+    const suppressed = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }),
+      final({ durationSuppressedReason: "offset-grid", durationProvenance: "unverified" }),
+    ]);
+    expect(suppressed[0].durationSeconds).toBeUndefined();
+    expect(suppressed[0].durationSuppressedReason).toBe("offset-grid");
+
+    const unverified = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }),
+      final({
+        durationSeconds: "3610.00", durationBasis: "script_runtime", durationProvenance: "unverified",
+        sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60", derivedTimestamp: "true",
+      }),
+    ]);
+    expect(unverified[0].durationSeconds).toBe(3610);
+    expect(unverified[0].durationSuppressedReason).toBeUndefined();
+  });
+
+  it("drops a mixed pair on the offset grid even when nothing was rejected (session cbaed57b)", () => {
+    const items = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "120" }),
+      final({
+        durationSeconds: "7205.66", durationBasis: "script_runtime",
+        sourceOffsetOrigin: "era-anchored", sourceOffsetMinutes: "0",
+      }, 7206),
+    ]);
+    expect(items[0].durationSeconds).toBeUndefined();
+    expect(items[0].durationSuppressedReason).toBe("offset-grid");
+  });
+
+  it("keeps a mixed pair off the grid, and any pair on one timeline", () => {
+    const offGrid = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }),
+      final({ durationSeconds: "26.40", durationBasis: "script_runtime", sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "120" }, 27),
+    ]);
+    expect(offGrid[0].durationSeconds).toBe(26.4);
+    expect(offGrid[0].durationSuppressedReason).toBeUndefined();
+
+    const bothMeasured = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }),
+      final({ durationSeconds: "900.00", durationBasis: "script_runtime", sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }, 900),
+    ]);
+    expect(bothMeasured[0].durationSeconds).toBe(900);
+
+    const bothAssumedSameOffset = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60" }),
+      final({ durationSeconds: "900.00", durationBasis: "script_runtime", sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60" }, 900),
+    ]);
+    expect(bothAssumedSameOffset[0].durationSeconds).toBe(900);
+  });
+
+  it("leaves events without provenance, or without a start line, as they were", () => {
+    const noProvenance = reduceScriptEvents([
+      start({}),
+      final({ durationSeconds: "3610.00", durationBasis: "script_runtime", derivedTimestamp: "true" }),
+    ]);
+    expect(noProvenance[0].durationSeconds).toBe(3610);
+
+    const noStart = reduceScriptEvents([
+      final({ durationSeconds: "3610.00", durationBasis: "script_runtime", sourceOffsetOrigin: "reader-zone-fallback", derivedTimestamp: "true" }),
+    ]);
+    expect(noStart[0].durationSeconds).toBe(3610);
+  });
+
+  it("pairs a final with the latest start at or before it", () => {
+    // Run 1 (measured start, rejected end) and run 2 (both measured) of the same policy.
+    const items = reduceScriptEvents([
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }, 0),
+      final({ durationSeconds: "3610.00", durationBasis: "script_runtime", sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60", derivedTimestamp: "true", exitCode: "1" }, 10),
+      start({ sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }, 100),
+      final({ durationSeconds: "8.57", durationBasis: "script_runtime", sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" }, 109),
+    ]);
+    // Same key → the more complete entry wins; the second run's verified duration is kept.
+    expect(items).toHaveLength(1);
+    expect(items[0].durationSeconds).toBe(8.57);
+    expect(items[0].durationSuppressedReason).toBeUndefined();
+  });
+
+  it("withholds the cycle value of a remediation phase quietly (no note where no run time is shown)", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ eventType: "script_started", ts: 0, data: { policyId: "h1", scriptType: "remediation", sourceOffsetOrigin: "line-anchored", sourceOffsetMinutes: "120" } }),
+      finalEvent({ ts: 40, data: {
+        policyId: "h1", scriptType: "remediation", scriptPart: "detection", exitCode: "0",
+        durationSeconds: "3640.00", durationBasis: "cycle_including_reporting_latency",
+        sourceOffsetOrigin: "reader-zone-fallback", sourceOffsetMinutes: "60", derivedTimestamp: "true",
+      } }),
+    ]);
+    expect(items[0].reportedAfterSeconds).toBeUndefined();
+    expect(items[0].durationSeconds).toBeUndefined();
+    expect(items[0].durationSuppressedReason).toBeUndefined();
+  });
+});
+
+describe("isOnOffsetGrid", () => {
+  it("recognises whole offset-grid steps plus seconds of run time, in either direction", () => {
+    expect(isOnOffsetGrid(3610.39)).toBe(true);   // +1 h on a 10 s script
+    expect(isOnOffsetGrid(61203)).toBe(true);     // 17 h on a 3 s script
+    expect(isOnOffsetGrid(7205.66)).toBe(true);   // +2 h
+    expect(isOnOffsetGrid(-3596)).toBe(true);     // the same error on the start end
+    expect(isOnOffsetGrid(900)).toBe(true);       // one step — the caller needs mixed provenance too
+  });
+  it("rejects spans below one step or off the grid", () => {
+    expect(isOnOffsetGrid(26.4)).toBe(false);
+    expect(isOnOffsetGrid(1030)).toBe(false);     // 17 min 10 s
+    expect(isOnOffsetGrid(0)).toBe(false);
   });
 });

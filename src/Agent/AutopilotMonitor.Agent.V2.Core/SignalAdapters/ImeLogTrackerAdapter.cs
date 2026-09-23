@@ -461,31 +461,35 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// no second clock frame, so there is nothing to record.
         /// </para>
         /// </summary>
-        private void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock, DateTime? rawSourceTs)
+        private void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock, DateTime? rawSourceTs, CmTraceLineProvenance? lineProvenance = null)
         {
             var culture = System.Globalization.CultureInfo.InvariantCulture;
 
-            var sourceLocal = _tracker.LastMatchedSourceLocalTimestamp;
+            // The line the event is bound to. Callers that emit later than the match (a held
+            // platform-script result) pass the snapshot taken at their line; everyone else is
+            // emitting while its line is still the last matched one.
+            var line = lineProvenance ?? _tracker.CaptureLastMatchedProvenance();
+            var sourceLocal = line.SourceLocalTs;
             if (sourceLocal.HasValue)
             {
                 // No zone suffix: the value genuinely carries none, and formatting one in would
                 // re-introduce the very assumption this whole change removes.
                 data["sourceLocalTs"] = sourceLocal.Value.ToString("yyyy-MM-ddTHH:mm:ss.fffffff", culture);
-                data["sourceOffsetOrigin"] = OriginTag(_tracker.LastMatchedSourceOffsetOrigin);
+                data["sourceOffsetOrigin"] = OriginTag(line.Origin);
 
-                var offsetMinutes = _tracker.LastMatchedSourceOffsetMinutes;
+                var offsetMinutes = line.OffsetMinutes;
                 if (offsetMinutes.HasValue)
                     data["sourceOffsetMinutes"] = offsetMinutes.Value.ToString(culture);
 
                 // Which era anchor the offset came from — forensics for the era-anchored origin.
-                var anchorKind = _tracker.LastMatchedEraAnchorKind;
+                var anchorKind = line.EraAnchorKind;
                 if (!string.IsNullOrEmpty(anchorKind))
                     data["sourceOffsetAnchor"] = anchorKind;
 
                 // Observational only — what the calibrator measured, which since the 2026-08-20
                 // revert is deliberately NOT what was applied. Kept separate so the two can never
                 // be read as the same thing.
-                var measured = _tracker.LastMatchedMeasuredWriterOffsetMinutes;
+                var measured = line.MeasuredWriterOffsetMinutes;
                 if (measured.HasValue)
                     data["measuredWriterOffsetMinutes"] = measured.Value.ToString(culture);
             }
@@ -1293,7 +1297,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, eventType, script.PolicyId))
                 return;
 
-            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+            // The line that delivered the result is bound on the state (D-247), so a completion
+            // emitted passes later still describes ITS line. Null (states from before the field,
+            // synthetic tests) falls back to the tracker's last matched line as before.
+            var endProvenance = isFallback ? script.ExitProvenance : script.ResultProvenance;
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs, endProvenance);
 
             // Per-script run duration (start line → this completion). Surfaced on every
             // script completion so the UI can flag slow / inefficient scripts, not just timed-out
@@ -1301,11 +1309,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // against clock skew between the (possibly clock-derived) completion stamp and start.
             //
             // When the completion timestamp was clock-derived because the source line's timestamp
-            // was rejected (future-skew CMTrace clock jump — the stale case never reaches here),
-            // `now` lives on the clock's timeline while StartedAtUtc was captured RAW from the
-            // source log. Mixing the two produced absurd durations (session eaf3d8c4: 170 h), so
-            // the duration uses the raw source pair — both ends on the same timeline, the
-            // difference is the true runtime. The event stamp stays `now` (timeline position).
+            // was rejected (future-skew — the stale case never reaches here), `now` lives on the
+            // clock's timeline while StartedAtUtc was captured RAW from the source log. Mixing the
+            // two produced absurd durations (session eaf3d8c4: 170 h), so the span is taken from
+            // the raw source pair. That pair is a run time only when both lines were resolved on
+            // the same zone belief — JudgeDurationPair decides, from the provenance bound to each
+            // line, whether the span is verified, unverified, or an offset error to omit (session
+            // 4377911b: a 10 s script read as 3610 s). The event stamp stays `now`.
             //
             // L19 (delta review 2026-07-02): the same field name carries two different semantics —
             // start→own-end-signal (≈ script runtime) vs HS-SCRIPT-START→HS-NEW-RESULT (the whole
@@ -1317,20 +1327,43 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var completionForDuration = derivedFromClock && rawSourceTs.HasValue
                 ? NormalizeUtc(rawSourceTs.Value)
                 : now;
+            TimeSpan? measurableDuration = null;
             if (script.StartedAtUtc.HasValue)
             {
-                var durationSeconds = (completionForDuration - script.StartedAtUtc.Value).TotalSeconds;
+                var span = completionForDuration - script.StartedAtUtc.Value;
+                var verdict = JudgeDurationPair(script.StartedAtProvenance, endProvenance,
+                    endStampRejected: derivedFromClock && rawSourceTs.HasValue, span, out var suppressedReason);
+                if (verdict != DurationPairVerdict.Unknown)
+                    data["durationProvenance"] = verdict == DurationPairVerdict.Verified ? "verified" : "unverified";
+
+                if (verdict == DurationPairVerdict.Suppressed)
+                {
+                    data["durationSuppressedReason"] = suppressedReason!;
+                }
                 // Plausibility backstop: IME's script execution timeout is ~30 min; anything above
                 // 24 h is a cross-run artifact (e.g. a stale pending start slot from a previous
                 // enrollment paired with a fresh completion) — omit rather than lie.
-                if (durationSeconds >= 0 && durationSeconds <= StaleSourceThreshold.TotalSeconds)
+                else if (span >= TimeSpan.Zero && span <= StaleSourceThreshold)
                 {
-                    data["durationSeconds"] = durationSeconds.ToString("F2", culture);
+                    measurableDuration = span;
+                    data["durationSeconds"] = span.TotalSeconds.ToString("F2", culture);
                     data["durationBasis"] = script.DurationBasis
                         ?? (IsRemediation(script.ScriptType)
                             ? "cycle_including_reporting_latency"
                             : "script_runtime");
                 }
+            }
+
+            // The start line's provenance, next to the end line's (sourceOffset*), so the pair can
+            // be judged downstream as well.
+            var startProvenance = script.StartedAtProvenance;
+            if (startProvenance != null && startProvenance.SourceLocalTs.HasValue)
+            {
+                data["startSourceOffsetOrigin"] = OriginTag(startProvenance.Origin);
+                if (startProvenance.OffsetMinutes.HasValue)
+                    data["startSourceOffsetMinutes"] = startProvenance.OffsetMinutes.Value.ToString(culture);
+                if (!string.IsNullOrEmpty(startProvenance.EraAnchorKind))
+                    data["startSourceOffsetAnchor"] = startProvenance.EraAnchorKind;
             }
 
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";
@@ -1375,7 +1408,51 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
 
             MaybeEmitBootstrapDetected(script, now);
-            MaybeEmitScriptTimeoutSuspected(script, now, completionForDuration);
+            MaybeEmitScriptTimeoutSuspected(script, now, measurableDuration);
+        }
+
+        internal enum DurationPairVerdict { Unknown, Verified, Unverified, Suppressed }
+
+        /// <summary>
+        /// Whether the span between a start line and an end line measures elapsed time.
+        /// <para>
+        /// Each CMTrace line is resolved on its own zone belief: declared or measured (bias,
+        /// line-anchored, or the clock itself) — or ASSUMED (the reader's zone, a writer era's
+        /// anchor). Two measured ends sit on the true UTC axis; two assumed ends resolved with the
+        /// same offset from the same file share their error, which cancels (D-191). Any other pair
+        /// is unverified, and its span is omitted when the end stamp was rejected as ahead of the
+        /// clock — its assumption is proven wrong and the raw pair inherits the error (session
+        /// 4377911b: a 10 s script read as 3610 s) — or when the span sits on the 15-minute offset
+        /// grid, the signature of a wrong assumption on either end (session cbaed57b: 7200 s). A
+        /// missing snapshot (state files from before the field, synthetic tests) leaves the rule
+        /// off and the pair treated as before.
+        /// </para>
+        /// </summary>
+        internal static DurationPairVerdict JudgeDurationPair(
+            CmTraceLineProvenance? start, CmTraceLineProvenance? end, bool endStampRejected, TimeSpan span, out string? suppressedReason)
+        {
+            suppressedReason = null;
+            if (start == null || end == null) return DurationPairVerdict.Unknown;
+
+            var startAssumed = start.IsAssumed();
+            var endAssumed = end.IsAssumed();
+            var sameTimeline = (!startAssumed && !endAssumed)
+                || (startAssumed && endAssumed
+                    && start.OffsetMinutes == end.OffsetMinutes
+                    && string.Equals(start.SourceFileName, end.SourceFileName, StringComparison.OrdinalIgnoreCase));
+            if (sameTimeline) return DurationPairVerdict.Verified;
+
+            if (endStampRejected)
+            {
+                suppressedReason = "rejected-endpoint";
+                return DurationPairVerdict.Suppressed;
+            }
+            if (CmTraceOffsetCalibrator.IsOnOffsetGrid(span, out _))
+            {
+                suppressedReason = "offset-grid";
+                return DurationPairVerdict.Suppressed;
+            }
+            return DurationPairVerdict.Unverified;
         }
 
         /// <summary>
@@ -1387,19 +1464,19 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// late start / pre-failed ESP. Advisory only: no state mutation, the underlying
         /// <c>script_failed</c> is still emitted separately. Health (remediation) scripts are
         /// excluded — they re-run on their own cadence and have a different timeout regime.
-        /// <paramref name="durationEndUtc"/> is the timeline-consistent completion for duration
-        /// math (raw source ts on rejected-timestamp emissions); <paramref name="occurredAtUtc"/>
-        /// stamps the emitted event.
+        /// <paramref name="measurableDuration"/> is the run duration the completion event carries —
+        /// null when it was omitted (no start line, implausible span, or a start/end pair resolved
+        /// on different zone assumptions: the fleet's daily 17 h "timeouts" of 2–9 s scripts were
+        /// offset errors); <paramref name="occurredAtUtc"/> stamps the emitted event.
         /// </summary>
-        private void MaybeEmitScriptTimeoutSuspected(ScriptExecutionState script, DateTime occurredAtUtc, DateTime durationEndUtc)
+        private void MaybeEmitScriptTimeoutSuspected(ScriptExecutionState script, DateTime occurredAtUtc, TimeSpan? measurableDuration)
         {
             if (IsRemediation(script.ScriptType)) return;                 // platform scripts only
-            if (!script.StartedAtUtc.HasValue) return;                    // no start ⇒ no duration
+            if (!measurableDuration.HasValue) return;                     // no measurable duration ⇒ no verdict
             if (!string.Equals(script.Result, "Failed", StringComparison.OrdinalIgnoreCase)) return;
 
-            var duration = durationEndUtc - script.StartedAtUtc.Value;
+            var duration = measurableDuration.Value;
             if (duration < ScriptTimeoutSuspectedThreshold) return;
-            if (duration > StaleSourceThreshold) return;                  // implausible — cross-run artifact, not a hung script
 
             if (!_tracker.TryClaimScriptTimeoutSuspected(script.PolicyId)) return; // restart-safe dedup per policyId (persisted tracker state)
 

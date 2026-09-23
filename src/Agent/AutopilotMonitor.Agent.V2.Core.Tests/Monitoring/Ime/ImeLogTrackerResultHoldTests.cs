@@ -304,5 +304,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.HandlePlatformScriptStarted("policyZ");
             Assert.Single(started);
         }
+
+        [Fact]
+        public void Emitted_marker_is_capped_at_the_clock_so_the_next_run_still_opens_a_slot()
+        {
+            // Session 4377911b: the result line was re-read after an overwrite rewind and resolved
+            // in the reader's zone, one hour ahead of the clock. Stored uncapped, that stamp made
+            // the genuine second run's start line read as a late line of the first run and its
+            // result a duplicate.
+            using var h = new Harness();
+            h.Start("d94468af", T0.AddSeconds(-10));
+            h.Result("d94468af", T0.AddHours(1));
+            h.Exit("d94468af", T0.AddSeconds(-1));
+            h.Flush();
+            Assert.Single(h.Completed);
+
+            // The second run, two minutes later on the clock — still "before" the uncapped stamp.
+            h.Now = T0.AddMinutes(2);
+            h.Start("d94468af", h.Now.AddSeconds(-5));
+            h.Result("d94468af", h.Now.AddSeconds(-1));
+            h.Exit("d94468af", h.Now.AddSeconds(-2));
+            h.Flush();
+
+            Assert.Equal(2, h.Completed.Count);
+        }
     }
 }

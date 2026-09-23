@@ -28,6 +28,14 @@ interface ScriptEventData {
   compliance_result?: string;
   errorDetails?: string;
   error_details?: string;
+  /** Why the agent withheld the run duration ("rejected-endpoint" | "offset-grid"); agents from 2026-09 on. */
+  durationSuppressedReason?: string;
+  /** "verified" | "unverified": the agent judged the start/end pair itself; agents from 2026-09 on. */
+  durationProvenance?: string;
+  /** Timestamp provenance of the event's own log line (see lib/timeProvenance.ts). */
+  sourceOffsetOrigin?: string;
+  /** "true" when the line's own timestamp was rejected and the event was stamped from the clock. */
+  derivedTimestamp?: string | boolean;
 }
 
 export interface ScriptItem {
@@ -61,6 +69,14 @@ export interface ScriptItem {
    * "Reported after Xm" in the details panel, never as the run duration.
    */
   reportedAfterSeconds?: number;
+  /**
+   * Set when the run duration was withheld because the start and end log lines were resolved
+   * on different timezone assumptions — the span is then whole hours of offset error, not run
+   * time (a 10 s script read "1h 00m"). From the agent's own verdict, or from the same rule
+   * applied here to events stored before the agent carried it. Rendered as "n/a" with an
+   * explanation where the duration would be.
+   */
+  durationSuppressedReason?: string;
   state: "Running" | "Success" | "Failed";
   timestamp: string;
   bootstrapVersion?: string | null;
@@ -269,6 +285,69 @@ export function isNonCompliantReport(item: Pick<ScriptItem, "scriptType" | "scri
     && item.complianceResult === "False";
 }
 
+// Every real UTC offset is a whole number of 15-minute steps, so a span within two minutes of
+// k × 15 min (k ≥ 1) is the signature of a wrong offset on one endpoint plus seconds of run
+// time — the agent's CmTraceOffsetCalibrator.IsOnOffsetGrid, mirrored for stored events.
+const OFFSET_GRID_SECONDS = 15 * 60;
+const MAX_GRID_RESIDUAL_SECONDS = 2 * 60;
+
+/** Timestamp origins where the offset was assumed rather than declared by the writer or measured. */
+const ASSUMED_ORIGINS: ReadonlySet<string> = new Set(["reader-zone-fallback", "era-anchored", "calibrated"]);
+
+export function isOnOffsetGrid(seconds: number): boolean {
+  const magnitude = Math.abs(seconds);
+  const steps = Math.round(magnitude / OFFSET_GRID_SECONDS);
+  if (steps < 1) return false;
+  return Math.abs(magnitude - steps * OFFSET_GRID_SECONDS) <= MAX_GRID_RESIDUAL_SECONDS;
+}
+
+/**
+ * Why a final's run duration must not be shown, or null when it may. The agent's own verdict
+ * wins (durationSuppressedReason / durationProvenance). For events from agents without it the
+ * rule is applied here to the paired start line: a pair is on one timeline when both lines were
+ * measured (line-anchored, bias) or both assumed with the same applied offset; any other pair
+ * is dropped when the end line's own timestamp was rejected (its assumption is proven wrong and
+ * the stored duration inherits the error) or when the span sits on the offset grid. Provenance
+ * missing on either line (agents before 2026-08-20) leaves the value as it was.
+ */
+export function judgeDurationPair(
+  start: ScriptEventData | undefined,
+  final: ScriptEventData,
+  durationSeconds: number | undefined
+): string | null {
+  if (typeof final.durationSuppressedReason === "string" && final.durationSuppressedReason.length > 0) {
+    return final.durationSuppressedReason;
+  }
+  if (typeof final.durationProvenance === "string") return null;
+  if (durationSeconds == null || !start) return null;
+
+  const startOrigin = typeof start.sourceOffsetOrigin === "string" ? start.sourceOffsetOrigin : undefined;
+  const endOrigin = typeof final.sourceOffsetOrigin === "string" ? final.sourceOffsetOrigin : undefined;
+  if (!startOrigin || !endOrigin) return null;
+
+  const startAssumed = ASSUMED_ORIGINS.has(startOrigin);
+  const endAssumed = ASSUMED_ORIGINS.has(endOrigin);
+  const sameTimeline = (!startAssumed && !endAssumed)
+    || (startAssumed && endAssumed && toNumber(start.sourceOffsetMinutes) === toNumber(final.sourceOffsetMinutes));
+  if (sameTimeline) return null;
+
+  const endRejected = final.derivedTimestamp === "true" || final.derivedTimestamp === true;
+  if (endRejected) return "rejected-endpoint";
+  return isOnOffsetGrid(durationSeconds) ? "offset-grid" : null;
+}
+
+/** The latest start at or before `finalTimestamp` among a policy's starts (timestamp order). */
+function findPairedStart(starts: ScriptInputEvent[] | undefined, finalTimestamp: string): ScriptInputEvent | undefined {
+  if (!starts || starts.length === 0) return undefined;
+  const finalMs = new Date(finalTimestamp).getTime();
+  let paired: ScriptInputEvent | undefined;
+  for (const start of starts) {
+    if (new Date(start.timestamp).getTime() > finalMs) break;
+    paired = start;
+  }
+  return paired;
+}
+
 /**
  * 2-pass reducer:
  *   1. Sort events by timestamp; collect every script_completed / script_failed final.
@@ -295,6 +374,20 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
   // trade-off — long-running scheduled-script monitoring is out of scope for this UI.
   const finalsByKey = new Map<string, ScriptItem>();
   const policyIdsWithFinal = new Set<string>();
+
+  // script_started events per (policyId, scriptType) in timestamp order — the start line a
+  // final is paired with when its run duration is judged (see judgeDurationPair).
+  const startsByPolicy = new Map<string, ScriptInputEvent[]>();
+  for (const evt of sorted) {
+    if (evt.eventType !== "script_started") continue;
+    const d = evt.data as ScriptEventData | undefined;
+    const startPolicyId = d?.policyId ?? d?.policy_id;
+    if (!startPolicyId) continue;
+    const policyKey = `${startPolicyId}-${d?.scriptType ?? d?.script_type ?? "platform"}`;
+    const list = startsByPolicy.get(policyKey);
+    if (list) list.push(evt);
+    else startsByPolicy.set(policyKey, [evt]);
+  }
 
   for (let idx = 0; idx < sorted.length; idx++) {
     const evt = sorted[idx];
@@ -331,8 +424,13 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     const isCycleBasis = typeof rawBasis === "string"
       ? rawBasis === "cycle_including_reporting_latency"
       : scriptType === "remediation";
-    const durationSeconds = isCycleBasis ? undefined : rawDuration;
-    const reportedAfterSeconds = isCycleBasis ? rawDuration : undefined;
+    // A span across two lines resolved on different timezone assumptions is offset error, not
+    // run time — the agent's verdict when it carries one, else the same rule applied to the
+    // paired start line (session 4377911b: 10 s scripts stored as 3610 s).
+    const pairedStart = policyId ? findPairedStart(startsByPolicy.get(`${policyId}-${scriptType}`), evt.timestamp) : undefined;
+    const suppressedReason = judgeDurationPair(pairedStart?.data as ScriptEventData | undefined, d, rawDuration);
+    const durationSeconds = isCycleBasis || suppressedReason ? undefined : rawDuration;
+    const reportedAfterSeconds = !isCycleBasis || suppressedReason ? undefined : rawDuration;
 
     const remediationStatus = toNumber(d.remediationStatus ?? d.remediation_status);
     const targetType = toNumber(d.targetType ?? d.target_type);
@@ -372,6 +470,8 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       stderr,
       durationSeconds,
       reportedAfterSeconds,
+      // The note replaces the run duration only; a withheld cycle value is a detail nobody misses.
+      durationSuppressedReason: suppressedReason && !isCycleBasis ? suppressedReason : undefined,
       state: isFailureSignal ? "Failed" : "Success",
       timestamp: evt.timestamp,
       bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(stdout) : null,
@@ -389,6 +489,8 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       const loser = winner === candidate ? existing : candidate;
       winner.durationSeconds ??= loser.durationSeconds;
       winner.reportedAfterSeconds ??= loser.reportedAfterSeconds;
+      if (winner.durationSeconds != null) winner.durationSuppressedReason = undefined;
+      else winner.durationSuppressedReason ??= loser.durationSuppressedReason;
       finalsByKey.set(key, winner);
     }
   }

@@ -159,6 +159,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return true;
         }
 
+        /// <summary>
+        /// Whether a span between two resolved lines is the signature of a wrong offset on one
+        /// of them rather than of elapsed time: a zone error is always a whole number of grid
+        /// steps, so a span within <see cref="MaxGridResidual"/> of k × <see cref="OffsetGrid"/>
+        /// (k ≥ 1) reads as an offset error plus a run time of seconds. Sign is ignored — a wrong
+        /// offset on the START end produces the same magnitude with the opposite sign.
+        /// </summary>
+        internal static bool IsOnOffsetGrid(TimeSpan span, out int gridSteps)
+        {
+            var magnitude = span.Duration();
+            gridSteps = (int)Math.Round(magnitude.TotalMinutes / OffsetGrid.TotalMinutes, MidpointRounding.AwayFromZero);
+            if (gridSteps < 1) return false;
+
+            var nearest = TimeSpan.FromMinutes(gridSteps * OffsetGrid.TotalMinutes);
+            return (magnitude - nearest).Duration() <= MaxGridResidual;
+        }
+
         public bool TryCalibrate(string sourceKey, DateTime localTimestamp, DateTime agentUtcNow)
         {
             if (string.IsNullOrEmpty(sourceKey)) return false;
