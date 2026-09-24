@@ -98,6 +98,7 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   disabledReason: { section: "Tenant Status", label: "Disabled Reason", informational: true },
   disabledUntil: { section: "Tenant Status", label: "Disabled Until", kind: "date", informational: true },
   mcpDisabled: { section: "Tenant Status", label: "MCP Disabled" },
+  mcpClientRegistrationLimit: { section: "Tenant Status", label: "Self-hosted AI Client Registrations" },
   mcpDisabledReason: { section: "Tenant Status", label: "MCP Disabled Reason", informational: true },
   onboardedAt: { section: "Tenant Status", label: "Onboarded At", kind: "date", informational: true },
   onboardedBy: { section: "Tenant Status", label: "Onboarded By", informational: true },

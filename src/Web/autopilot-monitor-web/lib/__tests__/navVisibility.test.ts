@@ -224,13 +224,23 @@ describe("item and sub-item filtering", () => {
     expect(subIds(bootstrapOperator)).not.toContain("cfg-agent-unrestricted");
   });
 
-  it("self-hosted AI clients follow the platform switch and are Tenant Admin only", () => {
-    expect(subIds(flagsOf("TenantAdmin"))).not.toContain("cfg-ai-clients");
-    const switchedOn = (u: Parameters<typeof user>[0]) =>
-      deriveNavFlags({ user: user({ ...u, mcpClientRegistrationEnabled: true }), hasGlobalScope: false, hasFleetScope: false, globalAdminMode: false });
-    expect(subIds(switchedOn({ isTenantAdmin: true, role: "Admin" }))).toContain("cfg-ai-clients");
-    expect(subIds(switchedOn({ role: "Operator" }))).not.toContain("cfg-ai-clients");
-    expect(subIds(switchedOn({ role: "Viewer" }))).not.toContain("cfg-ai-clients");
+  it("AI Integration shows for admins and for anyone with MCP access, independent of the self-hosted switch", () => {
+    const flags = (u: Parameters<typeof user>[0]) =>
+      deriveNavFlags({ user: user(u), hasGlobalScope: false, hasFleetScope: false, globalAdminMode: false });
+    expect(subIds(flags({ isTenantAdmin: true, role: "Admin" }))).toContain("cfg-ai-integration");
+    expect(subIds(flags({ role: "Viewer", hasMcpAccess: true }))).toContain("cfg-ai-integration");
+    expect(subIds(flags({ role: "Operator" }))).not.toContain("cfg-ai-integration");
+    expect(subIds(flagsOf("GlobalReader+adminModeOn"))).toContain("cfg-ai-integration");
+  });
+
+  it("AI Integration sits between SLA Targets and Bootstrap Sessions", () => {
+    const ids = subIds(deriveNavFlags({
+      user: user({ isTenantAdmin: true, role: "Admin", bootstrapTokenEnabled: true }),
+      hasGlobalScope: false, hasFleetScope: false, globalAdminMode: false,
+    }));
+    const at = ids.indexOf("cfg-ai-integration");
+    expect(ids[at - 1]).toBe("cfg-sla-targets");
+    expect(ids[at + 1]).toBe("cfg-bootstrap-sessions");
   });
 });
 

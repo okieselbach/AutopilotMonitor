@@ -132,9 +132,10 @@ export function filterExpandableNavGroups(
             if (sub.id === "cfg-agent-unrestricted") {
               return flags.isAdminLike && flags.unrestrictedModeEnabled;
             }
-            // Registrations are a Tenant Admin (or Global Admin) write surface behind the platform switch.
-            if (sub.id === "cfg-ai-clients") {
-              return flags.isAdminLike && flags.mcpClientRegistrationEnabled;
+            // How to connect an AI assistant: for anyone who can use MCP, plus admins and platform scopes.
+            // The self-hosted registration part inside is Tenant Admin only and behind the platform switch.
+            if (sub.id === "cfg-ai-integration") {
+              return flags.hasMcpAccess || flags.isAdminLike || flags.hasGlobalScope;
             }
             // Tenant-admin-only sub-sections: Operators and Viewers (read-only settings
             // viewers) don't see them — matches the in-page "tenant administrators only" gates. A platform

@@ -1185,6 +1185,24 @@ function TenantManagementSectionInner({
                   <p className="mt-1 text-xs text-gray-500">Per-user limit for MCP and integration requests made on behalf of this tenant&apos;s standard users. Portal sessions use the global portal budget and are not affected. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
                 </div>
 
+                {/* Self-hosted AI client registrations (raised on request) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Self-hosted AI Client Registrations</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    placeholder="Blank = default (1)"
+                    value={editingTenant.mcpClientRegistrationLimit ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setEditingTenant({ ...editingTenant, mcpClientRegistrationLimit: v === "" ? null : (parseInt(v) || null) });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">How many self-hosted AI clients this tenant may register under Settings → Tenant → AI Integration (1–10). Leave blank for the default of one; raise it on request.</p>
+                </div>
+
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"

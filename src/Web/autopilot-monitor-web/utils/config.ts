@@ -59,6 +59,9 @@ export const BLOB_URL_PROD = "https://autopilotmonitoreu.blob.core.windows.net";
  */
 export const AGENT_DOWNLOAD_URL = "https://download.autopilotmonitor.com/agent";
 
+/** The MCP endpoint every AI client connects to. Counterpart of Constants.McpServerBaseUrl + "/mcp". */
+export const MCP_SERVER_URL = "https://mcp.autopilotmonitor.com/mcp";
+
 /**
  * Hostnames the portal accepts in a bootstrap response's agentDownloadUrl.
  * Keep in sync with ValidateBootstrapCodeFunction.cs, which builds that URL

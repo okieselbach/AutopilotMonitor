@@ -155,6 +155,13 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? McpDisabledReason { get; set; }
 
+        /// <summary>
+        /// How many self-hosted MCP client registrations this tenant may hold. Null = the platform default
+        /// (one); set by a Global Admin on request, 1-10. Global-Admin-only (UpdateTenantConfigurationFunction
+        /// GA gate, TenantConfigPatchService.GaOnlyFields).
+        /// </summary>
+        public int? McpClientRegistrationLimit { get; set; } = null;
+
         // ===== SECURITY SETTINGS =====
 
         /// <summary>
@@ -1084,6 +1091,7 @@ namespace AutopilotMonitor.Shared.Models
                 DisabledUntil = null,
                 McpDisabled = false,
                 McpDisabledReason = null,
+                McpClientRegistrationLimit = null,
                 CustomRateLimitRequestsPerMinute = null,
                 CustomUserRateLimitRequestsPerMinute = null,
                 ManufacturerWhitelist = "Dell*,HP*,Lenovo*,Microsoft Corporation",

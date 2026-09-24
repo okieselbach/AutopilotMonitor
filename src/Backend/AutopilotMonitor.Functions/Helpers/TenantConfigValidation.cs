@@ -158,6 +158,10 @@ namespace AutopilotMonitor.Functions.Helpers
             if (customLimitError != null)
                 return $"{customLimitError} override must be at least 1 request per minute (or left blank to inherit the global default).";
 
+            if (candidate.McpClientRegistrationLimit is int registrations
+                && (registrations < 1 || registrations > Services.McpClientRegistrationService.MaxRegistrationLimit))
+                return $"Self-hosted AI client registrations must be between 1 and {Services.McpClientRegistrationService.MaxRegistrationLimit} (or left blank for the default of {Services.McpClientRegistrationService.DefaultRegistrationLimit}).";
+
             var contactEmailError = ValidateContactEmail(candidate.ContactEmail);
             if (contactEmailError != null)
                 return $"Invalid contact email: {contactEmailError}";

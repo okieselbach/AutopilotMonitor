@@ -148,6 +148,7 @@ namespace AutopilotMonitor.Functions.Services
             "EnableEspContinueAnywayObservation",
             "CustomRateLimitRequestsPerMinute", "CustomUserRateLimitRequestsPerMinute",
             "MaxNdjsonPayloadSizeMB",
+            "McpClientRegistrationLimit",
         };
 
         /// <summary>

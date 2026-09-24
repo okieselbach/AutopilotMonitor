@@ -141,7 +141,7 @@ public class McpClientRegistrationTests
         public required Mock<IMaintenanceRepository> Audit { get; init; }
     }
 
-    private static Harness Build(bool enabled = true)
+    private static Harness Build(bool enabled = true, int? tenantLimit = null)
     {
         var rows = new List<McpClientRegistration>();
         var repo = new Mock<IMcpClientRegistrationRepository>();
@@ -156,7 +156,11 @@ public class McpClientRegistrationTests
         var cache = new MemoryCache(new MemoryCacheOptions());
         var adminConfig = new Mock<AdminConfigurationService>(Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache) { CallBase = false };
         adminConfig.Setup(x => x.GetConfigurationAsync()).ReturnsAsync(new AdminConfiguration { McpClientRegistrationEnabled = enabled });
-        var sut = new McpClientRegistrationService(repo.Object, audit.Object, adminConfig.Object, NullLogger<McpClientRegistrationService>.Instance);
+        var configRepo = new Mock<IConfigRepository>();
+        configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
+            .ReturnsAsync((string t) => new TenantConfiguration { TenantId = t, McpClientRegistrationLimit = t == TenantA ? tenantLimit : null });
+        var tenantConfig = new TenantConfigurationService(configRepo.Object, NullLogger<TenantConfigurationService>.Instance, cache);
+        var sut = new McpClientRegistrationService(repo.Object, audit.Object, adminConfig.Object, tenantConfig, NullLogger<McpClientRegistrationService>.Instance);
         return new Harness { Sut = sut, Repo = repo, Audit = audit };
     }
 
@@ -189,22 +193,39 @@ public class McpClientRegistrationTests
     }
 
     [Fact]
-    public async Task Create_EnforcesTheCap_AndRefusesADuplicateCallback()
+    public async Task Create_AllowsOneRegistrationByDefault_PerTenant()
     {
         var h = Build();
+
+        Assert.Equal(HttpStatusCode.Created, (await h.Sut.CreateAsync(TenantA, "chat", Callback, "a")).Status);
+        var second = await h.Sut.CreateAsync(TenantA, "chat 2", "https://chat2.contoso.example/cb", "a");
+        var otherTenant = await h.Sut.CreateAsync(TenantB, "chat", Callback, "b");
+
+        Assert.Equal(HttpStatusCode.Conflict, second.Status);
+        Assert.Contains("raise the limit", second.Error);
+        Assert.Equal(HttpStatusCode.Created, otherTenant.Status); // the limit and the duplicate check are per tenant
+        Assert.Equal(1, await h.Sut.GetLimitAsync(TenantA));
+    }
+
+    [Fact]
+    public async Task AGlobalAdminOverride_RaisesTheLimit_AndDuplicatesStayRefused()
+    {
+        var h = Build(tenantLimit: 3);
+        Assert.Equal(3, await h.Sut.GetLimitAsync(TenantA.ToUpperInvariant()));
         for (var i = 0; i < 3; i++)
             Assert.Equal(HttpStatusCode.Created, (await h.Sut.CreateAsync(TenantA, $"chat {i}", $"https://chat{i}.contoso.example/cb", "a")).Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await h.Sut.CreateAsync(TenantA, "chat 4", "https://chat4.contoso.example/cb", "a")).Status);
 
-        var fourth = await h.Sut.CreateAsync(TenantA, "chat 4", "https://chat4.contoso.example/cb", "a");
-        var otherTenant = await h.Sut.CreateAsync(TenantB, "chat", "https://chat0.contoso.example/cb", "b");
-
-        Assert.Equal(HttpStatusCode.Conflict, fourth.Status);
-        Assert.Equal(HttpStatusCode.Created, otherTenant.Status); // the cap and the duplicate check are per tenant
-
-        var dup = Build();
+        var dup = Build(tenantLimit: 3);
         await dup.Sut.CreateAsync(TenantA, "one", Callback, "a");
         Assert.Equal(HttpStatusCode.Conflict, (await dup.Sut.CreateAsync(TenantA, "two", Callback.ToUpperInvariant(), "a")).Status);
     }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(50, 10)]
+    public async Task AnOutOfRangeOverride_IsClamped(int stored, int effective)
+        => Assert.Equal(effective, await Build(tenantLimit: stored).Sut.GetLimitAsync(TenantA));
 
     [Fact]
     public async Task Create_ValidatesBeforeStoring()

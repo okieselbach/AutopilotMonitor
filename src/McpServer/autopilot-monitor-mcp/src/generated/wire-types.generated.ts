@@ -4743,6 +4743,8 @@ export interface TenantConfiguration {
   mcpDisabled: boolean;
   /** Optional reason why MCP access was disabled. Shown to the caller in the 403 response. */
   mcpDisabledReason?: string | null;
+  /** How many self-hosted MCP client registrations this tenant may hold. Null = the platform default (one); set by a Global Admin on request, 1-10. Global-Admin-only (UpdateTenantConfigurationFunction GA gate, TenantConfigPatchService.GaOnlyFields). */
+  mcpClientRegistrationLimit?: number | null;
   /** Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate). */
   customRateLimitRequestsPerMinute?: number | null;
   /** Optional per-tenant override for the user (portal/JWT) API rate limit applied to standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the global AdminConfiguration.UserRateLimitRequestsPerMinute. Global-Admin-only. Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute (cross-tenant), so this override does not apply to them. */

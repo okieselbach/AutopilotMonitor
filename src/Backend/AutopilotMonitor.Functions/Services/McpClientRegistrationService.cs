@@ -13,7 +13,10 @@ namespace AutopilotMonitor.Functions.Services;
 /// </summary>
 public class McpClientRegistrationService
 {
-    public const int MaxRegistrationsPerTenant = 3;
+    /// <summary>Registrations a tenant may hold unless a Global Admin raised its limit on request.</summary>
+    public const int DefaultRegistrationLimit = 1;
+    /// <summary>Upper bound of the per-tenant override (<c>TenantConfiguration.McpClientRegistrationLimit</c>).</summary>
+    public const int MaxRegistrationLimit = 10;
     public const int MaxNameLength = 64;
     /// <summary>Mirrors the MCP proxy's redirect_uri length limit (oauth-limits.ts).</summary>
     public const int MaxRedirectUriLength = 1024;
@@ -25,18 +28,28 @@ public class McpClientRegistrationService
     private readonly IMcpClientRegistrationRepository _repo;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly AdminConfigurationService _adminConfigService;
+    private readonly TenantConfigurationService _tenantConfigService;
     private readonly ILogger<McpClientRegistrationService> _logger;
 
     public McpClientRegistrationService(
         IMcpClientRegistrationRepository repo,
         IMaintenanceRepository maintenanceRepo,
         AdminConfigurationService adminConfigService,
+        TenantConfigurationService tenantConfigService,
         ILogger<McpClientRegistrationService> logger)
     {
         _repo = repo;
         _maintenanceRepo = maintenanceRepo;
         _adminConfigService = adminConfigService;
+        _tenantConfigService = tenantConfigService;
         _logger = logger;
+    }
+
+    /// <summary>The tenant's registration limit: its Global-Admin override, else the default of one.</summary>
+    public virtual async Task<int> GetLimitAsync(string tenantId)
+    {
+        var (config, _) = await _tenantConfigService.TryGetConfigurationAsync(tenantId.ToLowerInvariant());
+        return config.McpClientRegistrationLimit is int limit && limit >= 1 ? Math.Min(limit, MaxRegistrationLimit) : DefaultRegistrationLimit;
     }
 
     /// <summary>The operator switch (5-minute cached admin configuration).</summary>
@@ -95,8 +108,10 @@ public class McpClientRegistrationService
         var tenant = tenantId.ToLowerInvariant();
         var callback = redirectUri!.Trim();
         var existing = await _repo.GetForTenantAsync(tenant);
-        if (existing.Count >= MaxRegistrationsPerTenant)
-            return McpClientRegistrationResult.Fail(HttpStatusCode.Conflict, $"A tenant can register at most {MaxRegistrationsPerTenant} self-hosted clients. Delete one first.");
+        var limit = await GetLimitAsync(tenant);
+        if (existing.Count >= limit)
+            return McpClientRegistrationResult.Fail(HttpStatusCode.Conflict,
+                $"This tenant can register {limit} self-hosted AI client{(limit == 1 ? "" : "s")}. Delete one first, or ask us to raise the limit.");
         if (existing.Any(r => string.Equals(r.RedirectUri, callback, StringComparison.OrdinalIgnoreCase)))
             return McpClientRegistrationResult.Fail(HttpStatusCode.Conflict, "This callback URL is already registered.");
 

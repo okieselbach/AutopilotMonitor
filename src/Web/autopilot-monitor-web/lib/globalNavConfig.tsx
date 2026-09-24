@@ -210,11 +210,11 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         items: [
           { id: "cfg-access-mgmt", label: "Access Management", href: route("/settings/tenant/access-management") },
           { id: "cfg-delegations", label: "Delegated Access", href: route("/settings/tenant/delegations") },
-          { id: "cfg-ai-clients", label: "Self-hosted AI clients", href: route("/settings/tenant/ai-clients") },
           { id: "cfg-autopilot", label: "Autopilot Validation", href: route("/settings/tenant/autopilot") },
           { id: "cfg-hardware", label: "Hardware Whitelist", href: route("/settings/tenant/hardware-whitelist") },
           { id: "cfg-notifications", label: "Notifications", href: route("/settings/tenant/notifications") },
           { id: "cfg-sla-targets", label: "SLA Targets", href: route("/settings/tenant/sla-targets") },
+          { id: "cfg-ai-integration", label: "AI Integration", href: route("/settings/tenant/ai-integration") },
           { id: "cfg-bootstrap-sessions", label: "Bootstrap Sessions", href: route("/settings/tenant/bootstrap-sessions") },
           { id: "cfg-graph-permissions", label: "Optional Graph capabilities", href: route("/settings/tenant/graph-permissions") },
           { id: "cfg-support", label: "Submit Logs", href: route("/settings/tenant/support") },

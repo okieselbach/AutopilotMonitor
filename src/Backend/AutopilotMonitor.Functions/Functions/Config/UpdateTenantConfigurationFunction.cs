@@ -128,7 +128,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
-                        config.McpDisabled != existingConfig.McpDisabled)
+                        config.McpDisabled != existingConfig.McpDisabled ||
+                        config.McpClientRegistrationLimit != existingConfig.McpClientRegistrationLimit)
                     {
                         _logger.LogWarning(
                             "Tenant Admin {User} attempted to modify GA-only fields for tenant {TenantId}",
@@ -148,6 +149,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.DisabledReason = existingConfig.DisabledReason;
                     config.DisabledUntil = existingConfig.DisabledUntil;
                     config.McpDisabled = existingConfig.McpDisabled;
+                    config.McpClientRegistrationLimit = existingConfig.McpClientRegistrationLimit;
                     config.McpDisabledReason = existingConfig.McpDisabledReason;
                 }
 

@@ -136,6 +136,7 @@
       "disabledUntil",
       "mcpDisabled",
       "mcpDisabledReason",
+      "mcpClientRegistrationLimit",
       "customRateLimitRequestsPerMinute",
       "customUserRateLimitRequestsPerMinute",
       "planTier",
@@ -241,6 +242,7 @@
       "disabledUntil": null,
       "mcpDisabled": false,
       "mcpDisabledReason": null,
+      "mcpClientRegistrationLimit": null,
       "customRateLimitRequestsPerMinute": null,
       "customUserRateLimitRequestsPerMinute": null,
       "planTier": "free",
@@ -21724,6 +21726,16 @@
           },
           "optional": true,
           "doc": "Optional reason why MCP access was disabled. Shown to the caller in the 403 response."
+        },
+        {
+          "name": "mcpClientRegistrationLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "How many self-hosted MCP client registrations this tenant may hold. Null = the platform default (one); set by a Global Admin on request, 1-10. Global-Admin-only (UpdateTenantConfigurationFunction GA gate, TenantConfigPatchService.GaOnlyFields)."
         },
         {
           "name": "customRateLimitRequestsPerMinute",

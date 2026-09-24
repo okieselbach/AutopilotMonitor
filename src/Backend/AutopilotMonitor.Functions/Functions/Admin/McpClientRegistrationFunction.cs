@@ -50,7 +50,7 @@ public class McpClientRegistrationFunction
         return await req.OkAsync(new McpClientRegistrationListResponse
         {
             Enabled = await _service.IsEnabledAsync(),
-            MaxRegistrations = McpClientRegistrationService.MaxRegistrationsPerTenant,
+            MaxRegistrations = await _service.GetLimitAsync(requestCtx.TargetTenantId),
             ServerUrl = $"{Constants.McpServerBaseUrl}/mcp",
             Registrations = registrations.Select(ToItem).ToList(),
         });

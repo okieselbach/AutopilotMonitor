@@ -1,11 +1,11 @@
 export const TENANT_NAV_SECTIONS = [
   { id: "access-management", label: "Access Management", description: "Manage tenant admins and operators" },
   { id: "delegations", label: "Delegated Access", description: "Who can read your tenant, and the tenants you manage (MSP)" },
-  { id: "ai-clients", label: "Self-hosted AI clients", description: "Connect an AI client your organization runs itself" },
   { id: "autopilot", label: "Autopilot Validation", description: "Autopilot device and corporate identifier validation" },
   { id: "hardware-whitelist", label: "Hardware Whitelist", description: "Manufacturer and model whitelist configuration" },
   { id: "notifications", label: "Notifications", description: "Webhook notification configuration" },
   { id: "sla-targets", label: "SLA Targets", description: "SLA targets and breach notification settings" },
+  { id: "ai-integration", label: "AI Integration", description: "Connect AI assistants and self-hosted AI clients through MCP" },
   { id: "bootstrap-sessions", label: "Bootstrap Sessions", description: "Create and manage bootstrap tokens" },
   { id: "graph-permissions", label: "Optional Graph capabilities", description: "Grant additional Microsoft Graph permissions for optional features" },
   { id: "support", label: "Submit Logs", description: "Send diagnostic files to the Autopilot Monitor team" },
