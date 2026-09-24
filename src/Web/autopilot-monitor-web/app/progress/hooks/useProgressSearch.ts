@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/appInsights";
 import { Session } from "@/types";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
 import type { ProgressLookupSessionResponse } from "@/utils/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
+import { readSerialParam, withSerialParam } from "./serialDeepLink";
 
 type AddNotification = (
   type: NotificationType,
@@ -43,6 +44,8 @@ export interface UseProgressSearchReturn {
  *    server-side; the tenant-wide list never reaches the browser)
  *  - exposes `setSession` so real-time refetch can replace the selected session
  *  - auto-collapses header on match, raises notFound on miss or error
+ *  - runs one lookup for a `?serial=` deep link once the tenant is known, and mirrors every
+ *    hit back into the URL as `?serial=<serial>` so reload, bookmark and a copied link work
  */
 export function useProgressSearch({
   tenantId,
@@ -57,10 +60,12 @@ export function useProgressSearch({
   const [notFound, setNotFound] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
-  const searchBySerial = useCallback(async () => {
-    if (!serialInput.trim()) return;
+  const runSearch = useCallback(async (rawTerm: string, source: "form" | "link") => {
+    const term = rawTerm.trim();
+    if (!term) return;
 
-    trackEvent("progress_serial_submitted");
+    trackEvent("progress_serial_submitted", { source });
+    setSerialInput(term);
     setSearching(true);
     setSearched(true);
     setNotFound(false);
@@ -70,7 +75,7 @@ export function useProgressSearch({
     try {
       let data: ProgressLookupSessionResponse;
       try {
-        data = await fetchJson<ProgressLookupSessionResponse>(api.progress.lookup(tenantId, serialInput.trim()), getAccessToken);
+        data = await fetchJson<ProgressLookupSessionResponse>(api.progress.lookup(tenantId, term), getAccessToken);
       } catch (err) {
         if (!(err instanceof ApiError)) throw err;
         notifyApiError(addNotification, "Backend Error", err, "progress-search-error", "Search failed.");
@@ -82,6 +87,12 @@ export function useProgressSearch({
       if (found) {
         setSession(found);
         setHeaderCollapsed(true);
+        // The serial, not the typed term: a member's partial term or a device name would
+        // not resolve for a roleless user the link is forwarded to.
+        const search = withSerialParam(window.location.search, found.serialNumber?.trim() || term);
+        if (search !== window.location.search) {
+          window.history.replaceState(null, "", window.location.pathname + search + window.location.hash);
+        }
       } else {
         setNotFound(true);
       }
@@ -97,7 +108,22 @@ export function useProgressSearch({
     } finally {
       setSearching(false);
     }
-  }, [serialInput, tenantId, getAccessToken, addNotification, onBeforeSearch]);
+  }, [tenantId, getAccessToken, addNotification, onBeforeSearch]);
+
+  const searchBySerial = useCallback(() => runSearch(serialInput, "form"), [runSearch, serialInput]);
+
+  // Deep link: one lookup per page load, once sign-in has resolved the tenant.
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (!tenantId || deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+    const linked = readSerialParam(window.location.search);
+    if (!linked) return;
+    const run = async () => {
+      await runSearch(linked, "link");
+    };
+    void run();
+  }, [tenantId, runSearch]);
 
   return {
     serialInput,
