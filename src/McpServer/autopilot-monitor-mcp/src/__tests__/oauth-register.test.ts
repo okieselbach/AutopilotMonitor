@@ -84,6 +84,12 @@ describe('/.well-known/oauth-authorization-server — RFC 8414 metadata', () => 
     expect(json.issuer).toBe(baseUrl);
     expect(json.authorization_response_iss_parameter_supported).toBe(true);
   });
+
+  it('advertises public clients only, so clients never pick a secret-based token auth method', async () => {
+    const res = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.token_endpoint_auth_methods_supported).toEqual(['none']);
+  });
 });
 
 describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
@@ -97,6 +103,19 @@ describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
     expect(json.redirect_uris).toEqual(['http://localhost:54321/callback']);
     // RFC 7591 default for a public client.
     expect(json.token_endpoint_auth_method).toBe('none');
+  });
+
+  it('answers a requested secret-based auth method with none and issues no secret', async () => {
+    // A self-hosted client following the RFC 8414 default registers with client_secret_basic;
+    // echoing it back made the client demand a secret at the token endpoint.
+    const { status, json } = await register({
+      client_name: 'Self-hosted client',
+      redirect_uris: ['http://localhost:3080/api/mcp/example/oauth/callback'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    });
+    expect(status).toBe(201);
+    expect(json.token_endpoint_auth_method).toBe('none');
+    expect(json.client_secret).toBeUndefined();
   });
 
   it('registers a VS Code client (loopback + vscode.dev redirect) — GitHub Copilot DCR', async () => {

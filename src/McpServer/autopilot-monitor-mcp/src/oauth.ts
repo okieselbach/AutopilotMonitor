@@ -581,6 +581,10 @@ export function createOAuthRouter(): Router {
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
+      // Every client of this proxy is public (PKCE); it issues no client secrets. Without this
+      // field RFC 8414 implies client_secret_basic, and clients that follow it (LibreChat) register
+      // with a secret method and then fail the token exchange for lack of a secret.
+      token_endpoint_auth_methods_supported: ['none'],
       // MCP spec 2026-07-28 client registration: clients that support Client ID
       // Metadata Documents pick them over dynamic registration when this flag
       // is present (cimd.ts resolves the document at /oauth/authorize).
@@ -602,7 +606,7 @@ export function createOAuthRouter(): Router {
   // registration itself, an org-wide auth DoS. The .well-known discovery docs
   // stay unthrottled (static JSON, no outbound work, no logging).
   router.post('/oauth/register', oauthRateLimit, (req, res) => {
-    const { client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method } = req.body ?? {};
+    const { client_name, redirect_uris, grant_types, response_types } = req.body ?? {};
 
     // Field-level bounds — backstop the route-level body-size limit. The
     // parser caps total body bytes; these caps stop a single registration
@@ -671,7 +675,10 @@ export function createOAuthRouter(): Router {
       redirect_uris: uris,
       grant_types: grant_types ?? ['authorization_code', 'refresh_token'],
       response_types: response_types ?? ['code'],
-      token_endpoint_auth_method: token_endpoint_auth_method ?? 'none',
+      // Always 'none', whatever was requested: no secret is ever issued (RFC 7591 §3.2.1 lets the
+      // server replace a requested value). Echoing a secret-based method made SDK clients demand a
+      // client_secret at the token endpoint that does not exist.
+      token_endpoint_auth_method: 'none',
     });
   });
 
