@@ -1,8 +1,8 @@
 # CodeQL configuration.
 #
-# The default query suites stay active — this file only filters out two C# queries
-# that fire structurally on this codebase, where the flagged behavior is the feature,
-# not a defect:
+# The default query suites stay active — this file only filters out queries that
+# fire structurally on this codebase, where the flagged behavior is the feature
+# or the protection exists in a form the query cannot see:
 #
 #   cs/exposure-of-sensitive-information
 #     Audit and operational logs record WHO performed an action (actor UPN / email)
@@ -15,10 +15,20 @@
 #     key. The IP is an identifier for throttling, not a secret at rest; storing it in
 #     the in-memory / table rate-limit key is by design.
 #
+#   js/missing-rate-limiting
+#     Only the MCP server has Express routes. Every one that does work is throttled by
+#     our own limiters (oauthRateLimit / oauthTokenRateLimit on /oauth/*, accessGuard
+#     on /mcp); /health and the OAuth discovery documents return static JSON.
+#     The query only recognizes limiters from npm packages (express-rate-limit and
+#     similar) and flags a route handler as soon as it calls a function named
+#     like *auth*, *login* or *verify*. So it reports throttled and unthrottled
+#     routes the same way, and every alert it ever raised was a false positive. The
+#     coverage check it stood in for is a test: every OAuth router route must carry
+#     a limiter or be named as exempt (MCP oauth-rate-limit.test.ts).
+#
 # Genuine one-off false positives from OTHER queries (e.g. an open-redirect the taint
-# model can't see is allow-listed, a rate-limited route it doesn't recognize) are
-# dismissed individually in the Security tab so those queries stay sharp — they are
-# NOT suppressed here.
+# model can't see is allow-listed) are dismissed individually in the Security tab so
+# those queries stay sharp — they are NOT suppressed here.
 #
 # Log-injection (cs/log-forging) is deliberately NOT filtered: user-controlled values
 # are sanitized at the sink via Helpers/LogSanitizer, so the query stays useful for
@@ -29,3 +39,5 @@ query-filters:
       id: cs/exposure-of-sensitive-information
   - exclude:
       id: cs/cleartext-storage-of-sensitive-information
+  - exclude:
+      id: js/missing-rate-limiting

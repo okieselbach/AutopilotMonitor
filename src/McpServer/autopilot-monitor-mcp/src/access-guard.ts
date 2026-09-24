@@ -394,7 +394,8 @@ function respondRateLimited(res: Response, kind: RateLimitKind, key: string, rpc
  * map keyed `${kind}:${ip}` so the two surfaces cannot starve each other and
  * the strict token budget stays independent of the general one. Applied
  * per-route inside createOAuthRouter so any future /oauth endpoint must opt in
- * consciously rather than inherit silence.
+ * consciously rather than inherit silence — oauth-rate-limit.test.ts fails any
+ * router route that has no limiter and is not a named exemption (D-281).
  */
 function makeOAuthIpLimiter(kind: 'oauth' | 'oauth-token', limit: number) {
   return (req: Request, res: Response, next: NextFunction): void => {

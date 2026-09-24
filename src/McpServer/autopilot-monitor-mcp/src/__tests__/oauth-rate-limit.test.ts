@@ -10,6 +10,10 @@
  * suites. No network is reached: every request fails validation (unsupported
  * grant / missing code) before the handler would call Entra, and the limiter
  * runs before the handler anyway.
+ *
+ * The last suite is the coverage check CodeQL's js/missing-rate-limiting stood
+ * in for (excluded, D-281): it cannot recognize these limiters, so every route
+ * of the OAuth router must carry one or be named as exempt here.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -20,6 +24,7 @@ process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000'
 process.env.MCP_OAUTH_RATE_LIMIT_PER_MINUTE = '3';
 process.env.MCP_OAUTH_TOKEN_RATE_LIMIT_PER_MINUTE = '2';
 const { createOAuthRouter } = await import('../oauth.js');
+const { oauthRateLimit, oauthTokenRateLimit } = await import('../access-guard.js');
 
 let server: Server;
 let baseUrl: string;
@@ -87,5 +92,46 @@ describe('/oauth/* per-source-IP rate limiting (R-3)', () => {
     // proving the two 429s come from distinct buckets rather than one shared
     // counter (which would have tripped far earlier).
     expect((await token()).status).toBe(429);
+  });
+});
+
+describe('every OAuth router route is throttled (D-281)', () => {
+  // The discovery documents are the only exemption: static JSON built from config and the request
+  // host, no outbound call, no state, no logging. Anything else needs a limiter as its first handler.
+  const UNTHROTTLED = [
+    'GET /.well-known/oauth-protected-resource/mcp',
+    'GET /.well-known/oauth-protected-resource',
+    'GET /.well-known/oauth-authorization-server',
+  ];
+
+  /** Each route of the OAuth router as `METHOD path` → the handler that runs first. */
+  function firstHandlers(): Map<string, unknown> {
+    const routes = new Map<string, unknown>();
+    for (const layer of createOAuthRouter().stack) {
+      // A router.use() middleware has no route and would escape the check below.
+      expect(layer.route, 'the OAuth router mounts routes only').toBeDefined();
+      for (const handler of layer.route!.stack) {
+        const key = `${(handler.method ?? 'all').toUpperCase()} ${layer.route!.path}`;
+        if (!routes.has(key)) routes.set(key, handler.handle);
+      }
+    }
+    return routes;
+  }
+
+  it('runs a per-IP limiter before every handler except the discovery documents', () => {
+    const routes = firstHandlers();
+    // Introspection sanity: the known surface is found (an Express upgrade that moves the stack fails here).
+    expect([...routes.keys()]).toEqual(expect.arrayContaining([
+      ...UNTHROTTLED, 'POST /oauth/register', 'GET /oauth/authorize', 'GET /oauth/callback', 'POST /oauth/token',
+    ]));
+
+    const unthrottled = [...routes].filter(([key, first]) =>
+      !UNTHROTTLED.includes(key) && first !== oauthRateLimit && first !== oauthTokenRateLimit,
+    ).map(([key]) => key);
+    expect(unthrottled).toEqual([]);
+  });
+
+  it('gives /oauth/token the strict budget — it is the route that calls Entra with the client secret', () => {
+    expect(firstHandlers().get('POST /oauth/token')).toBe(oauthTokenRateLimit);
   });
 });
