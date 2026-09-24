@@ -250,7 +250,8 @@ public class McpUserFunction
         // the identity binding (never the UPN alone); the delegated seat additionally requires a Pro home tenant.
         // The token's app roles feed the AllMembers member check (claim-derived Admin/Operator when the tenant opted in).
         var result = await _mcpUserService.IsAllowedAsync(
-            upn, principal?.GetTenantId(), principal?.GetObjectId(), principal?.GetAppRoles());
+            upn, principal?.GetTenantId(), principal?.GetObjectId(), principal?.GetAppRoles(),
+            principal?.IsClientCapped() ?? false);
 
         if (result.IsAllowed && principal != null && principal.IsApplicationPrincipal())
             ObserveApplicationSession(principal, result);

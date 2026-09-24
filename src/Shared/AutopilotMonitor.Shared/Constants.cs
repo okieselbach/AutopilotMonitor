@@ -307,6 +307,11 @@ namespace AutopilotMonitor.Shared
             public const string InsufficientPermissions = "InsufficientPermissions";
             public const string CrossTenantAccessDenied = "CrossTenantAccessDenied";
             public const string TenantSuspended = "TenantSuspended";
+            /// <summary>
+            /// 403 while client-app binding is enforced: a delegated token obtained by an application that
+            /// is neither one of the platform's own registrations nor an enabled member of the caller's tenant.
+            /// </summary>
+            public const string ClientAppNotRegistered = "ClientAppNotRegistered";
 
             // ── MCP quota (McpQuotaEnforcementMiddleware) ──
             public const string QuotaExceeded = "QuotaExceeded";

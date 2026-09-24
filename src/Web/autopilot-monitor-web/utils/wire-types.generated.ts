@@ -140,6 +140,8 @@ export interface AdminConfiguration {
   diagnosticsDownloadTimeoutSeconds: number;
   /** Controls who can access the remote MCP server (evaluated by McpUserService.IsAllowedAsync). "Disabled" = MCP off for everyone, platform roles included. "WhitelistOnly" = platform roles, delegated (MSP) admins and enabled McpUsers rows (default). "AllMembers" = the same grants plus every account holding an effective member role (Admin / Operator / Viewer) in the tenant its token was issued for — never "any authenticated token": an employee without a role, or a tenant that never onboarded, is denied. An explicitly disabled McpUsers row denies under every policy. */
   mcpAccessPolicy: string;
+  /** Client-app binding of delegated tokens. A user token obtained by an application other than the platform's own registrations (a self-hosted AI client, an in-house tool) is always measured. When true it is also enforced: the token is accepted only while that application is an enabled member of the caller's tenant, and the caller then has at most Viewer rights, no platform role and at most DelegatedReader on managed tenants. Default false: measure only. */
+  enforceClientAppBinding: boolean;
   /** NVD API key for higher rate limits (50 req/30s vs 5 req/30s without key). Free registration at https://nvd.nist.gov/developers/request-an-api-key null = operate without API key (slower, still functional). */
   nvdApiKey: string;
   /** JSON-serialized list of OpsAlertRule objects defining which event types trigger notifications. Provider-agnostic — rules apply to all enabled providers. */

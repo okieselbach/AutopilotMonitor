@@ -169,11 +169,8 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // EntraId:AdditionalClientIds. Folding the legacy id in here means configuring the
             // legacy pair alone is sufficient for inbound trust — no separate AdditionalClientIds
             // entry required. All extra sources unset ⇒ exactly the primary id ⇒ zero change.
-            var additionalClientIdsRaw = CombineAdditionalClientIdSources(
-                _configuration["EntraId:LegacyClientId"],
-                _configuration["EntraId:AdditionalClientIds"]);
-            var clientIds = ResolveConfiguredClientIds(
-                _configuration["EntraId:ClientId"], additionalClientIdsRaw, out var rejectedAdditionalEntries);
+            var clientIds = ResolveTrustedClientIds(
+                _configuration, out var additionalClientIdsRaw, out var rejectedAdditionalEntries);
             AuditClientIdTrustSet(additionalClientIdsRaw, clientIds, rejectedAdditionalEntries);
             var validationParameters = BuildTokenValidationParameters(
                 openIdConfig.SigningKeys, clientIds);
@@ -383,6 +380,21 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     {
         var nonEmpty = sources.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim()).ToArray();
         return nonEmpty.Length > 0 ? string.Join(",", nonEmpty) : null;
+    }
+
+    /// <summary>
+    /// The platform's own app registrations: the audience trust set of this middleware, and the set
+    /// <see cref="ClientAppBindingMiddleware"/> treats as "not foreign". One resolver so the two can never
+    /// disagree about which applications are ours.
+    /// </summary>
+    internal static string[] ResolveTrustedClientIds(
+        IConfiguration configuration, out string? additionalClientIdsRaw, out string[] rejectedAdditionalEntries)
+    {
+        additionalClientIdsRaw = CombineAdditionalClientIdSources(
+            configuration["EntraId:LegacyClientId"],
+            configuration["EntraId:AdditionalClientIds"]);
+        return ResolveConfiguredClientIds(
+            configuration["EntraId:ClientId"], additionalClientIdsRaw, out rejectedAdditionalEntries);
     }
 
     internal static string[] ResolveConfiguredClientIds(

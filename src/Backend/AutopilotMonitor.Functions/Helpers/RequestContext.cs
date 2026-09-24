@@ -25,6 +25,12 @@ public sealed record RequestContext
     public string ObjectId { get; init; } = string.Empty;
 
     /// <summary>
+    /// True when the caller's token was obtained by a foreign client application that the client-app
+    /// binding admitted; <see cref="Security.AdminIdentity.FromRequestContext"/> carries it into every cap.
+    /// </summary>
+    public bool ClientCapped { get; init; }
+
+    /// <summary>
     /// Stable identity of the authenticated caller, for THROTTLING keys only — never authorization,
     /// never audit (use <see cref="UserPrincipalName"/> there; this may be a bare object id).
     /// <para>

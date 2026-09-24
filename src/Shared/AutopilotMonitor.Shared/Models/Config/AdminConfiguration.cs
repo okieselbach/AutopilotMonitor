@@ -223,6 +223,15 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string McpAccessPolicy { get; set; } = nameof(Models.McpAccessPolicy.WhitelistOnly);
 
+        /// <summary>
+        /// Client-app binding of delegated tokens. A user token obtained by an application other than the
+        /// platform's own registrations (a self-hosted AI client, an in-house tool) is always measured.
+        /// When true it is also enforced: the token is accepted only while that application is an enabled
+        /// member of the caller's tenant, and the caller then has at most Viewer rights, no platform role
+        /// and at most DelegatedReader on managed tenants. Default false: measure only.
+        /// </summary>
+        public bool EnforceClientAppBinding { get; set; } = false;
+
         // ===== VULNERABILITY CORRELATION SETTINGS =====
 
         /// <summary>

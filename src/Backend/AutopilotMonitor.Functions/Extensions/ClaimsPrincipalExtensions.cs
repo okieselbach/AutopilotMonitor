@@ -75,6 +75,18 @@ public static class ClaimsPrincipalExtensions
         => string.Equals(principal.FindFirst("idtyp")?.Value, "app", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// True for a delegated token from a foreign client application that the client-app binding admitted
+    /// (<see cref="Security.ClientAppBinding"/>): the person keeps their identity, but is capped like an
+    /// application principal.
+    /// </summary>
+    public static bool IsClientCapped(this ClaimsPrincipal principal)
+        => Security.ClientAppBinding.IsCapped(principal);
+
+    /// <summary>Application principal or admitted foreign client: the callers every application cap applies to.</summary>
+    public static bool IsCappedPrincipal(this ClaimsPrincipal principal)
+        => principal.IsApplicationPrincipal() || principal.IsClientCapped();
+
+    /// <summary>
     /// The caller's rate-limit budget class (<see cref="Security.ThrottleSurface"/>), from signed claims
     /// only: <c>appidacr</c> (v1.0) / <c>azpacr</c> (v2.0) say how the CLIENT authenticated — <c>0</c> is a
     /// public client (the portal SPA, PKCE), <c>1</c> a client secret, <c>2</c> a certificate (the MCP

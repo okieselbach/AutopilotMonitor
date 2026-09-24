@@ -29,6 +29,8 @@ interface AdminConfigSettingsSectionProps {
   setSlaNotificationCooldownHours: (value: number) => void;
   allowAgentDowngrade: boolean;
   setAllowAgentDowngrade: (value: boolean) => void;
+  enforceClientAppBinding: boolean;
+  setEnforceClientAppBinding: (value: boolean) => void;
   modernDeploymentHarmlessEventIds: string;
   setModernDeploymentHarmlessEventIds: (value: string) => void;
   sessionDeletionKillSwitch: boolean;
@@ -71,6 +73,8 @@ export function AdminConfigSettingsSection({
   setSlaNotificationCooldownHours,
   allowAgentDowngrade,
   setAllowAgentDowngrade,
+  enforceClientAppBinding,
+  setEnforceClientAppBinding,
   modernDeploymentHarmlessEventIds,
   setModernDeploymentHarmlessEventIds,
   sessionDeletionKillSwitch,
@@ -304,6 +308,23 @@ export function AdminConfigSettingsSection({
                   <span className="text-indigo-900 dark:text-indigo-100 font-medium">Allow agent downgrade</span>
                   <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
                     When <strong>off</strong> (default), the agent&apos;s self-updater refuses to install a version strictly lower than the one it is currently running — including via the runtime hash-mismatch force path. Protects dev/pre-release builds from being replaced by the production <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">version.json</code>. Turn on only for controlled rollback scenarios, then turn off again.
+                  </p>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enforceClientAppBinding}
+                  onChange={(e) => setEnforceClientAppBinding(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-green-600 focus:ring-green-500"
+                />
+                <span>
+                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">Enforce client-app binding</span>
+                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
+                    Applies to user tokens that an application other than Autopilot Monitor obtained, for example a self-hosted AI client using on-behalf-of. Portal and MCP sign-ins are never affected. When{" "}<strong>off</strong>{" "}(default), such requests are only measured (request dimensions{" "}<code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ClientAppBinding</code>{" "}and{" "}<code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ClientAppId</code>). When{" "}<strong>on</strong>, they are accepted only if the tenant added that application as a service principal member, and the user then has read-only access. Switching takes effect within five minutes.
                   </p>
                 </span>
               </label>

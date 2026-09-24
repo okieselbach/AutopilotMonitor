@@ -66,6 +66,8 @@ interface AdminConfigContextValue {
   setSlaNotificationCooldownHours: (value: number) => void;
   allowAgentDowngrade: boolean;
   setAllowAgentDowngrade: (value: boolean) => void;
+  enforceClientAppBinding: boolean;
+  setEnforceClientAppBinding: (value: boolean) => void;
   modernDeploymentHarmlessEventIds: string;
   setModernDeploymentHarmlessEventIds: (value: string) => void;
   sessionDeletionKillSwitch: boolean;
@@ -175,6 +177,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [opsEventRetentionDays, setOpsEventRetentionDays] = useState(90);
   const [slaNotificationCooldownHours, setSlaNotificationCooldownHours] = useState(24);
   const [allowAgentDowngrade, setAllowAgentDowngrade] = useState(false);
+  const [enforceClientAppBinding, setEnforceClientAppBinding] = useState(false);
   const [modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds] = useState("100, 1005, 1010");
   const [sessionDeletionKillSwitch, setSessionDeletionKillSwitch] = useState(false);
   const [autoApproveNewTenants, setAutoApproveNewTenants] = useState(false);
@@ -242,6 +245,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setOpsEventRetentionDays(data.opsEventRetentionDays ?? 90);
         setSlaNotificationCooldownHours(data.slaNotificationCooldownHours ?? 24);
         setAllowAgentDowngrade(data.allowAgentDowngrade ?? false);
+        setEnforceClientAppBinding(data.enforceClientAppBinding ?? false);
         setModernDeploymentHarmlessEventIds(parseHarmlessEventIdsJson(data.modernDeploymentHarmlessEventIdsJson));
         setSessionDeletionKillSwitch(data.sessionDeletionKillSwitch ?? false);
         setAutoApproveNewTenants(data.autoApproveNewTenants ?? false);
@@ -358,6 +362,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         opsEventRetentionDays,
         slaNotificationCooldownHours,
         allowAgentDowngrade,
+        enforceClientAppBinding,
         modernDeploymentHarmlessEventIdsJson: serializeHarmlessEventIds(modernDeploymentHarmlessEventIds),
         sessionDeletionKillSwitch,
         autoApproveNewTenants,
@@ -381,7 +386,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, portalUserRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, portalUserRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, enforceClientAppBinding, modernDeploymentHarmlessEventIds, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
@@ -398,6 +403,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     setOpsEventRetentionDays(adminConfig.opsEventRetentionDays ?? 90);
     setSlaNotificationCooldownHours(adminConfig.slaNotificationCooldownHours ?? 24);
     setAllowAgentDowngrade(adminConfig.allowAgentDowngrade ?? false);
+    setEnforceClientAppBinding(adminConfig.enforceClientAppBinding ?? false);
     setModernDeploymentHarmlessEventIds(parseHarmlessEventIdsJson(adminConfig.modernDeploymentHarmlessEventIdsJson));
     setSessionDeletionKillSwitch(adminConfig.sessionDeletionKillSwitch ?? false);
     setAutoApproveNewTenants(adminConfig.autoApproveNewTenants ?? false);
@@ -558,6 +564,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       opsEventRetentionDays, setOpsEventRetentionDays,
       slaNotificationCooldownHours, setSlaNotificationCooldownHours,
       allowAgentDowngrade, setAllowAgentDowngrade,
+      enforceClientAppBinding, setEnforceClientAppBinding,
       modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds,
       sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
       autoApproveNewTenants, setAutoApproveNewTenants,

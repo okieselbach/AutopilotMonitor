@@ -218,6 +218,7 @@ export const API_ERROR_CODES = [
   "InsufficientPermissions",
   "CrossTenantAccessDenied",
   "TenantSuspended",
+  "ClientAppNotRegistered",
   "QuotaExceeded",
   "PayloadTooLarge",
   "TelemetryItemsRejected",

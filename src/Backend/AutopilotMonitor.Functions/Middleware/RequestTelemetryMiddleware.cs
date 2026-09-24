@@ -159,6 +159,13 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
                     requestTelemetry.Properties["ApplicationId"] = applicationId;
             }
 
+            // CLIENT-APP BINDING — set by ClientAppBindingMiddleware only for a delegated token a foreign
+            // client application obtained: the measurement behind the enforcement switch (who would be refused).
+            if (context.Items.TryGetValue(ClientAppBinding.OutcomeItemKey, out var clientBinding) && clientBinding is string clientBindingOutcome)
+                requestTelemetry.Properties["ClientAppBinding"] = clientBindingOutcome;
+            if (context.Items.TryGetValue(ClientAppBinding.ClientAppIdItemKey, out var clientApp) && clientApp is string clientAppId)
+                requestTelemetry.Properties["ClientAppId"] = clientAppId;
+
             if (context.Items.TryGetValue("CorrelationId", out var corrId) && corrId is string correlationId)
                 requestTelemetry.Properties["CorrelationId"] = correlationId;
 

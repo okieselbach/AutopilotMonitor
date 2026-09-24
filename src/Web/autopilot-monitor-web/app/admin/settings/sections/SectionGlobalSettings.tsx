@@ -20,6 +20,7 @@ export function SectionGlobalSettings() {
     desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes,
     slaNotificationCooldownHours, setSlaNotificationCooldownHours,
     allowAgentDowngrade, setAllowAgentDowngrade,
+    enforceClientAppBinding, setEnforceClientAppBinding,
     modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds,
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     autoApproveNewTenants, setAutoApproveNewTenants,
@@ -60,6 +61,8 @@ export function SectionGlobalSettings() {
         setSlaNotificationCooldownHours={setSlaNotificationCooldownHours}
         allowAgentDowngrade={allowAgentDowngrade}
         setAllowAgentDowngrade={setAllowAgentDowngrade}
+        enforceClientAppBinding={enforceClientAppBinding}
+        setEnforceClientAppBinding={setEnforceClientAppBinding}
         modernDeploymentHarmlessEventIds={modernDeploymentHarmlessEventIds}
         setModernDeploymentHarmlessEventIds={setModernDeploymentHarmlessEventIds}
         sessionDeletionKillSwitch={sessionDeletionKillSwitch}

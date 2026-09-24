@@ -41,6 +41,9 @@ builder.UseMiddleware<SecurityHeadersMiddleware>();
 builder.UseMiddleware<NoStoreCacheMiddleware>();
 builder.UseMiddleware<GlobalExceptionMiddleware>();
 builder.UseMiddleware<AuthenticationMiddleware>();
+// Delegated tokens from foreign client apps: measured always, refused or capped when enforced. Must run
+// before policy enforcement, which resolves roles with the cap marker this step sets.
+builder.UseMiddleware<ClientAppBindingMiddleware>();
 builder.UseMiddleware<PolicyEnforcementMiddleware>();
 builder.UseMiddleware<UserRateLimitMiddleware>();
 // MCP quota (daily/monthly budget on top of the per-minute rate limit): only requests marked

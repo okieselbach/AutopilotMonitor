@@ -365,6 +365,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             // decision.UserIdentifier for log lines, where "anonymous" is the useful rendering.
             UserPrincipalName = upn ?? string.Empty,
             ObjectId = principal?.GetObjectId() ?? string.Empty,
+            ClientCapped = principal?.IsClientCapped() ?? false,
             // Throttle identity — NOT the same thing as the UPN. Empty only when the request carried
             // no JWT at all (device/anonymous routes, which bring their own limits). An authenticated
             // caller ALWAYS gets a non-empty value, including app-only tokens that carry no upn:
@@ -487,7 +488,8 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // "some authenticated person". The roleless tiers admit any valid token, so they are closed to
         // applications unless the catalog entry opted in (auth/mcp). Every role-gated tier below already
         // resolves the app:<client-id> key through the same tables as a person, with its caps applied.
-        if (principal != null && principal.IsApplicationPrincipal() && entry.IsRolelessTier && !entry.ApplicationAllowed)
+        // A person reached through an admitted foreign client is capped the same way.
+        if (principal != null && principal.IsCappedPrincipal() && entry.IsRolelessTier && !entry.ApplicationAllowed)
             return CatalogDecisionResult.Deny(userIdentifier, "Application", "ApplicationPrincipalNotAllowed");
 
         switch (entry.Policy)
@@ -697,7 +699,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// </summary>
     private Task<MemberRoleInfo?> ResolveEffectiveRoleAsync(
         string tenantId, string upn, ClaimsPrincipal? principal)
-        => _memberRoleResolver.ResolveAsync(tenantId, upn, principal?.GetAppRoles());
+        => _memberRoleResolver.ResolveAsync(tenantId, upn, principal?.GetAppRoles(), principal?.IsClientCapped() ?? false);
 
     /// <summary>
     /// Platform-wide cross-tenant READ: admits GlobalAdmin and the read-only GlobalReader. The

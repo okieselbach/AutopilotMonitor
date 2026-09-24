@@ -87,7 +87,8 @@ public class McpUserService
     /// <paramref name="appRoles"/> claim — a null tenant id is no member of anything.
     /// </summary>
     public virtual async Task<McpAccessCheckResult> IsAllowedAsync(
-        string? upn, string? homeTenantId, string? objectId, IReadOnlyList<string>? appRoles = null)
+        string? upn, string? homeTenantId, string? objectId, IReadOnlyList<string>? appRoles = null,
+        bool clientCapped = false)
     {
         // The principal key: a person's UPN, or app:<client-id> for an application principal. A token
         // that yields neither carries no identity we could grant anything to.
@@ -95,7 +96,7 @@ public class McpUserService
             return McpAccessCheckResult.Denied("Missing principal identity (no upn / preferred_username, and not an app-only token)");
 
         upn = upn.ToLowerInvariant();
-        var identity = AdminIdentity.Create(upn, homeTenantId, objectId);
+        var identity = AdminIdentity.Create(upn, homeTenantId, objectId, clientCapped);
 
         // Always resolve the platform role — needed by the MCP server for cross-tenant routing
         // decisions (global scope → /api/global/* with tenantId-as-filter; non-global → /api/* JWT-bound).
@@ -184,7 +185,7 @@ public class McpUserService
         // end-users), resolves to no role and is denied here instead of failing on every tool call.
         var memberRole = string.IsNullOrWhiteSpace(homeTenantId)
             ? null
-            : await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles);
+            : await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles, clientCapped);
         if (memberRole != null)
             return McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole);
         return McpAccessCheckResult.Denied(Constants.PrincipalKeys.IsApplication(upn)

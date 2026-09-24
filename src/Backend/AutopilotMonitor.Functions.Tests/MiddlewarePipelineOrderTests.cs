@@ -41,6 +41,21 @@ public class MiddlewarePipelineOrderTests
     }
 
     [Fact]
+    public void Client_app_binding_runs_between_authentication_and_policy_enforcement()
+    {
+        // It reads the principal the auth step stores and sets the cap marker the policy step resolves roles with.
+        var src = ProgramSource();
+
+        var auth = src.IndexOf($"UseMiddleware<{nameof(AuthenticationMiddleware)}>()", System.StringComparison.Ordinal);
+        var binding = src.IndexOf($"UseMiddleware<{nameof(ClientAppBindingMiddleware)}>()", System.StringComparison.Ordinal);
+        var policy = src.IndexOf($"UseMiddleware<{nameof(PolicyEnforcementMiddleware)}>()", System.StringComparison.Ordinal);
+
+        Assert.True(binding >= 0, "ClientAppBindingMiddleware is not registered in Program.cs");
+        Assert.True(auth < binding && binding < policy, "ClientAppBindingMiddleware must run after authentication and before policy enforcement");
+        Assert.Equal(1, Count(src, $"UseMiddleware<{nameof(ClientAppBindingMiddleware)}>()"));
+    }
+
+    [Fact]
     public void Each_gate_middleware_is_registered_exactly_once()
     {
         var src = ProgramSource();

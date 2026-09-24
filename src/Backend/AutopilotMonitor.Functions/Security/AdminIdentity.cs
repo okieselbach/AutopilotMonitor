@@ -21,30 +21,36 @@ namespace AutopilotMonitor.Functions.Security;
 /// <param name="TenantId">The JWT <c>tid</c> (lowercase) — the caller's home tenant.</param>
 /// <param name="ObjectId">The JWT <c>oid</c> (lowercase) — the caller's object id in that tenant (for an
 /// application the service principal's object id, which differs per tenant).</param>
-public sealed record AdminIdentity(string Upn, string TenantId, string ObjectId)
+/// <param name="ClientCapped">True for a person whose token a foreign client application obtained and the
+/// client-app binding admitted (<see cref="ClientAppBinding"/>).</param>
+public sealed record AdminIdentity(string Upn, string TenantId, string ObjectId, bool ClientCapped = false)
 {
     /// <summary>
     /// True when the key names an application (app-only token). Applications are capped everywhere: never
     /// a platform role, never more than Viewer in a tenant, never more than DelegatedReader on a managed
-    /// tenant — the caps live in the respective role services, this flag is what they switch on.
+    /// tenant — the caps live in the respective role services, <see cref="IsCapped"/> is what they switch on.
     /// </summary>
     public bool IsApplication => Shared.Constants.PrincipalKeys.IsApplication(Upn);
+
+    /// <summary>The application caps apply: an application principal, or a person reached through a foreign client.</summary>
+    public bool IsCapped => IsApplication || ClientCapped;
 
     /// <summary>Builds the identity from a validated principal, or null when upn, tid or oid is missing.</summary>
     public static AdminIdentity? FromPrincipal(ClaimsPrincipal? principal)
         => principal == null
             ? null
-            : Create(principal.GetUserPrincipalName(), principal.GetTenantId(), principal.GetObjectId());
+            : Create(principal.GetUserPrincipalName(), principal.GetTenantId(), principal.GetObjectId(),
+                principal.IsClientCapped());
 
     /// <summary>Builds the identity from the middleware-resolved request context, or null when incomplete.</summary>
     public static AdminIdentity? FromRequestContext(RequestContext context)
-        => Create(context.UserPrincipalName, context.TenantId, context.ObjectId);
+        => Create(context.UserPrincipalName, context.TenantId, context.ObjectId, context.ClientCapped);
 
     /// <summary>Normalizing factory: all three parts required (whitespace counts as missing), all lowercased.</summary>
-    public static AdminIdentity? Create(string? upn, string? tenantId, string? objectId)
+    public static AdminIdentity? Create(string? upn, string? tenantId, string? objectId, bool clientCapped = false)
     {
         if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId))
             return null;
-        return new AdminIdentity(upn.ToLowerInvariant(), tenantId.ToLowerInvariant(), objectId.ToLowerInvariant());
+        return new AdminIdentity(upn.ToLowerInvariant(), tenantId.ToLowerInvariant(), objectId.ToLowerInvariant(), clientCapped);
     }
 }

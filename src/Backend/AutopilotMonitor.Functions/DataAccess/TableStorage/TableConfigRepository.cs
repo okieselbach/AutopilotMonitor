@@ -950,6 +950,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "FeedbackCooldownDays", config.FeedbackCooldownDays },
                 // MCP access control
                 { "McpAccessPolicy", config.McpAccessPolicy ?? "WhitelistOnly" },
+                { "EnforceClientAppBinding", config.EnforceClientAppBinding },
                 // Agent endpoint migration (config-channel re-home)
                 { "AgentMigrateApiBaseUrl", config.AgentMigrateApiBaseUrl ?? string.Empty },
                 { "AgentMigrateTenantOverridesJson", config.AgentMigrateTenantOverridesJson ?? string.Empty }
@@ -1019,6 +1020,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 FeedbackCooldownDays = entity.GetInt32("FeedbackCooldownDays") ?? 60,
                 // MCP access control
                 McpAccessPolicy = entity.GetString("McpAccessPolicy") ?? "WhitelistOnly",
+                EnforceClientAppBinding = entity.GetBoolean("EnforceClientAppBinding") ?? false,
                 // Agent endpoint migration (config-channel re-home)
                 AgentMigrateApiBaseUrl = entity.GetString("AgentMigrateApiBaseUrl") ?? string.Empty,
                 AgentMigrateTenantOverridesJson = entity.GetString("AgentMigrateTenantOverridesJson") ?? string.Empty

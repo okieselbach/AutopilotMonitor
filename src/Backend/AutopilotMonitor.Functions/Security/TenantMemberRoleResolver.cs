@@ -59,4 +59,18 @@ public class TenantMemberRoleResolver
         var (config, _) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
         return EntraAppRoleResolver.Resolve(state, tableRole, appRoles, config.EntraAppRolesEnabled);
     }
+
+    /// <summary>
+    /// <see cref="ResolveAsync(string, string, IReadOnlyList{string}?)"/> with the application cap applied
+    /// when <paramref name="clientCapped"/>: a person reached through an admitted foreign client keeps
+    /// their membership but never acts above Viewer and never manages bootstrap tokens.
+    /// </summary>
+    public async Task<MemberRoleInfo?> ResolveAsync(
+        string tenantId, string upn, IReadOnlyList<string>? appRoles, bool clientCapped)
+    {
+        var role = await ResolveAsync(tenantId, upn, appRoles);
+        return clientCapped && role != null
+            ? new MemberRoleInfo { Role = Constants.TenantRoles.Viewer, CanManageBootstrapTokens = false }
+            : role;
+    }
 }

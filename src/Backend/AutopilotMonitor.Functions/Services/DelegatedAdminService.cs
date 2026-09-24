@@ -85,7 +85,7 @@ public class DelegatedAdminService
         // An application principal reads managed tenants, it never administers them: whatever role its rows
         // carry (a GA grant on global/delegated-admins could say DelegatedAdmin), the scope it presents is
         // capped to DelegatedReader. Enforced at resolution so no grant path has to remember the rule.
-        return identity.IsApplication ? gated.AsReaderOnly() : gated;
+        return identity.IsCapped ? gated.AsReaderOnly() : gated;
     }
 
     /// <summary>The scope the assignment ROWS (direct + group-derived) confer on a UPN, ignoring identity binding
