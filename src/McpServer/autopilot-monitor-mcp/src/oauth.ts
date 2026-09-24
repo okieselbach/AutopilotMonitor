@@ -605,7 +605,7 @@ async function lookupTenantClient(registrationId: string): Promise<TenantClient 
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/api/auth/mcp/client-registrations/${registrationId}`, {
+    res = await fetch(`${API_BASE_URL}/api/auth/mcp/client-registrations/${encodeURIComponent(registrationId)}`, {
       signal: AbortSignal.timeout(TENANT_CLIENT_LOOKUP_TIMEOUT_MS),
     });
   } catch {
