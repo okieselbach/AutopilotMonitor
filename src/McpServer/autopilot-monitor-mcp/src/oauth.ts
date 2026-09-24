@@ -216,6 +216,17 @@ export function sanitizeForLog(value: unknown, maxLength = 200): string {
   return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
 }
 
+/** Origin + pathname of a redirect_uri for a log line; the query (state, codes) is never logged. */
+function redirectTargetForLog(uri: unknown): string {
+  if (typeof uri !== 'string') return `<${typeof uri}>`;
+  try {
+    const parsed = new URL(uri);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return '<unparseable>';
+  }
+}
+
 /** OAuth error codes (RFC 6749 §5.2, OIDC Core §3.1.2.6) a client acts on; anything else is relayed as invalid_request. */
 const OAUTH_ERROR_CODES = new Set([
   'invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type',
@@ -630,16 +641,19 @@ export function createOAuthRouter(): Router {
     // an attacker from registering arbitrary post-callback destinations.
     const invalidUris = uris.filter((u: unknown) => typeof u !== 'string' || !isAllowedRedirectUri(u));
     if (invalidUris.length > 0) {
+      // Name the rejected targets: a self-hosted client (LibreChat, an in-house agent) registers its
+      // own domain, and the operator needs the host to decide on an MCP_ALLOWED_REDIRECT_HOSTS entry.
+      const rejected = invalidUris.slice(0, 3).map((u) => sanitizeForLog(redirectTargetForLog(u), 160)).join(', ');
       console.error(
         `[oauth/register] Rejected client ${sanitizeForLog(client_name ?? 'unknown')}: ` +
-        `${invalidUris.length} redirect_uri(s) outside allowlist`,
+        `${invalidUris.length} redirect_uri(s) outside allowlist (${rejected})`,
       );
       res.status(400).json({
         error: 'invalid_redirect_uri',
         error_description:
           'One or more redirect_uris are not in the allowlist. Loopback (localhost / 127.0.0.1) ' +
           'is always accepted; hosted AI client hosts are governed by the ' +
-          'MCP_ALLOWED_REDIRECT_HOSTS env var (default: Anthropic, OpenAI, Google).',
+          'MCP_ALLOWED_REDIRECT_HOSTS env var (default: Anthropic, OpenAI, VS Code).',
       });
       return;
     }

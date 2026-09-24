@@ -9,7 +9,7 @@
  */
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
-import { APPLICATION_KEY_PREFIX, extractTokenClaims, isApplicationKey, isTokenExpired, principalKeyOf } from './auth.js';
+import { APPLICATION_KEY_PREFIX, describeTokenForLog, extractTokenClaims, isApplicationKey, isTokenExpired, principalKeyOf } from './auth.js';
 import { runWithCaller, wantsPrettyJson } from './client.js';
 import { API_BASE_URL, getPublicBaseUrl, parsePositiveInt } from './config.js';
 import type { ApiErrorResponse, CheckMcpAccessResponse } from './generated/wire-types.generated.js';
@@ -443,7 +443,7 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   // brokers that grant). Everything below keys on it: cache, rate limit, logs, caller context.
   const upn = claims ? principalKeyOf(claims) : undefined;
   if (!claims || !upn) {
-    console.error(`[mcp-auth] 401 invalid-token-claims (method=${rpcMethod})`);
+    console.error(`[mcp-auth] 401 invalid-token-claims (method=${rpcMethod}, ${describeTokenForLog(claims)})`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
     res.status(401).json({ error: 'Invalid token: missing required claims' });
     return;
@@ -479,7 +479,9 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
         if (result.unauthenticated) {
           // Spec: an invalid or expired token MUST get 401 with a challenge, so the client
           // re-authenticates instead of reading a final "forbidden".
-          console.error(`[mcp-auth] 401 backend-rejected-token (method=${rpcMethod}, upn=${upn})`);
+          // The backend's reason never names the token; aud/azp/tid do. The common case is a token
+          // minted for another resource by a client that bypassed the OAuth proxy (own app, OBO).
+          console.error(`[mcp-auth] 401 backend-rejected-token (method=${rpcMethod}, upn=${upn}, ${describeTokenForLog(claims)})`);
           res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
           res.status(401).json({ error: 'Invalid token', reason: result.reason });
           return;

@@ -90,3 +90,22 @@ export function isTokenExpired(claims: TokenClaims): boolean {
   if (!claims.exp) return true;
   return Date.now() / 1000 > claims.exp - 60;
 }
+
+/**
+ * The non-secret claims that explain a rejected token in one log line: the resource it was minted
+ * for (`aud`), the application that obtained it (`azp` on a v2.0 token, `appid` on v1.0) and the
+ * issuing tenant (`tid`). The backend's 401 never names the token, so an "audience validation
+ * failed" was undiagnosable from our side: a September 2026 support case needed a customer round
+ * trip to learn that a self-hosted client had minted the token for another resource. The values
+ * are unverified client input — control characters and whitespace are stripped, each is capped.
+ */
+export function describeTokenForLog(claims: TokenClaims | null | undefined): string {
+  const show = (value: unknown): string => {
+    if (value === undefined || value === null || value === '') return '-';
+    const raw = Array.isArray(value) ? value.join('|') : String(value);
+    // eslint-disable-next-line no-control-regex
+    const cleaned = raw.replace(/[\x00-\x1f\x7f\s]/g, '');
+    return cleaned.length > 120 ? `${cleaned.slice(0, 120)}...` : cleaned;
+  };
+  return `aud=${show(claims?.aud)} azp=${show(claims?.azp ?? claims?.appid)} tid=${show(claims?.tid)}`;
+}

@@ -117,12 +117,23 @@ describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
   });
 
   it('rejects a hostile redirect_uri host (allowlist defense-in-depth)', async () => {
-    const { status, json } = await register({
-      client_name: 'evil',
-      redirect_uris: ['https://attacker.tld/cb'],
-    });
-    expect(status).toBe(400);
-    expect(json.error).toBe('invalid_redirect_uri');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { status, json } = await register({
+        client_name: 'evil',
+        redirect_uris: ['https://attacker.tld/cb?state=secret'],
+      });
+      expect(status).toBe(400);
+      expect(json.error).toBe('invalid_redirect_uri');
+      // The log names the rejected target (origin + path) so the operator can judge a legitimate
+      // self-hosted client's allowlist request — and never the query.
+      const line = spy.mock.calls.map((c) => String(c[0])).find((l) => l.includes('[oauth/register] Rejected client'));
+      expect(line).toContain('evil');
+      expect(line).toContain('https://attacker.tld/cb');
+      expect(line).not.toContain('secret');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('rejects more than MAX_REDIRECT_URIS_PER_CLIENT redirect_uris', async () => {
