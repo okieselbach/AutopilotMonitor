@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import type {
   AgentConfigResponse,
+  McpClientRegistrationListResponse,
   TenantConfiguration,
   TenantFeatureFlagsResponse,
 } from "@/utils/wire-types.generated";
@@ -205,6 +206,31 @@ function ChannelRows({ config }: { config: TenantConfiguration }) {
   );
 }
 
+// ── Self-hosted AI clients (separate table, not part of TenantConfiguration) ──
+
+function SelfHostedAiClientRows({ list }: { list: McpClientRegistrationListResponse }) {
+  return (
+    <>
+      <ConfigRow label="Self-hosted AI (platform switch)" display={list.enabled ? 'On' : 'Off'} />
+      {list.registrations.length === 0 && <ConfigRow label="Self-hosted AI Clients" display="—" />}
+      {list.registrations.map((r) => (
+        <tr key={r.registrationId} className="border-t-2 border-gray-200 dark:border-gray-600">
+          <td colSpan={2} className="p-0">
+            <table className="w-full">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                <ConfigRow label="Self-hosted AI Client" display={r.name} />
+                <ConfigRow label="Callback URL" display={r.redirectUri} />
+                <ConfigRow label="Client ID" display={r.clientId} />
+                <ConfigRow label="Registered" display={`${formatDate(r.createdUtc)} by ${r.createdBy || '—'}`} />
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function SectionTenantConfigReport() {
@@ -215,6 +241,7 @@ export function SectionTenantConfigReport() {
   const [config, setConfig] = useState<TenantConfiguration | null>(null);
   const [flags, setFlags] = useState<TenantFeatureFlagsResponse | null>(null);
   const [effective, setEffective] = useState<AgentConfigResponse | null>(null);
+  const [aiClients, setAiClients] = useState<McpClientRegistrationListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingTenants, setLoadingTenants] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -242,27 +269,31 @@ export function SectionTenantConfigReport() {
     fetchTenants();
   }, [user?.isGlobalAdmin, getAccessToken]);
 
-  // Fetch the stored config plus the two backend-resolved views of it. The stored config is
-  // the report; feature-flags (effective entitlement, header) and the effective agent config
-  // (runtime column) are fail-soft — a notice replaces them instead of blocking the page.
+  // Fetch the stored config plus the two backend-resolved views of it and the self-hosted AI
+  // client registrations (own table). The stored config is the report; feature-flags (effective
+  // entitlement, header), the effective agent config (runtime column) and the registrations are
+  // fail-soft — a notice replaces them instead of blocking the page.
   const fetchConfig = useCallback(async () => {
     if (!selectedTenantId) return;
     try {
       setLoading(true);
       setError(null);
       setSideError(null);
-      const [configResult, flagsResult, effectiveResult] = await Promise.allSettled([
+      const [configResult, flagsResult, effectiveResult, aiClientsResult] = await Promise.allSettled([
         fetchJson<TenantConfiguration>(api.config.tenant(selectedTenantId), getAccessToken),
         fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(selectedTenantId), getAccessToken),
         fetchJson<AgentConfigResponse>(api.config.effectiveAgentConfig(selectedTenantId), getAccessToken),
+        fetchJson<McpClientRegistrationListResponse>(api.tenants.mcpClientRegistrations(selectedTenantId), getAccessToken),
       ]);
       if (configResult.status === 'rejected') throw configResult.reason;
       setConfig(configResult.value);
       setFlags(flagsResult.status === 'fulfilled' ? flagsResult.value : null);
       setEffective(effectiveResult.status === 'fulfilled' ? effectiveResult.value : null);
+      setAiClients(aiClientsResult.status === 'fulfilled' ? aiClientsResult.value : null);
       const sideFailures = [
         flagsResult.status === 'rejected' ? `feature flags: ${apiErrorText(flagsResult.reason)}` : null,
         effectiveResult.status === 'rejected' ? `effective agent config: ${apiErrorText(effectiveResult.reason)}` : null,
+        aiClientsResult.status === 'rejected' ? `self-hosted AI clients: ${apiErrorText(aiClientsResult.reason)}` : null,
       ].filter((s): s is string => s !== null);
       setSideError(sideFailures.length ? `Backend-resolved views unavailable — ${sideFailures.join('; ')}` : null);
     } catch (err) {
@@ -270,6 +301,7 @@ export function SectionTenantConfigReport() {
       setConfig(null);
       setFlags(null);
       setEffective(null);
+      setAiClients(null);
     } finally {
       setLoading(false);
     }
@@ -433,6 +465,7 @@ export function SectionTenantConfigReport() {
                       />
                     );
                   })}
+                  {section === 'Tenant Status' && aiClients && <SelfHostedAiClientRows list={aiClients} />}
                 </Section>
               ))}
             </div>
