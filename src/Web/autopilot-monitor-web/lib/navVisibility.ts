@@ -17,6 +17,7 @@ export interface NavUser {
   canManageBootstrapTokens?: boolean;
   bootstrapTokenEnabled?: boolean;
   unrestrictedModeEnabled?: boolean;
+  mcpClientRegistrationEnabled?: boolean;
 }
 
 export interface NavVisibilityInput {
@@ -41,6 +42,8 @@ export interface NavFlags {
   canManageBootstrapTokens: boolean;
   bootstrapTokenEnabled: boolean;
   unrestrictedModeEnabled: boolean;
+  /** Platform switch for self-hosted MCP client registrations. */
+  mcpClientRegistrationEnabled: boolean;
   /** Minimal nav (Progress Portal only): no tenant role and no fleet/platform scope. */
   isRegularUser: boolean;
   /** The cross-tenant session browser link. */
@@ -69,6 +72,7 @@ export function deriveNavFlags({ user, hasGlobalScope, hasFleetScope, globalAdmi
     canManageBootstrapTokens: user?.canManageBootstrapTokens ?? false,
     bootstrapTokenEnabled: user?.bootstrapTokenEnabled ?? false,
     unrestrictedModeEnabled: user?.unrestrictedModeEnabled ?? false,
+    mcpClientRegistrationEnabled: user?.mcpClientRegistrationEnabled ?? false,
     // Regular users see minimal nav. A read-only Global Reader has platform scope, and a
     // delegated MSP admin has fleet scope → both get the group-filtered nav instead.
     isRegularUser: !isTenantMember && !hasFleetScope,
@@ -127,6 +131,10 @@ export function filterExpandableNavGroups(
             }
             if (sub.id === "cfg-agent-unrestricted") {
               return flags.isAdminLike && flags.unrestrictedModeEnabled;
+            }
+            // Registrations are a Tenant Admin (or Global Admin) write surface behind the platform switch.
+            if (sub.id === "cfg-ai-clients") {
+              return flags.isAdminLike && flags.mcpClientRegistrationEnabled;
             }
             // Tenant-admin-only sub-sections: Operators and Viewers (read-only settings
             // viewers) don't see them — matches the in-page "tenant administrators only" gates. A platform

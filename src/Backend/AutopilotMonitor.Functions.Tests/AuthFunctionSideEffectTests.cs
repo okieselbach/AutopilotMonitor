@@ -107,7 +107,8 @@ public class AuthFunctionSideEffectTests
                 Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()),
             new Mock<AdminIdentityResolver>(
                 _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object,
-            _signalR);
+            _signalR,
+            adminConfigService.Object);
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock

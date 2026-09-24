@@ -21,6 +21,7 @@ export function SectionGlobalSettings() {
     slaNotificationCooldownHours, setSlaNotificationCooldownHours,
     allowAgentDowngrade, setAllowAgentDowngrade,
     enforceClientAppBinding, setEnforceClientAppBinding,
+    mcpClientRegistrationEnabled, setMcpClientRegistrationEnabled,
     modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds,
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     autoApproveNewTenants, setAutoApproveNewTenants,
@@ -63,6 +64,8 @@ export function SectionGlobalSettings() {
         setAllowAgentDowngrade={setAllowAgentDowngrade}
         enforceClientAppBinding={enforceClientAppBinding}
         setEnforceClientAppBinding={setEnforceClientAppBinding}
+        mcpClientRegistrationEnabled={mcpClientRegistrationEnabled}
+        setMcpClientRegistrationEnabled={setMcpClientRegistrationEnabled}
         modernDeploymentHarmlessEventIds={modernDeploymentHarmlessEventIds}
         setModernDeploymentHarmlessEventIds={setModernDeploymentHarmlessEventIds}
         sessionDeletionKillSwitch={sessionDeletionKillSwitch}

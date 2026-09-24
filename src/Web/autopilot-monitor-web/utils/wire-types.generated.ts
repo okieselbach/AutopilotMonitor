@@ -142,6 +142,8 @@ export interface AdminConfiguration {
   mcpAccessPolicy: string;
   /** Client-app binding of delegated tokens. A user token obtained by an application other than the platform's own registrations (a self-hosted AI client, an in-house tool) is always measured. When true it is also enforced: the token is accepted only while that application is an enabled member of the caller's tenant, and the caller then has at most Viewer rights, no platform role and at most DelegatedReader on managed tenants. Default false: measure only. */
   enforceClientAppBinding: boolean;
+  /** Self-hosted MCP client registrations. When true, Tenant Admins can register the exact OAuth callback of a client their organization runs itself and connect it with client id amc_<id>; the MCP server binds that flow to the registering tenant. When false the portal section is hidden and every existing registration stops resolving (kill switch). Default false. */
+  mcpClientRegistrationEnabled: boolean;
   /** NVD API key for higher rate limits (50 req/30s vs 5 req/30s without key). Free registration at https://nvd.nist.gov/developers/request-an-api-key null = operate without API key (slower, still functional). */
   nvdApiKey: string;
   /** JSON-serialized list of OpsAlertRule objects defining which event types trigger notifications. Provider-agnostic — rules apply to all enabled providers. */
@@ -766,6 +768,8 @@ export interface AuthMeResponse {
   homedApp: string;
   bootstrapTokenEnabled: boolean;
   unrestrictedModeEnabled: boolean;
+  /** Whether Tenant Admins can register self-hosted MCP clients (platform switch); drives the settings section. */
+  mcpClientRegistrationEnabled: boolean;
   /** When this user last viewed the Platform tab of What's new; null = never and the key is omitted (client treats as first visit). */
   whatsNewSeenPlatformUtc?: string;
   /** Same for the Agent tab; null = never and the key is omitted. */
@@ -1152,6 +1156,19 @@ export interface CreateDelegationInvitationResponse {
   invitationId: string;
   token: string;
   expiresUtc: string;
+}
+
+/** Body of POST tenants/{tenantId}/mcp-client-registrations. */
+export interface CreateMcpClientRegistrationRequest {
+  /** Display name, 1-64 characters. */
+  name: string;
+  /** The client's exact OAuth callback URL: https, or http on localhost / 127.0.0.1; no query, fragment or wildcard. */
+  redirectUri: string;
+}
+
+/** Response of POST tenants/{tenantId}/mcp-client-registrations: the stored registration. */
+export interface CreateMcpClientRegistrationResponse {
+  registration: McpClientRegistrationItem;
 }
 
 /** Body of POST global/tenant-groups. */
@@ -2810,6 +2827,36 @@ export interface ManagedTenantListResponse {
   homeTenantId: string;
   slots: DelegatedSlotUsageResponse;
   tenants: ManagedTenantItem[];
+}
+
+/** One self-hosted MCP client registration as the portal lists it. */
+export interface McpClientRegistrationItem {
+  registrationId: string;
+  /** The OAuth client id the self-hosted client is configured with: amc_ + registration id. */
+  clientId: string;
+  name: string;
+  redirectUri: string;
+  createdBy: string;
+  createdUtc: string;
+}
+
+/** Response of GET tenants/{tenantId}/mcp-client-registrations. */
+export interface McpClientRegistrationListResponse {
+  /** Whether the platform currently accepts self-hosted client registrations (operator switch). */
+  enabled: boolean;
+  /** How many registrations a tenant may hold. */
+  maxRegistrations: number;
+  /** The MCP server URL the self-hosted client connects to. */
+  serverUrl: string;
+  registrations: McpClientRegistrationItem[];
+}
+
+/** Response of the anonymous GET mcp/client-registrations/{registrationId} — the MCP server's OAuth proxy resolves a client id amc_<registrationId> through it. Carries nothing secret: the tenant id and the callback the registration binds the flow to. */
+export interface McpClientRegistrationLookupResponse {
+  registrationId: string;
+  tenantId: string;
+  redirectUri: string;
+  name: string;
 }
 
 /** Response of GET health/mcp: the standalone MCP-server reachability probe. */

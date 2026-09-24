@@ -29,6 +29,7 @@
       "diagnosticsDownloadTimeoutSeconds",
       "mcpAccessPolicy",
       "enforceClientAppBinding",
+      "mcpClientRegistrationEnabled",
       "nvdApiKey",
       "opsAlertRulesJson",
       "opsAlertTelegramEnabled",
@@ -85,6 +86,7 @@
       "diagnosticsDownloadTimeoutSeconds": 120,
       "mcpAccessPolicy": "WhitelistOnly",
       "enforceClientAppBinding": false,
+      "mcpClientRegistrationEnabled": false,
       "nvdApiKey": null,
       "opsAlertRulesJson": null,
       "opsAlertTelegramEnabled": false,
@@ -1422,6 +1424,14 @@
             "name": "boolean"
           },
           "doc": "Client-app binding of delegated tokens. A user token obtained by an application other than the platform's own registrations (a self-hosted AI client, an in-house tool) is always measured. When true it is also enforced: the token is accepted only while that application is an enabled member of the caller's tenant, and the caller then has at most Viewer rights, no platform role and at most DelegatedReader on managed tenants. Default false: measure only."
+        },
+        {
+          "name": "mcpClientRegistrationEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Self-hosted MCP client registrations. When true, Tenant Admins can register the exact OAuth callback of a client their organization runs itself and connect it with client id amc_<id>; the MCP server binds that flow to the registering tenant. When false the portal section is hidden and every existing registration stops resolving (kill switch). Default false."
         },
         {
           "name": "nvdApiKey",
@@ -4296,6 +4306,14 @@
           }
         },
         {
+          "name": "mcpClientRegistrationEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether Tenant Admins can register self-hosted MCP clients (platform switch); drives the settings section."
+        },
+        {
           "name": "whatsNewSeenPlatformUtc",
           "type": {
             "kind": "primitive",
@@ -5941,6 +5959,41 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        }
+      ]
+    },
+    "CreateMcpClientRegistrationRequest": {
+      "kind": "object",
+      "doc": "Body of POST tenants/{tenantId}/mcp-client-registrations.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Display name, 1-64 characters."
+        },
+        {
+          "name": "redirectUri",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The client's exact OAuth callback URL: https, or http on localhost / 127.0.0.1; no query, fragment or wildcard."
+        }
+      ]
+    },
+    "CreateMcpClientRegistrationResponse": {
+      "kind": "object",
+      "doc": "Response of POST tenants/{tenantId}/mcp-client-registrations: the stored registration.",
+      "fields": [
+        {
+          "name": "registration",
+          "type": {
+            "kind": "ref",
+            "name": "McpClientRegistrationItem"
           }
         }
       ]
@@ -13277,6 +13330,129 @@
               "kind": "ref",
               "name": "ManagedTenantItem"
             }
+          }
+        }
+      ]
+    },
+    "McpClientRegistrationItem": {
+      "kind": "object",
+      "doc": "One self-hosted MCP client registration as the portal lists it.",
+      "fields": [
+        {
+          "name": "registrationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "clientId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The OAuth client id the self-hosted client is configured with: amc_ + registration id."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "redirectUri",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "createdBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "createdUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "McpClientRegistrationListResponse": {
+      "kind": "object",
+      "doc": "Response of GET tenants/{tenantId}/mcp-client-registrations.",
+      "fields": [
+        {
+          "name": "enabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the platform currently accepts self-hosted client registrations (operator switch)."
+        },
+        {
+          "name": "maxRegistrations",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "How many registrations a tenant may hold."
+        },
+        {
+          "name": "serverUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The MCP server URL the self-hosted client connects to."
+        },
+        {
+          "name": "registrations",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpClientRegistrationItem"
+            }
+          }
+        }
+      ]
+    },
+    "McpClientRegistrationLookupResponse": {
+      "kind": "object",
+      "doc": "Response of the anonymous GET mcp/client-registrations/{registrationId} — the MCP server's OAuth proxy resolves a client id amc_<registrationId> through it. Carries nothing secret: the tenant id and the callback the registration binds the flow to.",
+      "fields": [
+        {
+          "name": "registrationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "redirectUri",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]

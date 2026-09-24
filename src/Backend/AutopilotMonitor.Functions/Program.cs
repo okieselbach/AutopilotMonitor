@@ -270,6 +270,7 @@ builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<DelegatedSlotService>();
 builder.Services.AddSingleton<DelegationSelfService>();
 builder.Services.AddSingleton<McpUserService>();
+builder.Services.AddSingleton<McpClientRegistrationService>();
 builder.Services.AddSingleton<PreviewWhitelistService>();
 // Shared activation path (whitelist add + auto-promote + welcome email) — used by the
 // Global Admin approve endpoint and the tenant auto-approve queue worker.

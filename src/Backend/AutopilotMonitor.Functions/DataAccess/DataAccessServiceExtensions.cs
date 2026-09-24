@@ -43,6 +43,7 @@ namespace AutopilotMonitor.Functions.DataAccess
             services.AddSingleton<IDeviceSecurityRepository, TableDeviceSecurityRepository>();
             services.AddSingleton<IUserUsageRepository, TableUserUsageRepository>();
             services.AddSingleton<IDelegationInvitationRepository, TableDelegationInvitationRepository>();
+            services.AddSingleton<IMcpClientRegistrationRepository, TableMcpClientRegistrationRepository>();
             services.AddSingleton<IDistressReportRepository, TableDistressReportRepository>();
             services.AddSingleton<IOpsEventRepository, TableOpsEventRepository>();
 

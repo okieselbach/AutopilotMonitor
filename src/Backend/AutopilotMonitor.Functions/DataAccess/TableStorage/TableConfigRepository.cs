@@ -951,6 +951,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // MCP access control
                 { "McpAccessPolicy", config.McpAccessPolicy ?? "WhitelistOnly" },
                 { "EnforceClientAppBinding", config.EnforceClientAppBinding },
+                { "McpClientRegistrationEnabled", config.McpClientRegistrationEnabled },
                 // Agent endpoint migration (config-channel re-home)
                 { "AgentMigrateApiBaseUrl", config.AgentMigrateApiBaseUrl ?? string.Empty },
                 { "AgentMigrateTenantOverridesJson", config.AgentMigrateTenantOverridesJson ?? string.Empty }
@@ -1021,6 +1022,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // MCP access control
                 McpAccessPolicy = entity.GetString("McpAccessPolicy") ?? "WhitelistOnly",
                 EnforceClientAppBinding = entity.GetBoolean("EnforceClientAppBinding") ?? false,
+                McpClientRegistrationEnabled = entity.GetBoolean("McpClientRegistrationEnabled") ?? false,
                 // Agent endpoint migration (config-channel re-home)
                 AgentMigrateApiBaseUrl = entity.GetString("AgentMigrateApiBaseUrl") ?? string.Empty,
                 AgentMigrateTenantOverridesJson = entity.GetString("AgentMigrateTenantOverridesJson") ?? string.Empty

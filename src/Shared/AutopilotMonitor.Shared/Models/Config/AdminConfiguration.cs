@@ -232,6 +232,14 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool EnforceClientAppBinding { get; set; } = false;
 
+        /// <summary>
+        /// Self-hosted MCP client registrations. When true, Tenant Admins can register the exact OAuth
+        /// callback of a client their organization runs itself and connect it with client id amc_&lt;id&gt;;
+        /// the MCP server binds that flow to the registering tenant. When false the portal section is
+        /// hidden and every existing registration stops resolving (kill switch). Default false.
+        /// </summary>
+        public bool McpClientRegistrationEnabled { get; set; } = false;
+
         // ===== VULNERABILITY CORRELATION SETTINGS =====
 
         /// <summary>

@@ -1342,6 +1342,11 @@ namespace AutopilotMonitor.Shared
             // partition stays small enough that a second key layout would cost more than it saves.
             public const string RuleSubmissions = "RuleSubmissions";
 
+            // Self-hosted MCP client registrations (Tenant Admin, portal). PK = "registrations" for every
+            // tenant, RK = registration id (32 hex); the MCP proxy's anonymous lookup is a point read, the
+            // tenant list a TenantId property filter (at most three rows per tenant).
+            public const string McpClientRegistrations = "McpClientRegistrations";
+
             // Bootstrap sessions (OOBE pre-enrollment agent deployment)
             public const string BootstrapSessions = "BootstrapSessions";
 
@@ -1521,6 +1526,7 @@ namespace AutopilotMonitor.Shared
                 BlockedVersions,
                 SessionReports,
                 RuleSubmissions,
+                McpClientRegistrations,
                 BootstrapSessions,
                 GlobalNotifications,
                 TenantNotifications,

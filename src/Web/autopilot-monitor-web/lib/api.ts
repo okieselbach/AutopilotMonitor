@@ -209,6 +209,11 @@ export const api = {
       `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(adminUpn)}/${encodeURIComponent(action)}`,
     adminPermissions: (tenantId: string, adminUpn: string) =>
       `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(adminUpn)}/permissions`,
+    // Self-hosted MCP client registrations (Tenant Admin).
+    mcpClientRegistrations: (tenantId: string) =>
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/mcp-client-registrations`,
+    mcpClientRegistration: (tenantId: string, registrationId: string) =>
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/mcp-client-registrations/${encodeURIComponent(registrationId)}`,
     offboard: (tenantId: string) =>
       `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/offboard`,
     offboardFeedback: (tenantId: string) =>

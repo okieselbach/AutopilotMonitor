@@ -35,6 +35,7 @@ public class AuthFunction
     private readonly EntraAppRegistry _appRegistry;
     private readonly AdminIdentityResolver _identityResolver;
     private readonly ISignalRNotificationService _signalRService;
+    private readonly AdminConfigurationService _adminConfigService;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -50,9 +51,11 @@ public class AuthFunction
         Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
         EntraAppRegistry appRegistry,
         AdminIdentityResolver identityResolver,
-        ISignalRNotificationService signalRService)
+        ISignalRNotificationService signalRService,
+        AdminConfigurationService adminConfigService)
     {
         _logger = logger;
+        _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
         _signalRService = signalRService;
         _globalAdminService = globalAdminService;
@@ -169,7 +172,8 @@ public class AuthFunction
             delegatedTenantIds,
             homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary",
             whatsNewSeenPlatformUtc: whatsNewSeen.PlatformUtc,
-            whatsNewSeenAgentUtc: whatsNewSeen.AgentUtc);
+            whatsNewSeenAgentUtc: whatsNewSeen.AgentUtc,
+            mcpClientRegistrationEnabled: (await _adminConfigService.GetConfigurationAsync())?.McpClientRegistrationEnabled ?? false);
 
         if (!decision.IsSuccess)
         {
@@ -555,7 +559,8 @@ public class AuthFunction
         IReadOnlyCollection<string>? delegatedTenantIds = null,
         string homedApp = "primary",
         DateTime? whatsNewSeenPlatformUtc = null,
-        DateTime? whatsNewSeenAgentUtc = null)
+        DateTime? whatsNewSeenAgentUtc = null,
+        bool mcpClientRegistrationEnabled = false)
     {
         // A delegated ("MSP") admin manages a subset of OTHER tenants. They are explicitly authorized, so —
         // like a Global Admin / Reader — they bypass the private-preview gate even when their own home tenant
@@ -644,6 +649,7 @@ public class AuthFunction
             UnrestrictedModeEnabled =
                 FeatureEntitlementCatalog.Get(TenantEntitlementService.Resolve(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
                 && tenantConfig.UnrestrictedModeEnabled,
+            McpClientRegistrationEnabled = mcpClientRegistrationEnabled,
             WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
             WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc
         }, needsAutoAdmin);

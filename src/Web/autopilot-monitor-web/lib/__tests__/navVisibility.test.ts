@@ -223,6 +223,15 @@ describe("item and sub-item filtering", () => {
     expect(subIds(bootstrapOperator)).toContain("cfg-bootstrap-sessions");
     expect(subIds(bootstrapOperator)).not.toContain("cfg-agent-unrestricted");
   });
+
+  it("self-hosted AI clients follow the platform switch and are Tenant Admin only", () => {
+    expect(subIds(flagsOf("TenantAdmin"))).not.toContain("cfg-ai-clients");
+    const switchedOn = (u: Parameters<typeof user>[0]) =>
+      deriveNavFlags({ user: user({ ...u, mcpClientRegistrationEnabled: true }), hasGlobalScope: false, hasFleetScope: false, globalAdminMode: false });
+    expect(subIds(switchedOn({ isTenantAdmin: true, role: "Admin" }))).toContain("cfg-ai-clients");
+    expect(subIds(switchedOn({ role: "Operator" }))).not.toContain("cfg-ai-clients");
+    expect(subIds(switchedOn({ role: "Viewer" }))).not.toContain("cfg-ai-clients");
+  });
 });
 
 // ── layer 3: nav ↔ route-guard consistency ────────────────────────────────────

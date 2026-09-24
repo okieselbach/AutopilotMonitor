@@ -38,6 +38,9 @@ namespace AutopilotMonitor.Shared.Models
         public bool BootstrapTokenEnabled { get; set; }
         public bool UnrestrictedModeEnabled { get; set; }
 
+        /// <summary>Whether Tenant Admins can register self-hosted MCP clients (platform switch); drives the settings section.</summary>
+        public bool McpClientRegistrationEnabled { get; set; }
+
         /// <summary>When this user last viewed the Platform tab of What's new; null = never and the key is omitted (client treats as first visit).</summary>
         public DateTime? WhatsNewSeenPlatformUtc { get; set; }
         /// <summary>Same for the Agent tab; null = never and the key is omitted.</summary>

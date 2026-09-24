@@ -31,6 +31,8 @@ interface AdminConfigSettingsSectionProps {
   setAllowAgentDowngrade: (value: boolean) => void;
   enforceClientAppBinding: boolean;
   setEnforceClientAppBinding: (value: boolean) => void;
+  mcpClientRegistrationEnabled: boolean;
+  setMcpClientRegistrationEnabled: (value: boolean) => void;
   modernDeploymentHarmlessEventIds: string;
   setModernDeploymentHarmlessEventIds: (value: string) => void;
   sessionDeletionKillSwitch: boolean;
@@ -75,6 +77,8 @@ export function AdminConfigSettingsSection({
   setAllowAgentDowngrade,
   enforceClientAppBinding,
   setEnforceClientAppBinding,
+  mcpClientRegistrationEnabled,
+  setMcpClientRegistrationEnabled,
   modernDeploymentHarmlessEventIds,
   setModernDeploymentHarmlessEventIds,
   sessionDeletionKillSwitch,
@@ -325,6 +329,23 @@ export function AdminConfigSettingsSection({
                   <span className="text-indigo-900 dark:text-indigo-100 font-medium">Enforce client-app binding</span>
                   <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
                     Applies to user tokens that an application other than Autopilot Monitor obtained, for example a self-hosted AI client using on-behalf-of. Portal and MCP sign-ins are never affected. When{" "}<strong>off</strong>{" "}(default), such requests are only measured (request dimensions{" "}<code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ClientAppBinding</code>{" "}and{" "}<code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ClientAppId</code>). When{" "}<strong>on</strong>, they are accepted only if the tenant added that application as a service principal member, and the user then has read-only access. Switching takes effect within five minutes.
+                  </p>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={mcpClientRegistrationEnabled}
+                  onChange={(e) => setMcpClientRegistrationEnabled(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-green-600 focus:ring-green-500"
+                />
+                <span>
+                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">Self-hosted MCP client registration</span>
+                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
+                    When{" "}<strong>on</strong>, Tenant Admins see Settings → Tenant → Self-hosted AI clients and can register the exact OAuth callback of an AI client their organization runs itself; the client then signs in through the MCP server, bound to that tenant. When{" "}<strong>off</strong>{" "}(default), the section is hidden and existing registrations stop working within a few minutes (kill switch).
                   </p>
                 </span>
               </label>

@@ -23,7 +23,9 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { oauthRateLimit, oauthTokenRateLimit } from './access-guard.js';
-import { ENTRA_LOGIN_BASE_URL, getPublicBaseUrl } from './config.js';
+import { extractTokenClaims } from './auth.js';
+import { API_BASE_URL, ENTRA_LOGIN_BASE_URL, getPublicBaseUrl } from './config.js';
+import type { McpClientRegistrationLookupResponse } from './generated/wire-types.generated.js';
 import { ClientMetadataError, isClientIdMetadataUrl, resolveClientMetadata } from './cimd.js';
 import { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH } from './oauth-limits.js';
 
@@ -518,7 +520,21 @@ export function redirectUriMatches(registered: string[], requested: string): boo
 async function resolveRegisteredClient(
   clientId: string,
   where: string,
-): Promise<{ ok: true; redirectUris: string[]; name: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; redirectUris: string[]; name: string; tenantId?: string } | { ok: false; error: string }> {
+  const registrationId = tenantClientRegistrationId(clientId);
+  if (registrationId) {
+    const client = await lookupTenantClient(registrationId);
+    if (client === 'unavailable') {
+      console.error(`[oauth/${where}] tenant client ${registrationId}: registration lookup unavailable`);
+      return { ok: false, error: 'temporarily_unavailable' };
+    }
+    if (!client) {
+      console.error(`[oauth/${where}] tenant client ${registrationId}: unknown, disabled or feature off`);
+      return { ok: false, error: 'invalid_client' };
+    }
+    console.error(`[oauth/${where}] tenant client ${registrationId} (tid=${client.tenantId}, ${sanitizeForLog(client.name)})`);
+    return { ok: true, redirectUris: [client.redirectUri], name: client.name, tenantId: client.tenantId };
+  }
   if (isClientIdMetadataUrl(clientId)) {
     try {
       const md = await resolveClientMetadata(clientId);
@@ -539,6 +555,86 @@ async function resolveRegisteredClient(
     return { ok: false, error: 'invalid_client' };
   }
   return { ok: true, redirectUris: registered.redirectUris, name: registered.name };
+}
+
+// ---- Tenant-bound clients (portal registrations) ---------------------------
+//
+// A Tenant Admin registers the exact callback of a self-hosted client (LibreChat and the like) in the
+// portal and receives client_id `amc_<registrationId>`. The registration is that client's allowlist
+// entry — the global vendor allowlist keeps governing dynamic registration — and it binds the flow to
+// the registering tenant: authorize and token go to that tenant's Entra authority, and the token
+// endpoint discards a token whose tid is not the registration's. Registrations live in the backend;
+// this server reads one through an anonymous lookup by its unguessable id (no user token exists
+// before the exchange) and caches the answer briefly, so a deletion or the operator switch takes
+// effect within TENANT_CLIENT_CACHE_MS.
+
+const TENANT_CLIENT_ID = /^amc_([0-9a-f]{32})$/;
+const TENANT_CLIENT_CACHE_MS = 60_000;
+const TENANT_CLIENT_CACHE_MAX = 500;
+const TENANT_CLIENT_LOOKUP_TIMEOUT_MS = 5_000;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+interface TenantClient {
+  tenantId: string;
+  redirectUri: string;
+  name: string;
+}
+
+const tenantClientCache = new Map<string, { value: TenantClient | null; expiresAt: number }>();
+
+/** The registration id of a tenant-bound client_id, or null for every other client identity. */
+export function tenantClientRegistrationId(clientId: string | null | undefined): string | null {
+  const match = typeof clientId === 'string' ? TENANT_CLIENT_ID.exec(clientId) : null;
+  return match ? match[1] : null;
+}
+
+/** Test seam: forget cached registrations. */
+export function clearTenantClientCache(): void {
+  tenantClientCache.clear();
+}
+
+/**
+ * The registration behind a tenant-bound client_id: the client, null when the backend answers 404
+ * (unknown, disabled, or the feature switched off — cached like a hit), or 'unavailable' when the
+ * backend could not be asked (never cached, the caller fails closed).
+ */
+async function lookupTenantClient(registrationId: string): Promise<TenantClient | null | 'unavailable'> {
+  const now = Date.now();
+  const cached = tenantClientCache.get(registrationId);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/auth/mcp/client-registrations/${registrationId}`, {
+      signal: AbortSignal.timeout(TENANT_CLIENT_LOOKUP_TIMEOUT_MS),
+    });
+  } catch {
+    return 'unavailable';
+  }
+
+  let value: TenantClient | null = null;
+  if (res.ok) {
+    const body = (await res.json().catch(() => null)) as McpClientRegistrationLookupResponse | null;
+    const tenantId = typeof body?.tenantId === 'string' ? body.tenantId.toLowerCase() : '';
+    if (!body || !GUID.test(tenantId) || typeof body.redirectUri !== 'string' || body.registrationId !== registrationId) {
+      return 'unavailable';
+    }
+    value = { tenantId, redirectUri: body.redirectUri, name: body.name || 'Self-hosted client' };
+  } else if (res.status !== 404) {
+    return 'unavailable';
+  }
+
+  if (tenantClientCache.size >= TENANT_CLIENT_CACHE_MAX) {
+    const oldest = tenantClientCache.keys().next().value;
+    if (oldest !== undefined) tenantClientCache.delete(oldest);
+  }
+  tenantClientCache.set(registrationId, { value, expiresAt: now + TENANT_CLIENT_CACHE_MS });
+  return value;
+}
+
+/** The registering tenant's authority on the configured Entra host (sovereign clouds included). */
+function tenantAuthority(tenantId: string): string {
+  return AUTHORITY.replace(/\/[^/]+$/, `/${tenantId}`);
 }
 
 export function createOAuthRouter(): Router {
@@ -727,14 +823,6 @@ export function createOAuthRouter(): Router {
       res.status(400).json({ error: 'invalid_request', error_description: 'redirect_uri is required' });
       return;
     }
-    if (!isAllowedRedirectUri(redirect_uri)) {
-      console.error(`[oauth/authorize] Rejected redirect_uri (not in allowlist): ${sanitizeForLog(redirect_uri)}`);
-      res.status(400).json({
-        error: 'invalid_request',
-        error_description: 'redirect_uri host is not in the allowlist',
-      });
-      return;
-    }
     // client_id is REQUIRED. Now that it is a stateless, replica-portable
     // signed token, there is no cold-start reason to tolerate its absence —
     // and tolerating it would let a caller bypass the per-client redirect_uri
@@ -754,13 +842,26 @@ export function createOAuthRouter(): Router {
     // No registry lookup, correct across cold starts and replicas. A forged /
     // unfetchable / malformed client fails closed; a valid one must still carry
     // the exact redirect_uri.
+    // Every client except a tenant registration is held to the global host allowlist — checked before
+    // the client is resolved, so a hostile redirect never triggers a metadata-document fetch. A tenant
+    // registration IS the allowlist entry for its exact callback, matched below.
+    if (tenantClientRegistrationId(client_id) === null && !isAllowedRedirectUri(redirect_uri)) {
+      console.error(`[oauth/authorize] Rejected redirect_uri (not in allowlist): ${sanitizeForLog(redirect_uri)}`);
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'redirect_uri host is not in the allowlist',
+      });
+      return;
+    }
     const registered = await resolveRegisteredClient(client_id, 'authorize');
     if (!registered.ok) {
-      res.status(400).json({
+      res.status(registered.error === 'temporarily_unavailable' ? 503 : 400).json({
         error: registered.error,
         error_description: registered.error === 'invalid_client'
           ? 'client_id is invalid — use a Client ID Metadata Document URL or register via /oauth/register first'
-          : 'client_id metadata document is malformed',
+          : registered.error === 'temporarily_unavailable'
+            ? 'client registration could not be checked — retry shortly'
+            : 'client_id metadata document is malformed',
       });
       return;
     }
@@ -808,7 +909,10 @@ export function createOAuthRouter(): Router {
       prompt: 'select_account',
     });
 
-    res.redirect(`${AUTHORITY}/oauth2/v2.0/authorize?${entraParams}`);
+    // A tenant-bound client signs in at its tenant's authority: an account of another organization
+    // cannot complete the sign-in at all (guests are the tenant's own decision).
+    const authority = registered.tenantId ? tenantAuthority(registered.tenantId) : AUTHORITY;
+    res.redirect(`${authority}/oauth2/v2.0/authorize?${entraParams}`);
   });
 
   // --- Callback: receive code from Entra ID, forward to Claude Code ---
@@ -844,10 +948,15 @@ export function createOAuthRouter(): Router {
     const redirectUri = decoded.redirectUri;
     const clientId = decoded.clientId;
 
-    // Re-validate the redirectUri at callback time too. Belt-and-suspenders:
-    // /oauth/authorize already gated the URI, but the state value transits the
-    // user-agent — re-running the host allowlist here closes any replay gap.
-    if (!isAllowedRedirectUri(redirectUri)) {
+    // Stateless re-check of the client (signed token, metadata document or tenant registration — the
+    // latter two normally cache hits within the 10-min state window). The redirectUri is already pinned
+    // inside the HMAC-verified state, so this is defense-in-depth: a valid client must still list the
+    // redirectUri, and a registration deleted since authorize stops the flow here.
+    const registered = clientId ? await resolveRegisteredClient(clientId, 'callback') : null;
+    // Re-validate the redirectUri at callback time too: the state value transits the user-agent —
+    // re-running the host allowlist closes any replay gap. A tenant registration is its own allowlist.
+    const tenantBound = registered?.ok === true && !!registered.tenantId;
+    if (!tenantBound && !isAllowedRedirectUri(redirectUri)) {
       console.error(`[oauth/callback] Rejected redirectUri from state (not in allowlist): ${sanitizeForLog(redirectUri)}`);
       res.status(400).json({
         error: 'invalid_request',
@@ -855,13 +964,7 @@ export function createOAuthRouter(): Router {
       });
       return;
     }
-    if (clientId) {
-      // Stateless re-check (signed token or metadata document, the latter
-      // normally a cache hit within the 10-min state window) — correct across
-      // cold starts/replicas. The redirectUri is already pinned inside the
-      // HMAC-verified state, so this only adds defense-in-depth: a valid
-      // client must still list the redirectUri. A forged client_id fails closed.
-      const registered = await resolveRegisteredClient(clientId, 'callback');
+    if (registered) {
       if (!registered.ok || !redirectUriMatches(registered.redirectUris, redirectUri)) {
         console.error(`[oauth/callback] client_id invalid or redirectUri not registered: ${sanitizeForLog(redirectUri)}`);
         res.status(400).json({
@@ -935,6 +1038,24 @@ export function createOAuthRouter(): Router {
       return;
     }
 
+    // A tenant-bound client exchanges at its tenant's authority, and only while its registration exists.
+    const registrationId = tenantClientRegistrationId(params.client_id);
+    let boundTenantId: string | null = null;
+    if (registrationId) {
+      const client = await lookupTenantClient(registrationId);
+      if (client === 'unavailable') {
+        res.status(503).json({ error: 'temporarily_unavailable', error_description: 'client registration could not be checked — retry shortly' });
+        return;
+      }
+      if (!client) {
+        console.error(`[oauth/token] tenant client ${registrationId}: unknown, disabled or feature off`);
+        res.status(400).json({ error: 'invalid_client', error_description: 'client registration is unknown or disabled' });
+        return;
+      }
+      boundTenantId = client.tenantId;
+    }
+    const authority = boundTenantId ? tenantAuthority(boundTenantId) : AUTHORITY;
+
     // Build form body for Entra ID token endpoint
     const body = new URLSearchParams();
 
@@ -950,7 +1071,7 @@ export function createOAuthRouter(): Router {
     body.set('scope', SCOPES);
 
     try {
-      const tokenResponse = await fetch(`${AUTHORITY}/oauth2/v2.0/token`, {
+      const tokenResponse = await fetch(`${authority}/oauth2/v2.0/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
@@ -973,6 +1094,17 @@ export function createOAuthRouter(): Router {
           `error=${sanitizeForLog(err.error)} error_codes=${sanitizeForLog(codes)} ` +
           `correlation_id=${sanitizeForLog(err.correlation_id)}`,
         );
+      }
+      if (tokenResponse.status === 200 && boundTenantId) {
+        // The authority already confines the sign-in; this is the second half of the binding. The token
+        // comes straight from Entra over TLS, so its claims can be read without a signature check here.
+        const accessToken = typeof data?.access_token === 'string' ? data.access_token : '';
+        const tid = extractTokenClaims(accessToken)?.tid?.toLowerCase();
+        if (tid !== boundTenantId) {
+          console.error(`[oauth/token] tenant client ${registrationId}: token tid=${sanitizeForLog(tid ?? '(none)')} is not the registration's tenant — discarded`);
+          res.status(400).json({ error: 'invalid_grant', error_description: 'the token was issued for another organization than this client registration' });
+          return;
+        }
       }
       res.status(tokenResponse.status).json(tokenResponse.status === 200 ? data : sanitizeTokenErrorBody(data));
     } catch (err) {

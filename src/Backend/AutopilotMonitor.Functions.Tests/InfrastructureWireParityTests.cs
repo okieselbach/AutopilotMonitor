@@ -49,6 +49,7 @@ public class InfrastructureWireParityTests
                 homedApp = "primary",
                 bootstrapTokenEnabled = true,
                 unrestrictedModeEnabled = false,
+                mcpClientRegistrationEnabled = true,
                 whatsNewSeenPlatformUtc = platformSeen,
                 whatsNewSeenAgentUtc = agentSeen
             },
@@ -69,6 +70,7 @@ public class InfrastructureWireParityTests
                 HomedApp = "primary",
                 BootstrapTokenEnabled = true,
                 UnrestrictedModeEnabled = false,
+                McpClientRegistrationEnabled = true,
                 WhatsNewSeenPlatformUtc = platformSeen,
                 WhatsNewSeenAgentUtc = agentSeen
             });
@@ -105,6 +107,7 @@ public class InfrastructureWireParityTests
                 homedApp = "legacy",
                 bootstrapTokenEnabled = false,
                 unrestrictedModeEnabled = false,
+                mcpClientRegistrationEnabled = false,
                 whatsNewSeenPlatformUtc,
                 whatsNewSeenAgentUtc
             },
@@ -125,6 +128,7 @@ public class InfrastructureWireParityTests
                 HomedApp = "legacy",
                 BootstrapTokenEnabled = false,
                 UnrestrictedModeEnabled = false,
+                McpClientRegistrationEnabled = false,
                 WhatsNewSeenPlatformUtc = null,
                 WhatsNewSeenAgentUtc = null
             });

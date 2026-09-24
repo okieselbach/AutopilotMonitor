@@ -377,6 +377,10 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("DELETE", "tenants/{tenantId}/admins/{adminUpn}", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Self-hosted MCP client registrations (the OAuth callback a tenant's own client uses).
+        new("GET",    "tenants/{tenantId}/mcp-client-registrations",                  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        new("POST",   "tenants/{tenantId}/mcp-client-registrations",                  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        new("DELETE", "tenants/{tenantId}/mcp-client-registrations/{registrationId}", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("PATCH",  "tenants/{tenantId}/admins/{adminUpn}/disable",     EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("PATCH",  "tenants/{tenantId}/admins/{adminUpn}/enable",      EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("PATCH",  "tenants/{tenantId}/admins/{adminUpn}/permissions", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
@@ -415,6 +419,9 @@ public static class EndpointAccessPolicyCatalog
         // The MCP front door: the only roleless-tier route an application principal may reach — the
         // handler resolves membership / delegation itself (McpUserService.IsAllowedAsync).
         new("GET",    "auth/mcp",                              EndpointPolicy.AuthenticatedUser, applicationAllowed: true),
+        // The MCP server's OAuth proxy resolves a tenant-bound client id before any user token exists:
+        // anonymous, per-IP rate-limited in the function, 404 while the operator switch is off.
+        new("GET",    "auth/mcp/client-registrations/{registrationId}", EndpointPolicy.PublicAnonymous),
 
         // ── MCP Usage (self-service) ──────────────────────────────────
         new("GET",    "metrics/mcp-usage/me",                  EndpointPolicy.AuthenticatedUser),

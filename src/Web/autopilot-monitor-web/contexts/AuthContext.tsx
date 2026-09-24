@@ -277,6 +277,7 @@ function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
     hasMcpAccess: data.hasMcpAccess || false,
     bootstrapTokenEnabled: data.bootstrapTokenEnabled || false,
     unrestrictedModeEnabled: data.unrestrictedModeEnabled || false,
+    mcpClientRegistrationEnabled: data.mcpClientRegistrationEnabled || false,
     // What's new seen marks: absent key = never viewed (first-visit window applies).
     whatsNewSeenPlatformUtc: data.whatsNewSeenPlatformUtc,
     whatsNewSeenAgentUtc: data.whatsNewSeenAgentUtc,
@@ -304,6 +305,7 @@ function claimsOnlyUserInfo(account: AccountInfo): UserInfo {
     hasMcpAccess: false,
     bootstrapTokenEnabled: false,
     unrestrictedModeEnabled: false,
+    mcpClientRegistrationEnabled: false,
   };
 }
 
