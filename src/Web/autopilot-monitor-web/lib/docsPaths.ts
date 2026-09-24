@@ -17,6 +17,7 @@ export const DOCS_PATHS = {
   contact: "/reference/settings#contact",
   bootstrapSessions: "/reference/bootstrap-script-and-tokens",
   mcpUsers: "/integrations/ai-integration-mcp",
+  selfHostedClients: "/integrations/ai-integration-mcp#self-hosted-ai-clients",
   // Settings → Agent
   agentParameters: "/reference/settings#agent-parameters",
   agentCollectors: "/reference/settings#agent-collectors",

@@ -135,7 +135,7 @@ export function SectionSelfHostedClients() {
           iconPath="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
           title="Self-hosted AI clients"
           subtitle="Connect an AI client your organization runs itself through the normal sign-in. Only accounts of this tenant can sign in through a registered client."
-          docsPath={DOCS_PATHS.mcpUsers}
+          docsPath={DOCS_PATHS.selfHostedClients}
         />
         <div className="p-6 space-y-4">
           {data && !data.enabled && (
