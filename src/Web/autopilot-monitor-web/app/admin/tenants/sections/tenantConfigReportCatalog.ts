@@ -129,7 +129,7 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   validateCorporateIdentifier: { section: "Security & Validation", label: "Validate Corporate Identifier" },
   validateDeviceAssociation: { section: "Security & Validation", label: "Validate Device Association" },
   validateCloudPcDevice: { section: "Security & Validation", label: "Validate Cloud PC Device" },
-  validateIntuneDeviceBinding: { section: "Security & Validation", label: "Validate Intune Device Binding" },
+  validateIntuneDeviceBinding: { section: "Security & Validation", label: "Validate Intune Enrollment" },
   allowInsecureAgentRequests: { section: "Security & Validation", label: "Allow Insecure Agent Requests" },
   customRateLimitRequestsPerMinute: { section: "Security & Validation", label: "Device API Rate Limit Override" },
   customUserRateLimitRequestsPerMinute: { section: "Security & Validation", label: "MCP & Integrations API Rate Limit Override" },

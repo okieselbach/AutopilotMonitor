@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
-import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
+import { api } from "@/lib/api";
 import { buildAddOnGrantCommand } from "@/lib/appHoming";
 import { legacyConfigured, primaryClientId, switchAuthApp } from "@/lib/authApp";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -12,6 +14,8 @@ import { TenantNotifications } from "../../TenantNotifications";
 import { AppHomingAddOnStep } from "../../components/AppHomingAddOnStep";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
 import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesInsights";
+import type { GetGraphPermissionsStatusResponse } from "@/utils/wire-types.generated";
+import { addOnGranted, INTUNE_ENROLLMENT_FEATURE } from "@/lib/deviceValidation";
 
 export function SectionAutopilotValidation() {
   const {
@@ -32,11 +36,15 @@ export function SectionAutopilotValidation() {
 
   const { getAccessToken } = useAuth();
   const { tenantId } = useTenant();
-  // Cert-device binding stays Global-Admin-only: only the operator can turn the binding check
-  // on while its enrollment-race behaviour is still being measured. Follows the Global-Admin
-  // VIEW, so switching it off (or presenting in demo mode) yields the real tenant-admin section.
-  // Read before the early return below — hooks may not sit behind a conditional.
-  const showIntuneDeviceBindingToggle = useGlobalAdminUi();
+  // Add-on permission state for the Intune Enrollment option — the same status endpoint the
+  // Optional Graph capabilities page reads. Best effort: a failure leaves the hint hidden.
+  // Hooks sit before the early return below — they may not be conditional.
+  const permissionStatus = useAuthenticatedFetch<GetGraphPermissionsStatusResponse>({ onError: () => {} });
+  const fetchPermissionStatus = permissionStatus.execute;
+  useEffect(() => {
+    if (!tenantId || !canEditConfig) return;
+    void fetchPermissionStatus(api.graphPermissions.status(tenantId), undefined, { silent: true });
+  }, [tenantId, canEditConfig, fetchPermissionStatus]);
 
   // Validation gates + the Entra admin-consent flow are tenant-admin territory —
   // Operators do not see this section at all.
@@ -178,7 +186,7 @@ export function SectionAutopilotValidation() {
         validateCloudPcDevice={validateCloudPcDevice}
         validateIntuneDeviceBinding={validateIntuneDeviceBinding}
         onToggleIntuneDeviceBinding={handleToggleIntuneDeviceBinding}
-        showIntuneDeviceBindingToggle={showIntuneDeviceBindingToggle}
+        intuneEnrollmentPermission={addOnGranted(permissionStatus.data, INTUNE_ENROLLMENT_FEATURE)}
         onToggleCloudPc={handleToggleCloudPcValidation}
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}

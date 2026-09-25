@@ -23,6 +23,7 @@ import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { classifyClientId, legacyConfigured } from "@/lib/authApp";
+import { hasAnyDeviceValidation } from "@/lib/deviceValidation";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 import { TenantAdminSection } from "./TenantAdminSection";
@@ -265,7 +266,7 @@ function TenantManagementSectionInner({
   const clearFilters = () => setFilters(EMPTY_FILTERS);
 
   // Statistics (always over all tenants, not filtered)
-  const readyCount = tenants.filter(t => t.validateAutopilotDevice).length;
+  const readyCount = tenants.filter(t => hasAnyDeviceValidation(t)).length;
   const waitlistCount = tenants.filter(t => onWaitlist(t, filterCtx)).length;
   const totalCount = tenants.length;
   const plans = planOverview(tenants, nowMs);
@@ -706,7 +707,7 @@ function TenantManagementSectionInner({
                                   Paying
                                 </span>
                               )}
-                              {tenant.validateAutopilotDevice && (
+                              {hasAnyDeviceValidation(tenant) && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                   Ready
                                 </span>

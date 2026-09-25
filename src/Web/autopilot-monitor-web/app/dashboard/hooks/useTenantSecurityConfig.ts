@@ -11,7 +11,8 @@ type NotifyError = (title: string, err: unknown, key?: string, fallback?: string
 
 /** The subset of the feature-flags response the dashboard banners read. */
 export interface TenantConfigurationSummary {
-  validateAutopilotDevice: boolean;
+  /** At least one device-validation method is enabled (backend HasAnyDeviceValidation). */
+  deviceValidationEnabled: boolean;
   edition?: string;
   contactEmailSet?: boolean;
   companyNameSet?: boolean;
@@ -26,7 +27,7 @@ interface User {
 
 export interface TenantSecuritySummary {
   /** null while loading or on error; the red banner keys on `=== false`. */
-  serialValidationEnabled: boolean | null;
+  deviceValidationEnabled: boolean | null;
   /**
    * Pro tenant (incl. trial) with an incomplete contact profile (address and/or company
    * name) — drives the amber "complete your contact details" banner. Requires an EXPLICIT
@@ -44,7 +45,7 @@ export interface TenantSecuritySummary {
 }
 
 const EMPTY_SUMMARY: TenantSecuritySummary = {
-  serialValidationEnabled: null,
+  deviceValidationEnabled: null,
   proContactMissing: false,
   proContactMissingParts: [],
   appHomingFunnelActive: false,
@@ -55,7 +56,7 @@ export function summarizeTenantSecurityConfig(data: TenantConfigurationSummary):
   const isPro = data.edition === "pro" || data.edition === "enterprise";
   const missingParts = isPro ? missingContactProfileParts(data) : [];
   return {
-    serialValidationEnabled: !!data.validateAutopilotDevice,
+    deviceValidationEnabled: !!data.deviceValidationEnabled,
     proContactMissing: missingParts.length > 0,
     proContactMissingParts: missingParts,
     appHomingFunnelActive: data.appHomingFunnelActive === true,
@@ -64,7 +65,7 @@ export function summarizeTenantSecurityConfig(data: TenantConfigurationSummary):
 
 /**
  * Fetches the tenant's feature-flags summary to drive the dashboard banners:
- * the red "Autopilot Device Validation is disabled" banner, the amber
+ * the red "no device validation enabled" banner, the amber
  * Pro-without-contact-address banner, and the blue app-registration migration banner.
  *
  * Skips the fetch for users without a tenant role (they never see the dashboard).

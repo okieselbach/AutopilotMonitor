@@ -67,7 +67,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "Which Autopilot scenarios are supported?",
     answer:
-      "User-driven, pre-provisioned (white glove), and self-deploying or kiosk Autopilot flows, for Microsoft Entra joined and Hybrid joined devices alike. Autopilot Device Preparation is supported, including device association as a validation method, and Windows 365 Cloud PCs can be enabled per tenant.",
+      "User-driven, pre-provisioned (white glove), and self-deploying or kiosk Autopilot flows, for Microsoft Entra joined and Hybrid joined devices alike. Autopilot Device Preparation is supported, with device association or corporate identifiers as validation methods, or without any pre-registration by validating the device's Intune enrollment. Windows 365 Cloud PCs can be enabled per tenant.",
   },
   {
     question: "Where is my enrollment data stored?",

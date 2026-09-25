@@ -42,9 +42,8 @@ export interface TenantConfiguration {
   validateAutopilotDevice: boolean;
   validateCorporateIdentifier?: boolean;
   /**
-   * DevPrep Device Association validation (shadow mode during Private Preview).
-   * Looks devices up via Graph `tenantAssociatedDevices` but does NOT block enrollment.
-   * UI surface is gated to Global Admins until DevPrep ships GA.
+   * Device preparation "Device association" validation: matches the serial against Graph
+   * `tenantAssociatedDevices`. An accepting agent gate like the other validations.
    */
   validateDeviceAssociation?: boolean;
   /**
@@ -55,6 +54,12 @@ export interface TenantConfiguration {
    * permission ("W365CloudPcValidation" in Optional Graph capabilities).
    */
   validateCloudPcDevice?: boolean;
+  /**
+   * Intune Enrollment Validation: the last accepting gate — admits any device of the tenant's
+   * Intune inventory, matched by the Intune device id in the agent's MDM certificate, with no
+   * pre-registration. Requires the optional DeviceManagementManagedDevices.Read.All add-on
+   * ("IntuneDeviceBinding" in Optional Graph capabilities).
+   */
   validateIntuneDeviceBinding?: boolean;
   allowInsecureAgentRequests?: boolean;
   /**

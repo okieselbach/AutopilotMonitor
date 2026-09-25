@@ -18,15 +18,11 @@ type ValidationTrigger = "autopilot" | "corporate" | "device-preparation";
 // Human label for a validation trigger.
 const validationLabel = (t: ValidationTrigger) =>
   t === "corporate" ? "Corporate Identifier Validation"
-    : t === "device-preparation" ? "DevPrep Device Association Validation"
+    : t === "device-preparation" ? "Device Association Validation"
       : "Autopilot Device Validation";
 
-// Enable-confirmation suffix. DevPrep is shadow-mode (no hard gate), so its wording differs
-// from the agent-gating validations.
-const validationEnabledSuffix = (t: ValidationTrigger) =>
-  t === "device-preparation"
-    ? " enabled (shadow mode — does not block enrollment)."
-    : " enabled. Backend agent endpoints are now unlocked for this tenant.";
+// Enable-confirmation suffix: every consent-driven validation is an accepting agent gate.
+const VALIDATION_ENABLED_SUFFIX = " enabled. Backend agent endpoints are now unlocked for this tenant.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
@@ -952,7 +948,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       const saved = await persistValidation(trigger);
       if (!saved) return "failed";
 
-      setSuccessMessage(`Access is already approved by your organization — ${validationLabel(trigger)}${validationEnabledSuffix(trigger)}`);
+      setSuccessMessage(`Access is already approved by your organization — ${validationLabel(trigger)}${VALIDATION_ENABLED_SUFFIX}`);
       return "reconciled";
     },
     [probeAccessCheck, persistValidation],
@@ -1122,7 +1118,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           if (attempts > 1) trackEvent("consent_verify_propagated", { trigger, attempts: String(attempts) });
           const saved = await persistValidation(reconcileTrigger);
           if (saved) {
-            setSuccessMessage(`${validationLabel(reconcileTrigger)}${validationEnabledSuffix(reconcileTrigger)}`);
+            setSuccessMessage(`${validationLabel(reconcileTrigger)}${VALIDATION_ENABLED_SUFFIX}`);
           }
         } else if (probe === "transient") {
           trackEvent("consent_verify_failed", { trigger, stage: "role-propagating", attempts: String(attempts - 1) });
@@ -1335,10 +1331,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [saveConfiguration]);
 
   /**
-   * Toggle the cert-to-device binding check (Global-Admin-only preview). No consent flow -
-   * DeviceManagementManagedDevices.Read.All is an Optional Graph capabilities add-on granted
-   * with the script; without it the backend records "PermissionMissing" and nothing else, and
-   * because the check runs in shadow mode it never affects an enrollment either way.
+   * Toggle Intune Enrollment Validation (field name validateIntuneDeviceBinding). No consent
+   * flow — DeviceManagementManagedDevices.Read.All is an Optional Graph capabilities add-on
+   * granted with the script; until it is granted no device is admitted through this option
+   * (the backend answers 503 Retry-After, like a missing core consent).
    */
   const handleToggleIntuneDeviceBinding = useCallback(async (newValue: boolean) => {
     setValidateIntuneDeviceBinding(newValue);

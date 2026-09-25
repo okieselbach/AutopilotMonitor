@@ -29,10 +29,9 @@
          Cloud PCs are never Autopilot-registered, so this enables agent monitoring
          of Cloud PC first-connect enrollment)
       - IntuneDeviceBinding     -> DeviceManagementManagedDevices.Read.All
-        (cert-to-device binding: verifies that the Intune device id carried in the
-         agent's client certificate is a device THIS tenant actually enrolled --
-         currently a Global-Admin-only preview that records telemetry and does not
-         block enrollment)
+        (Intune Enrollment Validation: accepts devices enrolled in THIS tenant's
+         Intune, matched by the Intune device id in the agent's client certificate,
+         without Autopilot registration, corporate identifier or device association)
       - All                    -> every optional permission above, in one run
         (also works with -Revoke to remove all optional grants at once)
 

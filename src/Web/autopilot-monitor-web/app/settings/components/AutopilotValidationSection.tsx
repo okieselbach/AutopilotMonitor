@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { ModalPortal } from "@/components/ModalPortal";
@@ -13,10 +14,12 @@ interface AutopilotValidationSectionProps {
   /** Autopilot device preparation "Device association" — same Graph permission as the two above. */
   validateDeviceAssociation: boolean;
   setValidateDeviceAssociation: (value: boolean) => void;
-  /** Cert-to-device binding - Global-Admin-only preview. Provided when `showIntuneDeviceBindingToggle=true`. */
+  /** Intune Enrollment Validation — admits enrolled Intune devices without pre-registration. */
   validateIntuneDeviceBinding?: boolean;
+  /** Toggle + persist Intune Enrollment Validation (permission via the Optional Graph capabilities add-on, no consent dialog). */
   onToggleIntuneDeviceBinding?: (v: boolean) => void | Promise<void>;
-  showIntuneDeviceBindingToggle?: boolean;
+  /** Whether the IntuneDeviceBinding add-on is granted; null while unknown (loading, transient). */
+  intuneEnrollmentPermission?: boolean | null;
   /** Windows 365 Cloud PC validation — fallback gate for Cloud PCs (never Autopilot-registered). */
   validateCloudPcDevice?: boolean;
   /** Toggle + persist Cloud PC validation in one shot (permission comes via the Optional Graph capabilities add-on, no consent dialog). */
@@ -40,7 +43,7 @@ export default function AutopilotValidationSection({
   setValidateDeviceAssociation,
   validateIntuneDeviceBinding = false,
   onToggleIntuneDeviceBinding,
-  showIntuneDeviceBindingToggle = false,
+  intuneEnrollmentPermission = null,
   validateCloudPcDevice = false,
   onToggleCloudPc,
   autopilotConsentInProgress,
@@ -48,8 +51,9 @@ export default function AutopilotValidationSection({
   onBeginConsent,
   onDetectExistingAccess,
 }: AutopilotValidationSectionProps) {
-  const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier || validateDeviceAssociation || validateCloudPcDevice;
-  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'device-association' | 'cloudpc' | null>(null);
+  const enabledValidations = [validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding];
+  const anyValidationEnabled = enabledValidations.some(Boolean);
+  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'device-association' | 'cloudpc' | 'intune-enrollment' | null>(null);
   // The three serial-based validations share one Graph permission: the first one enabled
   // carries the admin consent, every further one is a plain persisted toggle.
   const consentAlreadyCarried = validateAutopilotDevice || validateCorporateIdentifier || validateDeviceAssociation;
@@ -94,6 +98,16 @@ export default function AutopilotValidationSection({
     }
   };
 
+  // Intune Enrollment Validation: add-on permission (DeviceManagementManagedDevices.Read.All via
+  // the grant script) like Cloud PC — direct toggle+persist, no consent dialog.
+  const handleToggleIntuneEnrollment = () => {
+    if (validateIntuneDeviceBinding) {
+      setDisableConfirm('intune-enrollment');
+    } else if (onToggleIntuneDeviceBinding) {
+      void onToggleIntuneDeviceBinding(true);
+    }
+  };
+
   const confirmDisable = () => {
     if (disableConfirm === 'autopilot') {
       setValidateAutopilotDevice(false);
@@ -103,6 +117,8 @@ export default function AutopilotValidationSection({
       setValidateDeviceAssociation(false);
     } else if (disableConfirm === 'cloudpc' && onToggleCloudPc) {
       void onToggleCloudPc(false);
+    } else if (disableConfirm === 'intune-enrollment' && onToggleIntuneDeviceBinding) {
+      void onToggleIntuneDeviceBinding(false);
     }
     setDisableConfirm(null);
   };
@@ -245,27 +261,41 @@ export default function AutopilotValidationSection({
           </div>
         )}
 
-        {/* Cert-to-device binding - GA-gated preview, shadow-mode (no enrollment block) */}
-        {showIntuneDeviceBindingToggle && onToggleIntuneDeviceBinding && (
-          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="intune-device-binding-toggle">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-gray-700 tracking-wide">Certificate Device Binding</p>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-purple-100 text-purple-800">
-                Preview · GA only
-              </span>
-            </div>
+        {/* Intune Enrollment — no pre-registration; permission via the Optional Graph capabilities add-on */}
+        {onToggleIntuneDeviceBinding && (
+          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="intune-enrollment-validation-toggle">
+            <p className="text-sm font-semibold text-gray-700 tracking-wide">Without pre-registration</p>
             <label className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-gray-900">Enable Intune Device Binding Validation</p>
+                <p className="text-sm font-medium text-gray-900">Enable Intune Enrollment Validation</p>
                 <p className="text-sm text-gray-500">
-                  Checks that the Intune device id in the agent{"'"}s client certificate belongs to a device this tenant actually enrolled. Currently runs in <strong>shadow mode</strong> - the result is recorded as telemetry only and does NOT block enrollment. Requires the optional <strong>DeviceManagementManagedDevices.Read.All</strong> permission - grant the{" "}
-                  <strong>IntuneDeviceBinding</strong> add-on under <em>Optional Graph capabilities</em>.
+                  Accepts every device enrolled in this tenant&apos;s Intune, matched by the Intune device id in the
+                  agent&apos;s MDM certificate. No Autopilot registration, corporate identifier or device association is
+                  needed, which suits Autopilot device preparation without pre-registration. Checked last, only when no
+                  option above matched.
                 </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  This reaches exactly as far as your Intune enrollment restrictions: if personal devices may enroll,
+                  they are accepted too. For corporate devices only, block personal enrollment or prefer the options above.
+                  Requires the optional <strong>DeviceManagementManagedDevices.Read.All</strong>{" "}permission — grant the{" "}
+                  <strong>IntuneDeviceBinding</strong>{" "}add-on under{" "}
+                  <Link href="/settings/tenant/graph-permissions" className="underline underline-offset-2 hover:text-gray-700">
+                    Optional Graph capabilities
+                  </Link>.
+                </p>
+                {intuneEnrollmentPermission === true && (
+                  <p className="text-xs font-medium text-emerald-700 mt-1">Permission granted.</p>
+                )}
+                {intuneEnrollmentPermission === false && (
+                  <p className="text-xs font-medium text-amber-700 mt-1">
+                    Permission not granted yet. No device is accepted this way until the add-on is granted.
+                  </p>
+                )}
               </div>
               <button
-                onClick={() => { void onToggleIntuneDeviceBinding(!validateIntuneDeviceBinding); }}
+                onClick={handleToggleIntuneEnrollment}
                 disabled={saving}
-                aria-label="Toggle Intune device binding validation"
+                aria-label="Toggle Intune enrollment validation"
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${validateIntuneDeviceBinding ? 'bg-emerald-500' : 'bg-gray-300'}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateIntuneDeviceBinding ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -305,7 +335,8 @@ export default function AutopilotValidationSection({
                     {disableConfirm === 'autopilot' ? 'Autopilot Device Validation'
                       : disableConfirm === 'corporate' ? 'Corporate Identifier Validation'
                         : disableConfirm === 'device-association' ? 'Device Association Validation'
-                          : 'Windows 365 Cloud PC Validation'}
+                          : disableConfirm === 'intune-enrollment' ? 'Intune Enrollment Validation'
+                            : 'Windows 365 Cloud PC Validation'}
                   </p>
                 </div>
               </div>
@@ -313,7 +344,7 @@ export default function AutopilotValidationSection({
               <p className="text-sm text-gray-700 mb-2">
                 Are you sure you want to disable this validation?
               </p>
-              {[validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice].filter(Boolean).length === 1 && (
+              {enabledValidations.filter(Boolean).length === 1 && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
                   This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
                 </div>

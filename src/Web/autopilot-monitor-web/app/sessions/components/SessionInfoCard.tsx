@@ -175,8 +175,8 @@ function joinTypeLabel(session: Session): string {
 
 /**
  * Which backend device-validation path admitted the device at session registration
- * (SecurityValidator: Autopilot S/N lookup → Corporate Identifier fallback; Bootstrap
- * token for pre-MDM sessions; Device Association once DevPrep becomes a hard gate).
+ * (SecurityValidator chain: Autopilot → Corporate Identifier → Device Association → Cloud PC →
+ * Intune Enrollment; Bootstrap token for pre-MDM sessions).
  * Null (item hidden) for legacy sessions or tenants with device validation disabled.
  */
 function validatedByLabel(session: Session): string | null {
@@ -186,6 +186,7 @@ function validatedByLabel(session: Session): string | null {
     case "DeviceAssociation": return "Device Association";
     case "Bootstrap": return "Bootstrap Token (pre-MDM)";
     case "CloudPc": return "Windows 365 Cloud PC";
+    case "IntuneEnrollment": return "Intune Enrollment";
     default: return null;
   }
 }

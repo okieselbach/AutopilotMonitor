@@ -12,6 +12,8 @@
  * app-registration classifier (reads env, `null` outside the dual-app parallel window).
  */
 
+import { hasAnyDeviceValidation } from "@/lib/deviceValidation";
+
 export type PlanEdition = "community" | "pro" | "pro-trial" | "pro-msp";
 export type TrialState = "active" | "expired" | "never";
 export type AppValue = "primary" | "legacy" | "unknown";
@@ -30,7 +32,12 @@ export interface TenantFilterFields {
   disabled: boolean;
   disabledReason?: string | null;
   mcpDisabled: boolean;
+  /** Device-validation flags; "ready" = any of them on (see hasAnyDeviceValidation). */
   validateAutopilotDevice: boolean;
+  validateCorporateIdentifier?: boolean;
+  validateDeviceAssociation?: boolean;
+  validateCloudPcDevice?: boolean;
+  validateIntuneDeviceBinding?: boolean;
 }
 
 export interface TenantFilterContext {
@@ -178,7 +185,7 @@ export function onWaitlist(t: TenantFilterFields, ctx: TenantFilterContext): boo
 export function tenantFacetValues(t: TenantFilterFields, ctx: TenantFilterContext): Record<FacetKey, readonly string[]> {
   const status: string[] = [];
   const offboarding = isOffboardingTombstone(t);
-  if (t.validateAutopilotDevice) status.push("ready");
+  if (hasAnyDeviceValidation(t)) status.push("ready");
   if (onWaitlist(t, ctx)) status.push("waitlist");
   if (offboarding) status.push("offboarding");
   if (t.disabled && !offboarding) status.push("suspended");

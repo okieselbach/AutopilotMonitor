@@ -107,7 +107,7 @@ export default function NotRegisteredDevicesInsights({
               </h3>
               {hasDevices && (
                 <p className="text-sm text-gray-500 mt-0.5">
-                  Devices rejected with HTTP 403 because they were not found in this tenant&apos;s Autopilot or Corporate Identifier registry
+                  Devices rejected with HTTP 403 because no enabled device validation method matched them
                 </p>
               )}
             </div>
@@ -124,8 +124,8 @@ export default function NotRegisteredDevicesInsights({
       {!hasDevices && (
         <div className="px-6 py-4">
           <p className="text-sm text-gray-500">
-            When a device attempts to enroll but is not part of your Autopilot or Corporate Identifier
-            scope, it appears here. An empty list means every device that reached the backend was in scope.
+            When a device attempts to enroll but none of your enabled device validation methods matches it,
+            it appears here. An empty list means every device that reached the backend was in scope.
           </p>
         </div>
       )}

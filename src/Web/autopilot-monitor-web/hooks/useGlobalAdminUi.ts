@@ -8,7 +8,7 @@ import { useAdminMode } from "./useAdminMode";
  * Global-Admin view is switched on (which demo mode forces off — see lib/demoMode.ts).
  *
  * Use this for operator-only surfaces that sit INSIDE an otherwise tenant-scoped page — the
- * platform-bot Telegram provider, the cert-device-binding toggle, the retention escape hatch, the
+ * platform-bot Telegram provider, the retention escape hatch, the
  * backend/portal build blocks. Turning the Global-Admin view off then yields a view that is
  * genuinely indistinguishable from a tenant admin's, which is what live demos need.
  *

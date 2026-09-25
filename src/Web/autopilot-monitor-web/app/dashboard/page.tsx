@@ -257,7 +257,7 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const { serialValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
+  const { deviceValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).
@@ -367,7 +367,7 @@ function HomeContent() {
             <AppHomingBanner />
           )}
 
-          {serialValidationEnabled === false && (
+          {deviceValidationEnabled === false && (
             <div className="mb-6 bg-red-600 border-2 border-red-700 rounded-xl p-5 shadow-lg">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -375,9 +375,9 @@ function HomeContent() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                   </svg>
                   <div>
-                    <p className="text-base font-bold text-white">Action required: Autopilot Device Validation is disabled</p>
+                    <p className="text-base font-bold text-white">Action required: No device validation is enabled</p>
                     <p className="text-sm text-red-100 mt-0.5">
-                      Agent ingestion is blocked. Enable Autopilot Device Validation in Settings to start monitoring devices.
+                      Agent ingestion is blocked. Enable a device validation method in Settings to start monitoring devices.
                     </p>
                   </div>
                 </div>

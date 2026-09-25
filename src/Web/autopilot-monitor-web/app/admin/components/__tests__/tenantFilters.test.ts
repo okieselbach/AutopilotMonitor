@@ -111,6 +111,12 @@ describe("matchesTenantFilters", () => {
     expect(matchesTenantFilters(msp, payingPro, ctx())).toBe(false);
   });
 
+  it("counts a tenant as ready with any device validation, not just Autopilot", () => {
+    expect(tenantFacetValues(tenant({ validateIntuneDeviceBinding: true }), ctx()).status).toContain("ready");
+    expect(tenantFacetValues(tenant({ validateDeviceAssociation: true }), ctx()).status).toContain("ready");
+    expect(tenantFacetValues(tenant(), ctx()).status).not.toContain("ready");
+  });
+
   it("treats Status as multi-valued: a ready waitlisted tenant matches either value", () => {
     const t = tenant({ tenantId: "w", validateAutopilotDevice: true });
     const waitlisted = ctx({ isWaitlisted: (id) => id === "w" });
