@@ -18,8 +18,9 @@ namespace AutopilotMonitor.Shared.Models.Graph
         public const string FeatureW365CloudPcValidation = "W365CloudPcValidation";
 
         /// <summary>
-        /// Verifies that the Intune managedDevice id carried in the agent's client certificate
-        /// actually exists in the tenant the request claims (cert-to-device binding).
+        /// Intune Enrollment Validation: resolves the Intune managedDevice id carried in the
+        /// agent's client certificate against the tenant's managed devices, which admits devices
+        /// without any pre-registration and observes the ones other validators admitted.
         /// </summary>
         public const string FeatureIntuneDeviceBinding = "IntuneDeviceBinding";
 

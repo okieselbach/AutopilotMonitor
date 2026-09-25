@@ -285,8 +285,8 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Whether to validate devices against Intune Corporate Device Identifiers
-        /// (manufacturer + model + serial number via importedDeviceIdentities/searchExistingIdentities).
-        /// Requires Graph API integration (admin consent for DeviceManagementServiceConfig.ReadWrite.All)
+        /// (manufacturer + model + serial number, read from importedDeviceIdentities).
+        /// Requires Graph API integration (admin consent for DeviceManagementServiceConfig.Read.All)
         /// </summary>
         public bool ValidateCorporateIdentifier { get; set; } = false;
 
@@ -314,20 +314,20 @@ namespace AutopilotMonitor.Shared.Models
         public bool ValidateCloudPcDevice { get; set; } = false;
 
         /// <summary>
-        /// Cert-to-device binding check (Global-Admin-only preview, SHADOW mode).
+        /// Intune Enrollment Validation: the last accepting method of the device-validation gate.
         /// Resolves the Intune managedDevice id carried in the agent client certificate's Subject
-        /// CN against this tenant's own managedDevices inventory, proving the certificate belongs
-        /// to a device the tenant actually enrolled. The result is recorded as telemetry only and
-        /// never blocks enrollment, because a device object can in principle appear later than the
-        /// agent's first call - measuring that race is the point of the shadow pass. Requires the
-        /// optional Graph permission DeviceManagementManagedDevices.Read.All (feature
-        /// "IntuneDeviceBinding" in the grant script).
+        /// CN against this tenant's own managedDevices inventory and admits the device when it is
+        /// an enrolled device of the tenant, without any pre-registration (Autopilot hash,
+        /// corporate identifier, device association). Evaluated only when no earlier validator
+        /// admitted the device. Requires the optional Graph permission
+        /// DeviceManagementManagedDevices.Read.All (feature "IntuneDeviceBinding" in the grant script).
         /// </summary>
         public bool ValidateIntuneDeviceBinding { get; set; } = false;
 
         /// <summary>
         /// Emergency bypass for agent security gate (Global Admin use only).
-        /// If true, agent requests are accepted even when ValidateAutopilotDevice is false.
+        /// If true, agent requests are accepted even when no device validation is enabled
+        /// (see <see cref="HasAnyDeviceValidation"/>).
         /// Default: false
         /// </summary>
         public bool AllowInsecureAgentRequests { get; set; } = false;
@@ -1029,6 +1029,18 @@ namespace AutopilotMonitor.Shared.Models
 
             return channels;
         }
+
+        /// <summary>
+        /// True when at least one device-validation method is enabled. The single definition of
+        /// the agent gate's precondition: without one (and without AllowInsecureAgentRequests)
+        /// the agent ingestion endpoints reject every request.
+        /// </summary>
+        public bool HasAnyDeviceValidation()
+            => ValidateAutopilotDevice
+               || ValidateCorporateIdentifier
+               || ValidateDeviceAssociation
+               || ValidateCloudPcDevice
+               || ValidateIntuneDeviceBinding;
 
         /// <summary>
         /// Checks if the tenant is currently disabled

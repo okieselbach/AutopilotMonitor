@@ -198,6 +198,14 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue(RequestRowMarkers.DeviceValidationKey, out var deviceValidation) && deviceValidation is string deviceValidationOutcome)
                 requestTelemetry.Properties[RequestRowMarkers.DeviceValidationKey] = deviceValidationOutcome;
 
+            // CERT-DEVICE-BINDING — the Intune device lookup behind the certificate (admitting or
+            // observing), set by SecurityValidator whenever a lookup result exists for the request.
+            foreach (var key in RequestRowMarkers.CertDeviceBindingKeys)
+            {
+                if (context.Items.TryGetValue(key, out var value) && value is string text)
+                    requestTelemetry.Properties[key] = text;
+            }
+
             var reqCtx = context.GetRequestContext();
             var tenantId = ResolveTenantId(
                 reqCtx.TenantId,

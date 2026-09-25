@@ -303,9 +303,9 @@ public class AutopilotDeviceValidationConsentFunction
     }
 
     /// <summary>
-    /// Known consent triggers — frontend flows that initiate the AAD admin-consent dialog.
-    /// "device-preparation" is reserved for a future DevPrep-specific consent flow; it is
-    /// accepted by the success endpoint so the value can land in ops events when wired up.
+    /// Known consent triggers — frontend flows that initiate the AAD admin-consent dialog:
+    /// one per serial-based validation (Autopilot, corporate identifier, and
+    /// "device-preparation" for Device Association Validation).
     /// </summary>
     internal static readonly HashSet<string> KnownConsentTriggers = new(StringComparer.OrdinalIgnoreCase)
     {

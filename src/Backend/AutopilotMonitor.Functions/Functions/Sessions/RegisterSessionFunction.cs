@@ -143,7 +143,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _logger.LogInformation($"Registering session {registration.SessionId} for tenant {registration.TenantId} (Device: {validation.CertificateThumbprint})");
 
             // Server-populated: record which device-validation path accepted this request
-            // (AutopilotV1 / CorporateIdentifier / DeviceAssociation / Bootstrap) so the
+            // (AutopilotV1 / CorporateIdentifier / DeviceAssociation / Bootstrap / CloudPc /
+            // IntuneEnrollment) so the
             // session row shows HOW the backend admitted the device. Overwrites any
             // agent-sent value unconditionally — this is the server's verdict, not input.
             registration.ValidatedBy = validation.ValidatedBy;

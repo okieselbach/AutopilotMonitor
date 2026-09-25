@@ -162,6 +162,7 @@ public class IntuneDeviceBindingValidatorTests
     [InlineData(IntuneDeviceBindingOutcome.NotFound)]
     [InlineData(IntuneDeviceBindingOutcome.NoDeviceIdInCert)]
     [InlineData(IntuneDeviceBindingOutcome.PermissionMissing)]
+    [InlineData(IntuneDeviceBindingOutcome.NotManaged)]
     public void DefinitiveNegatives_AreNotTransient(IntuneDeviceBindingOutcome outcome)
     {
         // Only Transient may be retried / left uncached. A missing grant or a foreign device is a

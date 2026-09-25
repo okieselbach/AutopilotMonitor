@@ -3370,7 +3370,7 @@ export interface RegisterSessionResponse {
   registeredAt: string;
   /** Non-null when the session was already marked as terminal by an admin before agent restart. Values: "Succeeded", "Failed". Agent should run cleanup instead of starting monitoring. */
   adminAction?: string;
-  /** Authoritative signal: which validator accepted this device. Lets the agent reconcile its registry-based enrollment-type detection against the backend's verdict (e.g. AutopilotV1 → Classic flow, DeviceAssociation → DevPrep flow). Older backends that do not set this return Unknown — agent falls back to its own detection. */
+  /** Which validator accepted this device. The agent only logs it and forwards it on the SessionStarted signal; its enrollment flow comes from its own registry detection. */
   validatedBy: ValidatorType;
   /** Machine-readable reason on a failure response (see AgentErrorCodes). Null on success and on failures that carry no agent-actionable code. */
   errorCode?: string;
@@ -4220,7 +4220,7 @@ export interface SessionSummary {
   completionSource: string;
   /** Non-null only when an administrator explicitly flipped the session via the portal (MarkSessionSucceeded / MarkSessionFailed). Values: null (default, agent-driven), "Succeeded", "Failed". This is the authoritative source for the backend's AdminAction response field sent to agents. Previously the backend inferred admin-override from "status is terminal + current event is not a completion marker", which fired falsely on every post-completion event the agent sent (agent_shutting_down, diagnostics_uploaded, enrollment_summary_shown). The dedicated field eliminates that false-positive. */
   adminMarkedAction?: string;
-  /** Which backend device-validation path accepted this device at session registration — ValidatorType name as string: "AutopilotV1" (Autopilot S/N lookup), "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc", or "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap session re-registering under cert auth upgrades to the cert-path validator). Empty for sessions that predate this field or tenants with device validation off. */
+  /** Which backend device-validation path accepted this device at session registration — ValidatorType name as string: "AutopilotV1" (Autopilot S/N lookup), "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc", "IntuneEnrollment" (enrolled Intune device, no pre-registration) or "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap session re-registering under cert auth upgrades to the cert-path validator). Empty for sessions that predate this field or tenants with device validation off. */
   validatedBy: string;
   eventCount: number;
   durationSeconds?: number;
@@ -4775,15 +4775,15 @@ export interface TenantConfiguration {
   modelWhitelist: string;
   /** Whether to validate devices against Intune Autopilot device registration Requires Graph API integration (admin consent for DeviceManagementServiceConfig.Read.All) */
   validateAutopilotDevice: boolean;
-  /** Whether to validate devices against Intune Corporate Device Identifiers (manufacturer + model + serial number via importedDeviceIdentities/searchExistingIdentities). Requires Graph API integration (admin consent for DeviceManagementServiceConfig.ReadWrite.All) */
+  /** Whether to validate devices against Intune Corporate Device Identifiers (manufacturer + model + serial number, read from importedDeviceIdentities). Requires Graph API integration (admin consent for DeviceManagementServiceConfig.Read.All) */
   validateCorporateIdentifier: boolean;
   /** Whether to validate devices against the Windows Autopilot device preparation "Device association" catalog via Graph (tenantAssociatedDevices, serial number match). One of the accepting methods of the device-validation gate, evaluated after the Autopilot and Corporate Identifier lookups (see SecurityValidator). Device association is GA since 2026-08-25; associated devices are marked corporate-owned by Intune itself, so no corporate identifier exists for them. Requires the same Graph permission as the other validators (DeviceManagementServiceConfig.Read.All). */
   validateDeviceAssociation: boolean;
   /** Whether to validate Windows 365 Cloud PCs as a fallback when the Autopilot / Corporate Identifier lookups miss. Cloud PCs are provisioned by the Windows 365 service and are structurally never Autopilot-registered; this validator instead resolves the Intune device id from the (chain-validated) MDM client certificate's Subject CN and requires a matching cloudPC object (virtualEndpoint/cloudPCs, managedDeviceId eq CN) in the tenant. Only service-provisioned Cloud PCs have such an object, so no other enrolled device can pass this stage. Requires the optional Graph permission CloudPC.Read.All (feature "W365CloudPcValidation" in the grant script). */
   validateCloudPcDevice: boolean;
-  /** Cert-to-device binding check (Global-Admin-only preview, SHADOW mode). Resolves the Intune managedDevice id carried in the agent client certificate's Subject CN against this tenant's own managedDevices inventory, proving the certificate belongs to a device the tenant actually enrolled. The result is recorded as telemetry only and never blocks enrollment, because a device object can in principle appear later than the agent's first call - measuring that race is the point of the shadow pass. Requires the optional Graph permission DeviceManagementManagedDevices.Read.All (feature "IntuneDeviceBinding" in the grant script). */
+  /** Intune Enrollment Validation: the last accepting method of the device-validation gate. Resolves the Intune managedDevice id carried in the agent client certificate's Subject CN against this tenant's own managedDevices inventory and admits the device when it is an enrolled device of the tenant, without any pre-registration (Autopilot hash, corporate identifier, device association). Evaluated only when no earlier validator admitted the device. Requires the optional Graph permission DeviceManagementManagedDevices.Read.All (feature "IntuneDeviceBinding" in the grant script). */
   validateIntuneDeviceBinding: boolean;
-  /** Emergency bypass for agent security gate (Global Admin use only). If true, agent requests are accepted even when ValidateAutopilotDevice is false. Default: false */
+  /** Emergency bypass for agent security gate (Global Admin use only). If true, agent requests are accepted even when no device validation is enabled (see HasAnyDeviceValidation). Default: false */
   allowInsecureAgentRequests: boolean;
   /** Data retention period in days Sessions and events older than this will be deleted by the daily maintenance job Default: 90 days */
   dataRetentionDays: number;
@@ -4953,8 +4953,8 @@ export interface TenantFeatureFlagsResponse {
   bootstrapTokenEnabled: boolean;
   /** Whether an on-demand diagnostics upload can succeed right now (mode not Off + usable destination). Deliberately no destination detail. */
   diagnosticsUploadConfigured: boolean;
-  /** Drives the "Autopilot Device Validation disabled" dashboard banner. */
-  validateAutopilotDevice: boolean;
+  /** At least one device-validation method is enabled (HasAnyDeviceValidation); false drives the "agent ingestion is blocked" dashboard banner. */
+  deviceValidationEnabled: boolean;
   /** Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids. */
   appHomingFunnelActive: boolean;
   showScriptOutput: boolean;
@@ -5404,8 +5404,8 @@ export interface UserUsageRecord {
   lastRequestAt: string;
 }
 
-/** Identifies which validator authorized the device during session registration. Surfaced in the RegisterSession response so the agent can reconcile against its own registry-based detection and, when needed, switch its enrollment flow. */
-export type ValidatorType = "Unknown" | "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" | "CloudPc";
+/** Identifies which validator authorized the device during session registration. Stored on the session row and echoed in the RegisterSession response. The agent parses that response strictly (an unknown name fails the registration), so a new member ships with an agent release BEFORE the backend that can send it; agents self-update at every start, so a released agent is what every new registration runs. */
+export type ValidatorType = "Unknown" | "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" | "CloudPc" | "IntuneEnrollment";
 
 /** One ACTIVE verdict-calibration alert episode (operator-only). Persisted as the verdictcalibration|{kind}|{path}|{status} keyspace of the notification tracker — the row IS the dedup (one ops event per episode) and the alerts[] payload of the calibration endpoint. Deleted when the signal re-arms (share back under 1.5× baseline, path stops occurring, evidence-gap share back under 15 %) or by the tracker's 30-day retention sweep. Numbers refresh on every radar pass; FirstNotifiedAt never moves. Dimension concentration is CORRELATION only — every consumer says so. */
 export interface VerdictCalibrationAlert {

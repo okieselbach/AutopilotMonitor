@@ -291,14 +291,14 @@ namespace AutopilotMonitor.Functions.Security
             // Security validation is always enforced (no longer configurable per tenant)
             // Hard gate: tenant must enable at least one device validation method before agent traffic is accepted.
             // Global Admins can set AllowInsecureAgentRequests=true in the config row for test tenants.
-            if (!config.ValidateAutopilotDevice && !config.ValidateCorporateIdentifier && !config.ValidateDeviceAssociation && !config.ValidateCloudPcDevice && !config.AllowInsecureAgentRequests)
+            if (!config.HasAnyDeviceValidation() && !config.AllowInsecureAgentRequests)
             {
                 return new SecurityValidationResult
                 {
                     IsValid = false,
                     StatusCode = HttpStatusCode.Forbidden,
                     ErrorMessage = "Device validation is required",
-                    Details = "Enable 'Autopilot Device Validation', 'Corporate Identifier Validation', 'Device Association Validation' or 'Windows 365 Cloud PC Validation' in Configuration before using the agent ingestion endpoints."
+                    Details = "Enable at least one device validation method (Autopilot, Corporate Identifier, Device Association, Windows 365 Cloud PC or Intune Enrollment) in Configuration before using the agent ingestion endpoints."
                 };
             }
 
@@ -413,6 +413,8 @@ namespace AutopilotMonitor.Functions.Security
             string? serialNumber = req.Headers.Contains("X-Device-SerialNumber")
                 ? req.Headers.GetValues("X-Device-SerialNumber").FirstOrDefault()
                 : null;
+            // TLS-proven device identity: the Intune managedDevice id in the certificate CN.
+            TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var certIntuneDeviceId);
             string? autopilotDeviceId = null;
             bool deviceValidated = false;
             bool deviceValidationTransient = false;
@@ -494,8 +496,7 @@ namespace AutopilotMonitor.Functions.Security
             // ends in the 403 below.
             if (!deviceValidated && config.ValidateCloudPcDevice && _cloudPcDeviceValidator != null)
             {
-                TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var intuneDeviceId);
-                var cloudPcResult = await _cloudPcDeviceValidator.ValidateCloudPcAsync(tenantId, intuneDeviceId, sessionId, validationCt);
+                var cloudPcResult = await _cloudPcDeviceValidator.ValidateCloudPcAsync(tenantId, certIntuneDeviceId, sessionId, validationCt);
                 if (cloudPcResult.IsValid)
                 {
                     deviceValidated = true;
@@ -508,7 +509,44 @@ namespace AutopilotMonitor.Functions.Security
                 }
             }
 
-            if ((config.ValidateAutopilotDevice || config.ValidateCorporateIdentifier || config.ValidateDeviceAssociation || config.ValidateCloudPcDevice) && !deviceValidated)
+            // Intune Enrollment Validation — the last accepting method and the only one that needs no
+            // pre-registration: the certificate's Intune device id must resolve to a device this
+            // tenant still manages. Same TLS-proven identity as the Cloud PC stage, so nothing here
+            // depends on a header. Runs even when the permission was not detected, so a freshly
+            // granted one is picked up through the 401/403 token refresh instead of after the
+            // detector's token cache expires.
+            if (!deviceValidated && config.ValidateIntuneDeviceBinding && _intuneDeviceBindingValidator != null)
+            {
+                var binding = await _intuneDeviceBindingValidator.ValidateAsync(
+                    tenantId, certIntuneDeviceId, certValidation.NotBefore, IntuneDeviceBindingRole.Admitting, sessionId, validationCt);
+                RequestRowMarkers.StampCertDeviceBinding(req, binding, IntuneDeviceBindingRole.Admitting, serialNumber);
+
+                if (binding.IsValid)
+                {
+                    deviceValidated = true;
+                    validatedBy = ValidatorType.IntuneEnrollment;
+                }
+                else
+                {
+                    deviceValidationError = CombineValidationErrors(deviceValidationError, binding.ErrorMessage);
+                    // Transient covers a Graph outage and a device object that is not visible yet
+                    // (recent certificate). A missing grant is a configuration gap, not evidence
+                    // about the device, so it is answered like the missing core consent of the
+                    // Autopilot and Device Association lookups (503, 120 s) rather than as
+                    // "device not registered" (GraphAuthFailure).
+                    if (binding.IsTransient)
+                    {
+                        deviceValidationTransient = true;
+                    }
+                    else if (binding.Outcome == IntuneDeviceBindingOutcome.PermissionMissing)
+                    {
+                        deviceValidationTransient = true;
+                        deviceValidationRetryAfter = MaxRetryAfter(deviceValidationRetryAfter, GraphAuthFailure.PermissionMissingRetryAfterSeconds);
+                    }
+                }
+            }
+
+            if (config.HasAnyDeviceValidation() && !deviceValidated)
             {
                 // Transient failures (Graph API down, token issues) → 503 Retry-After so agent retries
                 // Definitive failures (device not registered) → 403 Forbidden
@@ -542,74 +580,23 @@ namespace AutopilotMonitor.Functions.Security
                 };
             }
 
-            // 5. CERT-DEVICE-BINDING-SHADOW - cert-to-device binding (Global-Admin-only preview).
-            // Stage 1 (CertTenantBinding) proves the certificate was issued to THIS tenant; this
-            // proves the specific device is one the tenant actually enrolled, so a certificate
-            // lifted from a decommissioned machine stops resolving. Observation only: it never
-            // touches deviceValidated or the returned result.
-            //
-            // Fire-and-forget: a cold Graph round-trip can take seconds and an observation-only
-            // check must never sit in the agent's request path. That rules out the request-row
-            // dimension stage 1 uses (the row is written the moment the function returns, before
-            // this task finishes), so the outcome is logged at Warning instead (one line per real
-            // Graph lookup, see ServedFromCache). Volume is bounded: only Global Admins can enable the
-            // toggle. Widening it beyond preview should move to an inline call plus the
-            // CertTenantBinding-style request dimension.
-            if (config.ValidateIntuneDeviceBinding && _intuneDeviceBindingValidator != null)
+            // 5. CERT-DEVICE-BINDING — observation for a device another validator admitted (or an
+            // AllowInsecureAgentRequests tenant). Never admits, never rejects, and never waits for
+            // Graph: the request row gets the cached outcome, and a cache miss starts a background
+            // lookup — only when the tenant granted DeviceManagementManagedDevices.Read.All.
+            if (validatedBy != ValidatorType.IntuneEnrollment && _intuneDeviceBindingValidator != null)
             {
-                var bindingValidator = _intuneDeviceBindingValidator;
-                var bindingTenant = tenantId;
-                var bindingSession = sessionId;
-                var bindingSubject = certValidation.Subject;
-                var bindingThumbprint = certValidation.Thumbprint;
-                var bindingLogger = _logger;
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        TryGetIntuneDeviceIdFromCertSubject(bindingSubject, out var certDeviceId);
-                        var binding = await bindingValidator.ValidateAsync(bindingTenant, certDeviceId, bindingSession);
-
-                        // One line per real Graph lookup, not per request. Measured on the first
-                        // live enrollment: 136 requests produced exactly ONE Graph call (the 30 min
-                        // positive cache did its job), so per-request logging repeated the same
-                        // finding 136 times. Cached repeats add nothing - the age just counts up
-                        // mechanically from the same enrolledDateTime. Uncached outcomes
-                        // (Transient, NoDeviceIdInCert) still log every time, which is what we want
-                        // for anomalies.
-                        if (binding.ServedFromCache)
-                            return;
-
-                        // Age of the device object at request time: the discriminator between a
-                        // genuine enrollment race (object created moments ago, or not yet) and a
-                        // certificate that never belonged to this tenant.
-                        var enrolledAgeSeconds = binding.EnrolledDateTime.HasValue
-                            ? (long)Math.Round((DateTimeOffset.UtcNow - binding.EnrolledDateTime.Value).TotalSeconds)
-                            : -1;
-
-                        bindingLogger.LogWarning(
-                            "AgentCertDeviceBinding outcome={Outcome} enforced={Enforced} tenant={TenantId} "
-                            + "certDeviceId={CertDeviceId} device={DeviceName} enrolledAgeSeconds={EnrolledAgeSeconds} "
-                            + "mgmtState={ManagementState} thumbprint={Thumbprint} session={SessionId} detail={Detail}",
-                            binding.Outcome, false, bindingTenant,
-                            certDeviceId ?? "n/a", binding.DeviceName ?? "n/a", enrolledAgeSeconds,
-                            binding.ManagementState ?? "n/a", bindingThumbprint ?? "n/a",
-                            bindingSession ?? "n/a", binding.ErrorMessage ?? "n/a");
-                    }
-                    catch (Exception ex)
-                    {
-                        bindingLogger.LogWarning(ex,
-                            "AgentCertDeviceBinding (shadow) failed for tenant {TenantId} - ignored.", bindingTenant);
-                    }
-                });
+                var observed = _intuneDeviceBindingValidator.TryGetCached(tenantId, certIntuneDeviceId);
+                if (observed != null)
+                    RequestRowMarkers.StampCertDeviceBinding(req, observed, IntuneDeviceBindingRole.Observing, serialNumber);
+                else
+                    _intuneDeviceBindingValidator.ObserveInBackground(tenantId, certIntuneDeviceId, certValidation.NotBefore, sessionId);
             }
 
             // All checks passed. The admitting validator rides on the request row: the Sessions
             // row keeps ValidatedBy per session, this is the per-request counter and timestamp.
             RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey,
                 RequestRowMarkers.DeviceValidationValue(validatedBy));
-            TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var certIntuneDeviceId);
             return new SecurityValidationResult
             {
                 IsValid = true,
@@ -626,7 +613,8 @@ namespace AutopilotMonitor.Functions.Security
 
         /// <summary>
         /// Joins the per-validator failure messages so the 403 Details / rejection log carries
-        /// every miss in chain order (Autopilot | CorporateIdentifier | CloudPc), not just the
+        /// every miss in chain order (Autopilot | CorporateIdentifier | DeviceAssociation | CloudPc |
+        /// IntuneEnrollment), not just the
         /// last validator's.
         /// </summary>
         internal static string? CombineValidationErrors(string? accumulated, string? next)

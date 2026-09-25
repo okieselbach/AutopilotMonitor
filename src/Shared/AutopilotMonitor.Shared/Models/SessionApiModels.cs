@@ -13,8 +13,10 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Identifies which validator authorized the device during session registration.
-    /// Surfaced in the RegisterSession response so the agent can reconcile against its
-    /// own registry-based detection and, when needed, switch its enrollment flow.
+    /// Stored on the session row and echoed in the RegisterSession response. The agent parses
+    /// that response strictly (an unknown name fails the registration), so a new member ships
+    /// with an agent release BEFORE the backend that can send it; agents self-update at every
+    /// start, so a released agent is what every new registration runs.
     /// </summary>
     public enum ValidatorType
     {
@@ -23,7 +25,8 @@ namespace AutopilotMonitor.Shared.Models
         CorporateIdentifier = 2,   // CorporateIdentifierValidator (importedDeviceIdentities)
         DeviceAssociation = 3,     // DeviceAssociationValidator (device preparation tenantAssociatedDevices)
         Bootstrap = 4,             // Bootstrap token auth (pre-MDM OOBE)
-        CloudPc = 5                // CloudPcDeviceValidator (virtualEndpoint/cloudPCs, cert-CN bound) — W365
+        CloudPc = 5,               // CloudPcDeviceValidator (virtualEndpoint/cloudPCs, cert-CN bound) — W365
+        IntuneEnrollment = 6       // IntuneDeviceBindingValidator (managedDevices, cert-CN bound) — no pre-registration
     }
 
     /// <summary>
@@ -44,10 +47,8 @@ namespace AutopilotMonitor.Shared.Models
         public string? AdminAction { get; set; }
 
         /// <summary>
-        /// Authoritative signal: which validator accepted this device.
-        /// Lets the agent reconcile its registry-based enrollment-type detection
-        /// against the backend's verdict (e.g. AutopilotV1 → Classic flow, DeviceAssociation → DevPrep flow).
-        /// Older backends that do not set this return Unknown — agent falls back to its own detection.
+        /// Which validator accepted this device. The agent only logs it and forwards it on the
+        /// SessionStarted signal; its enrollment flow comes from its own registry detection.
         /// </summary>
         public ValidatorType ValidatedBy { get; set; } = ValidatorType.Unknown;
 
@@ -351,8 +352,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Which backend device-validation path accepted this device at session registration —
         /// <see cref="ValidatorType"/> name as string: "AutopilotV1" (Autopilot S/N lookup),
-        /// "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc", or
-        /// "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap
+        /// "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc",
+        /// "IntuneEnrollment" (enrolled Intune device, no pre-registration) or "Bootstrap"
+        /// (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap
         /// session re-registering under cert auth upgrades to the cert-path validator).
         /// Empty for sessions that predate this field or tenants with device validation off.
         /// </summary>

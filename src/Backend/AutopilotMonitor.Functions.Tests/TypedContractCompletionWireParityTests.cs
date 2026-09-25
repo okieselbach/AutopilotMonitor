@@ -373,7 +373,7 @@ public class TypedContractCompletionWireParityTests
             {
                 bootstrapTokenEnabled = true,
                 diagnosticsUploadConfigured = false,
-                validateAutopilotDevice = true,
+                deviceValidationEnabled = true,
                 appHomingFunnelActive = false,
                 showScriptOutput = true,
                 enableSoftwareInventoryAnalyzer = false,
@@ -399,7 +399,7 @@ public class TypedContractCompletionWireParityTests
             {
                 BootstrapTokenEnabled = true,
                 DiagnosticsUploadConfigured = false,
-                ValidateAutopilotDevice = true,
+                DeviceValidationEnabled = true,
                 AppHomingFunnelActive = false,
                 ShowScriptOutput = true,
                 EnableSoftwareInventoryAnalyzer = false,

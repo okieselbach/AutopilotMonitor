@@ -16,8 +16,8 @@ namespace AutopilotMonitor.Shared.Models
         public bool BootstrapTokenEnabled { get; set; }
         /// <summary>Whether an on-demand diagnostics upload can succeed right now (mode not Off + usable destination). Deliberately no destination detail.</summary>
         public bool DiagnosticsUploadConfigured { get; set; }
-        /// <summary>Drives the "Autopilot Device Validation disabled" dashboard banner.</summary>
-        public bool ValidateAutopilotDevice { get; set; }
+        /// <summary>At least one device-validation method is enabled (<see cref="TenantConfiguration.HasAnyDeviceValidation"/>); false drives the "agent ingestion is blocked" dashboard banner.</summary>
+        public bool DeviceValidationEnabled { get; set; }
         /// <summary>Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids.</summary>
         public bool AppHomingFunnelActive { get; set; }
         public bool ShowScriptOutput { get; set; }

@@ -85,9 +85,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // read the full config, so this boolean is their only signal. Deliberately exposes no
                 // destination detail — just "would an upload work".
                 DiagnosticsUploadConfigured = DiagnosticsUploadConfigChange.IsConfigured(config),
-                // Drives the "Autopilot Device Validation disabled" dashboard banner
-                // (useTenantSecurityConfig).
-                ValidateAutopilotDevice = config.ValidateAutopilotDevice,
+                // Drives the "no device validation enabled" dashboard banner (useTenantSecurityConfig).
+                DeviceValidationEnabled = config.HasAnyDeviceValidation(),
                 // Dual app-reg self-service migration: when true, running the consent flow (or
                 // "Detect existing access") targets the NEW app registration and auto-flips this
                 // tenant's homing after verification — drives the explanatory banner in the

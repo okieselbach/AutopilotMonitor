@@ -195,8 +195,8 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(completionSource))
                 indexEntity["CompletionSource"] = completionSource;
 
-            // Device-validation path recorded at registration (AutopilotV1 / CorporateIdentifier /
-            // DeviceAssociation / Bootstrap) — index-served session reads must carry it too.
+            // Device-validation path recorded at registration (ValidatorType name) — index-served
+            // session reads must carry it too.
             var validatedBy = sessionEntity.GetString("ValidatedBy");
             if (!string.IsNullOrEmpty(validatedBy))
                 indexEntity["ValidatedBy"] = validatedBy;

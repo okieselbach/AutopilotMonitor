@@ -28,9 +28,9 @@
 
         /// <summary>
         /// Read Intune managed device objects (<c>deviceManagement/managedDevices</c>). Optional
-        /// add-on permission backing the Intune device-binding check, which verifies that the
-        /// managedDevice id carried in the agent's client certificate actually exists in the
-        /// tenant it claims. Not part of the default-consent set — must be granted per tenant.
+        /// add-on permission backing Intune Enrollment Validation, which resolves the managedDevice
+        /// id carried in the agent's client certificate in the tenant it claims. Not part of the
+        /// default-consent set — must be granted per tenant.
         /// </summary>
         public const string DeviceManagementManagedDevicesReadAll = "DeviceManagementManagedDevices.Read.All";
 

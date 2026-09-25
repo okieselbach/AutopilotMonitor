@@ -44,6 +44,9 @@ public class GetTenantFeatureFlagsPayloadTests
             // Non-sensitive by review: bool only ("is a contact address set"), never the
             // address itself (admin-gated full config only).
             "contactEmailSet",
+            // Non-sensitive by review: bool only ("is any device validation method enabled"),
+            // never which one or any Graph detail.
+            "deviceValidationEnabled",
             "diagnosticsUploadConfigured",
             "edition",
             // Non-sensitive by review: one of "community" | "plan" | "trial" | "msp" — says WHY the
@@ -59,7 +62,6 @@ public class GetTenantFeatureFlagsPayloadTests
             // wire options omit null keys (WhenWritingNull) — exactly what production always
             // served. Payload_ActiveTrial_IsTrialWithExpiry pins the key on an active trial.
             "unrestrictedMode",
-            "validateAutopilotDevice",
         }, fieldNames);
     }
 
@@ -81,11 +83,28 @@ public class GetTenantFeatureFlagsPayloadTests
         var element = Serialize(config);
 
         Assert.True(element.GetProperty("bootstrapTokenEnabled").GetBoolean());
-        Assert.True(element.GetProperty("validateAutopilotDevice").GetBoolean());
+        Assert.True(element.GetProperty("deviceValidationEnabled").GetBoolean());
         Assert.False(element.GetProperty("showScriptOutput").GetBoolean());
         Assert.True(element.GetProperty("enableSoftwareInventoryAnalyzer").GetBoolean());
         Assert.False(element.GetProperty("enableIntegrityBypassAnalyzer").GetBoolean());
         Assert.True(element.GetProperty("unrestrictedMode").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    public void Payload_DeviceValidationEnabled_IsAnyMethod_NotJustAutopilot(bool autopilot, bool intuneEnrollment, bool expected)
+    {
+        // A device-preparation tenant that validates only via Intune enrollment (or device
+        // association) must not see the "agent ingestion is blocked" banner.
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = autopilot,
+            ValidateIntuneDeviceBinding = intuneEnrollment,
+        });
+
+        Assert.Equal(expected, element.GetProperty("deviceValidationEnabled").GetBoolean());
     }
 
     // ── Effective feature gates (plan-derived) ──────────────────────────────

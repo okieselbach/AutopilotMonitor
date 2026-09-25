@@ -268,6 +268,7 @@ namespace AutopilotMonitor.Functions.Security
                     Thumbprint = thumbprint,
                     Subject = certificate.Subject,
                     Issuer = certificate.Issuer,
+                    NotBefore = new DateTimeOffset(notBeforeUtc, TimeSpan.Zero),
                     CertTenantId = certTenantId,
                     CertTenantIdStatus = certTenantIdStatus
                 };
@@ -411,6 +412,12 @@ namespace AutopilotMonitor.Functions.Security
         /// Error message if validation failed
         /// </summary>
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// Start of the certificate's validity (UTC), set on success. The Intune MDM Device CA
+        /// issues the certificate at enrollment, so its age bounds how recently the device enrolled.
+        /// </summary>
+        public DateTimeOffset? NotBefore { get; set; }
 
         /// <summary>
         /// Entra TenantId stamped into the certificate by the Intune MDM Device CA

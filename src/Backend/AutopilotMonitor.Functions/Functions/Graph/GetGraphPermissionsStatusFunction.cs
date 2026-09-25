@@ -129,6 +129,9 @@ public class GetGraphPermissionsStatusFunction
                 ["W365CloudPcValidationGranted"] = GraphFeatureCatalog
                     .IsFeatureGranted(GraphFeatureCatalog.FeatureW365CloudPcValidation, snapshot.GrantedRoles)
                     .ToString(CultureInfo.InvariantCulture),
+                ["IntuneDeviceBindingGranted"] = GraphFeatureCatalog
+                    .IsFeatureGranted(GraphFeatureCatalog.FeatureIntuneDeviceBinding, snapshot.GrantedRoles)
+                    .ToString(CultureInfo.InvariantCulture),
             });
         }
         catch (Exception ex)

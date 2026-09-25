@@ -41,6 +41,66 @@ namespace AutopilotMonitor.Functions.Security
         public static string DeviceValidationValue(ValidatorType validatedBy)
             => validatedBy == ValidatorType.Unknown ? DeviceValidation.None : validatedBy.ToString();
 
+        /// <summary>
+        /// Outcome of the Intune device lookup behind the client certificate
+        /// (<see cref="IntuneDeviceBindingOutcome"/> name). Absent when no lookup result exists for
+        /// the request: the tenant granted no permission, or an observation is still running.
+        /// </summary>
+        public const string CertDeviceBindingKey = "CertDeviceBinding";
+
+        /// <summary>
+        /// <see cref="IntuneDeviceBindingRole"/> of that lookup: <c>Admitting</c> when it decided
+        /// admission, <c>Observing</c> when another validator had already admitted the device.
+        /// </summary>
+        public const string CertDeviceBindingRoleKey = "CertDeviceBindingRole";
+
+        /// <summary>
+        /// <c>true</c> / <c>false</c>: whether the agent's serial header equals the serial Intune
+        /// recorded for the certificate's device. Absent when either side is unknown. Observation
+        /// only: nothing rejects on it.
+        /// </summary>
+        public const string CertDeviceSerialMatchKey = "CertDeviceSerialMatch";
+
+        /// <summary>Intune managedDeviceOwnerType of the certificate's device (company / personal / unknown).</summary>
+        public const string CertDeviceOwnerTypeKey = "CertDeviceOwnerType";
+
+        /// <summary>Intune deviceEnrollmentType of the certificate's device.</summary>
+        public const string CertDeviceEnrollmentTypeKey = "CertDeviceEnrollmentType";
+
+        /// <summary>Every cert-device key; <c>RequestTelemetryMiddleware</c> copies them onto the request row.</summary>
+        public static readonly string[] CertDeviceBindingKeys =
+        {
+            CertDeviceBindingKey, CertDeviceBindingRoleKey, CertDeviceSerialMatchKey,
+            CertDeviceOwnerTypeKey, CertDeviceEnrollmentTypeKey,
+        };
+
+        /// <summary>
+        /// Stamps one Intune device lookup onto the request row. <paramref name="headerSerial"/> is
+        /// the agent-supplied serial, compared case-insensitively against the one Intune recorded.
+        /// </summary>
+        public static void StampCertDeviceBinding(
+            HttpRequestData req, IntuneDeviceBindingResult result, IntuneDeviceBindingRole role, string? headerSerial)
+        {
+            Stamp(req, CertDeviceBindingKey, result.Outcome.ToString());
+            Stamp(req, CertDeviceBindingRoleKey, role.ToString());
+
+            var serialMatch = SerialMatch(headerSerial, result.SerialNumber);
+            if (serialMatch.HasValue)
+                Stamp(req, CertDeviceSerialMatchKey, serialMatch.Value ? "true" : "false");
+            if (!string.IsNullOrEmpty(result.OwnerType))
+                Stamp(req, CertDeviceOwnerTypeKey, result.OwnerType!);
+            if (!string.IsNullOrEmpty(result.EnrollmentType))
+                Stamp(req, CertDeviceEnrollmentTypeKey, result.EnrollmentType!);
+        }
+
+        /// <summary>Null when either serial is unknown; otherwise a trimmed, case-insensitive comparison.</summary>
+        internal static bool? SerialMatch(string? headerSerial, string? intuneSerial)
+        {
+            if (string.IsNullOrWhiteSpace(headerSerial) || string.IsNullOrWhiteSpace(intuneSerial))
+                return null;
+            return string.Equals(headerSerial!.Trim(), intuneSerial!.Trim(), System.StringComparison.OrdinalIgnoreCase);
+        }
+
         public static void Stamp(HttpRequestData req, string key, string value)
         {
             var items = req.FunctionContext?.Items;
