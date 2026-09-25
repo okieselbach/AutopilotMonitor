@@ -78,8 +78,8 @@ namespace AutopilotMonitor.Functions.Services
 
                 try
                 {
-                    // Save the default configuration via repository
-                    await _configRepo.SaveAdminConfigurationAsync(defaultConfig);
+                    // Create-only: a concurrent first write (or a row this read missed) is never replaced.
+                    await _configRepo.CreateAdminConfigurationIfMissingAsync(defaultConfig);
 
                     _cache.Set(CacheKey, defaultConfig, CacheDuration);
 
@@ -191,38 +191,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Saves global admin configuration and syncs rate limit to all tenant configurations
+        /// Changes the admin configuration through the repository's changed-columns write (D-285):
+        /// fresh read, <paramref name="mutate"/> on a copy, only the columns it changed are written.
+        /// Never pass a configuration object around to save it — a cached or page-loaded copy is
+        /// exactly what used to revert other writers' changes. Invalidates this instance's cache
+        /// after a write; other instances catch up within the 5-minute TTL.
         /// </summary>
-        public async Task SaveConfigurationAsync(AdminConfiguration config)
+        public virtual async Task<AdminConfigurationUpdateResult> UpdateAsync(
+            Func<AdminConfiguration, string?> mutate, string updatedBy, string? source = null)
         {
-            if (config == null)
+            var result = await _configRepo.UpdateAdminConfigurationAsync(mutate, updatedBy, source);
+            if (result.Error == null && result.ChangedColumns.Count > 0)
             {
-                throw new ArgumentException("Configuration is required");
-            }
-
-            try
-            {
-                config.LastUpdated = DateTime.UtcNow;
-
-                await _configRepo.SaveAdminConfigurationAsync(config);
-
-                // Invalidate cache
                 _cache.Remove(CacheKey);
-
-                _logger.LogInformation($"Admin configuration saved by {config.UpdatedBy}");
-
-                // NOTE: Rate limits are no longer mirrored into every tenant row. The effective
-                // per-tenant limit is computed at read time as `tenantOverride ?? global`
-                // (see SecurityValidator for the device path and UserRateLimitMiddleware for the
-                // user path). This removes the former background sync job — and the clobbering
-                // foot-gun where a per-tenant edit to the base field was overwritten on the next
-                // global save.
+                _logger.LogInformation(
+                    "Admin configuration changed by {UpdatedBy}: {Columns}",
+                    updatedBy, string.Join(", ", result.ChangedColumns));
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving admin configuration");
-                throw;
-            }
+            return result;
         }
 
         /// <summary>

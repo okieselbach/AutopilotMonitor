@@ -3029,6 +3029,11 @@ export interface OpsEventListResponse {
   nextLink?: string;
 }
 
+/** Body of PATCH global/config: { "fields": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type. */
+export interface PatchAdminConfigurationRequest {
+  fields?: Record<string, unknown>;
+}
+
 /** Body of PATCH config/{tenantId}/fields: { "fields": { <fieldName>: <value>, ... }, "reason"?: "..." } with at least one field. Values take the field's own JSON type (TenantConfiguration). */
 export interface PatchTenantConfigurationFieldsRequest {
   fields?: Record<string, unknown>;
@@ -5291,7 +5296,7 @@ export interface UnmatchedSoftwareItem {
   normalizedVersion?: string;
 }
 
-/** Response of PUT global/config: acknowledgement plus the stored admin configuration. */
+/** Response of PATCH global/config: acknowledgement plus the stored admin configuration. */
 export interface UpdateAdminConfigurationResponse {
   success: boolean;
   message: string;

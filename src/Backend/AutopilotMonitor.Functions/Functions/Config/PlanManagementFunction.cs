@@ -602,9 +602,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 foreach (var tier in body.Tiers)
                     tier.Name = tier.Name.ToLowerInvariant();
 
-                var config = await _adminConfigService.GetConfigurationAsync();
-                config.PlanTierDefinitionsJson = JsonSerializer.Serialize(body.Tiers);
-                await _adminConfigService.SaveConfigurationAsync(config);
+                var tiersJson = JsonSerializer.Serialize(body.Tiers);
+                await _adminConfigService.UpdateAsync(
+                    c => { c.PlanTierDefinitionsJson = tiersJson; return null; },
+                    TenantHelper.GetUserIdentifier(req), "plan-tiers");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = body.Tiers, Catalog = BuildUsagePlanCatalog() });

@@ -56,6 +56,13 @@ public class ConfigBackupHookTests
                     Upserts.Add(e);
                     return Task.FromResult(Mock.Of<Response>());
                 });
+            Table.Setup(c => c.UpdateEntityAsync(
+                    It.IsAny<TableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+                .Returns<TableEntity, ETag, TableUpdateMode, CancellationToken>((e, _, _, _) =>
+                {
+                    Upserts.Add(e);
+                    return Task.FromResult(Mock.Of<Response>());
+                });
 
             var serviceClient = new Mock<TableServiceClient>();
             serviceClient.Setup(c => c.GetTableClient(It.IsAny<string>())).Returns(Table.Object);
@@ -225,15 +232,11 @@ public class ConfigBackupHookTests
             .Callback<ConfigBackupEntry, CancellationToken>((e, _) => snapshot = e)
             .Returns(Task.CompletedTask);
 
-        var incoming = new AdminConfiguration
-        {
-            UpdatedBy = "ga@operator.example",
-            GlobalRateLimitRequestsPerMinute = 200,
-        };
+        var result = await harness.Sut.UpdateAdminConfigurationAsync(
+            c => { c.GlobalRateLimitRequestsPerMinute = 200; return null; }, "ga@operator.example");
 
-        var saved = await harness.Sut.SaveAdminConfigurationAsync(incoming);
-
-        Assert.True(saved);
+        Assert.Null(result.Error);
+        Assert.Equal(new[] { "GlobalRateLimitRequestsPerMinute" }, result.ChangedColumns);
         Assert.NotNull(snapshot);
         Assert.Equal("GlobalConfig", snapshot!.PartitionKey);
         Assert.Equal("admin-config", snapshot.Source);

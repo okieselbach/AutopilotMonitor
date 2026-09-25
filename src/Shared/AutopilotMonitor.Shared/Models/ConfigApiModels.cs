@@ -320,7 +320,7 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response of PUT global/config: acknowledgement plus the stored admin configuration.
+    /// Response of PATCH global/config: acknowledgement plus the stored admin configuration.
     /// </summary>
     // Declaration order == wire order.
     public class UpdateAdminConfigurationResponse : IApiResponse
@@ -358,6 +358,16 @@ namespace AutopilotMonitor.Shared.Models
     {
         public Dictionary<string, object>? Fields { get; set; }
         public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// Body of PATCH global/config: <c>{ "fields": { &lt;fieldName&gt;: &lt;value&gt;, ... } }</c> with at least one
+    /// field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take
+    /// the field's own JSON type.
+    /// </summary>
+    public class PatchAdminConfigurationRequest : IApiRequest
+    {
+        public Dictionary<string, object>? Fields { get; set; }
     }
 
     /// <summary>Body of POST config/{tenantId}/revert.</summary>

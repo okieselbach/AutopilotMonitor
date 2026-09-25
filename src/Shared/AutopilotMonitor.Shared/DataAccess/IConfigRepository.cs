@@ -66,7 +66,24 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // --- Admin Configuration ---
         Task<AdminConfiguration?> GetAdminConfigurationAsync();
-        Task<bool> SaveAdminConfigurationAsync(AdminConfiguration config);
+
+        /// <summary>
+        /// The one write path of the admin configuration row. It reads the row fresh, runs
+        /// <paramref name="mutate"/> on a copy and writes ONLY the columns whose value the mutation
+        /// changed, conditionally on the row's ETag (re-read and retry on a concurrent write).
+        /// Every other column keeps its stored value, including the ones only the agent release
+        /// pipeline writes (<c>LatestAgentV2*</c>) and columns this build does not know. A mutation
+        /// that changes nothing writes nothing. <paramref name="mutate"/> returns an error message
+        /// to reject the change (nothing is written) or null to accept it. Storage failures throw.
+        /// </summary>
+        Task<AdminConfigurationUpdateResult> UpdateAdminConfigurationAsync(
+            Func<AdminConfiguration, string?> mutate, string updatedBy, string? source = null);
+
+        /// <summary>
+        /// Creates the row from <paramref name="config"/> when none exists yet; never replaces an
+        /// existing row. True when this call created it.
+        /// </summary>
+        Task<bool> CreateAdminConfigurationIfMissingAsync(AdminConfiguration config);
 
         // --- Preview Whitelist ---
         Task<bool> IsInPreviewWhitelistAsync(string tenantId);

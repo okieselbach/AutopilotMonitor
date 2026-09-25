@@ -281,7 +281,7 @@ namespace AutopilotMonitor.Functions.Services
                 // Tenants come from TenantConfiguration (1 row per tenant — cheap).
                 // PLUS the synthetic global-tenant partition (Constants.AuditGlobalTenantId)
                 // where platform-action audits are written from TenantOffboardFunction,
-                // VersionBlockFunction, UpdateAdminConfigurationFunction, … TenantConfiguration
+                // VersionBlockFunction, PatchAdminConfigurationFunction, … TenantConfiguration
                 // has no row for it because it's a virtual partition, so it'd be
                 // silently skipped without this explicit add.
                 var tenantIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

@@ -61,7 +61,7 @@ public class TypedRequestGuardTests
     private static readonly Dictionary<string, int> NewtonsoftBaseline = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Functions/Config/PatchTenantConfigurationFieldsFunction.cs"] = 1,
-        ["Functions/Config/UpdateAdminConfigurationFunction.cs"] = 1,
+        ["Functions/Config/PatchAdminConfigurationFunction.cs"] = 1,
         ["Functions/Config/UpdateTenantConfigurationFunction.cs"] = 1,
         ["Functions/Rules/AnalyzeRulesFunction.cs"] = 2,
         ["Functions/Rules/DryRunAnalyzeRuleFunction.cs"] = 1,
@@ -157,12 +157,20 @@ public class TypedRequestGuardTests
                 var isObjectMap = slot.IsGenericType && slot.GetGenericTypeDefinition() == typeof(Dictionary<,>) && slot.GetGenericArguments()[1] == typeof(object);
                 if (slot == typeof(object))
                     offenders.Add($"{t.Name}.{p.Name}: object slot (TypeScript gets unknown)");
-                else if (isObjectMap && !(t == typeof(PatchTenantConfigurationFieldsRequest) && p.Name == nameof(PatchTenantConfigurationFieldsRequest.Fields)))
-                    offenders.Add($"{t.Name}.{p.Name}: untyped map (only the tenant-config field patch carries one by design)");
+                else if (isObjectMap && !IsFieldPatchMap(t, p))
+                    offenders.Add($"{t.Name}.{p.Name}: untyped map (only the config field patches carry one by design)");
             }
         }
         Assert.True(offenders.Count == 0, "Request DTO shape violations:\n  " + string.Join("\n  ", offenders));
     }
+
+    /// <summary>
+    /// The two field patches (tenant and admin configuration) carry a { field: value } map on purpose:
+    /// each value takes its field's own JSON type and the server gates the keys against the model.
+    /// </summary>
+    private static bool IsFieldPatchMap(Type type, PropertyInfo property)
+        => (type == typeof(PatchTenantConfigurationFieldsRequest) && property.Name == nameof(PatchTenantConfigurationFieldsRequest.Fields))
+           || (type == typeof(PatchAdminConfigurationRequest) && property.Name == nameof(PatchAdminConfigurationRequest.Fields));
 
     private static IEnumerable<(string Relative, string Text)> HandlerSources()
     {

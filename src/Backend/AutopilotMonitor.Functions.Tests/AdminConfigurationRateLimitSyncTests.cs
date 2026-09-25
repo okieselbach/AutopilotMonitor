@@ -14,7 +14,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// for the device path and UserRateLimitMiddleware for the user path). These tests pin the
 /// removal of the former background sync job:
 /// <list type="bullet">
-///   <item>Saving the admin config must NOT enumerate or write ANY tenant configuration.</item>
+///   <item>Changing the admin config must NOT enumerate or write ANY tenant configuration.</item>
 /// </list>
 /// <para>
 /// Historical context: the sync used to copy <c>GlobalRateLimitRequestsPerMinute</c> into every
@@ -28,26 +28,33 @@ namespace AutopilotMonitor.Functions.Tests;
 public class AdminConfigurationRateLimitSyncTests
 {
     [Fact]
-    public async Task SaveConfigurationAsync_DoesNotEnumerateOrWriteTenantConfigs()
+    public async Task UpdateAsync_DoesNotEnumerateOrWriteTenantConfigs()
     {
         var repo = new Mock<IConfigRepository>(MockBehavior.Strict);
-        repo.Setup(r => r.SaveAdminConfigurationAsync(It.IsAny<AdminConfiguration>()))
-            .ReturnsAsync(true);
+        repo.Setup(r => r.UpdateAdminConfigurationAsync(
+                It.IsAny<Func<AdminConfiguration, string?>>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .ReturnsAsync(new AdminConfigurationUpdateResult
+            {
+                Before = new AdminConfiguration(),
+                After = new AdminConfiguration(),
+                ChangedColumns = new[] { "GlobalRateLimitRequestsPerMinute", "UserRateLimitRequestsPerMinute" },
+            });
 
         var sut = new AdminConfigurationService(
             repo.Object,
             NullLogger<AdminConfigurationService>.Instance,
             new MemoryCache(new MemoryCacheOptions()));
 
-        await sut.SaveConfigurationAsync(new AdminConfiguration
+        await sut.UpdateAsync(c =>
         {
-            UpdatedBy = "global-admin@contoso.com",
-            GlobalRateLimitRequestsPerMinute = 200,
-            UserRateLimitRequestsPerMinute = 240,
-        });
+            c.GlobalRateLimitRequestsPerMinute = 200;
+            c.UserRateLimitRequestsPerMinute = 240;
+            return null;
+        }, "global-admin@contoso.com");
 
         // The admin config row is written...
-        repo.Verify(r => r.SaveAdminConfigurationAsync(It.IsAny<AdminConfiguration>()), Times.Once);
+        repo.Verify(r => r.UpdateAdminConfigurationAsync(
+            It.IsAny<Func<AdminConfiguration, string?>>(), "global-admin@contoso.com", It.IsAny<string?>()), Times.Once);
         // ...but NO tenant configuration is enumerated or mutated (sync removed).
         repo.Verify(r => r.GetAllTenantConfigurationsAsync(), Times.Never);
         repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);

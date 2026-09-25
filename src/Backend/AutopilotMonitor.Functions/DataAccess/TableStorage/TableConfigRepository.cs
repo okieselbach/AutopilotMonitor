@@ -327,23 +327,126 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task<bool> SaveAdminConfigurationAsync(AdminConfiguration config)
-        {
-            await TrySnapshotBeforeSaveAsync(
-                _adminConfigTableClient, "GlobalConfig", "config",
-                ConvertFromAdminTableEntity, config, AdminBackupNoiseProperties,
-                config.UpdatedBy, "admin-config", reason: null);
+        internal const int AdminUpdateMaxAttempts = 3;
 
+        /// <summary>Server stamps: written on every accepted change, never counted as one.</summary>
+        private static readonly HashSet<string> AdminStampColumns = new(StringComparer.Ordinal)
+        {
+            "PartitionKey", "RowKey", "LastUpdated", "UpdatedBy",
+        };
+
+        /// <summary>
+        /// The one write path of the admin row (D-285). Each attempt reads the raw row fresh with
+        /// its ETag and materializes it twice — <c>before</c> and the <c>draft</c> the mutation edits —
+        /// so the copy is exact for every persisted column. The changed columns are computed from
+        /// the two converter projections and laid onto the freshly read raw entity (a null value
+        /// drops the column); the conditional replace then writes exactly those plus the stamps.
+        /// Every other column keeps its stored value: the release pipeline's <c>LatestAgentV2*</c>,
+        /// columns of a newer build, retired columns. The former full-model replace wrote every
+        /// column from whatever copy the caller held, so a portal page loaded before an agent
+        /// release reverted the release's hashes on save (2026-09-25).
+        /// </summary>
+        public async Task<AdminConfigurationUpdateResult> UpdateAdminConfigurationAsync(
+            Func<AdminConfiguration, string?> mutate, string updatedBy, string? source = null)
+        {
+            if (mutate == null) throw new ArgumentNullException(nameof(mutate));
+
+            for (var attempt = 1; attempt <= AdminUpdateMaxAttempts; attempt++)
+            {
+                TableEntity? stored = null;
+                try
+                {
+                    stored = (await _adminConfigTableClient.GetEntityAsync<TableEntity>("GlobalConfig", "config")).Value;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // No row yet: the first accepted change creates it from the defaults.
+                }
+
+                var before = stored != null ? ConvertFromAdminTableEntity(stored) : AdminConfiguration.CreateDefault();
+                var draft = stored != null ? ConvertFromAdminTableEntity(stored) : AdminConfiguration.CreateDefault();
+
+                var error = mutate(draft);
+                if (error != null)
+                    return new AdminConfigurationUpdateResult { Error = error, Before = before, After = before };
+
+                var beforeColumns = ConvertToAdminTableEntity(before);
+                var draftColumns = ConvertToAdminTableEntity(draft);
+                var changed = ChangedAdminColumns(beforeColumns, draftColumns);
+                if (changed.Count == 0)
+                    return new AdminConfigurationUpdateResult { Before = before, After = before };
+
+                draft.UpdatedBy = updatedBy;
+                draft.LastUpdated = DateTime.UtcNow;
+
+                await TrySnapshotBeforeSaveAsync(
+                    _adminConfigTableClient, "GlobalConfig", "config",
+                    ConvertFromAdminTableEntity, draft, AdminBackupNoiseProperties,
+                    updatedBy, source ?? "admin-config", reason: null);
+
+                try
+                {
+                    if (stored == null)
+                    {
+                        await _adminConfigTableClient.AddEntityAsync(ConvertToAdminTableEntity(draft));
+                    }
+                    else
+                    {
+                        foreach (var column in changed)
+                        {
+                            var value = draftColumns[column];
+                            if (value == null) stored.Remove(column);
+                            else stored[column] = value;
+                        }
+                        stored["LastUpdated"] = draft.LastUpdated;
+                        stored["UpdatedBy"] = draft.UpdatedBy;
+                        await _adminConfigTableClient.UpdateEntityAsync(stored, stored.ETag, TableUpdateMode.Replace);
+                    }
+
+                    return new AdminConfigurationUpdateResult { Before = before, After = draft, ChangedColumns = changed };
+                }
+                catch (RequestFailedException ex) when (ex.Status == 412 || ex.Status == 409)
+                {
+                    // Someone wrote (or created) the row since this attempt's read: re-read and
+                    // re-apply the mutation onto their state instead of overwriting it.
+                    _logger.LogInformation(
+                        "Admin configuration changed concurrently (attempt {Attempt}/{Max}) — re-reading",
+                        attempt, AdminUpdateMaxAttempts);
+                    await Task.Delay(TimeSpan.FromMilliseconds(150));
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"Admin configuration update lost {AdminUpdateMaxAttempts} conditional-write races — retry shortly.");
+        }
+
+        /// <summary>
+        /// Columns whose projected value differs between the two converter outputs. Both sides come
+        /// from <see cref="ConvertToAdminTableEntity"/>, so value types match and plain equality holds.
+        /// </summary>
+        internal static List<string> ChangedAdminColumns(TableEntity before, TableEntity after)
+        {
+            var changed = new List<string>();
+            foreach (var column in after.Keys.Union(before.Keys, StringComparer.Ordinal))
+            {
+                if (AdminStampColumns.Contains(column)) continue;
+                before.TryGetValue(column, out var b);
+                after.TryGetValue(column, out var a);
+                if (!Equals(b, a)) changed.Add(column);
+            }
+            return changed;
+        }
+
+        public async Task<bool> CreateAdminConfigurationIfMissingAsync(AdminConfiguration config)
+        {
             try
             {
-                var entity = ConvertToAdminTableEntity(config);
-                await _adminConfigTableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+                await _adminConfigTableClient.AddEntityAsync(ConvertToAdminTableEntity(config));
                 return true;
             }
-            catch (Exception ex)
+            catch (RequestFailedException ex) when (ex.Status == 409)
             {
-                _logger.LogError(ex, "Error saving admin configuration");
-                return false;
+                return false; // A row exists — never replace it with defaults.
             }
         }
 
@@ -931,10 +1034,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "OpsAlertSlackEnabled", config.OpsAlertSlackEnabled },
                 { "OpsAlertSlackWebhookUrl", config.OpsAlertSlackWebhookUrl ?? string.Empty },
                 { "OpsNotificationChannelsJson", config.OpsNotificationChannelsJson ?? string.Empty },
-                // Per-line agent binary integrity (written by build scripts via Merge).
+                // Per-line agent binary integrity: written by the release pipeline via Merge.
+                // The backend never changes them (the PATCH gate rejects them), so the
+                // changed-columns write (UpdateAdminConfigurationAsync) never touches them.
                 // V2 is the only wired line; future V3 = add field set here. Retired columns
-                // (V1-suffix and the even older unsuffixed "LatestAgent*") are never written,
-                // so the next Save evicts them implicitly on overwrite.
+                // (V1-suffix and the even older unsuffixed "LatestAgent*") are not projected.
                 { "AllowAgentDowngrade", config.AllowAgentDowngrade },
                 { "LatestAgentV2Version", config.LatestAgentV2Version ?? string.Empty },
                 { "LatestAgentV2Sha256", config.LatestAgentV2Sha256 ?? string.Empty },

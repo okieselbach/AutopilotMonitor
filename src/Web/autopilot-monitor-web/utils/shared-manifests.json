@@ -14239,6 +14239,23 @@
         }
       ]
     },
+    "PatchAdminConfigurationRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH global/config: { \"fields\": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type.",
+      "fields": [
+        {
+          "name": "fields",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "unknown"
+            }
+          },
+          "optional": true
+        }
+      ]
+    },
     "PatchTenantConfigurationFieldsRequest": {
       "kind": "object",
       "doc": "Body of PATCH config/{tenantId}/fields: { \"fields\": { <fieldName>: <value>, ... }, \"reason\"?: \"...\" } with at least one field. Values take the field's own JSON type (TenantConfiguration).",
@@ -24121,7 +24138,7 @@
     },
     "UpdateAdminConfigurationResponse": {
       "kind": "object",
-      "doc": "Response of PUT global/config: acknowledgement plus the stored admin configuration.",
+      "doc": "Response of PATCH global/config: acknowledgement plus the stored admin configuration.",
       "fields": [
         {
           "name": "success",

@@ -479,8 +479,8 @@ public static class EndpointAccessPolicyCatalog
         // ?tenantId= path — never the no-tenantId aggregate (which the delegated-rescue cannot satisfy).
         new("GET",    "global/metrics/summary",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/config",             EndpointPolicy.GlobalReadOrAdmin),
-        new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
-        new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
+        // Changed fields only (D-285); the former full-model PUT/POST is gone.
+        new("PATCH",  "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config/test-ops-channel", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
         // Transactional field-level config writes + snapshot list/revert (MCP + web Settings).
