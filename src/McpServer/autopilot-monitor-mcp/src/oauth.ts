@@ -28,6 +28,7 @@ import { API_BASE_URL, ENTRA_LOGIN_BASE_URL, getPublicBaseUrl } from './config.j
 import type { McpClientRegistrationLookupResponse } from './generated/wire-types.generated.js';
 import { ClientMetadataError, isClientIdMetadataUrl, resolveClientMetadata } from './cimd.js';
 import { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH } from './oauth-limits.js';
+import { isSealedRefreshToken, openRefreshToken, sealRefreshToken } from './refresh-envelope.js';
 
 export { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH };
 
@@ -277,6 +278,13 @@ export function sanitizeTokenErrorBody(data: unknown): Record<string, unknown> {
 const OAUTH_CLIENT_ID_KEY: Buffer = crypto
   .createHmac('sha256', OAUTH_STATE_SIGNING_KEY)
   .update('autopilot-mcp/oauth-client-id/v1')
+  .digest();
+
+// Key of the sealed refresh tokens handed to tenant-bound clients (refresh-envelope.ts): derived and
+// domain-separated the same way, 32 bytes for A256GCM. Rotating the root secret ends every sealed token.
+const OAUTH_REFRESH_ENVELOPE_KEY: Buffer = crypto
+  .createHmac('sha256', OAUTH_STATE_SIGNING_KEY)
+  .update('autopilot-mcp/oauth-refresh-envelope/v1')
   .digest();
 
 interface ClientIdPayload {
@@ -563,7 +571,9 @@ async function resolveRegisteredClient(
 // portal and receives client_id `amc_<registrationId>`. The registration is that client's allowlist
 // entry — the global vendor allowlist keeps governing dynamic registration — and it binds the flow to
 // the registering tenant: authorize and token go to that tenant's Entra authority, and the token
-// endpoint discards a token whose tid is not the registration's. Registrations live in the backend;
+// endpoint discards a token whose tid is not the registration's. Such a client receives its refresh
+// token only sealed with the registration id (refresh-envelope.ts), so the registration governs every
+// refresh, whether or not the request names the client. Registrations live in the backend;
 // this server reads one through an anonymous lookup by its unguessable id (no user token exists
 // before the exchange) and caches the answer briefly, so a deletion or the operator switch takes
 // effect within TENANT_CLIENT_CACHE_MS.
@@ -1039,7 +1049,26 @@ export function createOAuthRouter(): Router {
     }
 
     // A tenant-bound client exchanges at its tenant's authority, and only while its registration exists.
-    const registrationId = tenantClientRegistrationId(params.client_id);
+    // Its refresh tokens are sealed with the registration id: at refresh the registration comes from the
+    // envelope, so a copy redeemed without (or with another) client_id still meets the registration check.
+    // The first grant keys off client_id, which RFC 6749 §4.1.3 requires of a public client's code exchange.
+    let registrationId = tenantClientRegistrationId(params.client_id);
+    let refreshToken = params.refresh_token;
+    if (params.grant_type === 'refresh_token' && typeof refreshToken === 'string' && isSealedRefreshToken(refreshToken)) {
+      const opened = await openRefreshToken(OAUTH_REFRESH_ENVELOPE_KEY, refreshToken);
+      if (!opened) {
+        console.error('[oauth/token] sealed refresh token rejected: cannot be opened');
+        res.status(400).json({ error: 'invalid_grant', error_description: 'refresh token is invalid' });
+        return;
+      }
+      if (params.client_id && registrationId !== opened.registrationId) {
+        console.error(`[oauth/token] sealed refresh token of tenant client ${opened.registrationId} presented by another client_id`);
+        res.status(400).json({ error: 'invalid_grant', error_description: 'refresh token was issued to another client' });
+        return;
+      }
+      registrationId = opened.registrationId;
+      refreshToken = opened.refreshToken;
+    }
     let boundTenantId: string | null = null;
     if (registrationId) {
       const client = await lookupTenantClient(registrationId);
@@ -1065,7 +1094,7 @@ export function createOAuthRouter(): Router {
 
     body.set('grant_type', params.grant_type);
     if (params.code) body.set('code', params.code);
-    if (params.refresh_token) body.set('refresh_token', params.refresh_token);
+    if (refreshToken) body.set('refresh_token', refreshToken);
     if (params.code_verifier) body.set('code_verifier', params.code_verifier);
     // Always use server-defined SCOPES (see authorize endpoint comment)
     body.set('scope', SCOPES);
@@ -1104,6 +1133,11 @@ export function createOAuthRouter(): Router {
           console.error(`[oauth/token] tenant client ${registrationId}: token tid=${sanitizeForLog(tid ?? '(none)')} is not the registration's tenant — discarded`);
           res.status(400).json({ error: 'invalid_grant', error_description: 'the token was issued for another organization than this client registration' });
           return;
+        }
+        // Never hand a tenant-bound client the raw Entra refresh token. A raw token it still holds from
+        // before sealing existed is accepted above and comes back sealed, so clients migrate on refresh.
+        if (typeof data.refresh_token === 'string' && registrationId) {
+          data.refresh_token = await sealRefreshToken(OAUTH_REFRESH_ENVELOPE_KEY, data.refresh_token, registrationId);
         }
       }
       res.status(tokenResponse.status).json(tokenResponse.status === 200 ? data : sanitizeTokenErrorBody(data));

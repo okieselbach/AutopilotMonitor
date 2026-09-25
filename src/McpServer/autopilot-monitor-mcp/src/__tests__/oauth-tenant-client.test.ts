@@ -14,6 +14,7 @@ process.env.MCP_OAUTH_RATE_LIMIT_PER_MINUTE = '100000';
 process.env.MCP_OAUTH_TOKEN_RATE_LIMIT_PER_MINUTE = '100000';
 const { createOAuthRouter, signState, clearTenantClientCache, tenantClientRegistrationId } = await import('../oauth.js');
 const { API_BASE_URL } = await import('../config.js');
+const { isSealedRefreshToken } = await import('../refresh-envelope.js');
 
 const REG_ID = '0123456789abcdef0123456789abcdef';
 const CLIENT_ID = `amc_${REG_ID}`;
@@ -209,5 +210,96 @@ describe('/oauth/token with a tenant client', () => {
     const entra = outbound.find((o) => o.url.includes('/oauth2/v2.0/token'))!;
     expect(new URL(entra.url).pathname).toBe('/organizations/oauth2/v2.0/token');
     expect(outbound.some((o) => o.url.includes('/client-registrations/'))).toBe(false);
+    expect(r.json.refresh_token).toBe('rt');
+  });
+});
+
+describe('sealed refresh tokens of a tenant client', () => {
+  /** A refresh token as a tenant client receives it from its code exchange. */
+  async function sealedToken(): Promise<string> {
+    stubOutbound({ lookup: 'found' });
+    const r = await token({ grant_type: 'authorization_code', code: 'c1', code_verifier: 'v'.repeat(43), client_id: CLIENT_ID, redirect_uri: CALLBACK });
+    vi.restoreAllMocks();
+    clearTenantClientCache();
+    expect(r.status).toBe(200);
+    return r.json.refresh_token as string;
+  }
+
+  const entraRefreshToken = (outbound: Outbound[]) =>
+    new URLSearchParams(outbound.find((o) => o.url.includes('/oauth2/v2.0/token'))!.body).get('refresh_token');
+
+  it('hands out the refresh token only sealed, never the Entra token', async () => {
+    const sealed = await sealedToken();
+    expect(sealed).not.toBe('rt');
+    expect(isSealedRefreshToken(sealed)).toBe(true);
+  });
+
+  it('redeems a sealed token without client_id at the registration tenant and seals the next one', async () => {
+    const sealed = await sealedToken();
+    const outbound = stubOutbound({ lookup: 'found' });
+    const r = await token({ grant_type: 'refresh_token', refresh_token: sealed });
+
+    expect(r.status).toBe(200);
+    const entra = outbound.find((o) => o.url.includes('/oauth2/v2.0/token'))!;
+    expect(new URL(entra.url).pathname).toBe(`/${TENANT}/oauth2/v2.0/token`);
+    expect(entraRefreshToken(outbound)).toBe('rt');
+    expect(isSealedRefreshToken(r.json.refresh_token as string)).toBe(true);
+  });
+
+  it('accepts the sealed token together with its own client_id', async () => {
+    const sealed = await sealedToken();
+    const outbound = stubOutbound({ lookup: 'found' });
+    const r = await token({ grant_type: 'refresh_token', refresh_token: sealed, client_id: CLIENT_ID });
+
+    expect(r.status).toBe(200);
+    expect(entraRefreshToken(outbound)).toBe('rt');
+  });
+
+  it('ends a sealed token once the registration is deleted, with or without client_id', async () => {
+    const sealed = await sealedToken();
+    for (const form of [
+      { grant_type: 'refresh_token', refresh_token: sealed },
+      { grant_type: 'refresh_token', refresh_token: sealed, client_id: CLIENT_ID },
+    ]) {
+      const outbound = stubOutbound({ lookup: 'missing' });
+      const r = await token(form);
+      expect(r.status).toBe(400);
+      expect(r.json.error).toBe('invalid_client');
+      expect(outbound.some((o) => o.url.includes('/oauth2/v2.0/token'))).toBe(false);
+      vi.restoreAllMocks();
+      clearTenantClientCache();
+    }
+  });
+
+  it('refuses a sealed token presented by another client before any outbound call', async () => {
+    const sealed = await sealedToken();
+    for (const clientId of [`amc_${'f'.repeat(32)}`, 'some-dcr-client']) {
+      const outbound = stubOutbound({ lookup: 'found' });
+      const r = await token({ grant_type: 'refresh_token', refresh_token: sealed, client_id: clientId });
+      expect(r.status).toBe(400);
+      expect(r.json.error).toBe('invalid_grant');
+      expect(outbound).toHaveLength(0);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('refuses a tampered sealed token before any outbound call', async () => {
+    const parts = (await sealedToken()).split('.');
+    parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
+    const outbound = stubOutbound({ lookup: 'found' });
+    const r = await token({ grant_type: 'refresh_token', refresh_token: parts.join('.') });
+
+    expect(r.status).toBe(400);
+    expect(r.json.error).toBe('invalid_grant');
+    expect(outbound).toHaveLength(0);
+  });
+
+  it('seals the next token when a tenant client still holds a raw one', async () => {
+    const outbound = stubOutbound({ lookup: 'found' });
+    const r = await token({ grant_type: 'refresh_token', refresh_token: 'rt', client_id: CLIENT_ID });
+
+    expect(r.status).toBe(200);
+    expect(entraRefreshToken(outbound)).toBe('rt');
+    expect(isSealedRefreshToken(r.json.refresh_token as string)).toBe(true);
   });
 });
