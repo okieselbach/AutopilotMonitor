@@ -261,7 +261,7 @@ export function TenantAdminSection({
                         <div className="flex flex-wrap items-center gap-1.5">
                           <div className="font-medium text-gray-900 truncate">{principalLabel(admin.upn)}</div>
                           {isApplication && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — calls the API with an app-only token; read-only">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — automation with its own token, or an app whose users connect through it; read-only">
                               App
                             </span>
                           )}
@@ -384,10 +384,12 @@ export function TenantAdminSection({
             </div>
             {addingApplication && (
               <p className="text-xs text-purple-700 mb-2">
-                An application in this tenant that calls the API with an app-only token (for example an automation
-                using a federated credential). It is always read-only (Viewer) and must hold the{" "}
-                <span className="font-mono">access_as_application</span> permission for Autopilot Monitor, granted
-                by admin consent in your Entra tenant.
+                An application in this tenant, always read-only (Viewer). Automation calling with an app-only token
+                (for example through a federated credential) needs the{" "}
+                <span className="font-mono">access_as_application</span> permission. An app that signs users in and
+                sends their tokens needs the delegated{" "}
+                <span className="font-mono">access_as_user</span> permission, and its users can only read. Either is
+                granted by admin consent in the tenant.
               </p>
             )}
             <div className="flex space-x-2">

@@ -207,7 +207,7 @@ export default function AdminManagementSection({
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <div className="font-medium text-gray-900 truncate">{principalLabel(admin.upn)}</div>
                                   {isApplication && (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — an application calling with an app-only token; read-only">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — automation with its own token, or an app whose users connect through it; read-only">
                                       App
                                     </span>
                                   )}
@@ -322,7 +322,7 @@ export default function AdminManagementSection({
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <p className="text-sm text-gray-500">
                 {addingApplication
-                  ? "Enter the application (client) ID of a service principal in your tenant. It is always read-only (Viewer) and must hold the access_as_application permission for Autopilot Monitor, granted by admin consent in your Entra tenant."
+                  ? "Enter the application (client) ID of an app in your Entra tenant; it is always read-only (Viewer). Automation calling with its own token needs the access_as_application permission. An app that signs users in and sends their tokens needs the delegated access_as_user permission, and its users can only read. Grant either by admin consent in your Entra tenant."
                   : "Enter the user email (UPN) and select a role to grant access."}
               </p>
             </div>
