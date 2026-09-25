@@ -169,7 +169,7 @@ function SelfHostedClients() {
           tone="skyIndigo"
           iconPath="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
           title="Self-hosted AI clients"
-          subtitle="Only for an AI client your organization runs on its own servers. Claude, ChatGPT, VS Code and other hosted assistants need nothing here."
+          subtitle="Only for an AI client your organization hosts itself. Claude, ChatGPT, VS Code and other hosted assistants need nothing here."
           docsPath={DOCS_PATHS.selfHostedClients}
         />
         <div className="p-6 space-y-4">
