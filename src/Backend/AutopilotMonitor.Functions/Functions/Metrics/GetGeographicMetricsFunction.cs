@@ -301,11 +301,14 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             return groupBy.ToLower() switch
             {
                 "country" => session.GeoCountry,
-                "region" => $"{session.GeoRegion}, {session.GeoCountry}",
-                _ => !string.IsNullOrEmpty(session.GeoCity)
-                    ? $"{session.GeoCity}, {session.GeoRegion}, {session.GeoCountry}"
-                    : $"{session.GeoRegion}, {session.GeoCountry}"
+                "region" => JoinLocationParts(session.GeoRegion, session.GeoCountry),
+                _ => JoinLocationParts(session.GeoCity, session.GeoRegion, session.GeoCountry)
             };
         }
+
+        // Providers can omit region/city (the agent's last-resort provider returns the country
+        // only), so empty parts are skipped instead of producing keys like ", DE".
+        private static string JoinLocationParts(params string[] parts) =>
+            string.Join(", ", parts.Where(p => !string.IsNullOrEmpty(p)));
     }
 }

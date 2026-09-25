@@ -115,4 +115,21 @@ public class GeographicDrilldownFilterTests
         Assert.Equal("Saxony", fal.Region);
         Assert.Equal("Falkenstein", fal.City);
     }
+
+    [Theory]
+    [InlineData("city")]
+    [InlineData("region")]
+    [InlineData("country")]
+    public void CountryOnlySession_KeyIsTheCountryAndDrillsDownToItself(string groupBy)
+    {
+        // The agent's last-resort geo provider returns the country only.
+        var countryOnly = Geo("de-only", "DE", "", "");
+        var sessions = new List<SessionSummary> { countryOnly, Geo("de-bav", "DE", "Bavaria", "Munich") };
+
+        var key = GetGeographicMetricsFunction.GetLocationKey(countryOnly, groupBy);
+        var drilled = GetGeographicLocationSessionsFunction.FilterSessionsByLocation(sessions, key, groupBy);
+
+        Assert.Equal("DE", key); // never ", DE" or ", , DE"
+        Assert.Contains(drilled, s => s.SessionId == "de-only");
+    }
 }

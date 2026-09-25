@@ -18,7 +18,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
     /// </para>
     /// <list type="bullet">
     ///   <item><b>device_location</b> (or <c>agent_trace</c> on failure) — IP-based geo via
-    ///     <see cref="GeoLocationService"/>. Skipped when <c>EnableGeoLocation=false</c>.</item>
+    ///     <see cref="GeoLocationService"/>. Skipped when <c>EnableGeoLocation=false</c>. The
+    ///     last-resort provider (DO geo) yields a country-only location without timezone.</item>
     ///   <item><b>timezone_auto_set</b> — only when <c>EnableTimezoneAutoSet=true</c> AND the
     ///     geo lookup returned an IANA timezone. Uses <see cref="TimezoneService"/> (tzutil).</item>
     ///   <item><b>ntp_time_check</b> — NTP offset from <c>NtpServer</c> (default time.windows.com).
@@ -225,7 +226,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,
                 Timestamp = DateTime.UtcNow,
-                Message = $"Device location: {location.City}, {location.Region}, {location.Country} (via {location.Source})",
+                Message = $"Device location: {location.Describe()} (via {location.Source})",
                 Data = location.ToDictionary(),
                 ImmediateUpload = true,
             };
@@ -266,8 +267,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                     { "primaryError", attempt?.PrimaryError ?? "unknown" },
                     { "primaryRetryError", attempt?.PrimaryRetryError ?? "unknown" },
                     { "fallbackError", attempt?.FallbackError ?? "unknown" },
+                    { "doGeoError", attempt?.DoGeoError ?? "unknown" },
                     { "primaryProvider", "ipinfo.io" },
                     { "fallbackProvider", "ifconfig.co" },
+                    { "lastResortProvider", "do-geo" },
                 },
             };
 

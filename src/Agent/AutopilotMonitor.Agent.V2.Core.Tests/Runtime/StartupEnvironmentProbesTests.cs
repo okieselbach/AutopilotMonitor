@@ -62,6 +62,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
             Assert.Equal("ipinfo.io", evt.Data["source"]);
         }
 
+        [Fact]
+        public void BuildGeoEvent_country_only_location_has_no_empty_parts_in_message()
+        {
+            var loc = new GeoLocationResult { Country = "DE", Source = "do-geo" };
+
+            var evt = StartupEnvironmentProbes.BuildGeoEvent(Config(), loc);
+
+            Assert.Equal("Device location: DE (via do-geo)", evt.Message);
+            Assert.Equal("DE", evt.Data["country"]);
+            Assert.Equal("do-geo", evt.Data["source"]);
+        }
+
         // ================================================================= Outbound IP
 
         [Fact]
@@ -98,6 +110,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
                 PrimaryError = "connection refused",
                 PrimaryRetryError = "DNS failure",
                 FallbackError = "timeout",
+                DoGeoError = "HTTP 403 (Forbidden)",
             };
 
             var evt = StartupEnvironmentProbes.BuildGeoFailureEvent(cfg, attempt);
@@ -108,6 +121,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
             Assert.Equal("connection refused", evt.Data["primaryError"]);
             Assert.Equal("DNS failure", evt.Data["primaryRetryError"]);
             Assert.Equal("timeout", evt.Data["fallbackError"]);
+            Assert.Equal("HTTP 403 (Forbidden)", evt.Data["doGeoError"]);
+            Assert.Equal("do-geo", evt.Data["lastResortProvider"]);
         }
 
         [Fact]
@@ -119,6 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
             Assert.Equal("unknown", evt.Data["primaryError"]);
             Assert.Equal("unknown", evt.Data["primaryRetryError"]);
             Assert.Equal("unknown", evt.Data["fallbackError"]);
+            Assert.Equal("unknown", evt.Data["doGeoError"]);
         }
 
         // ================================================================= Timezone

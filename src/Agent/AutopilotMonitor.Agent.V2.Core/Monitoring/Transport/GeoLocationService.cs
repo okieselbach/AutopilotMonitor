@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         public string Ip { get; set; }
 
+        /// <summary>"City, Region, Country" without the parts a provider did not return.</summary>
+        public string Describe() =>
+            string.Join(", ", new[] { City, Region, Country }.Where(p => !string.IsNullOrEmpty(p)));
+
         public Dictionary<string, object> ToDictionary()
         {
             return new Dictionary<string, object>
@@ -45,12 +50,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         public string PrimaryError { get; set; }
         public string PrimaryRetryError { get; set; }
         public string FallbackError { get; set; }
+        public string DoGeoError { get; set; }
     }
 
     public static class GeoLocationService
     {
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
+
+        internal const string IpInfoUrl = "https://ipinfo.io/json";
+        internal const string IfConfigCoUrl = "https://ifconfig.co/json";
+
+        /// <summary>
+        /// Delivery Optimization's own geo endpoint. Country and egress IP only (no region, city,
+        /// coordinates or timezone), but it is part of the Windows Update / DO endpoint set that
+        /// Autopilot needs anyway, so it stays reachable in networks that block public geo services.
+        /// </summary>
+        internal const string DoGeoUrl = "https://geo.prod.do.dsp.mp.microsoft.com/geo";
 
         // Static HttpClient to avoid socket exhaustion from repeated short-lived instances.
         // HttpClient is designed to be reused across requests.
@@ -68,7 +84,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             var attempt = new GeoLocationAttemptResult();
 
             // Try ipinfo.io first
-            var (result, error) = await TryIpInfo(logger);
+            var (result, error) = await TryProvider("ipinfo.io", IpInfoUrl, ParseIpInfo, logger);
             if (result != null)
             {
                 attempt.Location = result;
@@ -80,7 +96,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             logger?.Info($"GeoLocation: Retrying ipinfo.io after {RetryDelay.TotalSeconds}s...");
             await Task.Delay(RetryDelay);
 
-            (result, error) = await TryIpInfo(logger);
+            (result, error) = await TryProvider("ipinfo.io", IpInfoUrl, ParseIpInfo, logger);
             if (result != null)
             {
                 attempt.Location = result;
@@ -89,7 +105,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             attempt.PrimaryRetryError = error;
 
             // Fallback to ifconfig.co
-            (result, error) = await TryIfConfigCo(logger);
+            (result, error) = await TryProvider("ifconfig.co", IfConfigCoUrl, ParseIfConfigCo, logger);
             if (result != null)
             {
                 attempt.Location = result;
@@ -97,108 +113,111 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             }
             attempt.FallbackError = error;
 
+            // Last resort: Delivery Optimization geo — country only, but better than no location
+            (result, error) = await TryProvider("do-geo", DoGeoUrl, ParseDoGeo, logger);
+            if (result != null)
+            {
+                attempt.Location = result;
+                return attempt;
+            }
+            attempt.DoGeoError = error;
+
             logger?.Warning("GeoLocation: All providers failed, skipping location event");
             return attempt;
         }
 
-        private static async Task<(GeoLocationResult result, string error)> TryIpInfo(AgentLogger logger)
+        private static async Task<(GeoLocationResult result, string error)> TryProvider(
+            string name, string url, Func<JObject, GeoLocationResult> parse, AgentLogger logger)
         {
             try
             {
-                logger?.Info("GeoLocation: Querying ipinfo.io...");
+                logger?.Info($"GeoLocation: Querying {name}...");
 
-                using (var httpResponse = await SharedHttpClient.GetAsync("https://ipinfo.io/json"))
+                using (var httpResponse = await SharedHttpClient.GetAsync(url))
                 {
                     if (!httpResponse.IsSuccessStatusCode)
                     {
                         var error = $"HTTP {(int)httpResponse.StatusCode} ({httpResponse.ReasonPhrase})";
-                        logger?.Warning($"GeoLocation: ipinfo.io failed: {error}");
+                        logger?.Warning($"GeoLocation: {name} failed: {error}");
                         return (null, error);
                     }
 
                     var response = await httpResponse.Content.ReadAsStringAsync();
-                    var json = JObject.Parse(response);
-
-                    var result = new GeoLocationResult
+                    var result = parse(JObject.Parse(response));
+                    if (result == null)
                     {
-                        Country = json.Value<string>("country"),
-                        Region = json.Value<string>("region"),
-                        City = json.Value<string>("city"),
-                        Loc = json.Value<string>("loc"),
-                        Timezone = json.Value<string>("timezone"),
-                        Ip = json.Value<string>("ip"),
-                        Source = "ipinfo"
-                    };
+                        var error = "No country in response";
+                        logger?.Warning($"GeoLocation: {name} failed: {error}");
+                        return (null, error);
+                    }
 
-                    logger?.Info($"GeoLocation: ipinfo.io returned {result.City}, {result.Region}, {result.Country}");
+                    logger?.Info($"GeoLocation: {name} returned {result.Describe()}");
                     return (result, null);
                 }
             }
             catch (TaskCanceledException)
             {
-                var error = "Timeout (5s)";
-                logger?.Warning($"GeoLocation: ipinfo.io failed: {error}");
+                var error = $"Timeout ({RequestTimeout.TotalSeconds}s)";
+                logger?.Warning($"GeoLocation: {name} failed: {error}");
                 return (null, error);
             }
             catch (Exception ex)
             {
                 var error = ex.Message;
-                logger?.Warning($"GeoLocation: ipinfo.io failed: {error}");
+                logger?.Warning($"GeoLocation: {name} failed: {error}");
                 return (null, error);
             }
         }
 
-        private static async Task<(GeoLocationResult result, string error)> TryIfConfigCo(AgentLogger logger)
+        internal static GeoLocationResult ParseIpInfo(JObject json) =>
+            new GeoLocationResult
+            {
+                Country = json.Value<string>("country"),
+                Region = json.Value<string>("region"),
+                City = json.Value<string>("city"),
+                Loc = json.Value<string>("loc"),
+                Timezone = json.Value<string>("timezone"),
+                Ip = json.Value<string>("ip"),
+                Source = "ipinfo"
+            };
+
+        internal static GeoLocationResult ParseIfConfigCo(JObject json)
         {
-            try
+            var latitude = json.Value<string>("latitude") ?? "";
+            var longitude = json.Value<string>("longitude") ?? "";
+            var loc = !string.IsNullOrEmpty(latitude) && !string.IsNullOrEmpty(longitude)
+                ? $"{latitude},{longitude}"
+                : "";
+
+            return new GeoLocationResult
             {
-                logger?.Info("GeoLocation: Falling back to ifconfig.co...");
+                Country = json.Value<string>("country_iso"),
+                Region = json.Value<string>("region_name"),
+                City = json.Value<string>("city"),
+                Loc = loc,
+                Timezone = json.Value<string>("time_zone"),
+                Ip = json.Value<string>("ip"),
+                Source = "ifconfig.co"
+            };
+        }
 
-                using (var httpResponse = await SharedHttpClient.GetAsync("https://ifconfig.co/json"))
-                {
-                    if (!httpResponse.IsSuccessStatusCode)
-                    {
-                        var error = $"HTTP {(int)httpResponse.StatusCode} ({httpResponse.ReasonPhrase})";
-                        logger?.Warning($"GeoLocation: ifconfig.co failed: {error}");
-                        return (null, error);
-                    }
+        /// <summary>
+        /// The DO geo response carries DO service configuration next to the geo fields; only
+        /// <c>CountryCode</c> and <c>ExternalIpAddress</c> are location data. Without a country
+        /// the response is worthless as a location, so it counts as a failure (null).
+        /// </summary>
+        internal static GeoLocationResult ParseDoGeo(JObject json)
+        {
+            var country = json.Value<string>("CountryCode");
+            if (string.IsNullOrEmpty(country))
+                return null;
 
-                    var response = await httpResponse.Content.ReadAsStringAsync();
-                    var json = JObject.Parse(response);
-
-                    var latitude = json.Value<string>("latitude") ?? "";
-                    var longitude = json.Value<string>("longitude") ?? "";
-                    var loc = !string.IsNullOrEmpty(latitude) && !string.IsNullOrEmpty(longitude)
-                        ? $"{latitude},{longitude}"
-                        : "";
-
-                    var result = new GeoLocationResult
-                    {
-                        Country = json.Value<string>("country_iso"),
-                        Region = json.Value<string>("region_name"),
-                        City = json.Value<string>("city"),
-                        Loc = loc,
-                        Timezone = json.Value<string>("time_zone"),
-                        Ip = json.Value<string>("ip"),
-                        Source = "ifconfig.co"
-                    };
-
-                    logger?.Info($"GeoLocation: ifconfig.co returned {result.City}, {result.Region}, {result.Country}");
-                    return (result, null);
-                }
-            }
-            catch (TaskCanceledException)
+            return new GeoLocationResult
             {
-                var error = "Timeout (5s)";
-                logger?.Warning($"GeoLocation: ifconfig.co failed: {error}");
-                return (null, error);
-            }
-            catch (Exception ex)
-            {
-                var error = ex.Message;
-                logger?.Warning($"GeoLocation: ifconfig.co failed: {error}");
-                return (null, error);
-            }
+                Country = country,
+                Ip = json.Value<string>("ExternalIpAddress"),
+                Source = "do-geo"
+            };
         }
     }
 }
