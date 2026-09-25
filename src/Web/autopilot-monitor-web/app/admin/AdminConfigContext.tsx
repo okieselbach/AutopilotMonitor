@@ -5,14 +5,14 @@ import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
-import { fromWireAdminConfiguration, toWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
+import { fromWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
+import { saveAdminConfigChanges } from "@/lib/adminConfigSave";
 import type {
   AdminConfiguration as WireAdminConfiguration,
   GetAllPreviewNotificationEmailsResponse,
   GetPreviewWhitelistResponse,
   TestNotificationChannelRequest,
   TestWebhookNotificationResponse,
-  UpdateAdminConfigurationResponse,
 } from "@/utils/wire-types.generated";
 import type { NotificationChannel } from "@/app/settings/types";
 
@@ -376,14 +376,14 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         maxImeMsiDownloadSizeMB,
       };
 
-      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
-      });
-      setAdminConfig(fromWireAdminConfiguration(result.config));
-      // selfServiceAppHomingEnabled gates every tenant's appHomingFunnelActive feature flag.
-      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
-      setSuccessMessage("Admin configuration saved successfully!");
+      // Only the fields this form changed go out; the backend writes nothing else (D-285).
+      const saved = await saveAdminConfigChanges(adminConfig, updatedConfig, getAccessToken);
+      if (saved) {
+        setAdminConfig(saved);
+        // selfServiceAppHomingEnabled gates every tenant's appHomingFunnelActive feature flag.
+        invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+      }
+      setSuccessMessage(saved ? "Admin configuration saved successfully!" : "No changes to save.");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error("Error saving admin configuration:", err);
@@ -460,13 +460,10 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         diagnosticsGlobalLogPathsJson: JSON.stringify(paths),
       };
 
-      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
-      });
-      setAdminConfig(fromWireAdminConfiguration(result.config));
+      const saved = await saveAdminConfigChanges(adminConfig, updatedConfig, getAccessToken);
+      if (saved) setAdminConfig(saved);
       setGlobalDiagPaths(paths);
-      setSuccessMessage("Global diagnostics log paths saved successfully!");
+      setSuccessMessage(saved ? "Global diagnostics log paths saved successfully!" : "No changes to save.");
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
       setError(apiErrorText(err, "Failed to save diagnostics paths"));
@@ -504,18 +501,15 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         excessiveEventAutoActionDurationHours: newAutoActionDurationHours,
       };
 
-      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
-      });
-      setAdminConfig(fromWireAdminConfiguration(result.config));
+      const saved = await saveAdminConfigChanges(adminConfig, updatedConfig, getAccessToken);
+      if (saved) setAdminConfig(saved);
       setOpsAlertRules(rules);
       setOpsNotificationChannels(channels);
       setExcessiveEventCountThreshold(newExcessiveThreshold);
       setExcessiveEventAutoActionMode(newAutoActionMode);
       setExcessiveEventAutoActionThreshold(newAutoActionThreshold);
       setExcessiveEventAutoActionDurationHours(newAutoActionDurationHours);
-      setSuccessMessage("Alert configuration saved successfully!");
+      setSuccessMessage(saved ? "Alert configuration saved successfully!" : "No changes to save.");
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
       setError(apiErrorText(err, "Failed to save alert configuration"));

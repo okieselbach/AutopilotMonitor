@@ -31,6 +31,28 @@ export function toWireAdminConfiguration(config: AdminConfiguration): WireAdminC
   return { ...config, excessiveEventAutoActionMode: config.excessiveEventAutoActionMode ?? "Off" };
 }
 
+/**
+ * The wire fields whose value differs between the configuration as loaded and as edited — the only
+ * ones a save sends (PATCH global/config, D-285). The backend re-reads the row and writes just these,
+ * so a page loaded before another writer (the agent release pipeline, a second operator, a sync job)
+ * can never revert that writer's fields. Compared on the wire form; undefined and null are the same
+ * unset value.
+ */
+export function changedAdminConfigFields(
+  loaded: AdminConfiguration,
+  edited: AdminConfiguration,
+): Partial<WireAdminConfiguration> {
+  const before = toWireAdminConfiguration(loaded) as unknown as Record<string, unknown>;
+  const after = toWireAdminConfiguration(edited) as unknown as Record<string, unknown>;
+  const changed: Record<string, unknown> = {};
+  for (const key of Object.keys(after)) {
+    if (JSON.stringify(after[key] ?? null) !== JSON.stringify(before[key] ?? null)) {
+      changed[key] = after[key] ?? null;
+    }
+  }
+  return changed as Partial<WireAdminConfiguration>;
+}
+
 /** One parsed entry of AdminConfiguration.opsAlertRulesJson (client-side view). */
 export interface OpsAlertRule {
   eventType: string;

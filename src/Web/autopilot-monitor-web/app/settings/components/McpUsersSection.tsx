@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
+import { patchAdminConfigFields } from "@/lib/adminConfigSave";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { isApplicationKey, looksLikeGuid, principalLabel } from "@/utils/principalKeys";
@@ -11,7 +12,6 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type {
   AddMcpUserRequest,
-  AdminConfiguration,
   GetMcpUsersResponse,
   McpUserEntry,
   PlanTierDefinition as PlanTierDefinitionWire,
@@ -111,13 +111,8 @@ export default function McpUsersSection() {
       setError(null);
       setSuccessMessage(null);
 
-      // Read current global config, update McpAccessPolicy, save back
-      const config = await fetchJson<AdminConfiguration>(api.globalConfig.get(), getAccessToken);
-
-      await fetchOk(api.globalConfig.get(), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<AdminConfiguration>({ ...config, mcpAccessPolicy: newPolicy }),
-      });
+      // Only this one field is sent; the backend writes nothing else (D-285).
+      await patchAdminConfigFields({ mcpAccessPolicy: newPolicy }, getAccessToken);
 
       setPolicy(newPolicy);
       setSuccessMessage(`MCP access policy changed to "${POLICY_LABELS[newPolicy]}".`);

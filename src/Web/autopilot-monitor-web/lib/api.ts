@@ -192,6 +192,8 @@ export const api = {
   // ── Global Config (global admin) ──────────────────────────────────────────
   globalConfig: {
     get: () => `${API_BASE_URL}/api/global/config`,
+    /** PATCH with only the changed fields (D-285) — there is no full-model PUT. */
+    update: () => `${API_BASE_URL}/api/global/config`,
     /** Sends a test notification to one saved platform (ops) channel. */
     testOpsChannel: () => `${API_BASE_URL}/api/global/config/test-ops-channel`,
     // NOTE: there is deliberately no per-tenant variant — /api/global/config/{tenantId} does
