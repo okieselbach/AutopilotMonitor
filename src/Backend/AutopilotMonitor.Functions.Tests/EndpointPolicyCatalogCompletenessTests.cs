@@ -156,14 +156,17 @@ public class EndpointPolicyCatalogCompletenessTests
     public void SameRoute_DifferentMethods_ResolveToDifferentPolicies()
     {
         var getConfig = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/config/tenant-1");
-        var putConfig = EndpointAccessPolicyCatalog.FindPolicy("PUT", "/api/config/tenant-1");
+        var patchConfig = EndpointAccessPolicyCatalog.FindPolicy("PATCH", "/api/config/tenant-1/fields");
 
         Assert.NotNull(getConfig);
-        Assert.NotNull(putConfig);
+        Assert.NotNull(patchConfig);
         // GET config read is member-tier (Operators/Viewers get the redacted read-only Settings
-        // view; the handler redacts for every non-admin caller); PUT config write stays Admin/GA only.
+        // view; the handler redacts for every non-admin caller); the field PATCH stays Admin/GA only.
         Assert.Equal(EndpointPolicy.MemberRead, getConfig.Policy);
-        Assert.Equal(EndpointPolicy.TenantAdminOrGA, putConfig.Policy);
+        Assert.Equal(EndpointPolicy.TenantAdminOrGA, patchConfig.Policy);
+        // There is no full-model write of the tenant configuration (D-290).
+        Assert.Null(EndpointAccessPolicyCatalog.FindPolicy("PUT", "/api/config/tenant-1"));
+        Assert.Null(EndpointAccessPolicyCatalog.FindPolicy("POST", "/api/config/tenant-1"));
 
         var getRules = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/rules/gather");
         var postRules = EndpointAccessPolicyCatalog.FindPolicy("POST", "/api/rules/gather");

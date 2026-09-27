@@ -40,14 +40,23 @@ public class CollectLogsQuickConfigOpsEventTests
             new TenantConfiguration { TenantId = "t1", DiagnosticsUploadMode = "OnFailure", DiagnosticsUploadDestination = "Hosted" })!;
 
     [Theory]
-    [InlineData("collect-logs", UpdateTenantConfigurationFunction.CollectLogsSource)]
-    [InlineData("COLLECT-LOGS", UpdateTenantConfigurationFunction.CollectLogsSource)]
-    [InlineData(null, "portal-put")]
-    [InlineData("", "portal-put")]
-    [InlineData("something-else", "portal-put")]
-    public void ResolveWriteSource_only_honours_the_allow_listed_intent(string? intent, string expected)
+    [InlineData("?intent=collect-logs", "patch", PatchTenantConfigurationFieldsFunction.CollectLogsSource)]
+    [InlineData("?intent=COLLECT-LOGS", "patch", PatchTenantConfigurationFieldsFunction.CollectLogsSource)]
+    [InlineData("", "patch", "api-patch")]
+    [InlineData("?intent=", "patch", "api-patch")]
+    [InlineData("?intent=something-else", "patch", "api-patch")]
+    [InlineData("?intent=collect-logs", "revert", "api-revert")] // a revert is never the quick-config dialog
+    public void ResolveSource_only_honours_the_allow_listed_intent(string query, string operation, string expected)
     {
-        Assert.Equal(expected, UpdateTenantConfigurationFunction.ResolveWriteSource(intent));
+        var (req, _) = EndpointHarness.Request("t1", queryString: query);
+        Assert.Equal(expected, PatchTenantConfigurationFieldsFunction.ResolveSource(req, operation));
+    }
+
+    [Fact]
+    public void ResolveSource_mcp_header_without_intent_is_mcp()
+    {
+        var (req, _) = EndpointHarness.Request("t1", headers: new Dictionary<string, string> { ["X-Client-Source"] = "mcp" });
+        Assert.Equal("mcp-patch", PatchTenantConfigurationFieldsFunction.ResolveSource(req, "patch"));
     }
 
     [Fact]
@@ -56,7 +65,7 @@ public class CollectLogsQuickConfigOpsEventTests
         var (service, saved) = Rig();
 
         await service.RecordDiagnosticsUploadConfigChangedAsync(
-            "t1", "contoso.com", EnableFlip(), "admin@contoso.com", UpdateTenantConfigurationFunction.CollectLogsSource);
+            "t1", "contoso.com", EnableFlip(), "admin@contoso.com", PatchTenantConfigurationFieldsFunction.CollectLogsSource);
 
         var evt = Assert.Single(saved);
         Assert.Equal("CollectLogsQuickConfigEnabled", evt.EventType);
@@ -85,7 +94,7 @@ public class CollectLogsQuickConfigOpsEventTests
             new TenantConfiguration { TenantId = "t1", DiagnosticsUploadMode = "Always", DiagnosticsUploadDestination = "Hosted" },
             new TenantConfiguration { TenantId = "t1", DiagnosticsUploadMode = "Off", DiagnosticsUploadDestination = "Hosted" })!;
 
-        await service.RecordDiagnosticsUploadConfigChangedAsync("t1", null, disable, "ga@x", UpdateTenantConfigurationFunction.CollectLogsSource);
+        await service.RecordDiagnosticsUploadConfigChangedAsync("t1", null, disable, "ga@x", PatchTenantConfigurationFieldsFunction.CollectLogsSource);
 
         Assert.Equal("DiagnosticsUploadDisabled", Assert.Single(saved).EventType);
     }

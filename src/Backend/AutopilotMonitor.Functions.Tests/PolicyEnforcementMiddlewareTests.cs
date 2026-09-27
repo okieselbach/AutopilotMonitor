@@ -346,7 +346,7 @@ public class PolicyEnforcementMiddlewareTests
         h.AsTenantAdmin(TenantA, upn);
 
         // PUT config/{tenantId} is TenantAdminOrGA (write). Route tenant == JWT tenant ⇒ own-tenant write.
-        var result = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, upn));
+        var result = await h.Middleware.DecideAsync("PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantA, upn));
 
         Assert.True(result.Allowed); // additive: the tenant-admin hat still grants write in the own tenant
     }
@@ -361,7 +361,7 @@ public class PolicyEnforcementMiddlewareTests
         h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
         // No tenant membership ⇒ no write path.
 
-        var result = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, upn));
+        var result = await h.Middleware.DecideAsync("PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantA, upn));
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
@@ -700,7 +700,7 @@ public class PolicyEnforcementMiddlewareTests
         h.AsDelegated(TenantB, Constants.DelegatedRoles.DelegatedAdmin); // even a DelegatedAdmin row…
 
         // PUT config/{B} is TenantAdminOrGA (write). Phase 1: delegation never satisfies a write tier.
-        var result = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+        var result = await h.Middleware.DecideAsync("PATCH", $"/api/config/{TenantB}/fields", null, AuthedPrincipal(TenantA, upn));
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
@@ -986,9 +986,7 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.True(result.Allowed); // the delegated read itself is allowed…
         // …but no config row was persisted for the MSP's home tenant A (nor any tenant).
-        h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
-        h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(
-            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        h.ConfigRepo.VerifyNoTenantConfigWrite();
     }
 
     // ── Phase 2a: delegated single-tenant access to cross-tenant /api/global/* read endpoints ──
@@ -1547,7 +1545,7 @@ public class PolicyEnforcementMiddlewareTests
         h.AsTenantAdmin(TenantA, upn);
         AsSuspended(h, TenantA); // indefinite suspension (no DisabledUntil)
 
-        var result = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, upn));
+        var result = await h.Middleware.DecideAsync("PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantA, upn));
 
         Assert.False(result.Allowed);
         Assert.Equal("TenantSuspended", result.ErrorCode);
@@ -1576,7 +1574,7 @@ public class PolicyEnforcementMiddlewareTests
         AsSuspended(h, TenantB);
 
         var own = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
-        var cross = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+        var cross = await h.Middleware.DecideAsync("PATCH", $"/api/config/{TenantB}/fields", null, AuthedPrincipal(TenantA, upn));
 
         Assert.True(own.Allowed);
         Assert.True(cross.Allowed);

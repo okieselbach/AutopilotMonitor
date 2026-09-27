@@ -366,7 +366,9 @@ public class AuthFunction
 
     /// <summary>
     /// If the tenant has no domain name yet, extracts it from the UPN, persists it,
-    /// and fires best-effort notifications (Telegram + global notification).
+    /// and fires best-effort notifications (Telegram + global notification). The write lands
+    /// only while the STORED row still has no domain (conditional create or update), and only
+    /// the login that wrote it fires the signup side effects.
     /// </summary>
     internal async Task HandleNewTenantDomainAsync(
         TenantConfiguration tenantConfig, string tenantId, string upn, string? tokenAudience = null)
@@ -400,47 +402,70 @@ public class AuthFunction
             _logger.LogWarning(ex, "First-login offboarding lookup failed for tenant {TenantId} — will retry on next login", tenantId);
             return;
         }
-        if (offboardingPointer is { TrialConsumed: true })
-            tenantConfig.TrialConsumed = true;
 
-        _logger.LogInformation("Setting domain name for tenant {TenantId}: {Domain}", tenantId, domain);
-        tenantConfig.DomainName = domain;
-        tenantConfig.UpdatedBy = upn;
-        // OnboardedBy is immutable once set: this is the only place that writes it, gated
-        // on the same "DomainName is empty" condition (first-ever user login for the tenant).
-        // Downstream auto-promote (PreviewWhitelistFunction) reads OnboardedBy so background
-        // sync jobs that mutate UpdatedBy cannot leak sentinel strings into TenantAdmins.
-        if (string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy))
-            tenantConfig.OnboardedBy = upn;
-        // The DPA is accepted with the onboarding itself (D-251/D-252): record the version in force,
-        // once, in this same first write — later logins never touch it.
-        if (string.IsNullOrWhiteSpace(tenantConfig.DpaVersion))
-            tenantConfig.DpaVersion = Constants.CurrentDpaVersion;
-        // Dual app-reg window: home a NEW tenant on the primary app ONLY when its first login
-        // actually arrived via the primary app. A first login via the legacy app leaves the field
-        // null (= legacy) — keeps the "null = legacy" invariant clean and never routes a tenant
-        // to an app it hasn't consented to. Seed the last-seen provenance in the same write.
         var onboardingClientId = EntraAppRegistry.NormalizeAudience(tokenAudience);
-        if (onboardingClientId != null)
+        var seededAt = DateTime.UtcNow;
+        void Seed(TenantConfiguration row)
         {
-            if (_appRegistry.IsPrimary(onboardingClientId))
-                tenantConfig.HomedAppClientId = onboardingClientId;
-            tenantConfig.LastAuthClientId = onboardingClientId;
-            tenantConfig.LastAuthClientIdSince = DateTime.UtcNow;
+            if (offboardingPointer is { TrialConsumed: true })
+                row.TrialConsumed = true;
+            row.DomainName = domain;
+            row.UpdatedBy = upn;
+            // OnboardedBy is immutable once set: this is the only place that writes it, and the write
+            // below lands only while the STORED row has no domain yet (first-ever login for the tenant),
+            // so two concurrent first logins cannot both write it. Downstream auto-promote reads
+            // OnboardedBy so background sync jobs that mutate UpdatedBy cannot leak sentinel strings
+            // into TenantAdmins.
+            if (string.IsNullOrWhiteSpace(row.OnboardedBy))
+                row.OnboardedBy = upn;
+            // The DPA is accepted with the onboarding itself (D-251/D-252): record the version in force,
+            // once, in this same first write — later logins never touch it.
+            if (string.IsNullOrWhiteSpace(row.DpaVersion))
+                row.DpaVersion = Constants.CurrentDpaVersion;
+            // Dual app-reg window: home a NEW tenant on the primary app ONLY when its first login
+            // actually arrived via the primary app. A first login via the legacy app leaves the field
+            // null (= legacy) — keeps the "null = legacy" invariant clean and never routes a tenant
+            // to an app it hasn't consented to. Seed the last-seen provenance in the same write.
+            if (onboardingClientId != null)
+            {
+                if (_appRegistry.IsPrimary(onboardingClientId))
+                    row.HomedAppClientId = onboardingClientId;
+                row.LastAuthClientId = onboardingClientId;
+                row.LastAuthClientIdSince = seededAt;
+            }
         }
+
+        TenantConfigUpdate update;
         try
         {
-            await _tenantConfigService.SaveConfigurationAsync(tenantConfig, "auth", "first-login domain seed");
+            update = await _tenantConfigService.CreateOrUpdateAsync(tenantId, row =>
+            {
+                if (!string.IsNullOrEmpty(row.DomainName))
+                    return false; // another login seeded it since this one read the configuration
+                Seed(row);
+                return true;
+            }, "auth", "first-login domain seed");
         }
         catch (Exception ex)
         {
-            // Best-effort side-effect: SaveConfigurationAsync now throws on a failed persist
-            // (fail-loud for config endpoints), but a storage blip must not 500 the login.
-            // The handler self-gates on DomainName being empty, so the next login retries —
-            // skip the notifications too so they only fire once the write actually stuck.
+            // A storage blip must not 500 the login. The handler self-gates on DomainName being
+            // empty, so the next login retries — skip the notifications too so they only fire once
+            // the write actually stuck.
             _logger.LogWarning(ex, "First-login domain write failed for tenant {TenantId} — will retry on next login", tenantId);
             return;
         }
+
+        if (update.Status != TenantConfigUpdateStatus.Updated)
+        {
+            // Declined: a concurrent login won the seed and fires the signup side effects itself.
+            // Conflict: the next login retries. Tombstone: the tenant is being offboarded.
+            _logger.LogInformation("First-login domain seed for tenant {TenantId} not written ({Status})", tenantId, update.Status);
+            return;
+        }
+
+        _logger.LogInformation("Seeded domain name for tenant {TenantId}: {Domain}", tenantId, domain);
+        // This login's view follows what was just stored.
+        Seed(tenantConfig);
 
         // Fire-and-forget: Telegram
         _ = _telegramNotificationService.SendNewTenantSignupAsync(tenantId, upn)
@@ -485,26 +510,29 @@ public class AuthFunction
         var clientId = EntraAppRegistry.NormalizeAudience(tokenAudience);
         if (clientId == null || string.IsNullOrEmpty(tenantConfig.DomainName))
             return;
+        // Cheap pre-filter on the cached view; the write decides again on the fresh row.
         if (string.Equals(tenantConfig.LastAuthClientId, clientId, StringComparison.OrdinalIgnoreCase))
             return;
 
-        _logger.LogInformation(
-            "Tenant {TenantId} logins now arrive via app registration {ClientId} (was: {Previous})",
-            tenantId, clientId, tenantConfig.LastAuthClientId ?? "(none recorded)");
         try
         {
-            // Mutate a cache-BYPASSING read, not the (up to 5 min stale on other instances)
-            // cached view: this write persists the WHOLE entity, and the login that triggers it
-            // is typically the very first one AFTER an app-homing flip — blind-saving the stale
-            // view here would silently revert HomedAppClientId (same failure class as the
-            // 2026-07-31 PUT revert incident). Change-detect above stays on the cached view as a
-            // cheap pre-filter; the fresh read re-checks before writing.
-            var fresh = await _tenantConfigService.GetConfigurationFreshAsync(tenantId);
-            if (fresh == null || string.Equals(fresh.LastAuthClientId, clientId, StringComparison.OrdinalIgnoreCase))
-                return;
-            fresh.LastAuthClientId = clientId;
-            fresh.LastAuthClientIdSince = DateTime.UtcNow;
-            await _tenantConfigService.SaveConfigurationAsync(fresh, "auth", "auth client-id tracking");
+            string? previous = null;
+            var update = await _tenantConfigService.UpdateAsync(tenantId, row =>
+            {
+                if (string.Equals(row.LastAuthClientId, clientId, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                previous = row.LastAuthClientId;
+                row.LastAuthClientId = clientId;
+                row.LastAuthClientIdSince = DateTime.UtcNow;
+                return true;
+            }, "auth", "auth client-id tracking");
+
+            if (update.Status == TenantConfigUpdateStatus.Updated)
+            {
+                _logger.LogInformation(
+                    "Tenant {TenantId} logins now arrive via app registration {ClientId} (was: {Previous})",
+                    tenantId, clientId, previous ?? "(none recorded)");
+            }
         }
         catch (Exception ex)
         {
@@ -515,7 +543,9 @@ public class AuthFunction
 
     /// <summary>
     /// If the tenant's suspension has expired (Disabled=true but DisabledUntil is past),
-    /// clears the disabled state and persists the change.
+    /// clears the disabled state and persists the change. The cached view only triggers the check:
+    /// the decision runs on the FRESH row, so a suspension a Global Admin renewed meanwhile (or the
+    /// offboarding tombstone) is never lifted, and this login's view takes over the stored state.
     /// MUST run before BuildAuthResult because it mutates tenantConfig.Disabled.
     /// </summary>
     internal async Task HandleAutoReEnableAsync(
@@ -524,24 +554,44 @@ public class AuthFunction
         if (!tenantConfig.Disabled || tenantConfig.IsCurrentlyDisabled())
             return;
 
-        _logger.LogInformation(
-            "Tenant {TenantId} auto-re-enabled: DisabledUntil ({DisabledUntil}) has expired",
-            tenantId, tenantConfig.DisabledUntil?.ToString("o"));
-
-        tenantConfig.Disabled = false;
-        tenantConfig.DisabledReason = null;
-        tenantConfig.DisabledUntil = null;
-        tenantConfig.UpdatedBy = "System (auto-re-enable)";
         try
         {
-            await _tenantConfigService.SaveConfigurationAsync(tenantConfig, "auth", "auto-re-enable after suspension expiry");
+            var update = await _tenantConfigService.UpdateAsync(tenantId, row =>
+            {
+                if (!row.Disabled || row.IsCurrentlyDisabled())
+                    return false;
+                row.Disabled = false;
+                row.DisabledReason = null;
+                row.DisabledUntil = null;
+                row.UpdatedBy = "System (auto-re-enable)";
+                return true;
+            }, "auth", "auto-re-enable after suspension expiry");
+
+            if (update.Config != null)
+            {
+                if (update.Status == TenantConfigUpdateStatus.Updated)
+                {
+                    _logger.LogInformation(
+                        "Tenant {TenantId} auto-re-enabled: DisabledUntil ({DisabledUntil}) has expired",
+                        tenantId, tenantConfig.DisabledUntil?.ToString("o"));
+                }
+                tenantConfig.Disabled = update.Config.Disabled;
+                tenantConfig.DisabledReason = update.Config.DisabledReason;
+                tenantConfig.DisabledUntil = update.Config.DisabledUntil;
+                return;
+            }
+            // NotFound / Conflict: storage could not settle it — fall through.
         }
         catch (Exception ex)
         {
-            // Best-effort: the in-memory flip above already lets THIS login through; a failed
-            // persist just means the next login re-runs the auto-re-enable. Must not 500 auth/me.
             _logger.LogWarning(ex, "Auto-re-enable persist failed for tenant {TenantId} — will retry on next login", tenantId);
         }
+
+        // Best-effort: the expired suspension still lets THIS login through; the next login
+        // re-runs the auto-re-enable. Must not 500 auth/me.
+        tenantConfig.Disabled = false;
+        tenantConfig.DisabledReason = null;
+        tenantConfig.DisabledUntil = null;
     }
 
     /// <summary>

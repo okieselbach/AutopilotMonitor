@@ -114,16 +114,19 @@ namespace AutopilotMonitor.Functions.Services
 
         private async Task<bool> StampAsync(string managedTenantId, string homeTenantId, string reason)
         {
-            // Fresh read: the anchor is a read-modify-write on the whole row; a stale cached instance would
-            // rewind fields another writer just changed (the app-homing failure mode).
-            var config = await _configs.GetConfigurationFreshAsync(managedTenantId);
-            if (config == null)
-                return false;
-
             var nowUtc = _time.GetUtcNow().UtcDateTime;
-            config.ProDowngradedUtc = nowUtc;
-            config.UpdatedBy = $"delegation:{homeTenantId}";
-            await _configs.SaveConfigurationAsync(config, BackupSource, reason);
+            var update = await _configs.UpdateAsync(managedTenantId, row =>
+            {
+                row.ProDowngradedUtc = nowUtc;
+                row.UpdatedBy = $"delegation:{homeTenantId}";
+                return true;
+            }, BackupSource, reason);
+
+            if (update.Status == TenantConfigUpdateStatus.Conflict)
+                throw new InvalidOperationException(
+                    $"Retention grace anchor for tenant {managedTenantId} lost every conditional write to concurrent changes");
+            if (update.Status != TenantConfigUpdateStatus.Updated)
+                return false; // no row, or the tenant is being offboarded
             _logger.LogInformation(
                 "[ProConferral] {Managed} lost Pro conferred by {Home} ({Reason}); retention grace anchor set to {Anchor:O}",
                 managedTenantId, homeTenantId, reason, nowUtc);

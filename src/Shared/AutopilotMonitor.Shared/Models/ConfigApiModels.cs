@@ -330,17 +330,6 @@ namespace AutopilotMonitor.Shared.Models
         public AdminConfiguration Config { get; set; } = default!;
     }
 
-    /// <summary>
-    /// Response of PUT config/{tenantId}: acknowledgement plus the stored tenant configuration.
-    /// </summary>
-    // Declaration order == wire order.
-    public class UpdateTenantConfigurationResponse : IApiResponse
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; } = default!;
-        public TenantConfiguration Config { get; set; } = default!;
-    }
-
     // ── Request bodies ──
 
     /// <summary>Body of POST config/{tenantId}/app-homing.</summary>

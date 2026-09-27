@@ -123,11 +123,8 @@ export const api = {
   // ── Config ────────────────────────────────────────────────────────────────
   config: {
     all: () => `${API_BASE_URL}/api/config/all`,
+    // GET only: writes go through `fields` (there is no full-model PUT, D-290).
     tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}`,
-    // Same PUT, labelled: the session-detail Collect Logs quick-config dialog. The backend
-    // maps the intent to write source "portal-collect-logs" and emits the dedicated
-    // CollectLogsQuickConfigEnabled ops event instead of the generic DiagnosticsUploadEnabled.
-    tenantCollectLogsQuickConfig: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}?intent=collect-logs`,
     /**
      * PATCH — transactional field-level config write (TenantAdminOrGA, own row):
      * { fields: { <wireFieldName>: value | null, ... }, reason?: string }. The backend
@@ -135,6 +132,10 @@ export const api = {
      * to ConfigurationBackups first. The Settings sections save through this per section.
      */
     fields: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/fields`,
+    // Same PATCH, labelled: the session-detail Collect Logs quick-config dialog. The backend
+    // maps the intent to write source "portal-collect-logs" and emits the dedicated
+    // CollectLogsQuickConfigEnabled ops event instead of the generic DiagnosticsUploadEnabled.
+    fieldsCollectLogsQuickConfig: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/fields?intent=collect-logs`,
     featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/feature-flags`,
     /**
      * GET — GA-only: the AgentConfigResponse an agent of the tenant receives right now (same

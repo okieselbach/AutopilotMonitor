@@ -14,15 +14,17 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         // --- Tenant Configuration ---
         Task<TenantConfiguration?> GetTenantConfigurationAsync(string tenantId);
-        Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config);
+
+        // There is deliberately no unconditional save: a row is created only by the conditional
+        // insert below and changed only by the ETag-conditional replace, so no writer can
+        // overwrite a row it did not read (D-290).
 
         /// <summary>
-        /// Same unconditional replace as <see cref="SaveTenantConfigurationAsync(TenantConfiguration)"/>,
-        /// but tags the pre-write backup snapshot with the write path and intent. A separate
-        /// overload — NOT optional parameters — because Moq expression trees cannot omit
-        /// optional arguments (CS0854) and the 1-arg signature is mocked all over the test suite.
+        /// Conditional insert of a NEW row. Returns false when the row already exists (someone
+        /// else created it since the caller read "no row" — re-read and update instead); any
+        /// other storage failure throws. Nothing to snapshot: there is no previous state.
         /// </summary>
-        Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config, string? backupSource, string? backupReason);
+        Task<bool> TryCreateTenantConfigurationAsync(TenantConfiguration config);
 
         /// <summary>
         /// Point read that also surfaces the row's ETag (as an opaque string, keeping this
@@ -41,10 +43,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag);
 
         /// <summary>
-        /// Conditional full replace with the SAME fail-soft pre-write backup as
-        /// <see cref="SaveTenantConfigurationAsync(TenantConfiguration, string?, string?)"/> — the
-        /// If-Match variant of the ordinary save, for read-modify-write callers without a
-        /// fail-closed snapshot of their own. Return and throw semantics as the 2-arg overload.
+        /// Conditional full replace preceded by the fail-soft pre-write backup (a snapshot of the
+        /// stored row tagged with the write path and intent, skipped for noise-only changes) — for
+        /// read-modify-write callers without a fail-closed snapshot of their own. Return and throw
+        /// semantics as the 2-arg overload. A separate overload, not optional parameters: Moq
+        /// expression trees cannot omit optional arguments (CS0854).
         /// </summary>
         Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag, string? backupSource, string? backupReason);
 
@@ -63,11 +66,9 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// the seed landed, false when the tenant already owns an address, has no config row, or
         /// lost the race.
         /// <para>
-        /// Exists because the seed cannot be expressed as a read-modify-write of the whole model:
-        /// <see cref="SaveTenantConfigurationAsync"/> replaces the entire row unconditionally, so a
-        /// concurrent portal save would be clobbered by the seeder's stale snapshot — of every
-        /// field, not just this one. The implementation must therefore write conditionally and
-        /// touch no other property.
+        /// A single-property conditional merge rather than a whole-model replace: the seeder runs as
+        /// a side effect of other writes and must never carry a snapshot of the other fields. The
+        /// implementation writes conditionally and touches no other property.
         /// </para>
         /// </summary>
         Task<bool> TrySeedTenantContactEmailAsync(string tenantId, string email);

@@ -104,7 +104,8 @@ namespace AutopilotMonitor.Shared.Models
         /// Null = the legacy (pre-migration) app registration — the invariant for every tenant
         /// onboarded before the C4A8 move. Set to the primary client id at onboarding when the
         /// first login arrived via the primary app; flipped by a Global Admin after a tenant
-        /// re-consents to the new app (GA-only field, see UpdateTenantConfigurationFunction).
+        /// re-consents to the new app. Written only by onboarding and the app-homing flow; never
+        /// writable through the field patch (TenantConfigPatchService.BaseDeniedFields).
         /// </summary>
         public string? HomedAppClientId { get; set; }
 
@@ -157,8 +158,7 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// How many self-hosted MCP client registrations this tenant may hold. Null = the platform default
-        /// (one); set by a Global Admin on request, 1-10. Global-Admin-only (UpdateTenantConfigurationFunction
-        /// GA gate, TenantConfigPatchService.GaOnlyFields).
+        /// (one); set by a Global Admin on request, 1-10. Global-Admin-only (TenantConfigPatchService.GaOnlyFields).
         /// </summary>
         public int? McpClientRegistrationLimit { get; set; } = null;
 
@@ -167,7 +167,7 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Optional per-tenant override for the device (agent/cert) API rate limit.
         /// If null, the effective limit is the global <c>AdminConfiguration.GlobalRateLimitRequestsPerMinute</c>.
-        /// If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate).
+        /// If set, this value takes precedence. Global-Admin-only (TenantConfigPatchService.GaOnlyFields).
         /// </summary>
         public int? CustomRateLimitRequestsPerMinute { get; set; } = null;
 

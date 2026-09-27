@@ -62,7 +62,6 @@ public class TypedRequestGuardTests
     {
         ["Functions/Config/PatchTenantConfigurationFieldsFunction.cs"] = 1,
         ["Functions/Config/PatchAdminConfigurationFunction.cs"] = 1,
-        ["Functions/Config/UpdateTenantConfigurationFunction.cs"] = 1,
         ["Functions/Rules/AnalyzeRulesFunction.cs"] = 2,
         ["Functions/Rules/DryRunAnalyzeRuleFunction.cs"] = 1,
         ["Functions/Rules/GatherRulesFunction.cs"] = 2,

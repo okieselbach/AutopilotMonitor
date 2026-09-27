@@ -63,7 +63,7 @@ public class AuthenticationMiddlewareTests
     [InlineData("GET", "/api/progress/sessions/lookup")]   // AuthenticatedUserWithRole
     [InlineData("GET", "/api/sessions")]                   // MemberRead
     [InlineData("GET", "/api/audit/logs")]                 // MemberRead
-    [InlineData("PUT", "/api/config/11111111-1111-1111-1111-111111111111")] // TenantAdminOrGA
+    [InlineData("PATCH", "/api/config/11111111-1111-1111-1111-111111111111/fields")] // TenantAdminOrGA
     [InlineData("GET", "/api/global/sessions")]            // GlobalReadOrDelegatedSubset
     [InlineData("POST", "/api/global/raw/logs")]           // GlobalAdminOnly (KQL proxy)
     [InlineData("GET", "/api/health/detailed")]            // AuthenticatedUser (sub-route is NOT blanket-exempt)

@@ -74,8 +74,7 @@ public class CrossTenantAccessTests
 
     [Theory]
     [InlineData("GET", "/api/config/{0}")]
-    [InlineData("PUT", "/api/config/{0}")]
-    [InlineData("POST", "/api/config/{0}")]
+    [InlineData("PATCH", "/api/config/{0}/fields")]
     [InlineData("GET", "/api/config/{0}/feature-flags")]
     [InlineData("GET", "/api/tenants/{0}/admins")]
     [InlineData("POST", "/api/tenants/{0}/admins")]
@@ -96,8 +95,7 @@ public class CrossTenantAccessTests
 
     [Theory]
     [InlineData("GET", "/api/config/{0}")]
-    [InlineData("PUT", "/api/config/{0}")]
-    [InlineData("POST", "/api/config/{0}")]
+    [InlineData("PATCH", "/api/config/{0}/fields")]
     [InlineData("GET", "/api/config/{0}/feature-flags")]
     [InlineData("GET", "/api/tenants/{0}/admins")]
     [InlineData("POST", "/api/tenants/{0}/admins")]
@@ -118,7 +116,7 @@ public class CrossTenantAccessTests
 
     [Theory]
     [InlineData("GET", "/api/config/{0}")]
-    [InlineData("PUT", "/api/config/{0}")]
+    [InlineData("PATCH", "/api/config/{0}/fields")]
     [InlineData("GET", "/api/tenants/{0}/admins")]
     [InlineData("DELETE", "/api/tenants/{0}/offboard")]
     public void CrossTenant_GlobalAdmin_IsAllowed(string httpMethod, string pathTemplate)

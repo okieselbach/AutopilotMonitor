@@ -218,14 +218,14 @@ public class NotificationChannelsTests
         Assert.Equal("https://second.example/hook", channels[1].Url);
     }
 
-    // ── Save-time validation (UpdateTenantConfigurationFunction) ─────────
+    // ── Save-time validation (TenantConfigValidation) ─────────
 
     [Fact]
     public void ValidateNotificationChannels_NullEmptyOrValidList_PassesThrough()
     {
-        Assert.Null(UpdateTenantConfigurationFunction.ValidateNotificationChannels(null));
-        Assert.Null(UpdateTenantConfigurationFunction.ValidateNotificationChannels(""));
-        Assert.Null(UpdateTenantConfigurationFunction.ValidateNotificationChannels(
+        Assert.Null(TenantConfigValidation.ValidateNotificationChannels(null));
+        Assert.Null(TenantConfigValidation.ValidateNotificationChannels(""));
+        Assert.Null(TenantConfigValidation.ValidateNotificationChannels(
             "[" + ChannelJson("ch-1") + "," + ChannelJson("ch-2", providerType: 10) + "]"));
     }
 
@@ -236,7 +236,7 @@ public class NotificationChannelsTests
     [InlineData("[{\"id\":\"a\",\"providerType\":20,\"url\":\"http://plain.example\"}]", "")] // non-https rejected by SsrfGuard format check
     public void ValidateNotificationChannels_RejectsInvalidEntries(string json, string expectedFragment)
     {
-        var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(json);
+        var error = TenantConfigValidation.ValidateNotificationChannels(json);
         Assert.NotNull(error);
         if (expectedFragment.Length > 0)
             Assert.Contains(expectedFragment, error);
@@ -245,7 +245,7 @@ public class NotificationChannelsTests
     [Fact]
     public void ValidateNotificationChannels_RejectsDuplicateIds()
     {
-        var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(
+        var error = TenantConfigValidation.ValidateNotificationChannels(
             "[" + ChannelJson("ch-1") + "," + ChannelJson("ch-1") + "]");
         Assert.NotNull(error);
         Assert.Contains("duplicate", error);
@@ -255,7 +255,7 @@ public class NotificationChannelsTests
     public void ValidateNotificationChannels_RejectsBadPerChannelHeaders()
     {
         var json = "[" + ChannelJson("ch-1", extra: ",\"customHeadersJson\":\"not-json\"") + "]";
-        var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(json);
+        var error = TenantConfigValidation.ValidateNotificationChannels(json);
         Assert.NotNull(error);
         Assert.Contains("headers", error);
     }
@@ -291,7 +291,7 @@ public class NotificationChannelsTests
     public void ValidateNotificationChannels_RejectsBadPerChannelSigningSecret()
     {
         var json = "[" + ChannelJson("ch-1", extra: ",\"signingSecret\":\"too-short\"") + "]";
-        var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(json);
+        var error = TenantConfigValidation.ValidateNotificationChannels(json);
         Assert.NotNull(error);
         Assert.Contains("signing secret", error);
     }

@@ -78,27 +78,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config)
-            => SaveTenantConfigurationAsync(config, backupSource: null, backupReason: null);
-
-        public async Task<bool> SaveTenantConfigurationAsync(
-            TenantConfiguration config, string? backupSource, string? backupReason)
+        public async Task<bool> TryCreateTenantConfigurationAsync(TenantConfiguration config)
         {
-            await TrySnapshotBeforeSaveAsync(
-                _tenantConfigTableClient, config.TenantId, "config",
-                ConvertFromTenantTableEntity, config, TenantBackupNoiseProperties,
-                config.UpdatedBy, backupSource, backupReason);
-
             try
             {
-                var entity = ConvertToTenantTableEntity(config);
-                await _tenantConfigTableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+                await _tenantConfigTableClient.AddEntityAsync(ConvertToTenantTableEntity(config));
                 return true;
             }
-            catch (Exception ex)
+            catch (RequestFailedException ex) when (ex.Status == 409)
             {
-                _logger.LogError(ex, "Error saving tenant configuration for {TenantId}", config.TenantId);
-                return false;
+                return false; // created concurrently — the caller re-reads and updates
             }
         }
 

@@ -56,6 +56,12 @@ public class ConfigBackupHookTests
                     Upserts.Add(e);
                     return Task.FromResult(Mock.Of<Response>());
                 });
+            Table.Setup(c => c.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+                .Returns<TableEntity, CancellationToken>((e, _) =>
+                {
+                    Upserts.Add(e);
+                    return Task.FromResult(Mock.Of<Response>());
+                });
             Table.Setup(c => c.UpdateEntityAsync(
                     It.IsAny<TableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
                 .Returns<TableEntity, ETag, TableUpdateMode, CancellationToken>((e, _, _, _) =>
@@ -109,13 +115,13 @@ public class ConfigBackupHookTests
             .Callback<ConfigBackupEntry, CancellationToken>((e, _) => snapshot = e)
             .Returns(Task.CompletedTask);
 
-        var saved = await harness.Sut.SaveTenantConfigurationAsync(incoming, "portal-put", "test change");
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "api-patch", "test change");
 
         Assert.True(saved);
         Assert.Single(harness.Upserts); // the config row itself
         Assert.NotNull(snapshot);
         Assert.Equal(TenantId, snapshot!.PartitionKey);
-        Assert.Equal("portal-put", snapshot.Source);
+        Assert.Equal("api-patch", snapshot.Source);
         Assert.Equal("test change", snapshot.Reason);
         Assert.Equal("ga@operator.example", snapshot.ChangedBy); // identity about to write
         // The snapshot holds the STORED row (retention 30), not the incoming one.
@@ -130,11 +136,11 @@ public class ConfigBackupHookTests
     }
 
     [Fact]
-    public async Task RowCreation_NoExistingRow_NoSnapshot()
+    public async Task RowCreation_ConditionalInsert_NoSnapshot()
     {
         var harness = new Harness(stored: null);
 
-        var saved = await harness.Sut.SaveTenantConfigurationAsync(StoredConfig(), "portal-put", null);
+        var saved = await harness.Sut.TryCreateTenantConfigurationAsync(StoredConfig());
 
         Assert.True(saved);
         Assert.Single(harness.Upserts);
@@ -142,6 +148,16 @@ public class ConfigBackupHookTests
             b => b.UpsertAsync(It.IsAny<ConfigBackupEntry>(), It.IsAny<CancellationToken>()), Times.Never);
         harness.Backup.Verify(
             b => b.PruneAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RowCreation_RowAlreadyExists_ReturnsFalse()
+    {
+        var harness = new Harness(stored: null);
+        harness.Table.Setup(c => c.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RequestFailedException(409, "Conflict", "EntityAlreadyExists", null));
+
+        Assert.False(await harness.Sut.TryCreateTenantConfigurationAsync(StoredConfig()));
     }
 
     [Fact]
@@ -157,7 +173,7 @@ public class ConfigBackupHookTests
         incoming.LastUpdated = DateTime.UtcNow;
         incoming.UpdatedBy = "System (auth)";
 
-        var saved = await harness.Sut.SaveTenantConfigurationAsync(incoming, "auth", null);
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "auth", null);
 
         Assert.True(saved); // the save itself still goes through
         Assert.Single(harness.Upserts);
@@ -171,7 +187,7 @@ public class ConfigBackupHookTests
         var stored = StoredConfig();
         var harness = new Harness(TableConfigRepository.ConvertToTenantTableEntity(stored));
 
-        var saved = await harness.Sut.SaveTenantConfigurationAsync(RoundtripClone(stored), "portal-put", null);
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(RoundtripClone(stored), "\"etag\"", "api-patch", null);
 
         Assert.True(saved);
         harness.Backup.Verify(
@@ -190,14 +206,14 @@ public class ConfigBackupHookTests
         var incoming = RoundtripClone(stored);
         incoming.DataRetentionDays = 90;
 
-        var saved = await harness.Sut.SaveTenantConfigurationAsync(incoming, "portal-put", null);
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "api-patch", null);
 
         Assert.True(saved);
         Assert.Single(harness.Upserts); // the config write went through regardless
     }
 
     [Fact]
-    public async Task LegacyOneArgOverload_StillSnapshots_WithUnknownSource()
+    public async Task NoSource_StillSnapshots_WithUnknownSource()
     {
         var stored = StoredConfig();
         var harness = new Harness(TableConfigRepository.ConvertToTenantTableEntity(stored));
@@ -210,7 +226,7 @@ public class ConfigBackupHookTests
 
         var incoming = RoundtripClone(stored);
         incoming.DataRetentionDays = 90;
-        await harness.Sut.SaveTenantConfigurationAsync(incoming);
+        await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", null, null);
 
         Assert.NotNull(snapshot);
         Assert.Equal("unknown", snapshot!.Source);

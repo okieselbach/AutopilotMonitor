@@ -43,8 +43,10 @@ public sealed class ProConferralServiceTests
         var configRepo = new Mock<IConfigRepository>();
         configRepo.Setup(c => c.GetTenantConfigurationAsync(It.IsAny<string>()))
             .ReturnsAsync((string id) => rows.TryGetValue(id, out var cfg) ? cfg : null);
-        configRepo.Setup(c => c.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync((TenantConfiguration cfg, string? source, string? reason) => { saves.Add((cfg, source, reason)); return true; });
+        configRepo.Setup(c => c.GetTenantConfigurationWithEtagAsync(It.IsAny<string>()))
+            .ReturnsAsync((string id) => rows.TryGetValue(id, out var cfg) ? (cfg, "etag") : null);
+        configRepo.Setup(c => c.TryReplaceTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), "etag", It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync((TenantConfiguration cfg, string _, string? source, string? reason) => { saves.Add((cfg, source, reason)); return true; });
 
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(a => a.GetGroupTenantsAsync(Constants.TenantGroupIds.ForHomeTenant(Home))).ReturnsAsync(members.ToList());

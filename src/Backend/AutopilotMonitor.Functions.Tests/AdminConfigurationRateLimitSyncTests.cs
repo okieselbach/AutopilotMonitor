@@ -57,8 +57,6 @@ public class AdminConfigurationRateLimitSyncTests
             It.IsAny<Func<AdminConfiguration, string?>>(), "global-admin@contoso.com", It.IsAny<string?>()), Times.Once);
         // ...but NO tenant configuration is enumerated or mutated (sync removed).
         repo.Verify(r => r.GetAllTenantConfigurationsAsync(), Times.Never);
-        repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
-        repo.Verify(r => r.SaveTenantConfigurationAsync(
-            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        repo.VerifyNoTenantConfigWrite();
     }
 }

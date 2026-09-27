@@ -17,14 +17,24 @@ namespace AutopilotMonitor.Functions.Functions.Config
     /// <summary>
     /// Transactional field-level patch of a tenant's configuration (TenantAdminOrGA: a tenant
     /// admin patches their own row on the stricter TenantAdmin caller tier — GA-only fields are
-    /// an explicit 400 there). Unlike the full-model PUT, this takes ONLY the fields to change,
-    /// and the service verifies after the conditional write that exactly those fields changed —
-    /// rolling back automatically on drift. Every write is preceded by a fail-closed snapshot
-    /// into ConfigurationBackups (revertible via POST config/{tenantId}/revert, GA-only).
+    /// an explicit 400 there). The one client write path of the tenant configuration (the
+    /// full-model PUT is gone, D-290): it takes ONLY the fields to change, and the service
+    /// verifies after the conditional write that exactly those fields changed — rolling back
+    /// automatically on drift. Every write is preceded by a fail-closed snapshot into
+    /// ConfigurationBackups (revertible via POST config/{tenantId}/revert, GA-only).
     /// </summary>
     public class PatchTenantConfigurationFieldsFunction
     {
         internal const int MaxBodyBytes = 65_536;
+
+        /// <summary>
+        /// Write-path label for the session-detail Collect Logs quick-config dialog. The dialog
+        /// sends <c>?intent=collect-logs</c> so the backup snapshot and the ops event can name the
+        /// path (<see cref="OpsEventService"/> raises its own event type for it). Allow-listed,
+        /// never echoed from arbitrary input.
+        /// </summary>
+        internal const string CollectLogsIntent = "collect-logs";
+        internal const string CollectLogsSource = "portal-collect-logs";
 
         private readonly ILogger<PatchTenantConfigurationFieldsFunction> _logger;
         private readonly TenantConfigPatchService _patchService;
@@ -86,12 +96,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
         }
 
-        /// <summary>Tags the backup Source with the write path (MCP tools stamp X-Client-Source: mcp).</summary>
+        /// <summary>
+        /// Tags the backup Source with the write path: the Collect Logs intent, else MCP (tools stamp
+        /// X-Client-Source: mcp) or the plain API.
+        /// </summary>
         internal static string ResolveSource(HttpRequestData req, string operation)
-            => req.Headers.TryGetValues("X-Client-Source", out var values)
-               && string.Equals(values.FirstOrDefault(), "mcp", StringComparison.OrdinalIgnoreCase)
+        {
+            if (operation == "patch" && string.Equals(req.Query["intent"], CollectLogsIntent, StringComparison.OrdinalIgnoreCase))
+                return CollectLogsSource;
+            return req.Headers.TryGetValues("X-Client-Source", out var values)
+                   && string.Equals(values.FirstOrDefault(), "mcp", StringComparison.OrdinalIgnoreCase)
                 ? $"mcp-{operation}"
                 : $"api-{operation}";
+        }
 
         internal static async Task<HttpResponseData> WriteOutcome(HttpRequestData req, PatchOutcome outcome)
         {

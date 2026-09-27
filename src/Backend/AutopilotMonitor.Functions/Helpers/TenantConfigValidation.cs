@@ -9,10 +9,9 @@ using AutopilotMonitor.Shared.Models.Config;
 namespace AutopilotMonitor.Functions.Helpers
 {
     /// <summary>
-    /// Single source for tenant-configuration model validation, shared by the full-model
-    /// PUT (<c>UpdateTenantConfigurationFunction</c>) and the transactional field-patch
-    /// flow (<c>TenantConfigPatchService</c>). The individual validators moved here from
-    /// the PUT function; thin forwarding shims remain there for existing callers/tests.
+    /// Single source for tenant-configuration model validation, used by the transactional
+    /// field-patch flow (<c>TenantConfigPatchService</c>) — the one client write path of the
+    /// tenant configuration since the full-model PUT was removed (D-290).
     /// </summary>
     internal static class TenantConfigValidation
     {

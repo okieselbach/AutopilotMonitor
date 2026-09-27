@@ -915,7 +915,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string? domainName, DiagnosticsUploadConfigChange change, string changedBy, string source)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            var quickConfig = string.Equals(source, Functions.Config.UpdateTenantConfigurationFunction.CollectLogsSource, StringComparison.Ordinal);
+            var quickConfig = string.Equals(source, Functions.Config.PatchTenantConfigurationFieldsFunction.CollectLogsSource, StringComparison.Ordinal);
             if (change.Enabled && quickConfig)
             {
                 return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.CollectLogsQuickConfigEnabled, OpsEventSeverity.Info,

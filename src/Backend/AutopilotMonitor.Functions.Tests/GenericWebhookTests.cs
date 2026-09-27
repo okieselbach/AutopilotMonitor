@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.Models;
@@ -140,7 +141,7 @@ public class GenericWebhookTests
         Assert.Empty(config.GetGenericWebhookHeaders());
     }
 
-    // ── UpdateTenantConfigurationFunction.ValidateWebhookCustomHeaders ────
+    // ── TenantConfigValidation.ValidateWebhookCustomHeaders ────
 
     [Theory]
     [InlineData(null)]
@@ -149,7 +150,7 @@ public class GenericWebhookTests
     [InlineData("{\"Authorization\":\"Bearer abc\"}")]
     public void ValidateWebhookCustomHeaders_Accepts_EmptyOrValid(string? json)
     {
-        Assert.Null(UpdateTenantConfigurationFunction.ValidateWebhookCustomHeaders(json));
+        Assert.Null(TenantConfigValidation.ValidateWebhookCustomHeaders(json));
     }
 
     [Theory]
@@ -160,7 +161,7 @@ public class GenericWebhookTests
     [InlineData("{\"X-Key\":\"line1\\nline2\"}", "must not contain line breaks")]
     public void ValidateWebhookCustomHeaders_Rejects_Invalid(string json, string expectedFragment)
     {
-        var error = UpdateTenantConfigurationFunction.ValidateWebhookCustomHeaders(json);
+        var error = TenantConfigValidation.ValidateWebhookCustomHeaders(json);
         Assert.NotNull(error);
         Assert.Contains(expectedFragment, error);
     }

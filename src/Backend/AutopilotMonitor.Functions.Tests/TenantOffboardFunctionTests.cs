@@ -52,9 +52,7 @@ public sealed class TenantOffboardFunctionTests
         alreadyDisabled.Disabled = true;
         alreadyDisabled.DisabledReason = "Offboarding in progress";
         alreadyDisabled.LastUpdated = DateTime.UtcNow.AddDays(-30);
-        configRepoMock
-            .Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
-            .ReturnsAsync(alreadyDisabled);
+        configRepoMock.BackWithRow(alreadyDisabled);
 
         var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
             new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
@@ -272,12 +270,7 @@ public sealed class TenantOffboardFunctionTests
         BuildForOffboard(TenantConfiguration? liveConfig, Exception? readFailure = null)
     {
         var configRepo = new Mock<IConfigRepository>();
-        if (readFailure != null)
-            configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ThrowsAsync(readFailure);
-        else
-            configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ReturnsAsync(liveConfig);
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(true);
+        configRepo.BackWithRow(liveConfig).ThrowOnRead = readFailure;
 
         var repo = new FakeOffboardingAuditRepository();
         var enqueuer = new RecordingEnqueuer();
@@ -326,7 +319,7 @@ public sealed class TenantOffboardFunctionTests
         Assert.Empty(repo.Pointers);
         Assert.Empty(repo.Markers);
         Assert.Empty(enqueuer.Sent);
-        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        configRepo.VerifyNoTenantConfigWrite();
     }
 
     [Fact]
@@ -738,25 +731,40 @@ public sealed class TenantOffboardFunctionTests
         var (sut, configRepo, cache, _) = BuildWithConfigService();
         var existing = TenantConfiguration.CreateDefault(TenantId);
         existing.Disabled = false;
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(existing);
-
-        TenantConfiguration? saved = null;
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Callback<TenantConfiguration, string?, string?>((c, _, _) => saved = c)
-            .ReturnsAsync(true);
+        existing.DomainName = "contoso.com";
+        var store = configRepo.BackWithRow(existing);
 
         // Seed cache with stale "Disabled=false" entry so we can prove invalidation.
         cache.Set($"tenant-config:{TenantId}", existing);
 
         await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
-        Assert.NotNull(saved);
-        Assert.True(saved!.Disabled);
+        var (saved, source, reason) = Assert.Single(store.Writes);
+        Assert.True(saved.Disabled);
         Assert.Equal("Offboarding in progress", saved.DisabledReason);
         Assert.Null(saved.DisabledUntil);
         Assert.Equal("alice@contoso.com", saved.UpdatedBy);
+        Assert.Equal("contoso.com", saved.DomainName); // the rest of the row survives
+        Assert.Equal(("offboard", "Disabled-gate before cascade"), (source, reason));
         Assert.False(cache.TryGetValue($"tenant-config:{TenantId}", out _),
             "cache entry must be invalidated so warm reads pick up the new Disabled=true on next access");
+    }
+
+    [Fact]
+    public async Task EnsureTenantDisabled_DecidesOnTheStoredRow_NotAStaleCachedView()
+    {
+        // A cached copy still says "not disabled"; the stored row is already the tombstone.
+        var (sut, configRepo, cache, _) = BuildWithConfigService();
+        var tombstone = TenantConfiguration.CreateDefault(TenantId);
+        tombstone.Disabled = true;
+        tombstone.DisabledReason = "Offboarding in progress";
+        var store = configRepo.BackWithRow(tombstone);
+        cache.Set($"tenant-config:{TenantId}", TenantConfiguration.CreateDefault(TenantId));
+
+        var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
+
+        Assert.Equal(TenantOffboardFunction.EnsureDisabledOutcome.AlreadyTombstone, result.Outcome);
+        Assert.Empty(store.Writes);
     }
 
     [Fact]
@@ -766,12 +774,12 @@ public sealed class TenantOffboardFunctionTests
         var existing = TenantConfiguration.CreateDefault(TenantId);
         existing.Disabled = true;
         existing.DisabledReason = "Offboarding in progress";
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(existing);
+        var store = configRepo.BackWithRow(existing);
 
         await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
-        // Idempotent: no Save thrash on resume-clicks while the marker is already in flight.
-        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        // Idempotent: no write thrash on resume-clicks while the marker is already in flight.
+        Assert.Empty(store.Writes);
     }
 
     [Fact]
@@ -781,21 +789,19 @@ public sealed class TenantOffboardFunctionTests
         // skip the enqueue. We just assert the exception propagates — the caller's
         // try/catch + 500-return is exercised by integration tests.
         var (sut, configRepo, _, _) = BuildWithConfigService();
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
-            .ThrowsAsync(new InvalidOperationException("storage unavailable"));
+        configRepo.BackWithRow(TenantConfiguration.CreateDefault(TenantId)).ThrowOnRead =
+            new InvalidOperationException("storage unavailable");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com"));
     }
 
     [Fact]
-    public async Task EnsureTenantDisabled_StorageThrowsOnSave_PropagatesAsExpected()
+    public async Task EnsureTenantDisabled_StorageThrowsOnWrite_PropagatesAsExpected()
     {
         var (sut, configRepo, _, _) = BuildWithConfigService();
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
-            .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ThrowsAsync(new InvalidOperationException("storage save failed"));
+        configRepo.BackWithRow(TenantConfiguration.CreateDefault(TenantId)).ThrowOnWrite =
+            new InvalidOperationException("storage write failed");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com"));
@@ -809,35 +815,25 @@ public sealed class TenantOffboardFunctionTests
         // The fix creates a fresh CreateDefault row with Disabled=true so the auth-gate is
         // committed even in this edge case.
         var (sut, configRepo, _, _) = BuildWithConfigService();
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
-            .ReturnsAsync((TenantConfiguration?)null);
+        var store = configRepo.BackWithRow(null);
 
-        TenantConfiguration? saved = null;
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Callback<TenantConfiguration, string?, string?>((c, _, _) => saved = c)
-            .ReturnsAsync(true);
+        var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
-        await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
-
-        Assert.NotNull(saved);
-        Assert.Equal(TenantId, saved!.TenantId);
+        var saved = Assert.Single(store.Writes).Row;
+        Assert.Equal(TenantId, saved.TenantId);
         Assert.True(saved.Disabled, "fresh tombstone must carry Disabled=true");
         Assert.Equal("Offboarding in progress", saved.DisabledReason);
         Assert.Equal("alice@contoso.com", saved.UpdatedBy);
+        Assert.Equal(TenantOffboardFunction.EnsureDisabledOutcome.WroteNewTombstone, result.Outcome);
     }
 
     [Fact]
-    public async Task EnsureTenantDisabled_SaveReturnsFalse_ThrowsAsHardFail()
+    public async Task EnsureTenantDisabled_EveryWriteLost_ThrowsAsHardFail()
     {
-        // PR3.B-revised Finding 2: TableConfigRepository.SaveTenantConfigurationAsync
-        // returns false on transient storage failure (it does NOT throw). Ignoring that
-        // return-value would let the caller proceed to enqueue without the auth-gate
-        // committed. Turn it into a hard exception so the offboard is NOT enqueued.
+        // Without Disabled=true the caller would proceed to enqueue without the auth-gate
+        // committed: every lost conditional write is a hard exception, never a silent skip.
         var (sut, configRepo, _, _) = BuildWithConfigService();
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
-            .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(false);  // transient storage rejection — NOT a throw.
+        configRepo.BackWithRow(TenantConfiguration.CreateDefault(TenantId)).RejectWrites = true;
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com"));
@@ -845,15 +841,10 @@ public sealed class TenantOffboardFunctionTests
     }
 
     [Fact]
-    public async Task EnsureTenantDisabled_NoConfigRow_SaveReturnsFalse_ThrowsAsHardFail()
+    public async Task EnsureTenantDisabled_NoConfigRow_EveryWriteLost_ThrowsAsHardFail()
     {
-        // Combined edge case: missing row → we'd create a fresh tombstone → Save fails →
-        // hard fail (otherwise the caller would proceed without an auth-gate).
         var (sut, configRepo, _, _) = BuildWithConfigService();
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
-            .ReturnsAsync((TenantConfiguration?)null);
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(false);
+        configRepo.BackWithRow(null).RejectWrites = true;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com"));
@@ -866,12 +857,12 @@ public sealed class TenantOffboardFunctionTests
         var tombstone = TenantConfiguration.CreateDefault(TenantId);
         tombstone.Disabled = true;
         tombstone.DisabledReason = "Offboarding in progress";
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(tombstone);
+        var store = configRepo.BackWithRow(tombstone);
 
         var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
         Assert.Equal(TenantOffboardFunction.EnsureDisabledOutcome.AlreadyTombstone, result.Outcome);
-        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(store.Writes);
     }
 
     [Fact]
@@ -880,13 +871,13 @@ public sealed class TenantOffboardFunctionTests
         var (sut, configRepo, _, _) = BuildWithConfigService();
         var existing = TenantConfiguration.CreateDefault(TenantId);
         existing.Disabled = false;
-        configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(existing);
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(true);
+        var store = configRepo.BackWithRow(existing);
 
         var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
         Assert.Equal(TenantOffboardFunction.EnsureDisabledOutcome.WroteNewTombstone, result.Outcome);
+        // The anchor of the drain-deadline math is the stored write time.
+        Assert.Equal(Assert.Single(store.Writes).Row.LastUpdated, result.TombstoneLastUpdated);
     }
 
     // ── Resume-path cache-drain bypass fix (Codex review) ────────────────────
@@ -930,10 +921,7 @@ public sealed class TenantOffboardFunctionTests
         var configRepoMock = new Mock<IConfigRepository>();
         var notYetDisabled = TenantConfiguration.CreateDefault(TenantId);
         notYetDisabled.Disabled = false;
-        configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
-            .ReturnsAsync(notYetDisabled);
-        configRepoMock.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(true);
+        configRepoMock.BackWithRow(notYetDisabled);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var tenantConfigService = new TenantConfigurationService(
@@ -1025,8 +1013,7 @@ public sealed class TenantOffboardFunctionTests
         tombstone.Disabled = true;
         tombstone.DisabledReason = "Offboarding in progress";
         tombstone.LastUpdated = DateTime.UtcNow.AddSeconds(-1); // freshly written ~1s ago
-        configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
-            .ReturnsAsync(tombstone);
+        configRepoMock.BackWithRow(tombstone);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var tenantConfigService = new TenantConfigurationService(
@@ -1100,8 +1087,7 @@ public sealed class TenantOffboardFunctionTests
         tombstone.Disabled = true;
         tombstone.DisabledReason = "Offboarding in progress";
         tombstone.LastUpdated = initiatedAt;
-        configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
-            .ReturnsAsync(tombstone);
+        configRepoMock.BackWithRow(tombstone);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var tenantConfigService = new TenantConfigurationService(
@@ -1143,8 +1129,8 @@ public sealed class TenantOffboardFunctionTests
         var historyAfter = repo.History[historyRowKey];
         Assert.Equal(originalEarliestProcessingAt, historyAfter.EarliestProcessingAt);
 
-        // No Save call (the tombstone was already correct).
-        configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        // No write (the tombstone was already correct).
+        configRepoMock.VerifyNoTenantConfigWrite();
     }
 
     // ── RetryFailedOffboardingAsync (operator retry of a Failed offboarding) ──────────
@@ -1308,7 +1294,7 @@ public sealed class TenantOffboardFunctionTests
         tombstone.Disabled = true;
         tombstone.DisabledReason = "Offboarding in progress";
         tombstone.LastUpdated = DateTime.UtcNow.AddMinutes(-2);
-        configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ReturnsAsync(tombstone);
+        configRepoMock.BackWithRow(tombstone);
         var cache = new MemoryCache(new MemoryCacheOptions());
         var service = new TenantConfigurationService(configRepoMock.Object, NullLogger<TenantConfigurationService>.Instance, cache);
         var enqueuer = new RecordingEnqueuer();
@@ -1327,7 +1313,7 @@ public sealed class TenantOffboardFunctionTests
         var delay = Assert.Single(enqueuer.VisibilityDelays);
         Assert.NotNull(delay);
         Assert.InRange(delay!.Value, TimeSpan.FromMinutes(3.5), TimeSpan.FromMinutes(4.1));
-        configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        configRepoMock.VerifyNoTenantConfigWrite();
     }
 
     [Fact]

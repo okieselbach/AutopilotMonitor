@@ -713,31 +713,6 @@ public class ConfigWireParityTests
 
     // ---- UpdateTenantConfiguration -------------------------------------------------------
 
-    [Fact]
-    public void UpdateTenantConfigurationResponse_matches_the_ack_plus_config_shape()
-    {
-        var config = new TenantConfiguration
-        {
-            TenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d",
-            DomainName = "contoso.com",
-            UpdatedBy = "admin@contoso.com",
-        };
-
-        AssertParity(
-            new
-            {
-                success = true,
-                message = "Configuration updated successfully",
-                config = config
-            },
-            new UpdateTenantConfigurationResponse
-            {
-                Success = true,
-                Message = "Configuration updated successfully",
-                Config = config
-            });
-    }
-
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

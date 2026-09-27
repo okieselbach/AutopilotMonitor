@@ -153,8 +153,7 @@ public class McpUserServiceTenantMcpSwitchTests
         var result = await _sut.IsAllowedAsync(Upn, HomeTenant, Oid);
 
         Assert.True(result.IsAllowed);
-        _configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
-        _configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _configRepo.VerifyNoTenantConfigWrite();
     }
 
     [Fact]

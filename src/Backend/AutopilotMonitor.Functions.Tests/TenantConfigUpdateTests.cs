@@ -25,6 +25,8 @@ public class TenantConfigUpdateTests
     private readonly Queue<(TenantConfiguration Row, string ETag)> _freshReads = new();
     private readonly List<(TenantConfiguration Config, string ETag, string? Source, string? Reason)> _replaces = new();
     private readonly Queue<bool> _replaceResults = new();
+    private readonly List<TenantConfiguration> _creates = new();
+    private readonly Queue<bool> _createResults = new();
 
     public TenantConfigUpdateTests()
     {
@@ -34,6 +36,9 @@ public class TenantConfigUpdateTests
                 It.IsAny<TenantConfiguration>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .Callback<TenantConfiguration, string, string?, string?>((c, e, s, r) => _replaces.Add((c, e, s, r)))
             .ReturnsAsync(() => _replaceResults.Count == 0 || _replaceResults.Dequeue());
+        _repo.Setup(r => r.TryCreateTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+            .Callback<TenantConfiguration>(c => _creates.Add(c))
+            .ReturnsAsync(() => _createResults.Count == 0 || _createResults.Dequeue());
     }
 
     private TenantConfigurationService Service(ManagedTenantProIndex? proIndex = null) =>
@@ -81,7 +86,6 @@ public class TenantConfigUpdateTests
         Assert.True(written.PayingCustomer);
         Assert.Equal("plan", source);
         Assert.Equal("why", reason);
-        _repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
 
         // The cached view is gone: the next read goes to storage.
         await service.GetConfigurationIfExistsAsync(TenantId);
@@ -170,6 +174,84 @@ public class TenantConfigUpdateTests
         Assert.Equal("managing-tenant", seen);
     }
 
+    // ── CreateOrUpdateAsync + the default row ───────────────────────────────
+
+    [Fact]
+    public async Task CreateOrUpdateAsync_NoRow_InsertsTheMutatedDefault()
+    {
+        var update = await Service().CreateOrUpdateAsync(TenantId, row => { row.DomainName = "contoso.com"; return true; }, "auth", "why");
+
+        Assert.Equal(TenantConfigUpdateStatus.Updated, update.Status);
+        var created = Assert.Single(_creates);
+        Assert.Equal("contoso.com", created.DomainName);
+        Assert.Equal(TenantId, created.TenantId);
+        Assert.Empty(_replaces);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateAsync_RowCreatedConcurrently_DecidesAgainOnTheStoredRow()
+    {
+        // Our read saw no row, the insert lost (409), the re-read finds the concurrent writer's row.
+        var stored = Row(r => r.DomainName = "seeded-by-the-other-login.com");
+        var reads = 0;
+        _repo.Setup(r => r.GetTenantConfigurationWithEtagAsync(TenantId))
+            .ReturnsAsync(() => reads++ == 0 ? null : (stored, "etag-2"));
+        _createResults.Enqueue(false);
+        var seen = new List<string>();
+
+        var update = await Service().CreateOrUpdateAsync(TenantId, row =>
+        {
+            seen.Add(row.DomainName);
+            return string.IsNullOrEmpty(row.DomainName);
+        }, "auth", "why");
+
+        Assert.Equal(TenantConfigUpdateStatus.Declined, update.Status);
+        Assert.Equal(new[] { "", "seeded-by-the-other-login.com" }, seen);
+        Assert.Single(_creates);
+        Assert.Empty(_replaces);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateAsync_Tombstone_IsNeverWritten()
+    {
+        _freshReads.Enqueue((Tombstone(), "etag-1"));
+
+        var update = await Service().CreateOrUpdateAsync(TenantId, _ => true, "offboard", "why");
+
+        Assert.Equal(TenantConfigUpdateStatus.OffboardingInProgress, update.Status);
+        _repo.VerifyNoTenantConfigWrite();
+    }
+
+    [Fact]
+    public async Task GetConfigurationAsync_NoRow_CreatesTheDefaultConditionally()
+    {
+        _repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync((TenantConfiguration?)null);
+
+        var config = await Service().GetConfigurationAsync(TenantId);
+
+        Assert.Same(Assert.Single(_creates), config);
+        _repo.Verify(r => r.TryReplaceTenantConfigurationAsync(
+            It.IsAny<TenantConfiguration>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetConfigurationAsync_DefaultLostTheRace_ReturnsTheRowTheOtherWriterCreated()
+    {
+        // The first-login seed landed between our read and our insert: never overwrite it.
+        var seeded = Row(r => r.OnboardedBy = "first@contoso.com");
+        var reads = 0;
+        _repo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
+            .ReturnsAsync(() => reads++ == 0 ? null : seeded);
+        _createResults.Enqueue(false);
+
+        var config = await Service().GetConfigurationAsync(TenantId);
+
+        Assert.Same(seeded, config);
+        Assert.Single(_creates);
+        _repo.Verify(r => r.TryReplaceTenantConfigurationAsync(
+            It.IsAny<TenantConfiguration>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
     // ── Endpoints ───────────────────────────────────────────────────────────
 
     private (PlanManagementFunction Sut, Mock<IOpsEventRepository> OpsRepo, Mock<IMaintenanceRepository> Audit) Plan(
@@ -221,7 +303,7 @@ public class TenantConfigUpdateTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(Constants.ApiErrorCodes.TenantSuspended, EndpointHarness.ErrorCode(response));
         Assert.Empty(_replaces);
-        _repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _repo.VerifyNoTenantConfigWrite();
     }
 
     [Fact]

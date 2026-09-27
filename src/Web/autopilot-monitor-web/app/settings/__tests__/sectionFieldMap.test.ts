@@ -58,7 +58,7 @@ const EXPECTED_OWNED_FIELDS = [
  */
 const SERVER_DENIED_FIELDS = new Set([
   "tenantId", "domainName", "partitionKey", "rowKey", "timestamp", "eTag",
-  "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy",
+  "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy", "dpaVersion",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
   "planTier", "trialExpiresUtc", "trialStartedUtc", "trialConsumed", "trialGrantedBy",
   "proDowngradedUtc", "maxDelegatedTenantsOverride", "mcpUsagePlanOverride", "payingCustomer",

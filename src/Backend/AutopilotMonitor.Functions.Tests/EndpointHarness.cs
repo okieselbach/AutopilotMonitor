@@ -19,7 +19,8 @@ namespace AutopilotMonitor.Functions.Tests;
 internal static class EndpointHarness
 {
     public static (HttpRequestData Req, FunctionContext Context) Request(
-        string tenantId, string upn = "admin@contoso.com", string? jsonBody = null)
+        string tenantId, string upn = "admin@contoso.com", string? jsonBody = null, string queryString = "",
+        IDictionary<string, string>? headers = null)
     {
         var services = new ServiceCollection();
         services.AddOptions();
@@ -42,7 +43,13 @@ internal static class EndpointHarness
         context.SetupGet(c => c.InstanceServices).Returns(provider);
 
         var req = new Mock<HttpRequestData>(context.Object);
-        req.SetupGet(r => r.Headers).Returns(new HttpHeadersCollection());
+        var headerCollection = new HttpHeadersCollection();
+        foreach (var (name, value) in headers ?? new Dictionary<string, string>())
+            headerCollection.Add(name, value);
+        req.SetupGet(r => r.Headers).Returns(headerCollection);
+        // Query parses the Url in the base class (a bare mock would hand back null).
+        req.SetupGet(r => r.Url).Returns(new Uri("https://localhost/api/test" + queryString));
+        req.SetupGet(r => r.Query).CallBase();
         req.SetupGet(r => r.Body).Returns(new MemoryStream(Encoding.UTF8.GetBytes(jsonBody ?? "")));
         req.Setup(r => r.CreateResponse()).Returns(() => new FakeResponse(context.Object));
         return (req.Object, context.Object);

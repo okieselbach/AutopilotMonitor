@@ -1,11 +1,6 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import type { TenantConfigFieldName } from "@/lib/tenantConfigSave";
 
-/**
- * Wire (camelCase) name of a TenantConfiguration field, typed against the generated shared
- * manifest — a typo or a field the backend model no longer has fails tsc.
- */
-export type TenantConfigFieldName =
-  (typeof SHARED_MANIFEST.tenantConfiguration.fields)[number];
+export type { TenantConfigFieldName };
 
 export interface SectionFieldSpec {
   /**

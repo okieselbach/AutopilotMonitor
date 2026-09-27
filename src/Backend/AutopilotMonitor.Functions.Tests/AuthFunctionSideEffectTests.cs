@@ -37,6 +37,7 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer> _autoApproveEnqueuerMock;
     private readonly FakeSignalRNotificationService _signalR;
     private readonly FakeOffboardingAuditRepository _offboardingRepo = new();
+    private readonly StoredTenantConfig _store;
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -116,10 +117,9 @@ public class AuthFunctionSideEffectTests
             adminConfigService.Object,
             _offboardingRepo);
 
-        // Default: all fire-and-forget calls succeed
-        _tenantConfigMock
-            .Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns(Task.CompletedTask);
+        // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
+        // a brand-new tenant). Default: all fire-and-forget calls succeed.
+        _store = _tenantConfigMock.StubWrites(TenantId, row: null);
         _telegramMock
             .Setup(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(Task.CompletedTask);
@@ -208,7 +208,7 @@ public class AuthFunctionSideEffectTests
 
         Assert.True(string.IsNullOrEmpty(config.DomainName));
         Assert.Null(config.OnboardedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -228,7 +228,11 @@ public class AuthFunctionSideEffectTests
         Assert.Equal(Upn, config.OnboardedBy);
         // The DPA version rides along in the same onboarding write (D-252).
         Assert.Equal(CurrentDpa, config.DpaVersion);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        var (written, source, _) = Assert.Single(_store.Writes);
+        Assert.Equal("contoso.com", written.DomainName);
+        Assert.Equal(Upn, written.OnboardedBy);
+        Assert.Equal(CurrentDpa, written.DpaVersion);
+        Assert.Equal("auth", source);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Tenant Signup",
@@ -277,9 +281,9 @@ public class AuthFunctionSideEffectTests
 
         Assert.True(config.TrialConsumed);
         Assert.Equal(Upn, config.OnboardedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(
-            It.Is<TenantConfiguration>(c => c.TrialConsumed && c.OnboardedBy == Upn),
-            It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.True(written.TrialConsumed);
+        Assert.Equal(Upn, written.OnboardedBy);
         // Re-onboarding itself stays unrestricted: same signup path, auto-approve included.
         _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
             It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
@@ -302,7 +306,7 @@ public class AuthFunctionSideEffectTests
 
         Assert.False(config.TrialConsumed);
         Assert.Equal("contoso.com", config.DomainName);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        Assert.False(Assert.Single(_store.Writes).Row.TrialConsumed);
     }
 
     [Fact]
@@ -316,11 +320,47 @@ public class AuthFunctionSideEffectTests
 
         Assert.True(string.IsNullOrEmpty(config.DomainName));
         Assert.Null(config.OnboardedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
             It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
             It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_ConcurrentFirstLogin_NeverOverwritesOnboardedBy()
+    {
+        // This login's view still has no domain, but another login seeded the stored row meanwhile:
+        // OnboardedBy is write-once (D-061), and the signup side effects belong to the winner.
+        var stored = DefaultConfig();
+        stored.DomainName = "contoso.com";
+        stored.OnboardedBy = "first@contoso.com";
+        _store.Row = stored;
+        var view = DefaultConfig();
+
+        await _sut.HandleNewTenantDomainAsync(view, TenantId, "second@contoso.com");
+
+        Assert.Empty(_store.Writes);
+        Assert.Equal("first@contoso.com", _store.Row!.OnboardedBy);
+        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
+            It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_OffboardingTombstone_IsNeverSeeded()
+    {
+        // The offboard click writes a Disabled tombstone even onto a row without a domain.
+        var tombstone = DefaultConfig();
+        tombstone.Disabled = true;
+        tombstone.DisabledReason = AutopilotMonitor.Functions.Functions.Admin.TenantOffboardFunction.OffboardingDisabledReason;
+        _store.Row = tombstone;
+
+        await _sut.HandleNewTenantDomainAsync(DefaultConfig(), TenantId, Upn);
+
+        Assert.Empty(_store.Writes);
+        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------
@@ -347,16 +387,16 @@ public class AuthFunctionSideEffectTests
         fresh.LastAuthClientId = LegacyAppId;
         fresh.HomedAppClientId = PrimaryAppId; // the concurrent flip that must survive
 
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(fresh);
+        _store.Row = fresh;
 
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
 
-        // The FRESH entity was mutated and saved — the flip survives, the stale view is discarded.
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(fresh, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(cached, It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
-        Assert.Equal(PrimaryAppId, fresh.HomedAppClientId);
-        Assert.Equal(PrimaryAppId, fresh.LastAuthClientId);
-        Assert.NotNull(fresh.LastAuthClientIdSince);
+        // The FRESH row was mutated and written — the flip survives, the stale view is discarded.
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.Equal(PrimaryAppId, written.HomedAppClientId);
+        Assert.Equal(PrimaryAppId, written.LastAuthClientId);
+        Assert.NotNull(written.LastAuthClientIdSince);
+        Assert.Null(cached.HomedAppClientId);
     }
 
     [Fact]
@@ -372,11 +412,11 @@ public class AuthFunctionSideEffectTests
         fresh.DomainName = "contoso.com";
         fresh.LastAuthClientId = PrimaryAppId;
 
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(fresh);
+        _store.Row = fresh;
 
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, PrimaryAppId);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -389,8 +429,9 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
 
-        _tenantConfigMock.Verify(x => x.GetConfigurationFreshAsync(It.IsAny<string>()), Times.Never);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.UpdateAsync(It.IsAny<string>(), It.IsAny<Func<TenantConfiguration, bool>>(),
+            It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     private const string CurrentDpa = AutopilotMonitor.Shared.Constants.CurrentDpaVersion;
@@ -407,7 +448,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         Assert.Null(config.DpaVersion);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -418,10 +459,12 @@ public class AuthFunctionSideEffectTests
         var config = DefaultConfig();
         config.DomainName = null!;
         config.OnboardedBy = "original.requester@contoso.com";
+        _store.Row = ConfigRepoMockExtensions.Clone(config);
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         Assert.Equal("original.requester@contoso.com", config.OnboardedBy);
+        Assert.Equal("original.requester@contoso.com", Assert.Single(_store.Writes).Row.OnboardedBy);
     }
 
     [Fact]
@@ -432,7 +475,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -444,7 +487,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, "");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -455,7 +498,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, "nodomain");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -471,8 +514,8 @@ public class AuthFunctionSideEffectTests
         // Should not throw — Telegram is fire-and-forget
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
-        // SaveConfig should still have been called before the fire-and-forget
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        // The write still landed before the fire-and-forget
+        Assert.Single(_store.Writes);
     }
 
     // -------------------------------------------------------------------------
@@ -486,14 +529,68 @@ public class AuthFunctionSideEffectTests
         config.Disabled = true;
         config.DisabledReason = "Maintenance";
         config.DisabledUntil = DateTime.UtcNow.AddHours(-1); // expired
+        _store.Row = ConfigRepoMockExtensions.Clone(config);
 
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
         Assert.False(config.Disabled);
         Assert.Null(config.DisabledReason);
         Assert.Null(config.DisabledUntil);
-        Assert.Equal("System (auto-re-enable)", config.UpdatedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.False(written.Disabled);
+        Assert.Null(written.DisabledUntil);
+        Assert.Equal("System (auto-re-enable)", written.UpdatedBy);
+    }
+
+    [Fact]
+    public async Task HandleAutoReEnable_SuspensionRenewedMeanwhile_StaysSuspended()
+    {
+        // This instance cached the expired suspension; a Global Admin renewed it since.
+        var view = DefaultConfig();
+        view.Disabled = true;
+        view.DisabledReason = "Maintenance";
+        view.DisabledUntil = DateTime.UtcNow.AddHours(-1);
+        var stored = ConfigRepoMockExtensions.Clone(view);
+        stored.DisabledReason = "Abuse review";
+        stored.DisabledUntil = DateTime.UtcNow.AddDays(2);
+        _store.Row = stored;
+
+        await _sut.HandleAutoReEnableAsync(view, TenantId);
+
+        Assert.Empty(_store.Writes);
+        Assert.True(view.IsCurrentlyDisabled());
+        Assert.Equal("Abuse review", view.DisabledReason);
+    }
+
+    [Fact]
+    public async Task HandleAutoReEnable_RowIsTheOffboardingTombstone_StaysSuspended()
+    {
+        var view = DefaultConfig();
+        view.Disabled = true;
+        view.DisabledUntil = DateTime.UtcNow.AddHours(-1);
+        var tombstone = ConfigRepoMockExtensions.Clone(view);
+        tombstone.DisabledReason = AutopilotMonitor.Functions.Functions.Admin.TenantOffboardFunction.OffboardingDisabledReason;
+        tombstone.DisabledUntil = null;
+        _store.Row = tombstone;
+
+        await _sut.HandleAutoReEnableAsync(view, TenantId);
+
+        Assert.Empty(_store.Writes);
+        Assert.True(view.IsCurrentlyDisabled());
+    }
+
+    [Fact]
+    public async Task HandleAutoReEnable_StorageFails_ThisLoginStillPasses()
+    {
+        var view = DefaultConfig();
+        view.Disabled = true;
+        view.DisabledUntil = DateTime.UtcNow.AddHours(-1);
+        _store.ThrowOnRead = new Azure.RequestFailedException(503, "Server busy");
+
+        await _sut.HandleAutoReEnableAsync(view, TenantId);
+
+        Assert.False(view.Disabled);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -506,7 +603,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
         Assert.True(config.Disabled);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -517,7 +614,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     [Fact]
@@ -530,7 +627,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
         Assert.True(config.Disabled);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     // -------------------------------------------------------------------------

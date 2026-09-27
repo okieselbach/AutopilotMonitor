@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Functions.Services.Notifications;
@@ -32,6 +33,7 @@ public class AppHomingServiceTests
 
     private readonly Mock<AdminConfigurationService> _adminConfigMock;
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
+    private readonly StoredTenantConfig _store;
     private readonly Mock<GraphTokenService> _graphTokenMock;
     private readonly Mock<IGraphFeatureDetector> _detectorMock;
     private readonly Mock<IMaintenanceRepository> _maintenanceMock;
@@ -99,13 +101,10 @@ public class AppHomingServiceTests
             new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true }));
 
         // Defaults: flag on, legacy-homed config exists, both apps mint a role-less token (the
-        // superset rule passes trivially). FlipAsync reads via the cache-bypassing
-        // GetConfigurationFreshAsync (read-modify-write on the whole entity).
+        // superset rule passes trivially). FlipAsync writes through UpdateAsync (conditional
+        // write on the fresh row), stubbed over one stored row.
         _adminConfigMock.Setup(x => x.IsSelfServiceAppHomingEnabledAsync()).ReturnsAsync(true);
-        var config = LegacyHomedConfig();
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
-        _tenantConfigMock.Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns(Task.CompletedTask);
+        _store = _tenantConfigMock.StubWrites(TenantId, LegacyHomedConfig());
         SetupProbe(GraphTokenResult.Success(Jwt()));
         SetupLegacyToken(GraphTokenResult.Success(Jwt()));
     }
@@ -143,8 +142,7 @@ public class AppHomingServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(result);
 
-    private void VerifyNeverSaved() =>
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    private void VerifyNeverSaved() => Assert.Empty(_store.Writes);
 
     // ── IsFunnelEligibleAsync ───────────────────────────────────────────────
 
@@ -340,9 +338,10 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.Flipped, outcome.Outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.Is<TenantConfiguration>(c =>
-            string.Equals(c.HomedAppClientId, PrimaryId, StringComparison.OrdinalIgnoreCase)
-            && c.UpdatedBy == Actor), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        var (written, source, _) = Assert.Single(_store.Writes);
+        Assert.Equal(PrimaryId, written.HomedAppClientId, ignoreCase: true);
+        Assert.Equal(Actor, written.UpdatedBy);
+        Assert.Equal("app-homing", source);
         _detectorMock.Verify(x => x.InvalidateTenant(TenantId), Times.Once);
         _maintenanceMock.Verify(m => m.LogAuditEntryAsync(TenantId, "UPDATE", "TenantConfiguration",
             TenantId, Actor, It.Is<Dictionary<string, string>?>(d =>
@@ -359,7 +358,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome.Outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        VerifyNeverSaved();
     }
 
     [Fact]
@@ -370,7 +369,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.ProbeTransient, outcome.Outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        VerifyNeverSaved();
     }
 
     [Fact]
@@ -394,7 +393,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome.Outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        VerifyNeverSaved();
     }
 
     // ── FlipAsync ───────────────────────────────────────────────────────────
@@ -404,7 +403,7 @@ public class AppHomingServiceTests
     {
         var config = LegacyHomedConfig();
         config.EntraAppRolesEnabled = true;
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
+        _store.Row = config;
 
         await _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga");
 
@@ -417,11 +416,11 @@ public class AppHomingServiceTests
     {
         var config = LegacyHomedConfig();
         config.HomedAppClientId = PrimaryId;
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
+        _store.Row = config;
 
         await _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        VerifyNeverSaved();
         _detectorMock.Verify(x => x.InvalidateTenant(It.IsAny<string>()), Times.Never);
         Assert.Empty(_savedOpsEvents);
     }
@@ -430,15 +429,54 @@ public class AppHomingServiceTests
     public async Task Flip_throws_when_config_row_missing_and_saves_nothing()
     {
         // A flip must never materialize a default row (e.g. resurrect an offboarded tenant);
-        // the fresh read returning null is a hard stop.
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
-            .ReturnsAsync((TenantConfiguration?)null);
+        // a missing row is a hard stop.
+        _store.Row = null;
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga"));
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        VerifyNeverSaved();
         _detectorMock.Verify(x => x.InvalidateTenant(It.IsAny<string>()), Times.Never);
+        Assert.Empty(_savedOpsEvents);
+    }
+
+    [Fact]
+    public async Task Flip_decides_on_the_stored_row_not_the_callers_view()
+    {
+        // The caller's (cached) view is legacy-homed; the stored row was flipped meanwhile.
+        var stored = LegacyHomedConfig();
+        stored.HomedAppClientId = PrimaryId;
+        _store.Row = stored;
+
+        await _sut.FlipAsync(TenantId, PrimaryId, Actor, "consent-auto-flip");
+
+        VerifyNeverSaved();
+        Assert.Empty(_savedOpsEvents);
+    }
+
+    [Fact]
+    public async Task Flip_skips_a_tenant_being_offboarded()
+    {
+        var tombstone = LegacyHomedConfig();
+        tombstone.Disabled = true;
+        tombstone.DisabledReason = TenantOffboardFunction.OffboardingDisabledReason;
+        _store.Row = tombstone;
+
+        await _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga");
+
+        VerifyNeverSaved();
+        _detectorMock.Verify(x => x.InvalidateTenant(It.IsAny<string>()), Times.Never);
+        Assert.Empty(_savedOpsEvents);
+    }
+
+    [Fact]
+    public async Task Flip_throws_when_every_conditional_write_lost()
+    {
+        _store.Force = TenantConfigUpdateStatus.Conflict;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga"));
+
         Assert.Empty(_savedOpsEvents);
     }
 
@@ -447,13 +485,12 @@ public class AppHomingServiceTests
     {
         var config = LegacyHomedConfig();
         config.HomedAppClientId = PrimaryId;
-        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
+        _store.Row = config;
 
         await _sut.FlipAsync(TenantId, null, Actor, "manual-ga");
 
         // The null-homing invariant: legacy is represented as null, never as the legacy GUID.
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.Is<TenantConfiguration>(c =>
-            c.HomedAppClientId == null), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        Assert.Null(Assert.Single(_store.Writes).Row.HomedAppClientId);
         _detectorMock.Verify(x => x.InvalidateTenant(TenantId), Times.Once);
     }
 }

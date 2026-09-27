@@ -5,6 +5,7 @@ import { EnrollmentEvent } from "@/types";
 import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
+import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
 import { NotificationType } from "@/contexts/NotificationContext";
 import type { QueueSessionActionRequest, TenantConfiguration } from "@/utils/wire-types.generated";
 import {
@@ -122,9 +123,9 @@ export default function CollectLogsButton({
     }
   };
 
-  // Quick-config (Admin only): read the full tenant config, flip ONLY the two diagnostics
-  // fields, write it back verbatim, then rotate_config BEFORE request_diagnostics so the
-  // agent refetches the now-enabled config before building the package.
+  // Quick-config (Admin only): read the tenant config, PATCH ONLY the two diagnostics fields
+  // that change, then rotate_config BEFORE request_diagnostics so the agent refetches the
+  // now-enabled config before building the package.
   const handleQuickConfig = async () => {
     if (!effectiveTenantId) return;
     setQuickConfigBusy(true);
@@ -142,11 +143,11 @@ export default function CollectLogsButton({
             : config.diagnosticsUploadMode,
       };
 
-      await fetchOk(api.config.tenantCollectLogsQuickConfig(effectiveTenantId), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<TenantConfiguration>(updated),
-      });
-      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+      const fields = changedTenantConfigFields(config, updated, ["diagnosticsUploadDestination", "diagnosticsUploadMode"]);
+      if (await patchTenantConfigFields(
+        api.config.fieldsCollectLogsQuickConfig(effectiveTenantId), fields, "collect-logs quick config", getAccessToken)) {
+        invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+      }
 
       onDiagnosticsConfigured();
       setShowQuickConfig(false);

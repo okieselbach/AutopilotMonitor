@@ -43,7 +43,7 @@ public class TenantContactEmailTests
     }
 
     // ------------------------------------------------------------------
-    // Server-side validation (UpdateTenantConfigurationFunction)
+    // Server-side validation (TenantConfigValidation)
     // ------------------------------------------------------------------
 
     [Theory]
@@ -51,7 +51,7 @@ public class TenantContactEmailTests
     [InlineData("first.last+autopilot@sub.fabrikam.co.uk")]
     [InlineData("UPPER@CONTOSO.COM")]
     public void ValidateContactEmail_accepts_real_addresses(string email)
-        => Assert.Null(UpdateTenantConfigurationFunction.ValidateContactEmail(email));
+        => Assert.Null(TenantConfigValidation.ValidateContactEmail(email));
 
     [Theory]
     [InlineData(null)]
@@ -60,7 +60,7 @@ public class TenantContactEmailTests
     public void ValidateContactEmail_treats_absence_as_valid(string? email)
     {
         // No contact address is a legitimate state — it means we cannot reach this tenant.
-        Assert.Null(UpdateTenantConfigurationFunction.ValidateContactEmail(email));
+        Assert.Null(TenantConfigValidation.ValidateContactEmail(email));
     }
 
     [Theory]
@@ -76,7 +76,7 @@ public class TenantContactEmailTests
     [InlineData("Ops Team <ops@contoso.com>", "single address")]          // display-name form
     public void ValidateContactEmail_rejects_values_that_are_not_a_single_address(string email, string expectedHint)
     {
-        var error = UpdateTenantConfigurationFunction.ValidateContactEmail(email);
+        var error = TenantConfigValidation.ValidateContactEmail(email);
         Assert.NotNull(error);
         Assert.Contains(expectedHint, error!, StringComparison.OrdinalIgnoreCase);
     }
@@ -85,7 +85,7 @@ public class TenantContactEmailTests
     public void ValidateContactEmail_rejects_header_injection()
     {
         // Once this address is actually mailed, an embedded CR/LF would forge mail headers.
-        var error = UpdateTenantConfigurationFunction.ValidateContactEmail(
+        var error = TenantConfigValidation.ValidateContactEmail(
             $"ops@contoso.com{(char)13}{(char)10}Bcc: attacker@evil.test");
 
         Assert.NotNull(error);
@@ -94,8 +94,8 @@ public class TenantContactEmailTests
     [Fact]
     public void ValidateContactEmail_rejects_an_over_long_value()
     {
-        var local = new string('a', UpdateTenantConfigurationFunction.MaxContactEmailLength);
-        var error = UpdateTenantConfigurationFunction.ValidateContactEmail($"{local}@contoso.com");
+        var local = new string('a', TenantConfigValidation.MaxContactEmailLength);
+        var error = TenantConfigValidation.ValidateContactEmail($"{local}@contoso.com");
 
         Assert.NotNull(error);
         Assert.Contains("at most", error!);
@@ -189,9 +189,7 @@ public class TenantContactEmailTests
 
         await service.TrySeedContactEmailAsync(TenantId, "ops@contoso.com");
 
-        repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
-        repo.Verify(r => r.SaveTenantConfigurationAsync(
-            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        repo.VerifyNoTenantConfigWrite();
     }
 
     // ------------------------------------------------------------------

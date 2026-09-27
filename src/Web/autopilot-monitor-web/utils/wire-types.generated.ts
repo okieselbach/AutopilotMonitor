@@ -4732,7 +4732,7 @@ export interface TenantConfiguration {
   companyName?: string | null;
   /** When this tenant was first onboarded (derived from earliest TenantAdmin AddedDate). Used for feedback eligibility checks (tenant must be old enough before prompting). Backfilled by the maintenance job for existing tenants; set to UtcNow for new tenants. */
   onboardedAt?: string | null;
-  /** Client id of the Entra app registration this tenant is homed on. Drives which app mints Graph client-credential tokens and admin-consent URLs for the tenant, and which app the portal signs the tenant's users in with (via the auth/me "homedApp" field). Null = the legacy (pre-migration) app registration — the invariant for every tenant onboarded before the C4A8 move. Set to the primary client id at onboarding when the first login arrived via the primary app; flipped by a Global Admin after a tenant re-consents to the new app (GA-only field, see UpdateTenantConfigurationFunction). */
+  /** Client id of the Entra app registration this tenant is homed on. Drives which app mints Graph client-credential tokens and admin-consent URLs for the tenant, and which app the portal signs the tenant's users in with (via the auth/me "homedApp" field). Null = the legacy (pre-migration) app registration — the invariant for every tenant onboarded before the C4A8 move. Set to the primary client id at onboarding when the first login arrived via the primary app; flipped by a Global Admin after a tenant re-consents to the new app. Written only by onboarding and the app-homing flow; never writable through the field patch (TenantConfigPatchService.BaseDeniedFields). */
   homedAppClientId?: string | null;
   /** Client id observed in the most recent portal login token's audience — pure observability for the app-reg migration (which app a tenant's users actually arrive through), never used for routing decisions. Written on change only. */
   lastAuthClientId?: string | null;
@@ -4748,9 +4748,9 @@ export interface TenantConfiguration {
   mcpDisabled: boolean;
   /** Optional reason why MCP access was disabled. Shown to the caller in the 403 response. */
   mcpDisabledReason?: string | null;
-  /** How many self-hosted MCP client registrations this tenant may hold. Null = the platform default (one); set by a Global Admin on request, 1-10. Global-Admin-only (UpdateTenantConfigurationFunction GA gate, TenantConfigPatchService.GaOnlyFields). */
+  /** How many self-hosted MCP client registrations this tenant may hold. Null = the platform default (one); set by a Global Admin on request, 1-10. Global-Admin-only (TenantConfigPatchService.GaOnlyFields). */
   mcpClientRegistrationLimit?: number | null;
-  /** Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate). */
+  /** Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (TenantConfigPatchService.GaOnlyFields). */
   customRateLimitRequestsPerMinute?: number | null;
   /** Optional per-tenant override for the user (portal/JWT) API rate limit applied to standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the global AdminConfiguration.UserRateLimitRequestsPerMinute. Global-Admin-only. Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute (cross-tenant), so this override does not apply to them. */
   customUserRateLimitRequestsPerMinute?: number | null;
@@ -5327,13 +5327,6 @@ export interface UpdateTenantAppHomingResponse {
   lastAuthClientId?: string;
   lastAuthClientIdSince?: string;
   probe: AppHomingProbeWire;
-}
-
-/** Response of PUT config/{tenantId}: acknowledgement plus the stored tenant configuration. */
-export interface UpdateTenantConfigurationResponse {
-  success: boolean;
-  message: string;
-  config: TenantConfiguration;
 }
 
 /** Body of PATCH global/tenant-groups/{groupId} — a rename. */

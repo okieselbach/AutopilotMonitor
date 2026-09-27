@@ -96,34 +96,36 @@ namespace AutopilotMonitor.Functions.Services
         {
             try
             {
-                // Load from repository
                 var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
-
-                if (config != null)
+                if (config == null)
                 {
-                    _cache.Set(cacheKey, config, CacheDuration);
-                    return (await ProjectAsync(config))!;
+                    // No row yet: create the default conditionally, so a row another writer created
+                    // since the read (a first-login seed) is never overwritten; a lost race reads it.
+                    var defaultConfig = TenantConfiguration.CreateDefault(tenantId);
+                    try
+                    {
+                        if (await _configRepo.TryCreateTenantConfigurationAsync(defaultConfig))
+                        {
+                            _logger.LogInformation("Default configuration created for tenant {TenantId}", tenantId);
+                            // Returned unprojected, like any synthesized default (see the class remarks).
+                            _cache.Set(cacheKey, defaultConfig, CacheDuration);
+                            return defaultConfig;
+                        }
+
+                        config = await _configRepo.GetTenantConfigurationAsync(tenantId);
+                    }
+                    catch (Exception createEx)
+                    {
+                        _logger.LogError(createEx, "Failed to create the default configuration for tenant {TenantId}", tenantId);
+                        return defaultConfig;
+                    }
+
+                    if (config == null)
+                        return defaultConfig; // created and deleted again in between — nothing to cache
                 }
 
-                // Configuration not found - create and save default immediately
-                _logger.LogInformation($"Configuration not found for tenant {tenantId}, creating and saving default configuration");
-                var defaultConfig = TenantConfiguration.CreateDefault(tenantId);
-
-                try
-                {
-                    // Save the default configuration via repository
-                    await _configRepo.SaveTenantConfigurationAsync(defaultConfig);
-
-                    _cache.Set(cacheKey, defaultConfig, CacheDuration);
-
-                    _logger.LogInformation($"Default configuration created and saved for tenant {tenantId}");
-                }
-                catch (Exception saveEx)
-                {
-                    _logger.LogError(saveEx, $"Failed to save default configuration for tenant {tenantId}");
-                }
-
-                return defaultConfig;
+                _cache.Set(cacheKey, config, CacheDuration);
+                return (await ProjectAsync(config))!;
             }
             catch (Exception ex)
             {
@@ -133,78 +135,74 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        /// <summary>
-        /// Saves configuration for a tenant. THROWS when the write did not persist — the repository
-        /// swallows storage exceptions and reports failure via its bool return, so ignoring it would
-        /// let callers audit + return 200 for a save that never happened (Codex finding, 2026-07-07).
-        /// The cached row is invalidated on EVERY attempted save (finally): on success it is stale;
-        /// on failure the caller may have mutated the cached instance in place, which must not linger
-        /// as phantom-saved state for the 5-minute TTL. Callers that decide on the current state or
-        /// could race another writer use <see cref="UpdateAsync"/> instead.
-        /// </summary>
-        public virtual Task SaveConfigurationAsync(TenantConfiguration config)
-            => SaveConfigurationAsync(config, backupSource: null, backupReason: null);
-
-        /// <summary>
-        /// Overload (not optional parameters — Moq expression trees, CS0854) that tags the
-        /// pre-write backup snapshot with the write path and intent.
-        /// </summary>
-        public virtual async Task SaveConfigurationAsync(
-            TenantConfiguration config, string? backupSource, string? backupReason)
-        {
-            if (config == null || string.IsNullOrEmpty(config.TenantId))
-            {
-                throw new ArgumentException("Configuration and TenantId are required");
-            }
-
-            try
-            {
-                config.LastUpdated = DateTime.UtcNow;
-
-                var saved = await _configRepo.SaveTenantConfigurationAsync(config, backupSource, backupReason);
-                if (!saved)
-                {
-                    throw new InvalidOperationException(
-                        $"Tenant configuration save failed for {config.TenantId} — storage write did not persist (see repository logs)");
-                }
-
-                _logger.LogInformation($"Configuration saved for tenant {config.TenantId} by {config.UpdatedBy}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error saving configuration for tenant {config.TenantId}");
-                throw;
-            }
-            finally
-            {
-                // Invalidate cache — success AND failure paths (see summary).
-                _cache.Remove($"tenant-config:{config.TenantId}");
-            }
-        }
-
         internal const int MaxUpdateAttempts = 3;
 
         /// <summary>
-        /// Read-modify-write for a caller that persists the WHOLE entity and decides on its current
-        /// state: <paramref name="mutate"/> runs on the FRESH, projected row and the write is
-        /// conditional on that row's ETag. A cached view is up to 5 minutes stale per instance, so
-        /// saving it would rewind whatever another writer changed meanwhile (the 2026-07-31
-        /// HomedAppClientId class) — including the offboarding tombstone during its drain barrier.
+        /// The write path of a tenant configuration (D-289, D-290): callers hand in a mutation, never a
+        /// configuration to save. <paramref name="mutate"/> runs on the FRESH, projected row and the write is
+        /// conditional on that row's ETag. A cached view is up to 5 minutes stale per instance, so saving it
+        /// would rewind whatever another writer changed meanwhile (the 2026-07-31 HomedAppClientId class) —
+        /// including the offboarding tombstone during its drain barrier.
         /// <para>
-        /// On a lost race the row is re-read and <paramref name="mutate"/> runs again, so it must
-        /// derive everything from the row it is handed. Returning false declines the write. The
-        /// offboarding tombstone is never written: the cascade owns the row until it deletes it.
-        /// Storage errors other than a lost race throw.
+        /// On a lost race the row is re-read and <paramref name="mutate"/> runs again, so it must derive
+        /// everything from the row it is handed. Returning false declines the write. The offboarding tombstone
+        /// is never written: the cascade owns the row until it deletes it. A missing row is
+        /// <see cref="TenantConfigUpdateStatus.NotFound"/>; use <see cref="CreateOrUpdateAsync"/> where the write
+        /// may create it. Storage errors other than a lost race throw; the cache is invalidated on every attempt.
         /// </para>
         /// </summary>
-        public virtual async Task<TenantConfigUpdate> UpdateAsync(
+        public virtual Task<TenantConfigUpdate> UpdateAsync(
             string tenantId, Func<TenantConfiguration, bool> mutate, string backupSource, string backupReason)
+            => WriteAsync(tenantId, mutate, backupSource, backupReason, createIfMissing: false);
+
+        /// <summary>
+        /// <see cref="UpdateAsync"/> that creates a missing row: <paramref name="mutate"/> then runs on
+        /// <see cref="TenantConfiguration.CreateDefault"/> and the row is inserted conditionally. If another
+        /// writer created it first, the row is re-read and the mutation decides again on what is stored.
+        /// </summary>
+        public virtual Task<TenantConfigUpdate> CreateOrUpdateAsync(
+            string tenantId, Func<TenantConfiguration, bool> mutate, string backupSource, string backupReason)
+            => WriteAsync(tenantId, mutate, backupSource, backupReason, createIfMissing: true);
+
+        private async Task<TenantConfigUpdate> WriteAsync(
+            string tenantId, Func<TenantConfiguration, bool> mutate, string backupSource, string backupReason,
+            bool createIfMissing)
         {
             for (var attempt = 1; attempt <= MaxUpdateAttempts; attempt++)
             {
                 var read = await _configRepo.GetTenantConfigurationWithEtagAsync(tenantId);
                 if (read == null)
-                    return new TenantConfigUpdate(TenantConfigUpdateStatus.NotFound, null);
+                {
+                    if (!createIfMissing)
+                        return new TenantConfigUpdate(TenantConfigUpdateStatus.NotFound, null);
+
+                    // A synthesized row is never projected (see the class remarks).
+                    var created = TenantConfiguration.CreateDefault(tenantId);
+                    if (!mutate(created))
+                        return new TenantConfigUpdate(TenantConfigUpdateStatus.Declined, created);
+
+                    created.LastUpdated = DateTime.UtcNow;
+                    bool inserted;
+                    try
+                    {
+                        inserted = await _configRepo.TryCreateTenantConfigurationAsync(created);
+                    }
+                    finally
+                    {
+                        InvalidateCache(tenantId);
+                    }
+
+                    if (inserted)
+                    {
+                        _logger.LogInformation("Configuration created for tenant {TenantId} by {UpdatedBy}", tenantId, created.UpdatedBy);
+                        return new TenantConfigUpdate(TenantConfigUpdateStatus.Updated, created);
+                    }
+
+                    _logger.LogInformation(
+                        "Configuration create for tenant {TenantId} lost the race (attempt {Attempt}/{Max})",
+                        tenantId, attempt, MaxUpdateAttempts);
+                    continue;
+                }
 
                 var (config, etag) = read.Value;
                 await ProjectAsync(config);
@@ -252,7 +250,7 @@ namespace AutopilotMonitor.Functions.Services
         /// stays invisible for the 5-minute TTL.
         /// </para>
         /// <para>
-        /// Fail-soft by design, unlike <see cref="SaveConfigurationAsync"/>: every caller is a side
+        /// Fail-soft by design, unlike <see cref="UpdateAsync"/>: every caller is a side
         /// effect of an operation that has already succeeded, and a lost seed is recoverable on the
         /// next maintenance run. Enforced here rather than left to the repository, so the guarantee
         /// holds for any implementation.
@@ -405,6 +403,7 @@ namespace AutopilotMonitor.Functions.Services
 
     public enum TenantConfigUpdateStatus
     {
+        /// <summary>Written: replaced, or created by <see cref="TenantConfigurationService.CreateOrUpdateAsync"/>.</summary>
         Updated,
         /// <summary>The mutation returned false; nothing was written.</summary>
         Declined,
@@ -417,7 +416,8 @@ namespace AutopilotMonitor.Functions.Services
 
     /// <summary>
     /// Outcome of <see cref="TenantConfigurationService.UpdateAsync"/>. <see cref="Config"/> is the
-    /// row as written (Updated) or as read (Declined, OffboardingInProgress); null otherwise.
+    /// row as written (Updated) or as read (Declined, OffboardingInProgress — for a declined create, the
+    /// synthesized default the mutation saw); null otherwise.
     /// </summary>
     public sealed record TenantConfigUpdate(TenantConfigUpdateStatus Status, TenantConfiguration? Config);
 }

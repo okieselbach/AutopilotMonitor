@@ -221,31 +221,46 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Persists a homing change (<paramref name="targetClientId"/> null = legacy) with the full
-        /// side-effect chain: fresh config re-read (shrinks the read-modify-write window), save,
+        /// side-effect chain: conditional write on the fresh row (<see cref="TenantConfigurationService.UpdateAsync"/>),
         /// Graph cache invalidation (token layer first, via the single fresh-read entry point),
-        /// audit entry, telemetry, ops event. No-ops when the tenant is already at the target.
-        /// Throws when no configuration row exists: this is a whole-entity read-modify-write, and
-        /// the cached/fail-open reader would let a flip rewind another writer's changes (up to the
-        /// 5-minute TTL) or save a default row over a deleted tenant.
+        /// audit entry, telemetry, ops event. No-ops when the tenant is already at the target or is
+        /// being offboarded. Throws when no configuration row exists (a flip never creates one) or
+        /// when every conditional write lost to a concurrent change.
         /// </summary>
         public virtual async Task FlipAsync(string tenantId, string? targetClientId, string actorUpn, string reason, bool forced = false)
         {
-            var config = await _tenantConfigService.GetConfigurationFreshAsync(tenantId)
-                ?? throw new InvalidOperationException(
-                    $"App-homing flip aborted for tenant {tenantId} — no tenant configuration row exists");
             var normalizedTarget = EntraAppRegistry.NormalizeClientId(targetClientId);
-            var oldValue = config.HomedAppClientId;
-            if (string.Equals(oldValue, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+            string? oldValue = null;
+            var update = await _tenantConfigService.UpdateAsync(tenantId, row =>
             {
-                return;
+                if (string.Equals(row.HomedAppClientId, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                oldValue = row.HomedAppClientId;
+                row.HomedAppClientId = normalizedTarget;
+                row.UpdatedBy = actorUpn;
+                return true;
+            }, "app-homing", reason);
+
+            switch (update.Status)
+            {
+                case TenantConfigUpdateStatus.Updated:
+                    break;
+                case TenantConfigUpdateStatus.Declined:
+                    return; // already at the target
+                case TenantConfigUpdateStatus.OffboardingInProgress:
+                    _logger.LogWarning("App-homing flip skipped for tenant {TenantId} — offboarding in progress", tenantId);
+                    return;
+                case TenantConfigUpdateStatus.NotFound:
+                    throw new InvalidOperationException(
+                        $"App-homing flip aborted for tenant {tenantId} — no tenant configuration row exists");
+                default:
+                    throw new InvalidOperationException(
+                        $"App-homing flip for tenant {tenantId} lost every conditional write to concurrent changes");
             }
+            var config = update.Config!;
 
             var oldLabel = oldValue ?? "(legacy)";
             var newLabel = normalizedTarget ?? "(legacy)";
-
-            config.HomedAppClientId = normalizedTarget;
-            config.UpdatedBy = actorUpn;
-            await _tenantConfigService.SaveConfigurationAsync(config, "app-homing", reason);
 
             _logger.LogWarning(
                 "Tenant {TenantId} app-reg homing flipped: {Old} -> {New} (by {User}, reason {Reason}, forced {Forced})",

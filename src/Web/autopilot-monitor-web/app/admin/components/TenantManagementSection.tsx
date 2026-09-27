@@ -16,7 +16,6 @@ import type {
   TenantConfiguration as WireTenantConfiguration,
   TenantOffboardingStatusResponse,
   UpdateTenantAppHomingResponse,
-  UpdateTenantConfigurationResponse,
 } from "@/utils/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -26,6 +25,8 @@ import { classifyClientId, legacyConfigured } from "@/lib/authApp";
 import { hasAnyDeviceValidation } from "@/lib/deviceValidation";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
+import { patchTenantConfigFields } from "@/lib/tenantConfigSave";
+import { tenantEditorPatch } from "./tenantEditorFields";
 import { TenantAdminSection } from "./TenantAdminSection";
 import { IdentityBindingsSection } from "./IdentityBindingsSection";
 import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
@@ -61,9 +62,9 @@ function effectiveEditionLabel(edition: unknown, source: unknown): string {
 }
 
 /**
- * The tenant row as the backend serves and accepts it (PUT config/{tenantId} sends the whole
- * object back, PATCH plan the presence-sensitive subset). The former local subset hid fields
- * the PUT carries anyway; D-207 types the body against the wire.
+ * The tenant row as the backend serves it. Saves send only what changed: the editor's fields via
+ * PATCH config/{tenantId}/fields (D-290), plan and trial via the presence-sensitive PATCH plan.
+ * D-207 types the bodies against the wire.
  */
 export type TenantConfiguration = WireTenantConfiguration;
 
@@ -292,14 +293,15 @@ function TenantManagementSectionInner({
       setError(null);
       setSuccessMessage(null);
 
-      const result = await fetchJson<UpdateTenantConfigurationResponse>(api.config.tenant(tenant.tenantId), getAccessToken, {
-        method: "PUT",
-        body: jsonBody<TenantConfiguration>(tenant),
-      });
-      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
-
-      // Update tenant in list
-      setTenants(prev => prev.map(t => t.tenantId === tenant.tenantId ? result.config : t));
+      // Only the editor fields the Global Admin changed travel: a row loaded before someone
+      // else's write can no longer revert it (D-290).
+      const loaded = tenants.find(t => t.tenantId === tenant.tenantId) ?? tenant;
+      const fields = tenantEditorPatch(loaded, tenant);
+      if (await patchTenantConfigFields(api.config.fields(tenant.tenantId), fields, "admin:tenant-editor", getAccessToken)) {
+        invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+        // The backend verified exactly these fields changed: merge them into the list row.
+        setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? ({ ...t, ...fields } as TenantConfiguration) : t)));
+      }
       setEditingTenant(null);
       setSuccessMessage(`Tenant ${tenant.tenantId} configuration saved successfully!`);
 
@@ -313,8 +315,8 @@ function TenantManagementSectionInner({
     }
   };
 
-  // Plan & trial have their OWN save path (PATCH /config/{id}/plan) — the generic PUT above
-  // preserves these fields server-side, so they can only be mutated here.
+  // Plan & trial have their OWN save path (PATCH /config/{id}/plan) — the field PATCH above
+  // refuses these fields, so they can only be mutated here.
   const handleSavePlan = async (tenant: TenantConfiguration) => {
     if (!canMutate) return; // read-only Global Reader
     try {
@@ -356,8 +358,8 @@ function TenantManagementSectionInner({
     }
   };
 
-  // App-reg homing has its OWN save path (POST app-homing) — like plan/trial, the generic PUT
-  // preserves the field server-side, so it can only be mutated via the confirm dialog here.
+  // App-reg homing has its OWN save path (POST app-homing) — like plan/trial, the field PATCH
+  // refuses the field, so it can only be mutated via the confirm dialog here.
   const handleFlipHoming = async (tenant: TenantConfiguration, target: "primary" | "legacy", force: boolean) => {
     if (!canMutate) return; // read-only Global Reader
     try {
@@ -827,7 +829,7 @@ function TenantManagementSectionInner({
 
               <div className="p-6 space-y-6">
                 {/* Plan & Trial (own save path — PATCH plan endpoint; the modal's generic Save
-                    does not touch these fields, the backend preserves them on PUT) */}
+                    never sends these fields) */}
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
@@ -1036,7 +1038,7 @@ function TenantManagementSectionInner({
                 </div>
 
                 {/* App Registration Homing (own save path — POST app-homing endpoint; the modal's
-                    generic Save does not touch this field, the backend preserves it on PUT) */}
+                    generic Save never sends this field) */}
                 {legacyConfigured() && (
                   <div className="bg-sky-50 border border-sky-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">

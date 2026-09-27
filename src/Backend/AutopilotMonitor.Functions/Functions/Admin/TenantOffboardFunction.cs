@@ -725,7 +725,7 @@ public class TenantOffboardFunction
     /// <para>
     /// Drain-deadline math the caller applies:
     /// <c>effectiveDeadline = max(history.EarliestProcessingAt, TombstoneLastUpdated + DrainBarrier)</c>.
-    /// Because the tombstone's <c>LastUpdated</c> is part of the same atomic Save as the
+    /// Because the tombstone's <c>LastUpdated</c> is part of the same atomic write as the
     /// Disabled-flip, it is always present once the auth-gate is committed — even if
     /// the History-row patch later fails on a fast re-click.
     /// </para>
@@ -737,7 +737,7 @@ public class TenantOffboardFunction
     internal enum EnsureDisabledOutcome
     {
         /// <summary>Row was already a Disabled=true tombstone with the offboarding reason —
-        /// no Save was issued. Existing <c>LastUpdated</c> is returned.</summary>
+        /// nothing was written. Existing <c>LastUpdated</c> is returned.</summary>
         AlreadyTombstone,
         /// <summary>We actively wrote the Disabled=true gate (either flipped an existing
         /// row or created a fresh one). <c>LastUpdated</c> is the timestamp of this write.</summary>
@@ -762,70 +762,54 @@ public class TenantOffboardFunction
     /// <para>
     /// Behaviour:
     /// <list type="bullet">
-    ///   <item>Existing TenantConfiguration row → read-modify-write so signup data + custom
-    ///   rate limits etc. are preserved. Idempotent: if already
-    ///   <c>Disabled=true</c> with the offboarding reason, no Save is issued and
+    ///   <item>Existing TenantConfiguration row → conditional write on the fresh row
+    ///   (<see cref="TenantConfigurationService.CreateOrUpdateAsync"/>) so signup data + custom
+    ///   rate limits etc. are preserved and no concurrent write is rewound. Idempotent: if already
+    ///   <c>Disabled=true</c> with the offboarding reason, nothing is written and
     ///   <see cref="EnsureDisabledResult.AlreadyTombstone"/> is returned.</item>
     ///   <item>Missing TenantConfiguration row (edge case: very old tenant / manual delete)
-    ///   → create a fresh <c>CreateDefault</c> row with <c>Disabled=true</c>. Necessary
-    ///   because <c>AuthFunction</c> would otherwise auto-create a <c>Disabled=false</c>
+    ///   → create a fresh <c>CreateDefault</c> row with <c>Disabled=true</c> (conditional insert).
+    ///   Necessary because <c>AuthFunction</c> would otherwise auto-create a <c>Disabled=false</c>
     ///   default on the next <c>/api/auth/me</c> and slip the offboarded tenant back through.</item>
-    ///   <item><c>SaveTenantConfigurationAsync</c> returns <c>false</c> on transient storage
-    ///   failure (the production repo does NOT throw; see Codex-finding TableConfigRepository).
-    ///   We turn that into <see cref="InvalidOperationException"/> so the caller treats it
-    ///   as a hard fail.</item>
+    ///   <item>Every conditional write lost to concurrent changes, or storage failed →
+    ///   throws, so the caller treats it as a hard fail.</item>
     /// </list>
     /// </para>
     /// </summary>
     internal async Task<EnsureDisabledResult> EnsureTenantDisabledAsync(string targetTenantId, string upn)
     {
-        var tenantConfig = await _configRepo.GetTenantConfigurationAsync(targetTenantId);
-
-        if (tenantConfig != null)
+        var update = await _tenantConfigService.CreateOrUpdateAsync(targetTenantId, row =>
         {
-            // Idempotent: if Disabled is already true with our reason, no-op the write so
-            // resume-clicks do not thrash the LastUpdated timestamp on the row.
-            var alreadyDisabled = tenantConfig.Disabled
-                && string.Equals(tenantConfig.DisabledReason, OffboardingDisabledReason, StringComparison.Ordinal);
-            if (alreadyDisabled)
+            if (string.IsNullOrEmpty(row.DomainName))
             {
-                _tenantConfigService.InvalidateCache(targetTenantId);
-                return new EnsureDisabledResult(EnsureDisabledOutcome.AlreadyTombstone, tenantConfig.LastUpdated);
+                // Missing-row edge case: the default is written as the tombstone so AuthFunction's
+                // auto-create-default cannot bring the tenant back enabled.
+                _logger.LogWarning(
+                    "TenantOffboard: tenant configuration for {TenantId} has no domain (missing or never onboarded) — writing the Disabled=true tombstone onto it",
+                    targetTenantId);
             }
-        }
-        else
-        {
-            // Missing-row edge case: create a fresh Disabled=true row so AuthFunction's
-            // auto-create-default cannot bring the tenant back enabled.
-            tenantConfig = TenantConfiguration.CreateDefault(targetTenantId);
-            _logger.LogWarning(
-                "TenantOffboard: no TenantConfiguration row found for {TenantId} — creating fresh Disabled=true tombstone",
-                targetTenantId);
-        }
+            row.Disabled = true;
+            row.DisabledReason = OffboardingDisabledReason;
+            row.DisabledUntil = null;
+            row.UpdatedBy = upn;
+            return true;
+        }, "offboard", "Disabled-gate before cascade");
 
-        tenantConfig.Disabled = true;
-        tenantConfig.DisabledReason = OffboardingDisabledReason;
-        tenantConfig.DisabledUntil = null;
-        tenantConfig.UpdatedBy = upn;
-        // Explicit LastUpdated stamp — we bypass TenantConfigurationService.SaveConfigurationAsync
-        // (which would set this) and write to the repo directly, so we own the bookkeeping.
-        // Critical for the resume-path drain-deadline math: this timestamp is the
-        // authoritative "when did the cache-drain barrier start" anchor.
-        var writtenAt = DateTime.UtcNow;
-        tenantConfig.LastUpdated = writtenAt;
-
-        var saved = await _configRepo.SaveTenantConfigurationAsync(tenantConfig, "offboard", "Disabled-gate before cascade");
-        if (!saved)
+        switch (update.Status)
         {
-            // TableConfigRepository.SaveTenantConfigurationAsync returns false on transient
-            // storage failure instead of throwing. Without throwing here, the caller would
-            // proceed to enqueue without the auth-gate committed — defeating the whole
-            // cache-drain barrier. Surface as a hard failure.
-            throw new InvalidOperationException(
-                $"SaveTenantConfigurationAsync returned false for tenant {targetTenantId}; Disabled-gate NOT committed");
+            case TenantConfigUpdateStatus.OffboardingInProgress:
+                // Idempotent: the tombstone is already in place — nothing written, so LastUpdated
+                // stays the authoritative "when did the cache-drain barrier start" anchor.
+                _tenantConfigService.InvalidateCache(targetTenantId);
+                return new EnsureDisabledResult(EnsureDisabledOutcome.AlreadyTombstone, update.Config!.LastUpdated);
+            case TenantConfigUpdateStatus.Updated:
+                // LastUpdated is stamped by the write itself — the anchor of the drain-deadline math.
+                return new EnsureDisabledResult(EnsureDisabledOutcome.WroteNewTombstone, update.Config!.LastUpdated);
+            default:
+                // Without Disabled=true the cache-drain barrier offers no protection: hard fail.
+                throw new InvalidOperationException(
+                    $"Disabled-gate NOT committed for tenant {targetTenantId} ({update.Status})");
         }
-        _tenantConfigService.InvalidateCache(targetTenantId);
-        return new EnsureDisabledResult(EnsureDisabledOutcome.WroteNewTombstone, writtenAt);
     }
 
     /// <summary>

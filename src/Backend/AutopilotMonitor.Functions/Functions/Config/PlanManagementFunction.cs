@@ -529,8 +529,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         { "TrialExpiresUtc", FormatUtc(config.TrialExpiresUtc) }
                     });
 
-                // The conversion moment. Fired after the write persisted (SaveConfigurationAsync
-                // is fail-loud), so an alert never announces a trial that was not stored.
+                // The conversion moment. Fired only after the conditional write landed (UpdateAsync
+                // returned Updated), so an alert never announces a trial that was not stored.
                 await _opsEvents.RecordTenantTrialStartedAsync(
                     requestCtx.TargetTenantId,
                     config.DomainName,

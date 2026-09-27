@@ -27,6 +27,7 @@ import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
+import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
 import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 import type {
@@ -37,7 +38,6 @@ import type {
   AutopilotConsentUrlResponse,
   CreateBootstrapSessionRequest,
   OffboardResponse,
-  PatchTenantConfigurationFieldsRequest,
   TenantFeatureFlagsResponse,
   TestNotificationChannelRequest,
   TestWebhookNotificationResponse,
@@ -824,24 +824,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // so a stale read cannot revert unrelated fields (the 2026-07-31 incident class), and
       // GA-only toggles a tenant admin cannot edit are simply never in the payload.
       const spec: SectionFieldSpec = SECTION_FIELD_MAP[sectionName];
-      const patchFields: Record<string, unknown> = {};
-      for (const field of [...spec.fields, ...(spec.alsoWrites ?? [])]) {
-        // undefined and null both mean "cleared" on the wire; PATCH expresses a clear as
-        // an explicit JSON null (an omitted key would leave the stored value untouched).
-        const next = (updatedConfig as unknown as Record<string, unknown>)[field] ?? null;
-        const prev = (config as unknown as Record<string, unknown>)[field] ?? null;
-        if (JSON.stringify(next) !== JSON.stringify(prev)) {
-          patchFields[field] = next;
-        }
-      }
+      const patchFields = changedTenantConfigFields(config, updatedConfig, [...spec.fields, ...(spec.alsoWrites ?? [])]);
 
-      if (Object.keys(patchFields).length > 0) {
-        // The PATCH response carries applied field names + masked diff, not the config: the
-        // backend verified exactly these fields changed, so merge them locally.
-        await fetchOk(api.config.fields(tenantId), getAccessToken, {
-          method: "PATCH",
-          body: jsonBody<PatchTenantConfigurationFieldsRequest>({ fields: patchFields, reason: `settings:${sectionName}` }),
-        });
+      // The PATCH response carries applied field names + masked diff, not the config: the
+      // backend verified exactly these fields changed, so merge them locally.
+      if (await patchTenantConfigFields(api.config.fields(tenantId), patchFields, `settings:${sectionName}`, getAccessToken)) {
         // The feature flags derive from these fields: the cached copy is stale from here on.
         invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
         setConfig({ ...config, ...patchFields } as TenantConfiguration);

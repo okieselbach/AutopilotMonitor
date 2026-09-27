@@ -86,9 +86,7 @@ public class TenantEntitlementServiceTests
         // auto-create + persist a default config row.
         var (svc, repo) = Build(config: null);
         await svc.GetEditionAsync(TenantId);
-        repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
-        repo.Verify(r => r.SaveTenantConfigurationAsync(
-            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        repo.VerifyNoTenantConfigWrite();
     }
 
     [Fact]

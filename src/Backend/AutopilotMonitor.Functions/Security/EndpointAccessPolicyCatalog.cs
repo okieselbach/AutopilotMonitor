@@ -339,13 +339,12 @@ public static class EndpointAccessPolicyCatalog
         // Settings UI. Safe because the handler redacts by default: only a Global Admin or the
         // tenant's OWN admin gets the unredacted secrets — every other admitted caller (Operator,
         // Viewer, read-only Global Reader, delegated reader) receives RedactedCopyForReader()
-        // (see GetTenantConfigurationFunction.CanViewSecrets). Writes stay TenantAdminOrGA below.
+        // (see GetTenantConfigurationFunction.CanViewSecrets). Writes go through the field PATCH
+        // (TenantAdminOrGA, below); there is no full-model PUT (D-290).
         new("GET",    "config/{tenantId}",         EndpointPolicy.MemberRead, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/feature-flags", EndpointPolicy.MemberRead, TenantScoping.RouteParam),
 
         // ── TenantAdminOrGA ─────────────────────────────────────────────
-        new("PUT",    "config/{tenantId}",         EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
-        new("POST",   "config/{tenantId}",         EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "rules/gather",              EndpointPolicy.TenantAdminOrGA),
         new("PUT",    "rules/gather/{ruleId}",     EndpointPolicy.TenantAdminOrGA),
         new("DELETE", "rules/gather/{ruleId}",     EndpointPolicy.TenantAdminOrGA),
