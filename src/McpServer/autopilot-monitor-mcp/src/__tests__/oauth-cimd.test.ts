@@ -48,7 +48,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   fetchImpl.mockReset();
-  setClientMetadataDepsForTests({ fetchImpl, resolve: async () => ['203.0.113.10'] });
+  setClientMetadataDepsForTests({ fetchImpl });
 });
 
 function authorize(params: Record<string, string>) {
@@ -98,7 +98,7 @@ describe('/oauth/authorize with a metadata-document client_id', () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe('invalid_client');
 
-    setClientMetadataDepsForTests({ fetchImpl, resolve: async () => ['203.0.113.10'] }); // clears the negative cache
+    setClientMetadataDepsForTests({ fetchImpl }); // clears the negative cache
     fetchImpl.mockResolvedValueOnce(doc(['http://127.0.0.1:3000/callback'], 'https://app.example.test/oauth/OTHER.json'));
     res = await authorize({ client_id: CLIENT_ID, redirect_uri: 'http://127.0.0.1:3000/callback' });
     expect(res.status).toBe(400);
@@ -112,11 +112,14 @@ describe('/oauth/authorize with a metadata-document client_id', () => {
     expect(((await res.json()) as { error: string }).error).toBe('invalid_client_metadata');
   });
 
-  it('refuses to fetch a client_id whose host resolves privately (SSRF gate) — no request leaves the server', async () => {
-    setClientMetadataDepsForTests({ fetchImpl, resolve: async () => ['10.0.0.8'] });
+  it('refuses a client_id whose host resolves privately (SSRF gate on the production fetch path)', async () => {
+    const resolve = vi.fn(async () => ['10.0.0.8']);
+    setClientMetadataDepsForTests({ resolve });
     const res = await authorize({ client_id: CLIENT_ID, redirect_uri: 'http://127.0.0.1:3000/callback' });
     expect(res.status).toBe(400);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(((await res.json()) as { error: string }).error).toBe('invalid_client');
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith('app.example.test');
   });
 
   it('still accepts a dynamically registered (HMAC) client_id next to CIMD', async () => {

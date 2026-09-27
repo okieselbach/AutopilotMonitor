@@ -22,13 +22,16 @@
  *     fetch is therefore: https only, host must not be loopback / an IP literal
  *     / resolve to any non-public address, no redirect following, 5 s budget,
  *     16 KB body cap, JSON media type required, and nothing from the response
- *     is ever echoed to the caller beyond a generic error code.
+ *     is ever echoed to the caller beyond a generic error code. The address
+ *     check runs inside the socket's own DNS lookup (createAddressGateLookup),
+ *     never as a separate pre-flight resolution.
  *   - Results are cached in-process (positive: per Cache-Control max-age,
  *     clamped to 10–60 min so the /oauth/callback re-check within the 10-min
  *     state window hits the cache; negative: 60 s) with a bounded entry count.
  */
 import { promises as dns } from 'node:dns';
 import net from 'node:net';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH } from './oauth-limits.js';
 
 export interface ClientMetadata {
@@ -58,16 +61,43 @@ const POSITIVE_TTL_MAX_MS = 60 * 60 * 1000;
 const NEGATIVE_TTL_MS = 60 * 1000;
 const CACHE_MAX_ENTRIES = 256;
 
-/** Injectable I/O — production uses global fetch + dns.lookup; tests substitute both. */
+/**
+ * The part of a fetch response the metadata fetch reads. Structural so that both
+ * undici's Response (production) and the global one (tests) satisfy it.
+ */
+export interface MetadataResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  body: {
+    getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> };
+  } | null;
+}
+
+export interface MetadataRequestInit {
+  method: 'GET';
+  headers: Record<string, string>;
+  redirect: 'error';
+  signal: AbortSignal;
+}
+
+/** Injectable I/O — production uses undici fetch through the address gate + dns.lookup; tests substitute either. */
 export interface CimdDeps {
-  fetchImpl: typeof fetch;
-  /** Resolves a hostname to every address it maps to (A + AAAA). */
+  /** The whole network leg. A substitute bypasses the address gate, which only sees `resolve`. */
+  fetchImpl: (url: URL, init: MetadataRequestInit) => Promise<MetadataResponse>;
+  /** Resolves a hostname to every address it maps to (A + AAAA); feeds the address gate. */
   resolve: (hostname: string) => Promise<string[]>;
   now: () => number;
 }
 
+// Node never calls `lookup` for an IP-literal host, so isClientIdMetadataUrl
+// refusing every literal is part of this gate. `activeDeps` is read per
+// connection so the test seam reaches the gate.
+const metadataDispatcher = new Agent({
+  connect: { lookup: createAddressGateLookup((hostname) => activeDeps.resolve(hostname)) },
+});
+
 const productionDeps: CimdDeps = {
-  fetchImpl: (input, init) => fetch(input, init),
+  fetchImpl: (url, init) => undiciFetch(url, { ...init, dispatcher: metadataDispatcher }),
   resolve: async (hostname) => (await dns.lookup(hostname, { all: true })).map((a) => a.address),
   now: () => Date.now(),
 };
@@ -106,33 +136,125 @@ export function isClientIdMetadataUrl(clientId: string | undefined | null): bool
   return true;
 }
 
-/** Non-public address ranges the metadata fetch must never reach (RFC 1918/4193/3927/6598, loopback, multicast, unspecified). */
+/**
+ * Address space the metadata fetch must never connect to. IPv4: every block of
+ * the IANA IPv4 Special-Purpose Address Registry plus multicast and 240/4 (which
+ * holds the limited broadcast). IPv6: only global unicast 2000::/3 is allowed at
+ * all — one rule that refuses loopback, unspecified, IPv4-mapped/-compatible,
+ * NAT64, discard, unique-local, link-/site-local and multicast — and inside it
+ * the IANA special-purpose blocks are refused.
+ */
+const NON_PUBLIC_IPV4: ReadonlyArray<readonly [string, number]> = [
+  ['0.0.0.0', 8], // "this network"
+  ['10.0.0.0', 8], // private use
+  ['100.64.0.0', 10], // shared address space (CGNAT)
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16], // link-local, holds the cloud metadata endpoints
+  ['172.16.0.0', 12], // private use
+  ['192.0.0.0', 24], // IETF protocol assignments
+  ['192.0.2.0', 24], // documentation (TEST-NET-1)
+  ['192.31.196.0', 24], // AS112-v4
+  ['192.52.193.0', 24], // AMT
+  ['192.88.99.0', 24], // deprecated 6to4 relay anycast
+  ['192.168.0.0', 16], // private use
+  ['192.175.48.0', 24], // direct delegation AS112
+  ['198.18.0.0', 15], // benchmarking
+  ['198.51.100.0', 24], // documentation (TEST-NET-2)
+  ['203.0.113.0', 24], // documentation (TEST-NET-3)
+  ['224.0.0.0', 4], // multicast
+  ['240.0.0.0', 4], // reserved, limited broadcast
+];
+const NON_PUBLIC_IPV6: ReadonlyArray<readonly [string, number]> = [
+  // everything outside global unicast 2000::/3
+  ['::', 3],
+  ['4000::', 2],
+  ['8000::', 1],
+  // special-purpose blocks inside it
+  ['2001::', 23], // IETF protocol assignments (Teredo, benchmarking, ORCHID, AMT, AS112, …)
+  ['2001:db8::', 32], // documentation
+  ['2002::', 16], // 6to4
+  ['2620:4f:8000::', 48], // direct delegation AS112
+  ['3fff::', 20], // documentation
+];
+
+// Two lists on purpose: net.BlockList matches an IPv4 address against IPv6
+// rules through its mapped form (::/3 would refuse 8.8.8.8), so each address
+// is checked only against the list of its own family.
+function blockListOf(ranges: ReadonlyArray<readonly [string, number]>, type: 'ipv4' | 'ipv6'): net.BlockList {
+  const list = new net.BlockList();
+  for (const [network, prefix] of ranges) list.addSubnet(network, prefix, type);
+  return list;
+}
+const NON_PUBLIC_V4 = blockListOf(NON_PUBLIC_IPV4, 'ipv4');
+const NON_PUBLIC_V6 = blockListOf(NON_PUBLIC_IPV6, 'ipv6');
+
+/** True only for an address the metadata fetch may connect to. Anything unparseable is non-public. */
 export function isPublicAddress(ip: string): boolean {
-  const family = net.isIP(ip);
-  if (family === 4) return isPublicIpv4(ip);
-  if (family === 6) {
-    const lower = ip.toLowerCase();
-    // IPv4-mapped (::ffff:a.b.c.d) — judge the embedded IPv4.
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return isPublicIpv4(mapped[1]);
-    if (lower === '::' || lower === '::1') return false;
-    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return false; // link-local fe80::/10
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return false; // unique-local fc00::/7
-    if (lower.startsWith('ff')) return false; // multicast
-    return true;
+  // A zone id (fe80::1%eth0) passes net.isIP, but BlockList matches no rule for it.
+  if (ip.includes('%')) return false;
+  switch (net.isIP(ip)) {
+    case 4:
+      return !NON_PUBLIC_V4.check(ip, 'ipv4');
+    case 6:
+      return !NON_PUBLIC_V6.check(ip, 'ipv6');
+    default:
+      return false;
   }
-  return false;
 }
 
-function isPublicIpv4(ip: string): boolean {
-  const [a, b] = ip.split('.').map(Number);
-  if (a === 0 || a === 10 || a === 127) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT 100.64/10
-  if (a === 169 && b === 254) return false; // link-local
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 192 && b === 168) return false;
-  if (a >= 224) return false; // multicast + reserved
-  return true;
+/** Why the address gate refused a connection; travels as the `cause` of the failed fetch. */
+export class AddressGateError extends Error {
+  constructor(
+    readonly reason: 'unresolvable' | 'non-public',
+    options?: ErrorOptions,
+  ) {
+    super(
+      reason === 'unresolvable'
+        ? 'metadata document host does not resolve'
+        : 'metadata document host resolves to a non-public address',
+      options,
+    );
+    this.name = 'AddressGateError';
+  }
+}
+
+/**
+ * The SSRF gate: a `lookup` for the metadata fetch's sockets. It resolves the
+ * host exactly once per connection and hands the socket only addresses that
+ * passed `isAllowed`, so the address checked is the address connected to — a
+ * separate pre-flight resolution would let a DNS-rebinding host answer the
+ * check and the connect differently. Every resolved address must pass, not
+ * only the one used. `isAllowed` is widened only by tests that need to reach a
+ * loopback listener.
+ */
+export function createAddressGateLookup(
+  resolve: (hostname: string) => Promise<string[]>,
+  isAllowed: (ip: string) => boolean = isPublicAddress,
+): net.LookupFunction {
+  return (hostname, options, callback) => {
+    resolve(hostname).then(
+      (addresses) => {
+        if (addresses.length === 0) return callback(new AddressGateError('unresolvable'), '');
+        if (!addresses.every((ip) => isAllowed(ip))) return callback(new AddressGateError('non-public'), '');
+        const family = options.family === 4 || options.family === 'IPv4' ? 4 : options.family === 6 || options.family === 'IPv6' ? 6 : 0;
+        const usable = addresses
+          .map((address) => ({ address, family: net.isIP(address) }))
+          .filter((a) => family === 0 || a.family === family);
+        if (usable.length === 0) return callback(new AddressGateError('unresolvable'), '');
+        if (options.all) callback(null, usable);
+        else callback(null, usable[0].address, usable[0].family);
+      },
+      (err: unknown) => callback(new AddressGateError('unresolvable', { cause: err }), ''),
+    );
+  };
+}
+
+function addressGateErrorOf(err: unknown): AddressGateError | undefined {
+  let e: unknown = err;
+  for (let depth = 0; e instanceof Error && depth < 5; depth++, e = e.cause) {
+    if (e instanceof AddressGateError) return e;
+  }
+  return undefined;
 }
 
 interface CacheEntry {
@@ -187,24 +309,19 @@ async function fetchAndValidate(clientId: string): Promise<{ value: ClientMetada
   }
   const url = new URL(clientId);
 
-  // SSRF gate: every address the host resolves to must be public. A host that
-  // resolves to nothing is refused as well (nothing to fetch safely).
-  let addresses: string[];
+  let res: MetadataResponse;
   try {
-    addresses = await activeDeps.resolve(url.hostname);
-  } catch {
-    throw new ClientMetadataError('invalid_client', 'metadata document host does not resolve');
+    res = await activeDeps.fetchImpl(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(CIMD_FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const refused = addressGateErrorOf(err);
+    if (refused) throw new ClientMetadataError('invalid_client', refused.message);
+    throw err;
   }
-  if (addresses.length === 0 || !addresses.every(isPublicAddress)) {
-    throw new ClientMetadataError('invalid_client', 'metadata document host resolves to a non-public address');
-  }
-
-  const res = await activeDeps.fetchImpl(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(CIMD_FETCH_TIMEOUT_MS),
-  });
   if (res.status !== 200) {
     throw new ClientMetadataError('invalid_client', `metadata document responded ${res.status}`);
   }
@@ -223,7 +340,7 @@ async function fetchAndValidate(clientId: string): Promise<{ value: ClientMetada
   return { value: validateDocument(clientId, doc), ttlMs: ttlFromCacheControl(res.headers.get('cache-control')) };
 }
 
-async function readCapped(res: Response, maxBytes: number): Promise<string> {
+async function readCapped(res: MetadataResponse, maxBytes: number): Promise<string> {
   const declared = Number(res.headers.get('content-length') ?? '0');
   if (declared > maxBytes) throw new ClientMetadataError('invalid_client_metadata', 'metadata document exceeds the size limit');
   if (!res.body) return '';
@@ -232,7 +349,7 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
   let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done || !value) break;
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
