@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Functions.Sessions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Notifications;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -470,14 +471,7 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphResolutio
     AutopilotMonitor.Functions.Services.GraphResolution.GraphFeatureDetector>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphResolution.IScriptDisplayNameResolver,
     AutopilotMonitor.Functions.Services.GraphResolution.ScriptDisplayNameResolver>();
-builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService>()
-    .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
-    {
-        AllowAutoRedirect = false,
-        ConnectTimeout = TimeSpan.FromSeconds(10),
-    })
-    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15))
-    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
+builder.Services.AddWebhookNotificationHttpClient();
 builder.Services.AddHttpClient<TelegramNotificationService>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
 // Channel-level send API — routes each NotificationChannel to its transport (webhook renderer

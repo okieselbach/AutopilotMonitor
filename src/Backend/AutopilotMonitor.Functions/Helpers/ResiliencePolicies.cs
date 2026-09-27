@@ -1,4 +1,5 @@
 using System.Net;
+using AutopilotMonitor.Functions.Security;
 using Microsoft.Extensions.Logging;
 using Polly;
 
@@ -89,7 +90,8 @@ public sealed class ResiliencePolicies
     private static IAsyncPolicy<HttpResponseMessage> BuildNotification(ILogger logger)
         => Policy<HttpResponseMessage>
             .HandleResult(r => TransientCodes.Contains(r.StatusCode))
-            .Or<HttpRequestException>()
+            // A destination the SSRF gate refused stays refused; a retry would only resolve it again.
+            .Or<HttpRequestException>(ex => ex.InnerException is not SsrfException)
             .Or<TaskCanceledException>()
             .WaitAndRetryAsync(
                 retryCount: 2,

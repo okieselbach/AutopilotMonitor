@@ -1,8 +1,14 @@
 using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Security;
 
 namespace AutopilotMonitor.Functions.Tests;
 
+/// <summary>
+/// Format checks and the address classifier. The connection gate itself is covered on real sockets
+/// in <see cref="WebhookConnectGateTests"/>.
+/// </summary>
 public class SsrfGuardTests
 {
     // ── ValidateWebhookUrlFormat: valid URLs ──
@@ -145,37 +151,124 @@ public class SsrfGuardTests
         Assert.False(SsrfGuard.IsBlockedAddress(IPAddress.Parse(ip)));
     }
 
-    // ── ValidateDestinationAsync: integration ──
+    // ── IsBlockedAddress: IPv6 beyond the classic ranges ──
 
-    [Fact]
-    public async Task ValidateDestination_Localhost_ThrowsSsrfException()
+    [Theory]
+    [InlineData("::")]                     // unspecified
+    [InlineData("::ffff:8.8.8.8")]         // IPv4-mapped, even of a public address
+    [InlineData("::8.8.8.8")]              // IPv4-compatible (deprecated)
+    [InlineData("64:ff9b::a00:1")]         // NAT64 of 10.0.0.1
+    [InlineData("2002:a00:1::1")]          // 6to4 of 10.0.0.1
+    [InlineData("2001::1")]                // Teredo
+    [InlineData("2001:db8::1")]            // documentation
+    [InlineData("fec0::1")]                // deprecated site-local
+    [InlineData("4000::1")]                // outside global unicast
+    [InlineData("e000::1")]                // outside global unicast
+    public void IsBlocked_Ipv6OutsidePublicUnicast_ReturnsTrue(string ip)
     {
-        var ex = await Assert.ThrowsAsync<SsrfException>(
-            () => SsrfGuard.ValidateDestinationAsync("https://localhost/webhook"));
-        Assert.Contains("private or reserved", ex.Message);
+        Assert.True(SsrfGuard.IsBlockedAddress(IPAddress.Parse(ip)));
     }
 
-    [Fact]
-    public async Task ValidateDestination_HttpScheme_ThrowsSsrfException()
+    [Theory]
+    [InlineData("fe80::1%5")]
+    [InlineData("2606:4700:4700::1111%5")]
+    public void IsBlocked_Ipv6WithZoneId_ReturnsTrue(string ip)
     {
-        var ex = await Assert.ThrowsAsync<SsrfException>(
-            () => SsrfGuard.ValidateDestinationAsync("http://example.com/webhook"));
-        Assert.Contains("HTTPS", ex.Message);
+        Assert.True(SsrfGuard.IsBlockedAddress(IPAddress.Parse(ip)));
     }
 
-    [Fact]
-    public async Task ValidateDestination_InvalidUrl_ThrowsSsrfException()
+    [Theory]
+    [InlineData("2606:4700:4700::1111")]   // Cloudflare
+    [InlineData("2a00:1450:4001::1")]      // Google
+    [InlineData("2001:200::1")]            // just above 2001::/23
+    [InlineData("2003::1")]                // just above 6to4 2002::/16
+    [InlineData("2001:db9::1")]            // just above documentation 2001:db8::/32
+    [InlineData("192.0.1.0")]              // just above 192.0.0.0/24
+    [InlineData("198.20.0.0")]             // just above benchmarking 198.18.0.0/15
+    [InlineData("223.255.255.255")]        // just below multicast
+    public void IsBlocked_PublicNeighbourOfRefusedBlock_ReturnsFalse(string ip)
     {
-        await Assert.ThrowsAsync<SsrfException>(
-            () => SsrfGuard.ValidateDestinationAsync("not-a-url"));
+        Assert.False(SsrfGuard.IsBlockedAddress(IPAddress.Parse(ip)));
     }
 
+    // ── IsBlockedAddress: every IANA special-purpose block (tests/fixtures/iana-special-purpose-addresses) ──
+
+    private static readonly string[] RegistryFiles = { "iana-ipv4-special-registry-1.csv", "iana-ipv6-special-registry-1.csv" };
+
+    public static IEnumerable<object[]> RegistryBlocks() =>
+        RegistryFiles.SelectMany(file => ReadRegistryBlocks(file).Select(block => new object[] { file, block }));
+
     [Fact]
-    public async Task ValidateDestination_UnresolvableHost_ThrowsSsrfException()
+    public void Registry_IsReadCompletely()
     {
-        var ex = await Assert.ThrowsAsync<SsrfException>(
-            () => SsrfGuard.ValidateDestinationAsync("https://this-host-does-not-exist-xyz123.invalid/webhook"));
-        Assert.Contains("resolve", ex.Message);
+        foreach (var file in RegistryFiles)
+        {
+            var blocks = ReadRegistryBlocks(file);
+            Assert.True(blocks.Count >= 20, $"{file}: only {blocks.Count} blocks read");
+            Assert.All(blocks, block => Assert.Matches(@"^[0-9a-f.:]+/\d{1,3}$", block));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RegistryBlocks))]
+    public void IsBlocked_EveryIanaSpecialPurposeBlock_FirstAndLastAddress(string file, string block)
+    {
+        var network = IPNetwork.Parse(block);
+        var first = network.BaseAddress.GetAddressBytes();
+        var last = (byte[])first.Clone();
+        for (var bit = network.PrefixLength; bit < last.Length * 8; bit++)
+            last[bit / 8] |= (byte)(0x80 >> (bit % 8));
+
+        foreach (var ip in new[] { new IPAddress(first), new IPAddress(last) })
+            Assert.True(SsrfGuard.IsBlockedAddress(ip), $"{file}: {block} -> {ip}");
+    }
+
+    private static List<string> ReadRegistryBlocks(string file)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "AutopilotMonitor.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        var rows = ParseCsv(File.ReadAllText(Path.Combine(dir!.FullName, "tests", "fixtures", "iana-special-purpose-addresses", file)));
+        Assert.Equal("Address Block", rows[0][0]);
+        // Footnote markers ("2002::/16 [3]") dropped, cells that list two blocks split.
+        return rows.Skip(1)
+            .SelectMany(row => row[0].Split(','))
+            .Select(block => Regex.Replace(block, @"\[\d+\]", "").Trim())
+            .Where(block => block.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>RFC 4180 reader — the registry quotes cells, wraps the RFC column over lines and doubles quotes.</summary>
+    private static List<List<string>> ParseCsv(string text)
+    {
+        var rows = new List<List<string>>();
+        var row = new List<string>();
+        var cell = new StringBuilder();
+        var quoted = false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (quoted)
+            {
+                if (c == '"' && i + 1 < text.Length && text[i + 1] == '"') { cell.Append('"'); i++; }
+                else if (c == '"') quoted = false;
+                else cell.Append(c);
+            }
+            else if (c == '"') quoted = true;
+            else if (c == ',') { row.Add(cell.ToString()); cell.Clear(); }
+            else if (c == '\n' || c == '\r')
+            {
+                if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                row.Add(cell.ToString());
+                rows.Add(row);
+                row = new List<string>();
+                cell.Clear();
+            }
+            else cell.Append(c);
+        }
+        if (cell.Length > 0 || row.Count > 0) { row.Add(cell.ToString()); rows.Add(row); }
+        return rows;
     }
 
     // ── ValidateAzureBlobSasUrlFormat ──

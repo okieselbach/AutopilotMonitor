@@ -54,8 +54,6 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     return;
                 }
 
-                await SsrfGuard.ValidateDestinationAsync(webhookUrl);
-
                 var json = renderer.RenderToJson(alert);
                 var response = await PostAsync(webhookUrl, json, customHeaders, signingSecret);
 
@@ -92,15 +90,6 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             try
             {
-                await SsrfGuard.ValidateDestinationAsync(webhookUrl);
-            }
-            catch (SsrfException ex)
-            {
-                return new WebhookTestResult { Success = false, Message = ex.Message };
-            }
-
-            try
-            {
                 var json = renderer.RenderToJson(alert);
                 var response = await PostAsync(webhookUrl, json, customHeaders, signingSecret);
                 var statusCode = (int)response.StatusCode;
@@ -117,6 +106,10 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     StatusCode = statusCode,
                     Message = $"Webhook returned HTTP {statusCode}: {(body.Length > 200 ? body[..200] : body)}"
                 };
+            }
+            catch (HttpRequestException ex) when (ex.InnerException is SsrfException refused)
+            {
+                return new WebhookTestResult { Success = false, Message = refused.Message };
             }
             catch (Exception ex)
             {

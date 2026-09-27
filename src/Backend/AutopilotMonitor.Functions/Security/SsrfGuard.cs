@@ -1,13 +1,17 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace AutopilotMonitor.Functions.Security
 {
     /// <summary>
-    /// Prevents Server-Side Request Forgery (SSRF) by validating webhook URLs
-    /// against private/reserved network ranges before allowing outbound requests.
+    /// Prevents Server-Side Request Forgery (SSRF) for customer-configured outbound URLs: format
+    /// checks at config save time, and an address gate on the webhook client's connections.
     /// </summary>
     public static class SsrfGuard
     {
@@ -69,129 +73,123 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// Resolves the webhook URL hostname via DNS and validates all resolved IPs
-        /// against blocked ranges. Call before every outbound HTTP request.
-        /// Throws <see cref="SsrfException"/> if the destination is blocked.
-        /// Fails closed: DNS resolution errors are treated as blocked.
+        /// <see cref="SocketsHttpHandler.ConnectCallback"/> of the webhook client — the SSRF gate.
+        /// A refused destination surfaces as an <see cref="HttpRequestException"/> whose
+        /// <see cref="Exception.InnerException"/> is the <see cref="SsrfException"/>.
         /// </summary>
-        public static async Task ValidateDestinationAsync(string url)
-        {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-                throw new SsrfException("Webhook URL is not a valid URL.");
-
-            if (uri.Scheme != Uri.UriSchemeHttps)
-                throw new SsrfException("Webhook URL must use HTTPS.");
-
-            IPAddress[] addresses;
-            try
-            {
-                addresses = await Dns.GetHostAddressesAsync(uri.Host);
-            }
-            catch (Exception)
-            {
-                throw new SsrfException("Could not resolve webhook hostname.");
-            }
-
-            if (addresses.Length == 0)
-                throw new SsrfException("Webhook hostname resolved to no addresses.");
-
-            foreach (var addr in addresses)
-            {
-                if (IsBlockedAddress(addr))
-                    throw new SsrfException("Webhook URL targets a private or reserved network.");
-            }
-        }
+        public static Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> ConnectToPublicAddress { get; } =
+            CreateConnectCallback(Dns.GetHostAddressesAsync);
 
         /// <summary>
-        /// Returns true if the IP address is private, loopback, link-local, multicast,
-        /// cloud metadata, reserved, or an IPv6-mapped version of any of the above.
+        /// Builds the gate: it resolves the host exactly once per connection and connects the socket
+        /// only to the addresses that resolution returned, after every one of them passed
+        /// <see cref="IsBlockedAddress"/> — so the address checked is the address connected to. A
+        /// separate pre-flight resolution would let a DNS-rebinding host answer the check and the
+        /// connect differently. HTTPS only; TLS then runs on the returned stream against the request
+        /// host as usual. <paramref name="isBlocked"/> is widened only by tests that need to reach a
+        /// loopback listener.
         /// </summary>
-        internal static bool IsBlockedAddress(IPAddress addr)
+        internal static Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> CreateConnectCallback(
+            Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+            Func<IPAddress, bool>? isBlocked = null)
         {
-            // Normalize IPv6-mapped IPv4 (e.g. ::ffff:10.0.0.1 -> 10.0.0.1)
-            if (addr.IsIPv4MappedToIPv6)
-                addr = addr.MapToIPv4();
-
-            // Loopback: 127.0.0.0/8, ::1
-            if (IPAddress.IsLoopback(addr))
-                return true;
-
-            // IPv6 link-local (fe80::/10)
-            if (addr.IsIPv6LinkLocal)
-                return true;
-
-            // IPv6 multicast (ff00::/8)
-            if (addr.IsIPv6Multicast)
-                return true;
-
-            if (addr.AddressFamily == AddressFamily.InterNetwork)
+            isBlocked ??= IsBlockedAddress;
+            return async (context, cancellationToken) =>
             {
-                var bytes = addr.GetAddressBytes();
+                if (context.InitialRequestMessage.RequestUri?.Scheme != Uri.UriSchemeHttps)
+                    throw new SsrfException("Webhook URL must use HTTPS.");
 
-                // 10.0.0.0/8 (RFC 1918)
-                if (bytes[0] == 10)
-                    return true;
+                var host = context.DnsEndPoint.Host;
+                IPAddress[] addresses;
+                if (IPAddress.TryParse(host.Trim('[', ']'), out var literal))
+                {
+                    addresses = new[] { literal };
+                }
+                else
+                {
+                    try
+                    {
+                        addresses = await resolve(host, cancellationToken);
+                    }
+                    catch (SocketException)
+                    {
+                        throw new SsrfException("Could not resolve webhook hostname.");
+                    }
+                }
 
-                // 172.16.0.0/12 (RFC 1918)
-                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-                    return true;
+                if (addresses.Length == 0)
+                    throw new SsrfException("Webhook hostname resolved to no addresses.");
 
-                // 192.168.0.0/16 (RFC 1918)
-                if (bytes[0] == 192 && bytes[1] == 168)
-                    return true;
+                if (addresses.Any(isBlocked))
+                    throw new SsrfException("Webhook URL targets a private or reserved network.");
 
-                // 169.254.0.0/16 (link-local, includes Azure IMDS 169.254.169.254)
-                if (bytes[0] == 169 && bytes[1] == 254)
-                    return true;
-
-                // 0.0.0.0/8 (current network)
-                if (bytes[0] == 0)
-                    return true;
-
-                // 100.64.0.0/10 (Carrier-grade NAT, RFC 6598)
-                if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127)
-                    return true;
-
-                // 192.0.0.0/24 (IETF Protocol Assignments)
-                if (bytes[0] == 192 && bytes[1] == 0 && bytes[2] == 0)
-                    return true;
-
-                // 192.0.2.0/24 (TEST-NET-1)
-                if (bytes[0] == 192 && bytes[1] == 0 && bytes[2] == 2)
-                    return true;
-
-                // 198.18.0.0/15 (Benchmark testing)
-                if (bytes[0] == 198 && (bytes[1] == 18 || bytes[1] == 19))
-                    return true;
-
-                // 198.51.100.0/24 (TEST-NET-2)
-                if (bytes[0] == 198 && bytes[1] == 51 && bytes[2] == 100)
-                    return true;
-
-                // 203.0.113.0/24 (TEST-NET-3)
-                if (bytes[0] == 203 && bytes[1] == 0 && bytes[2] == 113)
-                    return true;
-
-                // 224.0.0.0/4 (Multicast) and 240.0.0.0/4 (Reserved)
-                if (bytes[0] >= 224)
-                    return true;
-            }
-
-            if (addr.AddressFamily == AddressFamily.InterNetworkV6)
-            {
-                var bytes = addr.GetAddressBytes();
-
-                // fc00::/7 (Unique local address)
-                if ((bytes[0] & 0xFE) == 0xFC)
-                    return true;
-
-                // :: (unspecified)
-                if (addr.Equals(IPAddress.IPv6None) || addr.Equals(IPAddress.IPv6Any))
-                    return true;
-            }
-
-            return false;
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                try
+                {
+                    await socket.ConnectAsync(addresses, context.DnsEndPoint.Port, cancellationToken);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            };
         }
+
+        // IPv4: every block of the IANA IPv4 Special-Purpose Address Registry plus multicast and
+        // 240/4 (which holds the limited broadcast).
+        private static readonly IPNetwork[] BlockedIpv4 =
+        {
+            IPNetwork.Parse("0.0.0.0/8"),        // "this network"
+            IPNetwork.Parse("10.0.0.0/8"),       // private use
+            IPNetwork.Parse("100.64.0.0/10"),    // shared address space (CGNAT)
+            IPNetwork.Parse("127.0.0.0/8"),      // loopback
+            IPNetwork.Parse("169.254.0.0/16"),   // link-local, holds the cloud metadata endpoints
+            IPNetwork.Parse("172.16.0.0/12"),    // private use
+            IPNetwork.Parse("192.0.0.0/24"),     // IETF protocol assignments
+            IPNetwork.Parse("192.0.2.0/24"),     // documentation (TEST-NET-1)
+            IPNetwork.Parse("192.31.196.0/24"),  // AS112-v4
+            IPNetwork.Parse("192.52.193.0/24"),  // AMT
+            IPNetwork.Parse("192.88.99.0/24"),   // deprecated 6to4 relay anycast
+            IPNetwork.Parse("192.168.0.0/16"),   // private use
+            IPNetwork.Parse("192.175.48.0/24"),  // direct delegation AS112
+            IPNetwork.Parse("198.18.0.0/15"),    // benchmarking
+            IPNetwork.Parse("198.51.100.0/24"),  // documentation (TEST-NET-2)
+            IPNetwork.Parse("203.0.113.0/24"),   // documentation (TEST-NET-3)
+            IPNetwork.Parse("224.0.0.0/4"),      // multicast
+            IPNetwork.Parse("240.0.0.0/4"),      // reserved, limited broadcast
+        };
+
+        // IPv6: only global unicast 2000::/3 is allowed at all — one rule that refuses loopback,
+        // unspecified, IPv4-mapped/-compatible, NAT64, discard, unique-local, link-/site-local and
+        // multicast — and inside it the IANA special-purpose blocks are refused.
+        private static readonly IPNetwork GlobalUnicastIpv6 = IPNetwork.Parse("2000::/3");
+
+        private static readonly IPNetwork[] BlockedGlobalUnicastIpv6 =
+        {
+            IPNetwork.Parse("2001::/23"),         // IETF protocol assignments (Teredo, benchmarking, ORCHID, AMT, AS112, ...)
+            IPNetwork.Parse("2001:db8::/32"),     // documentation
+            IPNetwork.Parse("2002::/16"),         // 6to4
+            IPNetwork.Parse("2620:4f:8000::/48"), // direct delegation AS112
+            IPNetwork.Parse("3fff::/20"),         // documentation
+        };
+
+        /// <summary>
+        /// True for every address a webhook must not connect to: all IANA special-purpose space, and
+        /// any IPv6 address outside global unicast or carrying a zone id.
+        /// </summary>
+        internal static bool IsBlockedAddress(IPAddress addr) => addr.AddressFamily switch
+        {
+            AddressFamily.InterNetwork => BlockedIpv4.Any(n => n.Contains(addr)),
+            AddressFamily.InterNetworkV6 => addr.ScopeId != 0
+                // Refused before any IPNetwork check: IPNetwork.Contains judges an IPv4-mapped
+                // address by its IPv4 form, so 2000::/3 "contains" ::ffff:8.8.8.8.
+                || addr.IsIPv4MappedToIPv6
+                || !GlobalUnicastIpv6.Contains(addr)
+                || BlockedGlobalUnicastIpv6.Any(n => n.Contains(addr)),
+            _ => true,
+        };
     }
 
     /// <summary>
