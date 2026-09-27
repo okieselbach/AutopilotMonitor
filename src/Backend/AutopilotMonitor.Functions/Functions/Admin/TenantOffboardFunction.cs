@@ -100,19 +100,22 @@ public class TenantOffboardFunction
             "TENANT OFFBOARD initiated for tenant {TenantId} by {Upn}",
             normalizedTenantId, upn);
 
-        // 2. Capture DomainName from TenantConfiguration so the worker's Completed/Failed
-        //    OpsEvents can render "{domain} ({tenantId})" instead of the bare GUID.
-        string? domainName = null;
+        // 2. Capture what must outlive the TenantConfiguration row the cascade deletes: DomainName
+        //    for the worker's Completed/Failed OpsEvents ("{domain} ({tenantId})"), and TrialConsumed
+        //    for the pointer, which carries it to the returning tenant's first login (D-288).
+        //    Fail-loud: without the read the one-trial-per-tenant rule would silently reset.
+        string? domainName;
+        bool trialConsumed;
         try
         {
             var existingConfig = await _configRepo.GetTenantConfigurationAsync(targetTenantId);
             domainName = existingConfig?.DomainName;
+            trialConsumed = existingConfig?.TrialConsumed ?? false;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex,
-                "Failed to read tenant configuration for {TenantId} before offboard; proceeding without domain name",
-                normalizedTenantId);
+            _logger.LogError(ex, "Failed to read tenant configuration for {TenantId} before offboard", normalizedTenantId);
+            return await Build500Async(req, "Failed to read tenant configuration");
         }
 
         // 2.b — Capture the Preview-Notification-Email before Phase 2.D wipes the
@@ -184,14 +187,14 @@ public class TenantOffboardFunction
         // 5. Upsert ByTenant pointer with ETag-CAS so OffboardCount increments race-safely.
         try
         {
-            await UpsertPointerWithCasAsync(normalizedTenantId, historyRowKey, now);
+            await UpsertPointerWithCasAsync(normalizedTenantId, historyRowKey, now, trialConsumed);
         }
         catch (Exception ex)
         {
             // History row is already committed — operator can find it under
-            // PartitionKey="OffboardingHistory" and retry manually. Graceful degradation
-            // (plan §4.4): pointer is the re-onboarding index; without it PR4's auto-wipe
-            // is no-op but the offboarding itself still proceeds.
+            // PartitionKey="OffboardingHistory". Nothing destructive has started: without the
+            // pointer the returning tenant would get its trial back, so refuse and let the
+            // admin re-click.
             _logger.LogError(ex,
                 "Failed to upsert OffboardingByTenant pointer for {TenantId} after history row inserted",
                 normalizedTenantId);
@@ -869,11 +872,10 @@ public class TenantOffboardFunction
     }
 
     // Plan §4.4 read-modify-write CAS-loop. Bounded retry; throws on exhaustion so the
-    // caller turns it into a 500. The pointer is the O(1) re-onboarding index — failure
-    // here is recoverable (graceful degradation in PR4) but we still surface it so the
-    // operator can investigate.
+    // caller turns it into a 500. The pointer is the O(1) re-onboarding index; TrialConsumed
+    // is sticky across rounds (OR), never reset by an offboarding without a trial.
     internal async Task UpsertPointerWithCasAsync(
-        string normalizedTenantId, string historyRowKey, DateTime now)
+        string normalizedTenantId, string historyRowKey, DateTime now, bool trialConsumed)
     {
         for (var attempt = 1; attempt <= PointerCasMaxAttempts; attempt++)
         {
@@ -890,6 +892,7 @@ public class TenantOffboardFunction
                     LatestStatus = "Initiated",
                     LatestUpdatedAt = now,
                     OffboardCount = 1,
+                    TrialConsumed = trialConsumed,
                 };
 
                 try
@@ -910,6 +913,7 @@ public class TenantOffboardFunction
             existing.LatestStatus = "Initiated";
             existing.LatestUpdatedAt = now;
             existing.OffboardCount = existing.OffboardCount + 1;
+            existing.TrialConsumed |= trialConsumed;
 
             try
             {

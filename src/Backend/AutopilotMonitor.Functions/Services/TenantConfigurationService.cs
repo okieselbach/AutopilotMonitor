@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
@@ -137,8 +138,9 @@ namespace AutopilotMonitor.Functions.Services
         /// swallows storage exceptions and reports failure via its bool return, so ignoring it would
         /// let callers audit + return 200 for a save that never happened (Codex finding, 2026-07-07).
         /// The cached row is invalidated on EVERY attempted save (finally): on success it is stale;
-        /// on failure the caller may have mutated the cached instance in place (plan/trial endpoints),
-        /// which must not linger as phantom-saved state for the 5-minute TTL.
+        /// on failure the caller may have mutated the cached instance in place, which must not linger
+        /// as phantom-saved state for the 5-minute TTL. Callers that decide on the current state or
+        /// could race another writer use <see cref="UpdateAsync"/> instead.
         /// </summary>
         public virtual Task SaveConfigurationAsync(TenantConfiguration config)
             => SaveConfigurationAsync(config, backupSource: null, backupReason: null);
@@ -178,6 +180,64 @@ namespace AutopilotMonitor.Functions.Services
                 // Invalidate cache — success AND failure paths (see summary).
                 _cache.Remove($"tenant-config:{config.TenantId}");
             }
+        }
+
+        internal const int MaxUpdateAttempts = 3;
+
+        /// <summary>
+        /// Read-modify-write for a caller that persists the WHOLE entity and decides on its current
+        /// state: <paramref name="mutate"/> runs on the FRESH, projected row and the write is
+        /// conditional on that row's ETag. A cached view is up to 5 minutes stale per instance, so
+        /// saving it would rewind whatever another writer changed meanwhile (the 2026-07-31
+        /// HomedAppClientId class) — including the offboarding tombstone during its drain barrier.
+        /// <para>
+        /// On a lost race the row is re-read and <paramref name="mutate"/> runs again, so it must
+        /// derive everything from the row it is handed. Returning false declines the write. The
+        /// offboarding tombstone is never written: the cascade owns the row until it deletes it.
+        /// Storage errors other than a lost race throw.
+        /// </para>
+        /// </summary>
+        public virtual async Task<TenantConfigUpdate> UpdateAsync(
+            string tenantId, Func<TenantConfiguration, bool> mutate, string backupSource, string backupReason)
+        {
+            for (var attempt = 1; attempt <= MaxUpdateAttempts; attempt++)
+            {
+                var read = await _configRepo.GetTenantConfigurationWithEtagAsync(tenantId);
+                if (read == null)
+                    return new TenantConfigUpdate(TenantConfigUpdateStatus.NotFound, null);
+
+                var (config, etag) = read.Value;
+                await ProjectAsync(config);
+
+                if (TenantOffboardFunction.IsOffboardingTombstone(config))
+                    return new TenantConfigUpdate(TenantConfigUpdateStatus.OffboardingInProgress, config);
+
+                if (!mutate(config))
+                    return new TenantConfigUpdate(TenantConfigUpdateStatus.Declined, config);
+
+                config.LastUpdated = DateTime.UtcNow;
+                bool replaced;
+                try
+                {
+                    replaced = await _configRepo.TryReplaceTenantConfigurationAsync(config, etag, backupSource, backupReason);
+                }
+                finally
+                {
+                    InvalidateCache(tenantId);
+                }
+
+                if (replaced)
+                {
+                    _logger.LogInformation("Configuration updated for tenant {TenantId} by {UpdatedBy}", tenantId, config.UpdatedBy);
+                    return new TenantConfigUpdate(TenantConfigUpdateStatus.Updated, config);
+                }
+
+                _logger.LogInformation(
+                    "Configuration update for tenant {TenantId} lost the ETag race (attempt {Attempt}/{Max})",
+                    tenantId, attempt, MaxUpdateAttempts);
+            }
+
+            return new TenantConfigUpdate(TenantConfigUpdateStatus.Conflict, null);
         }
 
         /// <summary>
@@ -342,4 +402,22 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
     }
+
+    public enum TenantConfigUpdateStatus
+    {
+        Updated,
+        /// <summary>The mutation returned false; nothing was written.</summary>
+        Declined,
+        NotFound,
+        /// <summary>The row is the offboarding tombstone; nothing was written.</summary>
+        OffboardingInProgress,
+        /// <summary>Every conditional write lost the ETag race.</summary>
+        Conflict,
+    }
+
+    /// <summary>
+    /// Outcome of <see cref="TenantConfigurationService.UpdateAsync"/>. <see cref="Config"/> is the
+    /// row as written (Updated) or as read (Declined, OffboardingInProgress); null otherwise.
+    /// </summary>
+    public sealed record TenantConfigUpdate(TenantConfigUpdateStatus Status, TenantConfiguration? Config);
 }

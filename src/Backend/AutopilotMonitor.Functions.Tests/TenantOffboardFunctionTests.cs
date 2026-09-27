@@ -196,7 +196,7 @@ public sealed class TenantOffboardFunctionTests
         var sut = Build(repo);
         var historyRowKey = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{TenantId}";
 
-        await sut.UpsertPointerWithCasAsync(TenantId, historyRowKey, DateTime.UtcNow);
+        await sut.UpsertPointerWithCasAsync(TenantId, historyRowKey, DateTime.UtcNow, trialConsumed: false);
 
         Assert.True(repo.Pointers.TryGetValue(TenantId, out var entry));
         Assert.Equal(historyRowKey, entry.Pointer.LatestHistoryRowKey);
@@ -222,11 +222,111 @@ public sealed class TenantOffboardFunctionTests
         var sut = Build(repo);
         var newHistoryRowKey = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{TenantId}";
 
-        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow);
+        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow, trialConsumed: false);
 
         Assert.Equal(newHistoryRowKey, repo.Pointers[TenantId].Pointer.LatestHistoryRowKey);
         Assert.Equal("Initiated", repo.Pointers[TenantId].Pointer.LatestStatus);
         Assert.Equal(3, repo.Pointers[TenantId].Pointer.OffboardCount);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]   // a later round without a trial never clears it
+    [InlineData(true, true, true)]
+    public async Task UpsertPointer_TrialConsumed_IsStickyAcrossRounds(bool stored, bool thisRound, bool expected)
+    {
+        var repo = new FakeOffboardingAuditRepository();
+        await repo.InsertByTenantPointerAsync(new OffboardingByTenantPointer
+        {
+            PartitionKey = Constants.OffboardingPartitionKeys.ByTenant,
+            RowKey = TenantId,
+            TenantId = TenantId,
+            LatestHistoryRowKey = "20260101000000000_" + TenantId,
+            LatestStatus = "Completed",
+            OffboardCount = 1,
+            TrialConsumed = stored,
+        });
+
+        await Build(repo).UpsertPointerWithCasAsync(TenantId, "20260201000000000_" + TenantId, DateTime.UtcNow, thisRound);
+
+        Assert.Equal(expected, repo.Pointers[TenantId].Pointer.TrialConsumed);
+        Assert.Equal(2, repo.Pointers[TenantId].Pointer.OffboardCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UpsertPointer_FreshTenant_StampsTrialConsumed(bool trialConsumed)
+    {
+        var repo = new FakeOffboardingAuditRepository();
+
+        await Build(repo).UpsertPointerWithCasAsync(TenantId, "20260201000000000_" + TenantId, DateTime.UtcNow, trialConsumed);
+
+        Assert.Equal(trialConsumed, repo.Pointers[TenantId].Pointer.TrialConsumed);
+    }
+
+    // ── OffboardTenant (Phase 1): the consumed trial must reach the pointer before anything is deleted ──
+
+    private static (TenantOffboardFunction Sut, FakeOffboardingAuditRepository Repo, RecordingEnqueuer Enqueuer, Mock<IConfigRepository> ConfigRepo)
+        BuildForOffboard(TenantConfiguration? liveConfig, Exception? readFailure = null)
+    {
+        var configRepo = new Mock<IConfigRepository>();
+        if (readFailure != null)
+            configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ThrowsAsync(readFailure);
+        else
+            configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ReturnsAsync(liveConfig);
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(true);
+
+        var repo = new FakeOffboardingAuditRepository();
+        var enqueuer = new RecordingEnqueuer();
+        var sut = new TenantOffboardFunction(
+            logger: NullLogger<TenantOffboardFunction>.Instance,
+            configRepo: configRepo.Object,
+            tenantConfigService: new TenantConfigurationService(
+                configRepo.Object, NullLogger<TenantConfigurationService>.Instance,
+                new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions())),
+            maintenanceRepo: Mock.Of<IMaintenanceRepository>(),
+            offboardingRepo: repo,
+            offboardingEnqueuer: enqueuer,
+            previewWhitelistService: BuildPreviewWhitelistService(configRepo));
+        return (sut, repo, enqueuer, configRepo);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OffboardTenant_CarriesTheLiveTrialConsumedOntoThePointer(bool trialConsumed)
+    {
+        var live = TenantConfiguration.CreateDefault(TenantId);
+        live.DomainName = "contoso.com";
+        live.TrialConsumed = trialConsumed;
+        var (sut, repo, enqueuer, _) = BuildForOffboard(live);
+        var (req, context) = EndpointHarness.Request(TenantId);
+
+        var response = await sut.OffboardTenant(req, TenantId, context);
+
+        Assert.Equal(System.Net.HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(trialConsumed, repo.Pointers[TenantId].Pointer.TrialConsumed);
+        Assert.Single(enqueuer.Sent);
+    }
+
+    [Fact]
+    public async Task OffboardTenant_ConfigReadFails_RefusesBeforeAnyStateIsWritten()
+    {
+        // Proceeding without the read would reset the one-trial rule for the returning tenant.
+        var (sut, repo, enqueuer, configRepo) = BuildForOffboard(null, new RequestFailedException(503, "Server busy"));
+        var (req, context) = EndpointHarness.Request(TenantId);
+
+        var response = await sut.OffboardTenant(req, TenantId, context);
+
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Empty(repo.History);
+        Assert.Empty(repo.Pointers);
+        Assert.Empty(repo.Markers);
+        Assert.Empty(enqueuer.Sent);
+        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -273,7 +373,7 @@ public sealed class TenantOffboardFunctionTests
         var sut = Build(repoMock.Object);
         var newHistoryRowKey = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{TenantId}";
 
-        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow);
+        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow, trialConsumed: false);
 
         Assert.NotNull(updatedPointer);
         Assert.Equal(newHistoryRowKey, updatedPointer!.LatestHistoryRowKey);
@@ -325,7 +425,7 @@ public sealed class TenantOffboardFunctionTests
         var sut = Build(repoMock.Object);
         var newHistoryRowKey = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{TenantId}";
 
-        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow);
+        await sut.UpsertPointerWithCasAsync(TenantId, newHistoryRowKey, DateTime.UtcNow, trialConsumed: false);
 
         Assert.Equal(2, updateCalls);
         Assert.Equal(2, readIdx);
@@ -484,7 +584,7 @@ public sealed class TenantOffboardFunctionTests
         var historyRowKey = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{TenantId}";
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            sut.UpsertPointerWithCasAsync(TenantId, historyRowKey, DateTime.UtcNow));
+            sut.UpsertPointerWithCasAsync(TenantId, historyRowKey, DateTime.UtcNow, trialConsumed: false));
     }
 
     // ── Cache-Drain-Barrier (plan v2 §2.2 / §2.3) ─────────────────────────────

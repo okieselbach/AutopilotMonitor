@@ -40,6 +40,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag);
 
+        /// <summary>
+        /// Conditional full replace with the SAME fail-soft pre-write backup as
+        /// <see cref="SaveTenantConfigurationAsync(TenantConfiguration, string?, string?)"/> — the
+        /// If-Match variant of the ordinary save, for read-modify-write callers without a
+        /// fail-closed snapshot of their own. Return and throw semantics as the 2-arg overload.
+        /// </summary>
+        Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag, string? backupSource, string? backupReason);
+
         Task<List<TenantConfiguration>> GetAllTenantConfigurationsAsync();
 
         /// <summary>

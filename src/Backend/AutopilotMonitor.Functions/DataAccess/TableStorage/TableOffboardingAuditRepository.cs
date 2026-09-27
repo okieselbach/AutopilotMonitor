@@ -282,6 +282,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             ["LatestStatus"] = p.LatestStatus,
             ["LatestUpdatedAt"] = p.LatestUpdatedAt,
             ["OffboardCount"] = p.OffboardCount,
+            ["TrialConsumed"] = p.TrialConsumed,
         };
 
         private static OffboardingByTenantPointer MapByTenantPointer(TableEntity e) => new()
@@ -293,6 +294,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             LatestStatus = e.GetString("LatestStatus") ?? "Initiated",
             LatestUpdatedAt = e.GetDateTime("LatestUpdatedAt") ?? default,
             OffboardCount = e.GetInt32("OffboardCount") ?? 1,
+            // Absent on pointers from before the column; false is correct for all of them (D-288).
+            TrialConsumed = e.GetBoolean("TrialConsumed") ?? false,
         };
     }
 }

@@ -38,5 +38,10 @@ namespace AutopilotMonitor.Shared.Models.Offboarding
         /// <summary>How many distinct offboarding rounds this tenant has been through.
         /// Incremented on each new Initiate. Useful for "Tenant ging und kam zurück"-Reporting.</summary>
         public int OffboardCount { get; set; } = 1;
+
+        /// <summary>Sticky: true once any offboarded configuration had consumed the self-service Pro trial.
+        /// The offboarding deletes that configuration, so this is the only record left; the first login of the
+        /// returning tenant copies it onto the new configuration (the trial stays once per tenant).</summary>
+        public bool TrialConsumed { get; set; }
     }
 }

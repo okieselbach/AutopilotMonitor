@@ -88,9 +88,14 @@ internal sealed class FakeOffboardingAuditRepository : IOffboardingAuditReposito
         return Task.CompletedTask;
     }
 
+    /// <summary>When set, every pointer read throws — a storage outage on the re-onboarding lookup.</summary>
+    public Exception? ThrowOnPointerRead { get; set; }
+
     public Task<(OffboardingByTenantPointer? Pointer, string? ETag)> TryGetByTenantPointerAsync(
         string normalizedTenantId, CancellationToken ct = default)
     {
+        if (ThrowOnPointerRead is { } ex)
+            throw ex;
         if (Pointers.TryGetValue(normalizedTenantId, out var entry))
         {
             return Task.FromResult<(OffboardingByTenantPointer?, string?)>((Clone(entry.Pointer), entry.ETag));
@@ -152,5 +157,6 @@ internal sealed class FakeOffboardingAuditRepository : IOffboardingAuditReposito
         PartitionKey = p.PartitionKey, RowKey = p.RowKey, TenantId = p.TenantId,
         LatestHistoryRowKey = p.LatestHistoryRowKey, LatestStatus = p.LatestStatus,
         LatestUpdatedAt = p.LatestUpdatedAt, OffboardCount = p.OffboardCount,
+        TrialConsumed = p.TrialConsumed,
     };
 }

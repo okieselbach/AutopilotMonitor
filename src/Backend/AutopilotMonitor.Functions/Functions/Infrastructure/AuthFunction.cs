@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Offboarding;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
@@ -36,6 +37,7 @@ public class AuthFunction
     private readonly AdminIdentityResolver _identityResolver;
     private readonly ISignalRNotificationService _signalRService;
     private readonly AdminConfigurationService _adminConfigService;
+    private readonly IOffboardingAuditRepository _offboardingRepo;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -52,9 +54,11 @@ public class AuthFunction
         EntraAppRegistry appRegistry,
         AdminIdentityResolver identityResolver,
         ISignalRNotificationService signalRService,
-        AdminConfigurationService adminConfigService)
+        AdminConfigurationService adminConfigService,
+        IOffboardingAuditRepository offboardingRepo)
     {
         _logger = logger;
+        _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
         _signalRService = signalRService;
@@ -381,6 +385,23 @@ public class AuthFunction
             _logger.LogWarning("Refusing to seed DomainName for tenant {TenantId}: UPN domain is not a valid host name", tenantId);
             return;
         }
+
+        // A returning tenant: the offboarding deleted its configuration, so the pointer is the only
+        // record of a consumed self-service trial. Carried over in this same write as OnboardedBy, so
+        // no onboarded row (and no auto-promoted admin) ever exists without it (D-288). Unreadable ⇒
+        // no write at all; the self-gate above retries on the next login.
+        OffboardingByTenantPointer? offboardingPointer;
+        try
+        {
+            (offboardingPointer, _) = await _offboardingRepo.TryGetByTenantPointerAsync(tenantId.ToLowerInvariant());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "First-login offboarding lookup failed for tenant {TenantId} — will retry on next login", tenantId);
+            return;
+        }
+        if (offboardingPointer is { TrialConsumed: true })
+            tenantConfig.TrialConsumed = true;
 
         _logger.LogInformation("Setting domain name for tenant {TenantId}: {Domain}", tenantId, domain);
         tenantConfig.DomainName = domain;

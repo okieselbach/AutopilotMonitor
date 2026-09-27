@@ -134,6 +134,17 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task<bool> TryReplaceTenantConfigurationAsync(
+            TenantConfiguration config, string etag, string? backupSource, string? backupReason)
+        {
+            await TrySnapshotBeforeSaveAsync(
+                _tenantConfigTableClient, config.TenantId, "config",
+                ConvertFromTenantTableEntity, config, TenantBackupNoiseProperties,
+                config.UpdatedBy, backupSource, backupReason);
+
+            return await TryReplaceTenantConfigurationAsync(config, etag);
+        }
+
         /// <summary>
         /// Pre-write snapshot hook shared by the tenant- and admin-config save paths.
         /// Fail-SOFT by design: this is a safety net around long-standing writers

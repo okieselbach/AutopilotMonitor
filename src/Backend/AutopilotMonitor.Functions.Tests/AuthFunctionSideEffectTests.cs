@@ -1,5 +1,9 @@
+using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Functions.Infrastructure;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Tests.Offboarding;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models.Offboarding;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -32,6 +36,7 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<IMetricsRepository> _metricsRepoMock;
     private readonly Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer> _autoApproveEnqueuerMock;
     private readonly FakeSignalRNotificationService _signalR;
+    private readonly FakeOffboardingAuditRepository _offboardingRepo = new();
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -108,7 +113,8 @@ public class AuthFunctionSideEffectTests
             new Mock<AdminIdentityResolver>(
                 _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object,
             _signalR,
-            adminConfigService.Object);
+            adminConfigService.Object,
+            _offboardingRepo);
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock
@@ -235,6 +241,86 @@ public class AuthFunctionSideEffectTests
                 e => e.TenantId == TenantId && e.SignupUpn == Upn),
             AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope.ActivationDelay,
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // -------------------------------------------------------------------------
+    // Returning tenant (D-288): the offboarding deleted the configuration, the pointer
+    // carries the consumed self-service trial into the first-login write.
+    // -------------------------------------------------------------------------
+
+    private void SeedOffboardingPointer(bool trialConsumed) =>
+        _offboardingRepo.Pointers[TenantId] = (new OffboardingByTenantPointer
+        {
+            PartitionKey = Constants.OffboardingPartitionKeys.ByTenant,
+            RowKey = TenantId,
+            TenantId = TenantId,
+            LatestStatus = "Completed",
+            OffboardCount = 1,
+            TrialConsumed = trialConsumed,
+        }, "\"etag\"");
+
+    private static TenantConfiguration ReturningTenantDefault()
+    {
+        // What auth/me hands over once the offboarding deleted the row: an unpersisted default.
+        var config = TenantConfiguration.CreateDefault(TenantId);
+        Assert.False(config.TrialConsumed);
+        return config;
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_ReturningTenantThatUsedTheTrial_CarriesItIntoTheOnboardingWrite()
+    {
+        SeedOffboardingPointer(trialConsumed: true);
+        var config = ReturningTenantDefault();
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        Assert.True(config.TrialConsumed);
+        Assert.Equal(Upn, config.OnboardedBy);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(
+            It.Is<TenantConfiguration>(c => c.TrialConsumed && c.OnboardedBy == Upn),
+            It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        // Re-onboarding itself stays unrestricted: same signup path, auto-approve included.
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
+            It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Once);
+        // The verify criterion of the finding: the trial gate refuses the returning tenant.
+        var deny = PlanManagementFunction.EvaluateTrialStart(config, DateTime.UtcNow);
+        Assert.Equal(Constants.ApiErrorCodes.TrialAlreadyConsumed, deny?.Code);
+    }
+
+    [Theory]
+    [InlineData(false)] // offboarded without ever using the trial
+    [InlineData(null)]  // never offboarded
+    public async Task HandleNewTenantDomain_NoConsumedTrialOnRecord_LeavesTheTrialAvailable(bool? pointerTrialConsumed)
+    {
+        if (pointerTrialConsumed is { } consumed)
+            SeedOffboardingPointer(consumed);
+        var config = ReturningTenantDefault();
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        Assert.False(config.TrialConsumed);
+        Assert.Equal("contoso.com", config.DomainName);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_OffboardingLookupFails_WritesNothingAndRetriesOnTheNextLogin()
+    {
+        // An onboarded row without the carry-over would hand the trial back; no write at all instead.
+        _offboardingRepo.ThrowOnPointerRead = new Azure.RequestFailedException(503, "Server busy");
+        var config = ReturningTenantDefault();
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        Assert.True(string.IsNullOrEmpty(config.DomainName));
+        Assert.Null(config.OnboardedBy);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
+            It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------

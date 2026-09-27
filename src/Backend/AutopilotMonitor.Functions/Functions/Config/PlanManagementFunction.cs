@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -198,33 +199,36 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     }
                 }
 
-                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-                if (config == null)
-                {
-                    return await req.NotFoundAsync("Tenant not found");
-                }
-
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
                 var changes = new Dictionary<string, string>();
+                var wasPermanentPro = false;
+                TenantEdition editionBefore = default, editionAfter = default;
 
-                // Conferred Pro follows the PERMANENT tier of the managing tenant (a trial confers nothing):
-                // remember the standing before the mutation so a permanent-Pro → non-permanent drop can
-                // stamp the managed tenants' grace anchors below.
-                var wasPermanentPro = FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier);
-                var (editionBefore, editionAfter) =
-                    ApplyPlanChanges(config, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
-                ApplyDelegatedSlotChange(config, slotsProvided, newMaxDelegatedTenants, changes);
-                ApplyMcpUsagePlanChange(config, mcpPlanProvided, newMcpUsagePlan, changes);
-                ApplyPayingCustomerChange(config, payingProvided, newPayingCustomer, changes);
-
-                if (changes.Count > 0)
+                // Decided on the fresh row and written under its ETag; the mutation re-runs on a lost race.
+                var update = await _configService.UpdateAsync(requestCtx.TargetTenantId, row =>
                 {
-                    config.UpdatedBy = caller;
-                    // Fail-loud: SaveConfigurationAsync throws when the write did not persist (and
-                    // invalidates the cached — possibly mutated — instance in its finally), so a
-                    // failed save can never be audited or returned as 200.
-                    await _configService.SaveConfigurationAsync(config, "plan", "plan tier change");
+                    changes.Clear();
+                    // Conferred Pro follows the PERMANENT tier of the managing tenant (a trial confers nothing):
+                    // remember the standing before the mutation so a permanent-Pro → non-permanent drop can
+                    // stamp the managed tenants' grace anchors below.
+                    wasPermanentPro = FeatureEntitlementCatalog.IsPermanentProTier(row.PlanTier);
+                    (editionBefore, editionAfter) =
+                        ApplyPlanChanges(row, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
+                    ApplyDelegatedSlotChange(row, slotsProvided, newMaxDelegatedTenants, changes);
+                    ApplyMcpUsagePlanChange(row, mcpPlanProvided, newMcpUsagePlan, changes);
+                    ApplyPayingCustomerChange(row, payingProvided, newPayingCustomer, changes);
+                    if (changes.Count == 0)
+                        return false;
+                    row.UpdatedBy = caller;
+                    return true;
+                }, "plan", "plan tier change");
 
+                if (await UpdateFailureAsync(req, update) is { } failure)
+                    return failure;
+                var config = update.Config!;
+
+                if (update.Status == TenantConfigUpdateStatus.Updated)
+                {
                     await _maintenanceRepo.LogAuditEntryAsync(
                         requestCtx.TargetTenantId,
                         "UPDATE",
@@ -403,10 +407,27 @@ namespace AutopilotMonitor.Functions.Functions.Config
             => definitions.Select(d => TenantEntitlementService.NormalizePlanName(d.Name)).Where(n => n != null).Select(n => n!).OrderBy(n => n, StringComparer.Ordinal);
 
         /// <summary>
-        /// POST /api/config/{tenantId}/trial — TenantAdminOrGA (catalog-enforced). Self-service
-        /// 30-day Pro trial, exactly once per tenant. 409 when the trial was already
-        /// consumed or the tenant is already effectively Pro.
+        /// The response for an <see cref="TenantConfigurationService.UpdateAsync"/> outcome that wrote
+        /// nothing for a reason other than the caller's own decision; null for Updated and Declined.
         /// </summary>
+        private static async Task<HttpResponseData?> UpdateFailureAsync(HttpRequestData req, TenantConfigUpdate update)
+        {
+            switch (update.Status)
+            {
+                case TenantConfigUpdateStatus.NotFound:
+                    return await req.NotFoundAsync("Tenant not found");
+                case TenantConfigUpdateStatus.OffboardingInProgress:
+                    // The answer the suspension gate gives once its cache has caught up with the tombstone.
+                    return await req.ErrorAsync(HttpStatusCode.Forbidden,
+                        Constants.ApiErrorCodes.TenantSuspended, TenantOffboardFunction.OffboardingDisabledReason);
+                case TenantConfigUpdateStatus.Conflict:
+                    return await req.ErrorAsync(HttpStatusCode.Conflict,
+                        Constants.ApiErrorCodes.Conflict, "The tenant configuration was changed concurrently. Retry shortly.");
+                default:
+                    return null;
+            }
+        }
+
         /// <summary>
         /// Pure verdict for the self-service trial start; null = allowed. Order matters and is
         /// test-pinned: the terminal conditions (trial consumed, already Pro) win over the
@@ -453,6 +474,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
             return missing;
         }
 
+        /// <summary>
+        /// POST /api/config/{tenantId}/trial — TenantAdminOrGA (catalog-enforced). Self-service
+        /// 30-day Pro trial, exactly once per tenant — also across offboarding and re-onboarding
+        /// (the offboarding pointer carries <see cref="TenantConfiguration.TrialConsumed"/> over).
+        /// 409 when the trial was already consumed or the tenant is already effectively Pro.
+        /// </summary>
         [Function("StartTenantTrial")]
         public async Task<HttpResponseData> StartTrial(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/trial")] HttpRequestData req,
@@ -464,29 +491,31 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var caller = requestCtx.UserPrincipalName ?? "Unknown";
                 _logger.LogInformation("StartTenantTrial: tenantId={TenantId} by {User}", requestCtx.TargetTenantId, caller);
 
-                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-                if (config == null)
-                {
-                    return await req.NotFoundAsync("Tenant not found");
-                }
-
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
+                (string Code, string Message)? deny = null;
 
-                if (EvaluateTrialStart(config, nowUtc) is { } deny)
+                // The verdict runs on the fresh row inside the conditional write: two concurrent
+                // starts cannot both see TrialConsumed=false, and a stale cached row is never saved.
+                var update = await _configService.UpdateAsync(requestCtx.TargetTenantId, row =>
                 {
-                    return await req.ErrorAsync(HttpStatusCode.Conflict, deny.Code, deny.Message);
-                }
+                    deny = EvaluateTrialStart(row, nowUtc);
+                    if (deny != null)
+                        return false;
+                    row.TrialStartedUtc = nowUtc;
+                    row.TrialExpiresUtc = nowUtc.AddDays(SelfServiceTrialDays);
+                    row.TrialConsumed = true;
+                    row.TrialGrantedBy = caller;
+                    // Effectively Pro again — a leftover retention grace anchor is obsolete.
+                    row.ProDowngradedUtc = null;
+                    row.UpdatedBy = caller;
+                    return true;
+                }, "plan", "self-service trial start");
 
-                config.TrialStartedUtc = nowUtc;
-                config.TrialExpiresUtc = nowUtc.AddDays(SelfServiceTrialDays);
-                config.TrialConsumed = true;
-                config.TrialGrantedBy = caller;
-                // Effectively Pro again — a leftover retention grace anchor is obsolete.
-                config.ProDowngradedUtc = null;
-                config.UpdatedBy = caller;
-
-                // Fail-loud: throws when the write did not persist (cache invalidated in finally).
-                await _configService.SaveConfigurationAsync(config, "plan", "self-service trial start");
+                if (await UpdateFailureAsync(req, update) is { } failure)
+                    return failure;
+                if (deny is { } refused)
+                    return await req.ErrorAsync(HttpStatusCode.Conflict, refused.Code, refused.Message);
+                var config = update.Config!;
 
                 await _maintenanceRepo.LogAuditEntryAsync(
                     requestCtx.TargetTenantId,
