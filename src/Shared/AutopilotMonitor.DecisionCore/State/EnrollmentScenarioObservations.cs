@@ -34,6 +34,17 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<bool>? WhiteGloveSealingPatternSeen { get; init; }
 
         /// <summary>
+        /// ESP-registry AccountSetup progress as stamped on the
+        /// <see cref="Signals.DecisionSignalKind.WhiteGloveShellCoreSuccess"/> payload:
+        /// <c>true</c> = an AccountSetup subcategory had left <c>notStarted</c>, <c>false</c> =
+        /// none had. <c>null</c> = not reported (registry not read yet, or an agent predating the
+        /// payload key) and must be read as "unknown", never as "no progress". Gates the sealing classifier's
+        /// AccountSetup excluder: IME logs "EspPhase: AccountSetup" from the device session as
+        /// soon as the device apps are done, so only an explicit <c>false</c> here lifts it.
+        /// </summary>
+        public SignalFact<bool>? AccountSetupProgressAtWhiteGloveSuccess { get; init; }
+
+        /// <summary>
         /// Payload-carrying observation from <see cref="Signals.DecisionSignalKind.AadUserJoinedLate"/>.
         /// <c>true</c> = late AADJ observed with a user-side principal (hard-excluder for
         /// the WhiteGlove classifier); <c>false</c> = late AADJ observed but device-only.
@@ -112,6 +123,11 @@ namespace AutopilotMonitor.DecisionCore.State
             WhiteGloveSealingPatternSeen != null
                 ? this
                 : this with { WhiteGloveSealingPatternSeen = new SignalFact<bool>(true, sourceSignalOrdinal) };
+
+        public EnrollmentScenarioObservations WithAccountSetupProgressAtWhiteGloveSuccess(bool value, long sourceSignalOrdinal) =>
+            AccountSetupProgressAtWhiteGloveSuccess != null
+                ? this
+                : this with { AccountSetupProgressAtWhiteGloveSuccess = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithAadUserJoinWithUserObserved(bool value, long sourceSignalOrdinal) =>
             AadUserJoinWithUserObserved != null

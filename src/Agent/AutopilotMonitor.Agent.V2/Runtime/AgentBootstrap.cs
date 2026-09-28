@@ -87,8 +87,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     cleanupServiceFactory, logger, consoleMode,
                     // Best-effort: surface the otherwise-silent 48h break to the backend before cleanup
                     // (tasks/enrollment-status-reclassification.md). Never blocks the exit.
+                    // The failed-registration record is read here, before the break deletes the
+                    // session files.
                     onBreakFired: sessionAgeHours => EmergencyBreakReporter.TrySend(
-                        agentConfig, Program.GetAgentVersion(), sessionAgeHours, logger)))
+                        agentConfig, Program.GetAgentVersion(), sessionAgeHours,
+                        sessionPersistence.LoadRegistrationFailure(), logger)))
             {
                 logger.Info("Emergency break fired — agent exiting.");
                 return BootstrapResult.Exit(0);

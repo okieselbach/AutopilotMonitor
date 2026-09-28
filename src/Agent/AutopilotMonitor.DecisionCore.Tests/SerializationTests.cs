@@ -522,7 +522,8 @@ namespace AutopilotMonitor.DecisionCore.Tests
                     .WithSkipUserEsp(value: true, sourceSignalOrdinal: 4)
                     .WithEspSyncFailureTimeoutMinutes(value: 90, sourceSignalOrdinal: 5)
                     .WithRegistrySelfDeployingProfile(value: false, sourceSignalOrdinal: 6)
-                    .WithCloudPc(value: true, sourceSignalOrdinal: 7))
+                    .WithCloudPc(value: true, sourceSignalOrdinal: 7)
+                    .WithAccountSetupProgressAtWhiteGloveSuccess(value: false, sourceSignalOrdinal: 8))
                 .Build();
 
             var json = StateSerializer.Serialize(state);
@@ -538,6 +539,8 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(6, o.RegistrySelfDeployingProfile!.SourceSignalOrdinal);
             Assert.True(o.CloudPc!.Value);
             Assert.Equal(7, o.CloudPc!.SourceSignalOrdinal);
+            Assert.False(o.AccountSetupProgressAtWhiteGloveSuccess!.Value);
+            Assert.Equal(8, o.AccountSetupProgressAtWhiteGloveSuccess!.SourceSignalOrdinal);
 
             // Never-observed facts must rehydrate as null (null ≠ veto — session 62e603c9).
             Assert.Null(o.WhiteGloveSealingPatternSeen);

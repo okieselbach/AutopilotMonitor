@@ -99,6 +99,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal(DecisionSignalKind.WhiteGloveShellCoreSuccess, posted.Kind);
         }
 
+        [Theory]
+        [InlineData(true, "true")]
+        [InlineData(false, "false")]
+        public void WhiteGloveEvent_stamps_read_AccountSetup_progress_on_payload_and_evidence(bool progress, string expected)
+        {
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(
+                f.Coordinator, f.Ingress, f.Clock, accountSetupProgressProbe: () => progress);
+
+            adapter.TriggerWhiteGloveFromTest();
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.Equal(expected, posted.Payload![SignalPayloadKeys.AccountSetupProgress]);
+            Assert.Equal(expected, posted.Evidence.DerivationInputs![SignalPayloadKeys.AccountSetupProgress]);
+        }
+
+        [Fact]
+        public void WhiteGloveEvent_with_unread_AccountSetup_registry_sends_no_progress_key()
+        {
+            // Unknown must keep the sealing classifier's AccountSetup excluder — the payload key
+            // is absent, the evidence records why.
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(
+                f.Coordinator, f.Ingress, f.Clock, accountSetupProgressProbe: () => null);
+
+            adapter.TriggerWhiteGloveFromTest();
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.True(posted.Payload == null || !posted.Payload.ContainsKey(SignalPayloadKeys.AccountSetupProgress));
+            Assert.Equal("unread", posted.Evidence.DerivationInputs![SignalPayloadKeys.AccountSetupProgress]);
+        }
+
+        [Fact]
+        public void WhiteGloveEvent_default_probe_on_unstarted_coordinator_reports_unread()
+        {
+            // Production probe: the provisioning tracker does not exist before Start (and never on
+            // Device Preparation) — that is "unread", not "untouched".
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
+
+            adapter.TriggerWhiteGloveFromTest();
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.True(posted.Payload == null || !posted.Payload.ContainsKey(SignalPayloadKeys.AccountSetupProgress));
+        }
+
         [Fact]
         public void EspFailureEvent_emits_EspTerminalFailure_with_merged_subSource_annotation()
         {

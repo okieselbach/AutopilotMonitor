@@ -81,7 +81,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// multiply against the per-session budget.
         ///
         /// <paramref name="sessionAgeHours"/> is the emergency break's measured session age
-        /// (<see cref="AgentErrorReport.SessionAgeHours"/>); null for every other error type.
+        /// (<see cref="AgentErrorReport.SessionAgeHours"/>) and <paramref name="priorRegistrationFailure"/>
+        /// its record of earlier starts that never registered
+        /// (<see cref="AgentErrorReport.PriorRegistrationFailure"/>); null for every other error type.
         /// </summary>
         public virtual async Task TrySendAsync(
             AgentErrorType errorType,
@@ -91,7 +93,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             int attempts = 1,
             TimeSpan? perAttemptTimeout = null,
             TimeSpan? retryDelay = null,
-            double? sessionAgeHours = null)
+            double? sessionAgeHours = null,
+            RegistrationFailureSummary priorRegistrationFailure = null)
         {
             // Deduplicate by error type + status code: same failure category sent only once per session.
             // All anti-flood checks are protected by a lock to prevent race conditions when
@@ -140,6 +143,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 HttpStatusCode = httpStatusCode,
                 SequenceNumber = sequenceNumber,
                 SessionAgeHours = sessionAgeHours,
+                PriorRegistrationFailure = priorRegistrationFailure,
                 AgentVersion = _agentVersion,
                 Timestamp = DateTime.UtcNow
             };

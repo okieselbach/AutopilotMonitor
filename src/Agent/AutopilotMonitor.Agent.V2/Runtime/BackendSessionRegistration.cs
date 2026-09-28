@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -17,7 +18,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     /// <c>IncrementSessionEventCountAsync</c> / <c>UpdateSessionStatusAsync</c> silently
     /// no-op and session status / phase / admin-overrides / validator reconcile all break.
     /// On registration failure we follow V1's rule: collectors MUST NOT start and the
-    /// agent exits cleanly so the next Scheduled-Task tick can retry.
+    /// agent exits cleanly; the Scheduled Task has only a boot trigger, so the next attempt is
+    /// the next boot. The failed run is recorded for the emergency break report.
     /// </summary>
     internal static class BackendSessionRegistration
     {
@@ -28,11 +30,18 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             string agentVersion,
             bool consoleMode,
             AgentLogger logger,
-            Func<string> rotateSession = null)
+            Func<string> rotateSession = null,
+            SessionIdPersistence sessionPersistence = null,
+            string configFetchOutcome = null)
         {
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (logger == null) throw new ArgumentNullException(nameof(logger));
+
+            // Wall clock on purpose: a window far above the retry schedule is the evidence that
+            // the device slept or was suspended while this run tried to register.
+            var startedUtc = DateTime.UtcNow;
+            var linkUpAtStart = TryIsNetworkLinkUp();
 
             var registrationResult = SessionRegistrationHelper.RegisterWithRetryAsync(
                 apiClient: auth.BackendApiClient,
@@ -47,6 +56,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
                 rotateSession: rotateSession)
                 .GetAwaiter().GetResult();
+
+            RecordRegistrationRun(
+                sessionPersistence, registrationResult, startedUtc, DateTime.UtcNow,
+                linkUpAtStart, TryIsNetworkLinkUp(), configFetchOutcome, logger);
 
             if (registrationResult.Outcome != SessionRegistrationOutcome.Succeeded)
             {
@@ -63,6 +76,62 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
 
             return SessionRegistrationOutcomeResult.Continue(registrationResult);
+        }
+
+        /// <summary>Longest <see cref="RegistrationFailureSummary.LastError"/> kept on disk and on the wire.</summary>
+        internal const int MaxRecordedErrorLength = 256;
+
+        /// <summary>
+        /// Keeps <c>registration-failure.json</c> in step with this run: a failed run is folded
+        /// into the record (the emergency break later reports it — for a session that never
+        /// registered, the only account of why), a successful one clears it. Never throws.
+        /// </summary>
+        internal static void RecordRegistrationRun(
+            SessionIdPersistence sessionPersistence,
+            SessionRegistrationResult registrationResult,
+            DateTime startedUtc,
+            DateTime endedUtc,
+            bool? linkUpAtStart,
+            bool? linkUpAtEnd,
+            string configFetchOutcome,
+            AgentLogger logger)
+        {
+            if (sessionPersistence == null || registrationResult == null) return;
+            try
+            {
+                if (registrationResult.Outcome == SessionRegistrationOutcome.Succeeded)
+                {
+                    sessionPersistence.ClearRegistrationFailure(logger);
+                    return;
+                }
+
+                var error = registrationResult.ErrorMessage;
+                if (error != null && error.Length > MaxRecordedErrorLength)
+                    error = error.Substring(0, MaxRecordedErrorLength);
+
+                sessionPersistence.RecordRegistrationFailure(new RegistrationFailureSummary
+                {
+                    FailedRuns = 1,
+                    FirstFailedAtUtc = endedUtc,
+                    LastFailedAtUtc = endedUtc,
+                    Outcome = registrationResult.Outcome.ToString(),
+                    LastError = error,
+                    NetworkLinkUpAtStart = linkUpAtStart,
+                    NetworkLinkUpAtEnd = linkUpAtEnd,
+                    AttemptWindowSeconds = Math.Round(Math.Max(0, (endedUtc - startedUtc).TotalSeconds), 1),
+                    ConfigFetchOutcome = configFetchOutcome,
+                }, logger);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warning($"Registration run record failed (best-effort): {ex.Message}");
+            }
+        }
+
+        private static bool? TryIsNetworkLinkUp()
+        {
+            try { return NetworkInterface.GetIsNetworkAvailable(); }
+            catch { return null; }
         }
 
         /// <summary>

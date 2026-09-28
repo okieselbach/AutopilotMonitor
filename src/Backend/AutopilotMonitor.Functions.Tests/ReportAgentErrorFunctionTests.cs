@@ -330,6 +330,95 @@ public class ReportAgentErrorFunctionTests
             It.Is<List<EnrollmentEvent>>(e => (double)e[0].Data["sessionAgeHours"] == 478.2)), Times.Once);
     }
 
+    // A session that never registered leaves the backend nothing but this report; the agent's
+    // record of its failed starts is the only account of why.
+    [Fact]
+    public async Task Prior_registration_failure_lands_in_ops_details_even_without_a_row()
+    {
+        var h = new Harness();
+        var report = Report(Now);
+        report.PriorRegistrationFailure = ReportAgentErrorFunction.SanitizeRegistrationFailure(Failure());
+
+        await h.RunAsync(report, Read(null));
+
+        var details = Assert.Single(h.OpsEvents).Details;
+        Assert.Contains("\"priorRegistrationFailure\":{\"failedRuns\":3", details);
+        Assert.Contains("\"networkLinkUpAtEnd\":false", details);
+        Assert.Contains("\"attemptWindowSeconds\":1204.5", details);
+        Assert.Contains("\"configFetchOutcome\":\"UsedDefaults\"", details);
+        h.VerifyNothingWrittenIntoTheSession();
+    }
+
+    [Fact]
+    public async Task Prior_registration_failure_lands_in_the_timeline_data_of_a_registered_session()
+    {
+        var h = new Harness();
+        var report = Report(Now);
+        report.PriorRegistrationFailure = ReportAgentErrorFunction.SanitizeRegistrationFailure(Failure());
+
+        await h.RunAsync(report);
+
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
+            It.Is<List<EnrollmentEvent>>(e =>
+                ((Dictionary<string, object?>)e[0].Data["priorRegistrationFailure"])["failedRuns"]!.Equals(3))), Times.Once);
+    }
+
+    [Fact]
+    public async Task Agent_without_registration_record_leaves_it_null_and_out_of_the_timeline()
+    {
+        var h = new Harness();
+
+        await h.RunAsync(Report(Now));
+
+        Assert.Contains("\"priorRegistrationFailure\":null", Assert.Single(h.OpsEvents).Details);
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
+            It.Is<List<EnrollmentEvent>>(e => !e[0].Data.ContainsKey("priorRegistrationFailure"))), Times.Once);
+    }
+
+    [Fact]
+    public void SanitizeRegistrationFailure_bounds_device_input()
+    {
+        var raw = Failure();
+        raw.LastError = new string('x', 5000);
+        raw.Outcome = new string('o', 500);
+        raw.ConfigFetchOutcome = new string('c', 500);
+        raw.AttemptWindowSeconds = -3;
+
+        var clean = ReportAgentErrorFunction.SanitizeRegistrationFailure(raw)!;
+
+        Assert.Equal(ReportAgentErrorFunction.MaxRegistrationErrorLength, clean.LastError!.Length);
+        Assert.Equal(ReportAgentErrorFunction.MaxRegistrationTokenLength, clean.Outcome.Length);
+        Assert.Equal(ReportAgentErrorFunction.MaxRegistrationTokenLength, clean.ConfigFetchOutcome!.Length);
+        Assert.Equal(0, clean.AttemptWindowSeconds);
+        Assert.Equal(3, clean.FailedRuns);
+        Assert.NotSame(raw, clean);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void SanitizeRegistrationFailure_drops_a_record_without_failed_runs(int failedRuns)
+    {
+        var raw = Failure();
+        raw.FailedRuns = failedRuns;
+
+        Assert.Null(ReportAgentErrorFunction.SanitizeRegistrationFailure(raw));
+        Assert.Null(ReportAgentErrorFunction.SanitizeRegistrationFailure(null));
+    }
+
+    private static RegistrationFailureSummary Failure() => new()
+    {
+        FailedRuns = 3,
+        FirstFailedAtUtc = Now.AddDays(-20),
+        LastFailedAtUtc = Now.AddDays(-19),
+        Outcome = "Failed",
+        LastError = "No such host is known.",
+        NetworkLinkUpAtStart = false,
+        NetworkLinkUpAtEnd = false,
+        AttemptWindowSeconds = 1204.5,
+        ConfigFetchOutcome = "UsedDefaults",
+    };
+
     [Fact]
     public async Task Agent_without_session_age_leaves_it_null_and_out_of_the_timeline()
     {

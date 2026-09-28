@@ -273,7 +273,9 @@ namespace AutopilotMonitor.Agent.V2
             var registration = Runtime.BackendSessionRegistration.Register(
                 bootstrap.AgentConfig, auth, telemetry.MtlsHttpClient, GetAgentVersion(), consoleMode, logger,
                 rotateSession: () => Runtime.BackendSessionRegistration.RotateSession(
-                    bootstrap.AgentConfig, bootstrap.SessionPersistence, auth, transportDir, logger));
+                    bootstrap.AgentConfig, bootstrap.SessionPersistence, auth, transportDir, logger),
+                sessionPersistence: bootstrap.SessionPersistence,
+                configFetchOutcome: runtimeConfig.RemoteConfigService.LastFetchOutcome.ToString());
             if (registration.ShouldExit)
             {
                 return registration.ExitCode;

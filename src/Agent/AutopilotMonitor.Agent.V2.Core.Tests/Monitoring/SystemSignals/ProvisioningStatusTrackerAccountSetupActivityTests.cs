@@ -83,6 +83,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             using var f = new Fixture();
             Assert.False(f.Tracker.HasAccountSetupActivity);
             Assert.False(f.Tracker.HasAccountSetupProgress);
+            Assert.Null(f.Tracker.AccountSetupProgressIfRead);
         }
 
         [Fact]
@@ -97,6 +98,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
             Assert.True(f.Tracker.HasAccountSetupActivity);
             Assert.False(f.Tracker.HasAccountSetupProgress);
+            // Read and untouched — the only state the WhiteGlove sealing gate treats as "false".
+            Assert.False(f.Tracker.AccountSetupProgressIfRead);
         }
 
         [Fact]
@@ -108,6 +111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
             Assert.True(f.Tracker.HasAccountSetupActivity);
             Assert.True(f.Tracker.HasAccountSetupProgress);
+            Assert.True(f.Tracker.AccountSetupProgressIfRead);
         }
 
         [Theory]
@@ -136,6 +140,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 "{\"categoryState\":\"succeeded\",\"DeviceSetup.AppsSubcategory\":{\"subcategoryState\":\"succeeded\"}}");
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", AllNotStartedJson);
 
+            Assert.False(f.Tracker.HasAccountSetupProgress);
+        }
+
+        [Fact]
+        public void OnlyDeviceSetupRead_AccountSetupProgressIsUnknown()
+        {
+            // Adversarial for the WhiteGlove sealing gate: the tracker holds DeviceSetup data but
+            // has not read the AccountSetup category — that must be "unknown", never "untouched".
+            using var f = new Fixture();
+            f.Tracker.ProcessCategoryStatusForTest("DeviceSetupCategory.Status",
+                "{\"categoryState\":\"inProgress\",\"DeviceSetup.AppsSubcategory\":{\"subcategoryState\":\"inProgress\"}}");
+
+            Assert.Null(f.Tracker.AccountSetupProgressIfRead);
             Assert.False(f.Tracker.HasAccountSetupProgress);
         }
     }

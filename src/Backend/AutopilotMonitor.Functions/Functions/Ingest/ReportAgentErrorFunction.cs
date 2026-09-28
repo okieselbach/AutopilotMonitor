@@ -167,6 +167,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 return req.CreateResponse(HttpStatusCode.OK);
             }
 
+            report.PriorRegistrationFailure = SanitizeRegistrationFailure(report.PriorRegistrationFailure);
+            var priorRegistration = report.PriorRegistrationFailure;
+
             // Emit a structured log entry (captured by App Insights as a trace)
             _logger.LogCritical(
                 "AgentEmergencyError [{ErrorType}] tenant={TenantId} session={SessionId} http={HttpStatusCode} seq={SequenceNumber} ver={AgentVersion}: {Message}",
@@ -191,6 +194,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["Message"]        = report.Message ?? string.Empty,
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
                 ["SessionAgeHours"] = report.SessionAgeHours?.ToString("0.0", CultureInfo.InvariantCulture) ?? string.Empty,
+                ["PriorRegistrationFailedRuns"] = priorRegistration?.FailedRuns.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["PriorRegistrationOutcome"] = priorRegistration?.Outcome ?? string.Empty,
+                ["PriorRegistrationLastError"] = priorRegistration?.LastError ?? string.Empty,
+                ["PriorRegistrationLinkUpAtStart"] = FormatNullableBool(priorRegistration?.NetworkLinkUpAtStart),
+                ["PriorRegistrationLinkUpAtEnd"] = FormatNullableBool(priorRegistration?.NetworkLinkUpAtEnd),
+                ["PriorRegistrationWindowSeconds"] = priorRegistration?.AttemptWindowSeconds.ToString("0.0", CultureInfo.InvariantCulture) ?? string.Empty,
+                ["PriorRegistrationConfigFetch"] = priorRegistration?.ConfigFetchOutcome ?? string.Empty,
+                ["PriorRegistrationFirstFailedAtUtc"] = priorRegistration?.FirstFailedAtUtc.ToString("O") ?? string.Empty,
+                ["PriorRegistrationLastFailedAtUtc"] = priorRegistration?.LastFailedAtUtc.ToString("O") ?? string.Empty,
             });
 
             // One Sessions-row point-read serves the owner binding and the emergency-break verdict.
@@ -396,7 +408,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 await opsEventService.RecordAgentEmergencyBreakAsync(
                     tenantId, report.SessionId, report.AgentVersion, message,
                     verdict.Severity, verdict.SessionStatusAtBreak, verdict.LateCleanup, verdict.Context,
-                    report.SessionAgeHours);
+                    report.SessionAgeHours, report.PriorRegistrationFailure);
             }
             catch (Exception ex)
             {
@@ -467,6 +479,39 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ? "Agent absolute session-age emergency break fired — agent cleaned up and exited"
                 : report.Message;
 
+        internal const int MaxRegistrationErrorLength = 256;
+        internal const int MaxRegistrationTokenLength = 32;
+
+        /// <summary>
+        /// Bounds the device-supplied failed-registration record before it reaches App Insights, the
+        /// ops feed or a timeline: strings are truncated, a record without a positive run count is
+        /// dropped, negative windows are clamped. Returns a copy; null in, null out.
+        /// </summary>
+        internal static RegistrationFailureSummary? SanitizeRegistrationFailure(RegistrationFailureSummary? source)
+        {
+            if (source == null || source.FailedRuns <= 0) return null;
+            return new RegistrationFailureSummary
+            {
+                FailedRuns = source.FailedRuns,
+                FirstFailedAtUtc = source.FirstFailedAtUtc,
+                LastFailedAtUtc = source.LastFailedAtUtc,
+                Outcome = Truncate(source.Outcome, MaxRegistrationTokenLength) ?? string.Empty,
+                LastError = Truncate(source.LastError, MaxRegistrationErrorLength),
+                NetworkLinkUpAtStart = source.NetworkLinkUpAtStart,
+                NetworkLinkUpAtEnd = source.NetworkLinkUpAtEnd,
+                AttemptWindowSeconds = source.AttemptWindowSeconds < 0 || double.IsNaN(source.AttemptWindowSeconds)
+                    ? 0
+                    : source.AttemptWindowSeconds,
+                ConfigFetchOutcome = Truncate(source.ConfigFetchOutcome, MaxRegistrationTokenLength),
+            };
+        }
+
+        private static string? Truncate(string? value, int max) =>
+            value == null || value.Length <= max ? value : value.Substring(0, max);
+
+        private static string FormatNullableBool(bool? value) =>
+            value == null ? string.Empty : (value.Value ? "true" : "false");
+
         /// <summary>
         /// Builds the backend-materialized <c>agent_emergency_break</c> timeline event from the agent's
         /// best-effort emergency report. Static + pure (analog to
@@ -497,6 +542,21 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             };
             if (report.SessionAgeHours.HasValue)
                 data["sessionAgeHours"] = report.SessionAgeHours.Value;
+            if (report.PriorRegistrationFailure is { } prior)
+            {
+                data["priorRegistrationFailure"] = new Dictionary<string, object?>
+                {
+                    ["failedRuns"] = prior.FailedRuns,
+                    ["firstFailedAtUtc"] = prior.FirstFailedAtUtc.ToString("o"),
+                    ["lastFailedAtUtc"] = prior.LastFailedAtUtc.ToString("o"),
+                    ["outcome"] = prior.Outcome,
+                    ["lastError"] = prior.LastError,
+                    ["networkLinkUpAtStart"] = prior.NetworkLinkUpAtStart,
+                    ["networkLinkUpAtEnd"] = prior.NetworkLinkUpAtEnd,
+                    ["attemptWindowSeconds"] = prior.AttemptWindowSeconds,
+                    ["configFetchOutcome"] = prior.ConfigFetchOutcome,
+                };
+            }
 
             return new EnrollmentEvent
             {

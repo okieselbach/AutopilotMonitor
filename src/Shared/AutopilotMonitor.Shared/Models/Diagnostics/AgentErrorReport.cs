@@ -91,6 +91,13 @@ namespace AutopilotMonitor.Shared.Models
         public double? SessionAgeHours { get; set; }
 
         /// <summary>
+        /// Why earlier process starts of this session never registered
+        /// (<see cref="AgentErrorType.SessionAgeEmergencyBreak"/> only). Null when every start
+        /// registered, for other error types, and for agents that predate the field.
+        /// </summary>
+        public RegistrationFailureSummary? PriorRegistrationFailure { get; set; }
+
+        /// <summary>
         /// Agent version string for diagnosing version-specific issues.
         /// </summary>
         public string AgentVersion { get; set; } = default!;

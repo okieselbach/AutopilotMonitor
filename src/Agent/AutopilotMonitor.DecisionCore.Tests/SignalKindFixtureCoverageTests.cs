@@ -31,7 +31,6 @@ namespace AutopilotMonitor.DecisionCore.Tests
             DecisionSignalKind.HelloResolved,
             DecisionSignalKind.ImeUserSessionCompleted,
             DecisionSignalKind.DeviceSetupProvisioningComplete,
-            DecisionSignalKind.WhiteGloveShellCoreSuccess,
             DecisionSignalKind.WhiteGloveSealingPatternDetected,
             DecisionSignalKind.AadUserJoinedLate,
             DecisionSignalKind.DeviceInfoCollected,

@@ -157,5 +157,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
             Assert.Equal(478.2, client.Reports[0].SessionAgeHours);
             Assert.Null(client.Reports[1].SessionAgeHours);
         }
+
+        [Fact]
+        public async Task Prior_registration_failure_is_carried_in_the_report_and_absent_by_default()
+        {
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+            var record = new RegistrationFailureSummary { FailedRuns = 2, Outcome = "Failed", NetworkLinkUpAtEnd = false };
+
+            await Reporter(client).TrySendAsync(AgentErrorType.SessionAgeEmergencyBreak, "m", priorRegistrationFailure: record);
+            await Reporter(client).TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
+
+            Assert.Equal(2, client.Reports.Count);
+            Assert.Same(record, client.Reports[0].PriorRegistrationFailure);
+            Assert.Null(client.Reports[1].PriorRegistrationFailure);
+        }
     }
 }

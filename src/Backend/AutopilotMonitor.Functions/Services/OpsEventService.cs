@@ -965,15 +965,39 @@ namespace AutopilotMonitor.Functions.Services
         /// remaining Warnings named sessions that never registered; as Warnings both buried the real
         /// ones. <paramref name="sessionAgeHours"/> is the agent-measured age (null for agents that
         /// predate the field) — it separates a break just past the cap from a device that slept for
-        /// weeks, which the backend cannot tell from its own rows.
+        /// weeks, which the backend cannot tell from its own rows. <paramref name="priorRegistrationFailure"/>
+        /// is the agent's record of earlier starts that never registered (bounded by the caller;
+        /// null when none or for older agents) — for a session without a row the only account of why.
         /// </summary>
         public Task RecordAgentEmergencyBreakAsync(
             string tenantId, string sessionId, string? agentVersion, string message,
-            string severity, string sessionStatusAtBreak, bool lateCleanup, string context, double? sessionAgeHours)
+            string severity, string sessionStatusAtBreak, bool lateCleanup, string context, double? sessionAgeHours,
+            RegistrationFailureSummary? priorRegistrationFailure = null)
             => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, severity,
                 $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}, {context}): {message}",
                 tenantId, "System.EmergencyChannel",
-                new { sessionId, agentVersion, sessionStatusAtBreak, lateCleanup, sessionAgeHours });
+                new
+                {
+                    sessionId, agentVersion, sessionStatusAtBreak, lateCleanup, sessionAgeHours,
+                    priorRegistrationFailure = DescribeRegistrationFailure(priorRegistrationFailure),
+                });
+
+        // camelCase like the rest of the details; the class itself would serialize in PascalCase.
+        private static object? DescribeRegistrationFailure(RegistrationFailureSummary? failure) =>
+            failure == null
+                ? null
+                : new
+                {
+                    failedRuns = failure.FailedRuns,
+                    firstFailedAtUtc = failure.FirstFailedAtUtc,
+                    lastFailedAtUtc = failure.LastFailedAtUtc,
+                    outcome = failure.Outcome,
+                    lastError = failure.LastError,
+                    networkLinkUpAtStart = failure.NetworkLinkUpAtStart,
+                    networkLinkUpAtEnd = failure.NetworkLinkUpAtEnd,
+                    attemptWindowSeconds = failure.AttemptWindowSeconds,
+                    configFetchOutcome = failure.ConfigFetchOutcome,
+                };
 
         /// <summary>
         /// An agent reported that its RUNNING exe's SHA-256 differs from the hash the backend

@@ -254,16 +254,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// host to tell the real user-ESP page exit from the Device→Account handoff exit; not a
         /// completion input.
         /// </summary>
-        public bool HasAccountSetupProgress
+        public bool HasAccountSetupProgress => AccountSetupProgressIfRead == true;
+
+        /// <summary>
+        /// Tri-state form of <see cref="HasAccountSetupProgress"/>: <c>null</c> until the tracker
+        /// has actually read AccountSetup subcategories (not started yet, category not written,
+        /// empty), otherwise whether one has left <c>notStarted</c>. The WhiteGlove sealing
+        /// classifier treats only a read <c>false</c> as "user ESP untouched" — an unread
+        /// registry must never pass for an untouched one.
+        /// </summary>
+        public bool? AccountSetupProgressIfRead
         {
             get
             {
                 lock (_stateLock)
                 {
                     if (_lastSubcategoryStates == null)
-                        return false;
-                    if (!_lastSubcategoryStates.TryGetValue("AccountSetupCategory.Status", out var subs) || subs == null)
-                        return false;
+                        return null;
+                    if (!_lastSubcategoryStates.TryGetValue("AccountSetupCategory.Status", out var subs)
+                        || subs == null
+                        || subs.Count == 0)
+                        return null;
                     foreach (var state in subs.Values)
                     {
                         if (!string.Equals(state, "notStarted", StringComparison.OrdinalIgnoreCase))
@@ -279,7 +290,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// with subcategoryState=succeeded. NOT a WhiteGlove indicator: on Win11 25H2 (build
         /// 26200+) Windows writes this property as a trivially-succeeding step in EVERY
         /// enrollment (validated 2026-08-18 — user-driven sessions f475e697/c601a24b/4219203f
-        /// all carry it). Kept for observability only (whiteglove_signal_* raw dumps); must not
+        /// all carry it). Kept for observability only (save_result_step_* raw dumps); must not
         /// be used for classification. Reliable WhiteGlove anchors are ModernDeployment
         /// EventID 509 and the Shell-Core WhiteGlove-success events.
         /// </summary>
@@ -966,8 +977,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                     _logger.Info($"ProvisioningStatusTracker: SaveWhiteGloveSuccessResult state " +
                                                  $"transition: {previousState} -> {state}");
 
+                                    // Neutral trigger name: the step exists in every 25H2 enrollment,
+                                    // and "whiteglove_*" was read as a pre-provisioning signal.
                                     EmitRawRegistryDump(categoryLabel, jsonValue,
-                                        $"whiteglove_signal_{state}");
+                                        $"save_result_step_{state}");
 
                                     if (string.Equals(state, "succeeded", StringComparison.OrdinalIgnoreCase))
                                     {

@@ -217,6 +217,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public bool HasAccountSetupProgress => _provisioningTracker?.HasAccountSetupProgress ?? false;
 
         /// <summary>
+        /// <see cref="ProvisioningStatusTracker.AccountSetupProgressIfRead"/>; <c>null</c> also when
+        /// the provisioning tracker is not running (Device Preparation, before Start). Stamped on
+        /// the WhiteGloveShellCoreSuccess signal for the sealing classifier.
+        /// </summary>
+        public bool? AccountSetupProgressIfRead => _provisioningTracker?.AccountSetupProgressIfRead;
+
+        /// <summary>
         /// True once WhiteGlove start has been detected (EventID 509 or persisted from prior run).
         /// Forwarded from ModernDeploymentTracker.
         /// </summary>

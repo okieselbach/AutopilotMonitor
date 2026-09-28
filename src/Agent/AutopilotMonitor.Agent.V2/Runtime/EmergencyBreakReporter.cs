@@ -36,18 +36,20 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         // Upper bound for the blocking wait: NIC wait + 3×15s attempts + 2×5s delays + slack.
         private static readonly TimeSpan OverallBudget = TimeSpan.FromSeconds(75);
 
-        public static void TrySend(AgentConfiguration agentConfig, string agentVersion, double sessionAgeHours, AgentLogger logger)
+        public static void TrySend(
+            AgentConfiguration agentConfig,
+            string agentVersion,
+            double sessionAgeHours,
+            RegistrationFailureSummary priorRegistrationFailure,
+            AgentLogger logger)
         {
             try
             {
                 WaitForNetwork(logger);
 
                 var auth = BackendClientFactory.BuildAuthClients(agentConfig, agentVersion, logger);
-                // Invariant: the text lands in the backend's ops feed and timeline; a device locale
-                // would otherwise print "478,2h".
                 var roundedAgeHours = Math.Round(sessionAgeHours, 1);
-                var message = FormattableString.Invariant(
-                    $"Agent absolute session-age emergency break fired at session age {roundedAgeHours:F1}h (cap {agentConfig.AbsoluteMaxSessionHours}h) — cleaning up and exiting.");
+                var message = BuildMessage(roundedAgeHours, agentConfig.AbsoluteMaxSessionHours, priorRegistrationFailure);
 
                 // The process is about to exit, so block on the otherwise fire-and-forget send
                 // rather than let it be abandoned mid-flight. TrySendAsync swallows its own HTTP
@@ -60,7 +62,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         attempts: SendAttempts,
                         perAttemptTimeout: PerAttemptTimeout,
                         retryDelay: RetryDelay,
-                        sessionAgeHours: roundedAgeHours)
+                        sessionAgeHours: roundedAgeHours,
+                        priorRegistrationFailure: priorRegistrationFailure)
                     .Wait(OverallBudget);
             }
             catch (Exception ex)
@@ -68,6 +71,25 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger?.Debug($"Emergency-break report send failed (best-effort): {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Invariant culture: the text lands in the backend's ops feed and timeline, and a device
+        /// locale would otherwise print "478,2h". The registration clause names what the ops feed
+        /// cannot otherwise show for a session that never registered.
+        /// </summary>
+        internal static string BuildMessage(double roundedAgeHours, int capHours, RegistrationFailureSummary priorRegistrationFailure)
+        {
+            var message = FormattableString.Invariant(
+                $"Agent absolute session-age emergency break fired at session age {roundedAgeHours:F1}h (cap {capHours}h) — cleaning up and exiting.");
+            if (priorRegistrationFailure != null && priorRegistrationFailure.FailedRuns > 0)
+            {
+                message += FormattableString.Invariant(
+                    $" {priorRegistrationFailure.FailedRuns} earlier start(s) failed to register (last: {priorRegistrationFailure.Outcome}, network link at end: {FormatLink(priorRegistrationFailure.NetworkLinkUpAtEnd)}).");
+            }
+            return message;
+        }
+
+        private static string FormatLink(bool? up) => up == null ? "unknown" : (up.Value ? "up" : "down");
 
         /// <summary>
         /// Boot-time NIC grace: the break fires during bootstrap, often seconds after boot while

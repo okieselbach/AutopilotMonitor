@@ -24,7 +24,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     /// <list type="bullet">
     ///   <item><c>HelloCompleted</c> → <see cref="DecisionSignalKind.HelloResolved"/></item>
     ///   <item><c>FinalizingSetupPhaseTriggered</c> → <see cref="DecisionSignalKind.EspPhaseChanged"/> (phase=FinalizingSetup)</item>
-    ///   <item><c>WhiteGloveCompleted</c> → <see cref="DecisionSignalKind.WhiteGloveShellCoreSuccess"/></item>
+    ///   <item><c>WhiteGloveCompleted</c> → <see cref="DecisionSignalKind.WhiteGloveShellCoreSuccess"/> (payload: registry AccountSetup progress at that moment)</item>
     ///   <item><c>EspFailureDetected</c> → <see cref="DecisionSignalKind.EspTerminalFailure"/> (merged aus ShellCore + Provisioning)</item>
     ///   <item><c>DeviceSetupProvisioningComplete</c> → <see cref="DecisionSignalKind.DeviceSetupProvisioningComplete"/></item>
     ///   <item><c>AccountSetupProvisioningComplete</c> → <see cref="DecisionSignalKind.AccountSetupProvisioningComplete"/> (session 330f73f3 fix — strong AccountSetup-done gate)</item>
@@ -46,6 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly EspAndHelloTracker _coordinator;
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
+        private readonly Func<bool?> _accountSetupProgressProbe;
 
         private bool _helloPosted;
         private bool _helloWizardStartedPosted;
@@ -60,11 +61,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         public EspAndHelloTrackerAdapter(
             EspAndHelloTracker coordinator,
             ISignalIngressSink ingress,
-            IClock clock)
+            IClock clock,
+            Func<bool?>? accountSetupProgressProbe = null)
         {
             _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+            // Test seam; production reads the provisioning tracker's registry-derived flag.
+            _accountSetupProgressProbe = accountSetupProgressProbe ?? (() => _coordinator.AccountSetupProgressIfRead);
 
             _coordinator.HelloCompleted += OnHelloCompleted;
             _coordinator.FinalizingSetupPhaseTriggered += OnFinalizing;
@@ -216,12 +220,28 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (_whiteGloveSuccessPosted) return;
             _whiteGloveSuccessPosted = true;
 
+            // Registry AccountSetup progress at the moment of the success page. The sealing
+            // classifier lifts its AccountSetup excluder only on an explicit "false" — IME logs
+            // AccountSetup from the device session once the device apps are done, which is no
+            // user activity. Sampled here so replay reads it from the SignalLog (L.2/L.5). An
+            // unread registry sends no key: unknown must keep the excluder, never lift it.
+            var progress = _accountSetupProgressProbe();
+            var progressText = progress.HasValue ? (progress.Value ? "true" : "false") : null;
+
             var now = ResolveOccurredAt(out var derivedFromClock);
             var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["subSource"] = "ShellCoreTracker",
+                [SignalPayloadKeys.AccountSetupProgress] = progressText ?? "unread",
             };
             TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
+            var payload = progressText == null
+                ? null
+                : new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SignalPayloadKeys.AccountSetupProgress] = progressText,
+                };
 
             _ingress.Post(
                 kind: DecisionSignalKind.WhiteGloveShellCoreSuccess,
@@ -231,7 +251,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: "WhiteGlove sealing success (coordinator-forwarded)",
-                    derivationInputs: derivationInputs));
+                    derivationInputs: derivationInputs),
+                payload: payload);
         }
 
         private void EmitEspFailure(EspFailureDetectedEventArgs args)

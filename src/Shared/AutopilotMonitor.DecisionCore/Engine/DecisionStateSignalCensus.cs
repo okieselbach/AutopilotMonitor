@@ -144,6 +144,20 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 seen.Add("whiteglove_sealing_pattern");
                 evidence["whiteGloveSealingPattern"] = OrdinalEvidence(obs.WhiteGloveSealingPatternSeen.SourceSignalOrdinal);
             }
+            // Registry AccountSetup progress stamped on the WhiteGlove_Success signal — the gate of
+            // the sealing classifier's AccountSetup excluder, so a Part-1 audit trail shows why
+            // an IME AccountSetup phase did or did not count.
+            if (obs.AccountSetupProgressAtWhiteGloveSuccess != null)
+            {
+                seen.Add(obs.AccountSetupProgressAtWhiteGloveSuccess.Value
+                    ? "whiteglove_account_setup_progress"
+                    : "whiteglove_account_setup_untouched");
+                evidence["accountSetupProgressAtWhiteGloveSuccess"] = new Dictionary<string, object>(capacity: 2, StringComparer.Ordinal)
+                {
+                    ["ordinal"] = obs.AccountSetupProgressAtWhiteGloveSuccess.SourceSignalOrdinal,
+                    ["progress"] = obs.AccountSetupProgressAtWhiteGloveSuccess.Value,
+                };
+            }
             if (obs.AadUserJoinWithUserObserved != null)
             {
                 seen.Add(obs.AadUserJoinWithUserObserved.Value

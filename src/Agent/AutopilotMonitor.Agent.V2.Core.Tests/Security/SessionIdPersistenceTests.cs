@@ -3,6 +3,7 @@ using System.IO;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
@@ -233,6 +234,79 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.False(File.Exists(Path.Combine(tmp.Path, "session.id")));
             Assert.False(File.Exists(Path.Combine(tmp.Path, "session.created")));
             Assert.False(File.Exists(Path.Combine(tmp.Path, "whiteglove.complete")));
+        }
+
+        // ============================================================ failed-registration record
+
+        private static RegistrationFailureSummary FailedRun(DateTime at, string outcome = "Failed", bool? linkUpAtEnd = false) =>
+            new RegistrationFailureSummary
+            {
+                FailedRuns = 1,
+                FirstFailedAtUtc = at,
+                LastFailedAtUtc = at,
+                Outcome = outcome,
+                LastError = "No such host is known.",
+                NetworkLinkUpAtStart = false,
+                NetworkLinkUpAtEnd = linkUpAtEnd,
+                AttemptWindowSeconds = 91.3,
+                ConfigFetchOutcome = "UsedDefaults",
+            };
+
+        [Fact]
+        public void RecordRegistrationFailure_counts_runs_keeps_the_first_time_and_describes_the_latest_run()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new SessionIdPersistence(tmp.Path);
+            var first = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+            var second = new DateTime(2026, 9, 12, 7, 30, 0, DateTimeKind.Utc);
+
+            Assert.Null(sut.LoadRegistrationFailure());
+            sut.RecordRegistrationFailure(FailedRun(first));
+            sut.RecordRegistrationFailure(FailedRun(second, outcome: "AuthFailed", linkUpAtEnd: true));
+
+            // A fresh instance reads it back from disk, as the next boot's emergency break does.
+            var record = new SessionIdPersistence(tmp.Path).LoadRegistrationFailure();
+            Assert.NotNull(record);
+            Assert.Equal(2, record!.FailedRuns);
+            Assert.Equal(first, record.FirstFailedAtUtc);
+            Assert.Equal(second, record.LastFailedAtUtc);
+            Assert.Equal("AuthFailed", record.Outcome);
+            Assert.True(record.NetworkLinkUpAtEnd);
+            Assert.Equal(91.3, record.AttemptWindowSeconds);
+            Assert.Equal("UsedDefaults", record.ConfigFetchOutcome);
+        }
+
+        [Fact]
+        public void Registration_failure_record_is_cleared_by_success_delete_and_rotate()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new SessionIdPersistence(tmp.Path);
+            sut.GetOrCreate();
+            var at = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+
+            sut.RecordRegistrationFailure(FailedRun(at));
+            sut.ClearRegistrationFailure();
+            Assert.Null(sut.LoadRegistrationFailure());
+
+            sut.RecordRegistrationFailure(FailedRun(at));
+            sut.Rotate();
+            Assert.Null(sut.LoadRegistrationFailure());
+
+            sut.RecordRegistrationFailure(FailedRun(at));
+            sut.Delete();
+            Assert.Null(sut.LoadRegistrationFailure());
+            Assert.False(File.Exists(Path.Combine(tmp.Path, "registration-failure.json")));
+        }
+
+        [Theory]
+        [InlineData("not json")]
+        [InlineData("{\"FailedRuns\":0}")]
+        public void LoadRegistrationFailure_reports_nothing_for_a_corrupt_or_empty_record(string content)
+        {
+            using var tmp = new TempDirectory();
+            File.WriteAllText(Path.Combine(tmp.Path, "registration-failure.json"), content);
+
+            Assert.Null(new SessionIdPersistence(tmp.Path).LoadRegistrationFailure());
         }
     }
 }

@@ -104,6 +104,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>On <c>AadUserJoinedLate</c>: user presence indicator ("true" / "false").</summary>
         public const string AadJoinedWithUser = "aadJoinedWithUser";
 
+        /// <summary>
+        /// On <c>WhiteGloveShellCoreSuccess</c>: "true" / "false" — whether the ESP registry
+        /// showed an AccountSetup subcategory past <c>notStarted</c> when the agent observed the
+        /// Shell-Core WhiteGlove_Success event. Missing (registry not read yet, or agents
+        /// predating the key) → the fact stays unset and the sealing classifier keeps the
+        /// IME-phase AccountSetup excluder.
+        /// </summary>
+        public const string AccountSetupProgress = "accountSetupProgress";
+
         /// <summary>On <c>ImeUserSessionCompleted</c>: matched pattern id.</summary>
         public const string ImePatternId = "patternId";
 

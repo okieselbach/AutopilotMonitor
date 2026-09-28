@@ -118,5 +118,88 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Throws<ArgumentNullException>(
                 () => BackendSessionRegistration.Register(config, auth, http, "1.0", consoleMode: false, logger: null));
         }
+
+        // ============================================================ failed-registration record
+
+        [Fact]
+        public void RecordRegistrationRun_records_a_failed_run_with_its_window_and_bounded_error()
+        {
+            using var tmp = new TempDirectory();
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var started = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+
+            BackendSessionRegistration.RecordRegistrationRun(
+                persistence, SessionRegistrationResult.Failed(new string('e', 1000)),
+                started, started.AddSeconds(1204.46), linkUpAtStart: false, linkUpAtEnd: true,
+                configFetchOutcome: "UsedDefaults", logger: NewLogger(tmp.Path));
+
+            var record = persistence.LoadRegistrationFailure();
+            Assert.NotNull(record);
+            Assert.Equal(1, record!.FailedRuns);
+            Assert.Equal("Failed", record.Outcome);
+            Assert.Equal(BackendSessionRegistration.MaxRecordedErrorLength, record.LastError!.Length);
+            Assert.False(record.NetworkLinkUpAtStart);
+            Assert.True(record.NetworkLinkUpAtEnd);
+            Assert.Equal(1204.5, record.AttemptWindowSeconds);
+            Assert.Equal("UsedDefaults", record.ConfigFetchOutcome);
+            Assert.Equal(started.AddSeconds(1204.46), record.LastFailedAtUtc);
+        }
+
+        [Fact]
+        public void RecordRegistrationRun_records_auth_failures_and_clears_on_success()
+        {
+            using var tmp = new TempDirectory();
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var at = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
+
+            BackendSessionRegistration.RecordRegistrationRun(
+                persistence, SessionRegistrationResult.AuthFailed(401, "unauthorized"),
+                at, at.AddSeconds(3), true, true, "Succeeded", NewLogger(tmp.Path));
+            Assert.Equal("AuthFailed", persistence.LoadRegistrationFailure()!.Outcome);
+
+            BackendSessionRegistration.RecordRegistrationRun(
+                persistence, SessionRegistrationResult.Succeeded(new RegisterSessionResponse { Success = true }),
+                at, at.AddSeconds(1), true, true, "Succeeded", NewLogger(tmp.Path));
+            Assert.Null(persistence.LoadRegistrationFailure());
+        }
+
+        [Fact]
+        public void RecordRegistrationRun_without_persistence_is_a_no_op()
+        {
+            using var tmp = new TempDirectory();
+            BackendSessionRegistration.RecordRegistrationRun(
+                null, SessionRegistrationResult.Failed("x"), DateTime.UtcNow, DateTime.UtcNow,
+                null, null, null, NewLogger(tmp.Path));
+        }
+
+        // ============================================================ emergency-break message
+
+        [Fact]
+        public void Break_message_names_failed_registrations_in_invariant_culture()
+        {
+            var previous = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                var record = new RegistrationFailureSummary { FailedRuns = 3, Outcome = "Failed", NetworkLinkUpAtEnd = false };
+
+                var message = EmergencyBreakReporter.BuildMessage(478.2, 48, record);
+
+                Assert.Contains("session age 478.2h (cap 48h)", message);
+                Assert.EndsWith(" 3 earlier start(s) failed to register (last: Failed, network link at end: down).", message);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = previous;
+            }
+        }
+
+        [Fact]
+        public void Break_message_without_record_keeps_the_historical_text()
+        {
+            Assert.Equal(
+                "Agent absolute session-age emergency break fired at session age 50.0h (cap 48h) — cleaning up and exiting.",
+                EmergencyBreakReporter.BuildMessage(50.0, 48, null));
+        }
     }
 }

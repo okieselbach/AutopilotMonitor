@@ -1,0 +1,9 @@
+# WhiteGloveShellCoreSuccess v1 — Shell-Core 62407 "CommercialOOBE_ESPProgress_WhiteGlove_Success".
+# Posted by EspAndHelloTrackerAdapter (fire-once) when the ShellCoreTracker observes the
+# technician-flow success page. Payload `accountSetupProgress` (added 2026-09-29) carries the ESP
+# registry's AccountSetup progress at that moment ("true" = a subcategory had left notStarted);
+# signals from older agents carry no payload.
+# Reducer: HandleWhiteGloveShellCoreSuccessV1 → records ShellCoreWhiteGloveSuccessSeen and, when
+# the payload parses, AccountSetupProgressAtWhiteGloveSuccess; runs the sealing classifier inline.
+# The IME AccountSetup excluder (-40) is lifted only by an explicit "false".
+{"SessionSignalOrdinal":1,"SessionTraceOrdinal":1,"Kind":"WhiteGloveShellCoreSuccess","KindSchemaVersion":1,"OccurredAtUtc":"2026-09-14T07:25:09.7628703Z","SourceOrigin":"EspAndHelloTracker","Evidence":{"Kind":"Derived","Identifier":"esp-and-hello-tracker-v1","Summary":"WhiteGlove sealing success (coordinator-forwarded)","DerivationInputs":{"subSource":"ShellCoreTracker","accountSetupProgress":"false"}},"Payload":{"accountSetupProgress":"false"}}

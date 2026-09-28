@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Shared.Models;
+using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
@@ -22,6 +24,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private readonly string _sessionFilePath;
         private readonly string _sessionCreatedFilePath;
         private readonly string _whiteGloveMarkerPath;
+        private readonly string _registrationFailurePath;
         private readonly object _lockObject = new object();
 
         public SessionIdPersistence(string dataDirectory)
@@ -35,6 +38,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             _sessionFilePath = Path.Combine(dataDirectory, "session.id");
             _sessionCreatedFilePath = Path.Combine(dataDirectory, "session.created");
             _whiteGloveMarkerPath = Path.Combine(dataDirectory, "whiteglove.complete");
+            _registrationFailurePath = Path.Combine(dataDirectory, "registration-failure.json");
         }
 
         /// <summary>
@@ -164,6 +168,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             lock (_lockObject) TryDelete(_whiteGloveMarkerPath, logger);
         }
 
+        /// <summary>
+        /// Folds one failed registration run into <c>registration-failure.json</c>: the run
+        /// counter grows, the first failure time is kept, everything else describes the latest
+        /// run. A run that never registers exits and leaves nothing else behind — the emergency
+        /// break reads this file so the backend learns why the session never appeared.
+        /// Best-effort; never throws.
+        /// </summary>
+        public void RecordRegistrationFailure(RegistrationFailureSummary latestRun, AgentLogger logger = null)
+        {
+            if (latestRun == null) return;
+            lock (_lockObject)
+            {
+                try
+                {
+                    var previous = LoadRegistrationFailureInternal();
+                    var merged = new RegistrationFailureSummary
+                    {
+                        FailedRuns = (previous?.FailedRuns ?? 0) + 1,
+                        FirstFailedAtUtc = previous?.FirstFailedAtUtc ?? latestRun.LastFailedAtUtc,
+                        LastFailedAtUtc = latestRun.LastFailedAtUtc,
+                        Outcome = latestRun.Outcome,
+                        LastError = latestRun.LastError,
+                        NetworkLinkUpAtStart = latestRun.NetworkLinkUpAtStart,
+                        NetworkLinkUpAtEnd = latestRun.NetworkLinkUpAtEnd,
+                        AttemptWindowSeconds = latestRun.AttemptWindowSeconds,
+                        ConfigFetchOutcome = latestRun.ConfigFetchOutcome,
+                    };
+                    File.WriteAllText(_registrationFailurePath, JsonConvert.SerializeObject(merged));
+                    logger?.Info($"SessionIdPersistence: recorded failed registration run #{merged.FailedRuns}.");
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warning($"SessionIdPersistence: RecordRegistrationFailure failed: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>The failed-registration record since the last success, or <c>null</c> (none, unreadable).</summary>
+        public RegistrationFailureSummary LoadRegistrationFailure()
+        {
+            lock (_lockObject) return LoadRegistrationFailureInternal();
+        }
+
+        /// <summary>Drops the failed-registration record — called once registration succeeds.</summary>
+        public void ClearRegistrationFailure(AgentLogger logger = null)
+        {
+            lock (_lockObject) TryDelete(_registrationFailurePath, logger);
+        }
+
         /// <summary>Deletes the persisted SessionId. Next <see cref="GetOrCreate"/> starts a fresh session.</summary>
         public void Delete(AgentLogger logger = null)
         {
@@ -172,6 +225,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 TryDelete(_sessionFilePath, logger);
                 TryDelete(_sessionCreatedFilePath, logger);
                 TryDelete(_whiteGloveMarkerPath, logger);
+                TryDelete(_registrationFailurePath, logger);
             }
         }
 
@@ -191,8 +245,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 var fresh = Guid.NewGuid().ToString();
                 WriteAtomic(fresh, logger);
                 SaveSessionCreatedAtInternal(DateTime.UtcNow);
+                // Earlier failed runs belonged to the refused session id.
+                TryDelete(_registrationFailurePath, logger);
                 logger?.Info($"SessionIdPersistence: rotated SessionId to {fresh}.");
                 return fresh;
+            }
+        }
+
+        private RegistrationFailureSummary LoadRegistrationFailureInternal()
+        {
+            try
+            {
+                if (!File.Exists(_registrationFailurePath)) return null;
+                var record = JsonConvert.DeserializeObject<RegistrationFailureSummary>(File.ReadAllText(_registrationFailurePath));
+                return record != null && record.FailedRuns > 0 ? record : null;
+            }
+            catch
+            {
+                // Corrupt record: report nothing rather than a half-read account.
+                return null;
             }
         }
 

@@ -53,6 +53,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
             builder.ScenarioObservations = builder.ScenarioObservations.WithShellCoreWhiteGloveSuccessSeen(signal.SessionSignalOrdinal);
 
+            // Recorded before the inline classifier runs: it decides whether the AccountSetup
+            // excluder applies (see BuildWhiteGloveSealingSnapshot).
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.AccountSetupProgress, out var rawProgress)
+                && bool.TryParse(rawProgress, out var accountSetupProgress))
+            {
+                builder.ScenarioObservations = builder.ScenarioObservations
+                    .WithAccountSetupProgressAtWhiteGloveSuccess(accountSetupProgress, signal.SessionSignalOrdinal);
+            }
+
             // Option 3 fast-path: inline classifier evaluation on the strong WG signal.
             var afterObservation = builder.Build();
             var inlineSnapshot = BuildWhiteGloveSealingSnapshot(afterObservation);
@@ -362,6 +372,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <see cref="WhiteGloveSealingSnapshot.ComputeInputHash"/> is therefore byte-stable
         /// across the refactor, which preserves the anti-loop semantics.
         /// </para>
+        /// <para>
+        /// <c>hasAccountSetupActivity</c> needs the IME AccountSetup phase AND no explicit
+        /// "registry shows no AccountSetup progress" on the WhiteGlove_Success signal. IME
+        /// reports AccountSetup from the device session as soon as the device apps are done, so
+        /// on pre-provisioning with the user ESP enabled that line routinely precedes the
+        /// technician's success page. The conjunction keeps the excluder a subset of the old
+        /// one: a verdict can only rise, and a missing payload (older agent) scores exactly as
+        /// before.
+        /// </para>
         /// </summary>
         internal static WhiteGloveSealingSnapshot BuildWhiteGloveSealingSnapshot(DecisionState state) =>
             new WhiteGloveSealingSnapshot(
@@ -370,7 +389,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 aadJoinedWithUser: state.ScenarioObservations.AadUserJoinWithUserObserved?.Value == true,
                 desktopArrived: state.DesktopArrivedUtc != null,
                 helloResolved: state.HelloResolvedUtc != null,
-                hasAccountSetupActivity: state.AccountSetupEnteredUtc != null,
+                hasAccountSetupActivity: state.AccountSetupEnteredUtc != null
+                    && state.ScenarioObservations.AccountSetupProgressAtWhiteGloveSuccess?.Value != false,
                 isDeviceOnlyDeploymentHypothesis:
                     state.ClassifierOutcomes.DeviceOnlyDeployment.Level >= HypothesisLevel.Strong &&
                     state.ClassifierOutcomes.DeviceOnlyDeployment.Reason == DeviceOnlyReasons.DeviceOnly,

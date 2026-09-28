@@ -169,6 +169,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 _logger.Info(
                     $"EnrollmentTerminationHandler: handling Terminated (reason={args.Reason}, outcome={args.Outcome}, stage={args.StageName}).");
 
+                // The seal is already persisted in the decision snapshot. The marker goes down
+                // before anything else: the technician's reseal can kill this process at any
+                // later step, and a missing marker makes the next boot run the 48-hour break
+                // against the Part-1 session age instead of resuming Part 2.
+                if (isWhiteGlovePart1)
+                {
+                    TrySaveWhiteGloveComplete();
+                }
+
                 var state = TryGetCurrentState();
 
                 // M4.6.δ — shutdown analyzers run BEFORE the dialog / diagnostics upload so
@@ -254,7 +263,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
                 // WhiteGlove Part-1 exit: keep the session alive, but announce the handoff so
                 // the timeline clearly marks the transition. The `whiteglove.complete` marker
-                // lets the next agent boot classify itself as a Part-2 resume.
+                // (written at the top of this handler) lets the next agent boot classify itself
+                // as a Part-2 resume.
                 if (isWhiteGlovePart1)
                 {
                     // Stop peripheral collectors BEFORE the Part-1-complete marker so their
@@ -298,7 +308,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     DelayLateEventGrace();
                     DrainSpool();
 
-                    TrySaveWhiteGloveComplete();
                     // Option 2 (WG Part 1 graceful-exit hardening, 2026-04-30): write the
                     // clean-exit marker BEFORE _signalShutdown returns control to the main
                     // thread. The AppDomain.ProcessExit handler still writes it as a second

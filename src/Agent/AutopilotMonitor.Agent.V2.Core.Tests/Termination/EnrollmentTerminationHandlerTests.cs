@@ -565,6 +565,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
+        public void Handle_whiteglove_part1_writes_marker_before_the_later_exit_steps()
+        {
+            // The technician's reseal can kill the process anywhere after the seal. The marker
+            // is what lets the next boot skip the 48-hour break and resume Part 2, so it must
+            // exist before collectors stop, diagnostics upload, grace and drain run.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            bool? markerPresentAtCollectorStop = null;
+            rig.StopPeripheralCollectorsHook = () => markerPresentAtCollectorStop = rig.SessionPersistence.IsWhiteGloveResume();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            Assert.True(markerPresentAtCollectorStop, "whiteglove.complete must be written before the peripheral collectors are stopped.");
+            var emitted = rig.EmittedEventTypes.ToList();
+            Assert.True(emitted.IndexOf("agent_shutting_down") >= 0, "agent_shutting_down must still be emitted.");
+        }
+
+        [Fact]
+        public void Handle_non_whiteglove_termination_never_writes_the_marker()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Completed }.Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            Assert.False(rig.SessionPersistence.IsWhiteGloveResume());
+        }
+
+        [Fact]
         public void Handle_whiteglove_part1_stops_collectors_before_emitting_part1_complete()
         {
             // WG Part-1 straggler-ordering fix. Peripheral collectors emit their one-shot
