@@ -34,7 +34,7 @@ export const JSONPARSE_BASELINE: Record<string, number> = {
   "app/dashboard/hooks/deleteSessionResponse.ts": 1,
   "app/health-check/page.tsx": 1,
   "components/landing/StatsBand.tsx": 2,
-  "contexts/AuthContext.tsx": 3,
+  "contexts/AuthContext.tsx": 2,
 };
 
 /**

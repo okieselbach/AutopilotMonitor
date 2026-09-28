@@ -20,6 +20,8 @@ import {
   tryBeginLoginFallback,
 } from '@/lib/authApp';
 import { api } from '@/lib/api';
+import { apiErrorFromResponse } from '@/lib/apiClient';
+import { classifyAuthMeRefusal } from '@/lib/authMeRefusal';
 import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
@@ -369,23 +371,23 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
 
       if (!response.ok) {
         if (response.status === 403) {
-          const errorData = await response.json();
+          // Both refusal body shapes (policy-middleware envelope, AuthFunction's own gates) are
+          // read by classifyAuthMeRefusal.
+          const refusal = classifyAuthMeRefusal(await apiErrorFromResponse(response));
           // Suspended (operator kill-switch or the offboarding tombstone): keep the user signed
           // in with claim-only info so ProtectedRoute renders the suspended page — an admin who
           // just offboarded their tenant reloads into the farewell feedback form, not into a
           // browser alert and a forced logout.
-          if (errorData.error === 'TenantSuspended') {
-            console.warn('[Auth] Tenant suspended:', errorData.message);
+          if (refusal?.kind === 'suspended') {
+            console.warn('[Auth] Tenant suspended:', refusal.message);
             setTenantSuspended(true);
-            setSuspensionMessage(errorData.message || 'Your tenant has been suspended.');
+            setSuspensionMessage(refusal.message || 'Your tenant has been suspended.');
             return claimsOnlyUserInfo(account);
           }
-          // 'PendingActivation' is the current backend code; 'PrivatePreview' is the legacy
-          // code kept accepted so web and backend can deploy in any order.
-          if (errorData.error === 'PendingActivation' || errorData.error === 'PrivatePreview') {
+          if (refusal?.kind === 'activationPending') {
             console.log('[Auth] Tenant not yet activated');
             setActivationPending(true);
-            setActivationMessage(errorData.message || 'Your organization is being activated.');
+            setActivationMessage(refusal.message || 'Your organization is being activated.');
             // Return basic user info so the user stays logged in but sees the activation page
             return claimsOnlyUserInfo(account);
           }

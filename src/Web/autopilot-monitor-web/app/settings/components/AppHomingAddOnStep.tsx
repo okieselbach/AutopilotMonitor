@@ -59,11 +59,10 @@ export function AppHomingAddOnStep({ missingRoles, command, busy, onDetectExisti
             ))}
           </ul>
           <p className="mt-1.5 text-blue-800 dark:text-blue-200">
-            Run the command below once with an account that can assign application permissions
-            (<strong>Global Administrator</strong>, <strong>Privileged Role Administrator</strong> or{" "}
-            <strong>Cloud Application Administrator</strong>) — Azure Cloud Shell is the easiest
-            place. Then click <strong>Detect existing access</strong>: the switch completes
-            automatically.
+            Run the command below once, signed in as a <strong>Global Administrator</strong> or{" "}
+            <strong>Privileged Role Administrator</strong> (only these Entra roles can grant Microsoft
+            Graph application permissions) — Azure Cloud Shell is the easiest place. Then click{" "}
+            <strong>Detect existing access</strong>: the switch completes automatically.
           </p>
           <pre className="mt-2.5 bg-gray-900 text-gray-100 text-xs font-mono p-3 rounded overflow-x-auto">
 {command}

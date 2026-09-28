@@ -75,15 +75,17 @@
 .NOTES
     Requires:
       - Microsoft.Graph.Authentication PowerShell module (auto-installs if missing).
-      - Sign-in as Global Administrator OR Privileged Role Administrator OR Cloud Application Administrator.
+      - Sign-in as Global Administrator OR Privileged Role Administrator (with PIM, activate the
+        role first). Only these roles may assign Microsoft Graph application permissions;
+        Application Administrator and Cloud Application Administrator are not enough.
+      - The Autopilot Monitor app must be admin-consented in your tenant first
+        (its service principal must exist before grants can be added).
 
     Sign-in behaviour:
       In Azure Cloud Shell the script signs in via the ambient identity endpoint (a delegated
       token for the already-signed-in user) - no device-code prompt, which Conditional Access
       policies commonly block. Outside Cloud Shell it falls back to a normal interactive
       Microsoft Graph sign-in. -TenantId only applies to the interactive fallback.
-      - The Autopilot Monitor app must be admin-consented in your tenant first
-        (its service principal must exist before grants can be added).
 
     After granting:
       The Autopilot Monitor backend may cache an older token for up to ~1 hour. Use the
@@ -139,6 +141,36 @@ if ($PSCmdlet.ParameterSetName -eq 'ByFeatures') {
 # ---- Constants ----
 $MicrosoftGraphAppId = '00000003-0000-0000-c000-000000000000'
 
+# ---- Graph failure details ----
+# Invoke-MgGraphRequest puts only "Response status code does not indicate success: ..." into the
+# exception message. Graph's own error (code + message) is the response body in ErrorDetails,
+# behind the request line, the status line and the headers. Some headers carry JSON themselves
+# (x-ms-ags-diagnostic), so the body is taken from behind the blank line that ends the headers.
+function Get-GraphFailure {
+    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $status = 0
+    if ($ErrorRecord.Exception.PSObject.Properties['Response'] -and $ErrorRecord.Exception.Response) {
+        $status = [int]$ErrorRecord.Exception.Response.StatusCode
+    }
+
+    $text = $ErrorRecord.Exception.Message
+    if ($ErrorRecord.ErrorDetails -and $ErrorRecord.ErrorDetails.Message) {
+        $body = ($ErrorRecord.ErrorDetails.Message -split '\r?\n\r?\n', 2)[-1].Trim()
+        if ($body.StartsWith('{')) {
+            try {
+                $graphError = ($body | ConvertFrom-Json).error
+                if ($graphError.code) { $text = "$($graphError.code): $($graphError.message)" }
+            }
+            catch {
+                # Not a Graph JSON body - keep the exception message.
+            }
+        }
+    }
+
+    [pscustomobject]@{ Status = $status; Text = $text }
+}
+
 # ---- Pre-flight: module ----
 if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
     Write-Host "[Setup] Microsoft.Graph.Authentication not installed. Installing for current user..." -ForegroundColor Yellow
@@ -188,7 +220,7 @@ Write-Host "[Auth] Granted scopes: $($ctx.Scopes -join ', ')"
 # carries a fixed scope set (incl. Directory.AccessAsUser.All) instead of the requested scopes,
 # and its effective rights follow the signed-in user's directory role.
 if (-not $identityConnected -and -not ($ctx.Scopes -contains 'AppRoleAssignment.ReadWrite.All')) {
-    Write-Warning "Scope 'AppRoleAssignment.ReadWrite.All' was NOT granted. The signed-in user likely lacks the required role (Global Admin / Privileged Role Admin / Cloud App Admin)."
+    Write-Warning "Scope 'AppRoleAssignment.ReadWrite.All' was NOT granted. The signed-in user likely lacks the required role (Global Administrator or Privileged Role Administrator)."
     if (-not $VerifyOnly) { return }
 }
 
@@ -262,6 +294,7 @@ $action = if ($Revoke) { 'Revoke' } else { 'Grant' }
 Write-Host "[4/4] $action mode - processing $($Permissions.Count) permission(s)..." -ForegroundColor Cyan
 
 $results = @()
+$graphForbidden = $false
 foreach ($permName in $Permissions) {
     $appRole = $graphSp.appRoles | Where-Object {
         $_.value -eq $permName -and $_.allowedMemberTypes -contains 'Application'
@@ -288,7 +321,9 @@ foreach ($permName in $Permissions) {
                 $results += [pscustomobject]@{ Permission = $permName; Status = 'Revoked' }
             }
             catch {
-                Write-Warning "  [FAIL]  '$permName' revoke failed: $($_.Exception.Message)"
+                $failure = Get-GraphFailure $_
+                if ($failure.Status -eq 403) { $graphForbidden = $true }
+                Write-Warning "  [FAIL]  '$permName' revoke failed: $($failure.Text)"
                 $results += [pscustomobject]@{ Permission = $permName; Status = 'Failed' }
             }
         }
@@ -315,7 +350,9 @@ foreach ($permName in $Permissions) {
             $results += [pscustomobject]@{ Permission = $permName; Status = 'Granted' }
         }
         catch {
-            Write-Warning "  [FAIL]  '$permName' grant failed: $($_.Exception.Message)"
+            $failure = Get-GraphFailure $_
+            if ($failure.Status -eq 403) { $graphForbidden = $true }
+            Write-Warning "  [FAIL]  '$permName' grant failed: $($failure.Text)"
             $results += [pscustomobject]@{ Permission = $permName; Status = 'Failed' }
         }
     }
@@ -324,6 +361,9 @@ foreach ($permName in $Permissions) {
 Write-Host ""
 Write-Host "=========== Summary ===========" -ForegroundColor Cyan
 $results | Format-Table -AutoSize | Out-Host
+if ($graphForbidden) {
+    Write-Warning "Microsoft Graph refused the change (403): the signed-in account may not manage Microsoft Graph application permissions. Sign in as Global Administrator or Privileged Role Administrator (with PIM, activate the role first) and run the script again."
+}
 Write-Host ""
 Write-Host "Note: token-cached backends may need up to ~1h to see the new permission set." -ForegroundColor Yellow
 Write-Host "      Use 'Refresh permission status' in the admin UI to apply changes immediately." -ForegroundColor Yellow

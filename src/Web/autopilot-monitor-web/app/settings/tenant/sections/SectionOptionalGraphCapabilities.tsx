@@ -237,7 +237,8 @@ export function SectionOptionalGraphCapabilities() {
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-md font-semibold text-gray-900 mb-2">PowerShell grant command</h3>
           <p className="text-sm text-gray-600 mb-3">
-            Run the commands below as a tenant administrator in{" "}
+            Run the commands below signed in as a Global Administrator or Privileged Role Administrator
+            (only these Entra roles can grant Microsoft Graph application permissions) in{" "}
             <a
               href="https://shell.azure.com"
               target="_blank"
