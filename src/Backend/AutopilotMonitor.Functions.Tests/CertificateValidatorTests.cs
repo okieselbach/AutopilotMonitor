@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using AutopilotMonitor.Functions.Security;
@@ -13,6 +15,7 @@ namespace AutopilotMonitor.Functions.Tests;
 ///     must validate successfully. This guards against rollouts where the embedded root/intermediate
 ///     bundle drifts from the chain Microsoft is actually issuing.
 ///   - Negative path: self-signed leaf certs (with or without Intune-shaped DNs) must NOT validate.
+///   - No network I/O: a leaf from an unknown CA must be rejected without fetching its AIA URL.
 /// </summary>
 public class CertificateValidatorTests
 {
@@ -131,6 +134,31 @@ public class CertificateValidatorTests
         Assert.Contains("expired", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ValidateCertificate_WithUnknownIssuerAndAiaUrl_NeverFetchesTheIssuer()
+    {
+        // The caller mints the leaf, so the AIA caIssuers URL points wherever they like. A
+        // self-signed leaf never reaches the issuer-download path; it takes a leaf signed by a
+        // CA that is neither embedded nor sent.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var b64 = CreateLeafFromUnknownCaBase64($"http://127.0.0.1:{port}/{Guid.NewGuid():N}.cer");
+
+            var result = CertificateValidator.ValidateCertificate(b64);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("chain validation failed", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.False(listener.Pending(), "Chain building connected to the certificate's AIA URL");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     private static string ResolveSamplePath()
     {
         var assemblyDir = Path.GetDirectoryName(typeof(CertificateValidatorTests).Assembly.Location)!;
@@ -164,5 +192,25 @@ public class CertificateValidatorTests
         using var cert = req.CreateSelfSigned(nb, na);
 
         return Convert.ToBase64String(cert.Export(X509ContentType.Cert));
+    }
+
+    private static string CreateLeafFromUnknownCaBase64(string aiaCaIssuersUrl)
+    {
+        using var caKey = RSA.Create(2048);
+        var caReq = new CertificateRequest("CN=Unknown Test CA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var ca = caReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+
+        using var leafKey = RSA.Create(2048);
+        var leafReq = new CertificateRequest("CN=test-device.contoso.example", leafKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        leafReq.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid("1.3.6.1.5.5.7.3.2") },
+                critical: false));
+        leafReq.CertificateExtensions.Add(
+            new X509AuthorityInformationAccessExtension(ocspUris: null, caIssuersUris: new[] { aiaCaIssuersUrl }));
+        using var leaf = leafReq.Create(ca, DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(30), RandomNumberGenerator.GetBytes(16));
+
+        return Convert.ToBase64String(leaf.Export(X509ContentType.Cert));
     }
 }

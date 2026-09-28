@@ -19,6 +19,7 @@ namespace AutopilotMonitor.Functions.Security
     /// - X.509 chain trust pinned to embedded Intune root certificate(s) via
     ///   X509ChainTrustMode.CustomRootTrust (OS trust store is ignored)
     /// - No revocation checking (Intune certificates have no CRL/OCSP endpoints)
+    /// - No network I/O during chain building: issuer downloads (AIA) are disabled
     /// - Prevents self-signed certificate attacks
     /// - Validates Enhanced Key Usage for Client Authentication
     /// - In-memory cache for validated certificates (5 minute TTL)
@@ -200,8 +201,11 @@ namespace AutopilotMonitor.Functions.Security
                 chain.ChainPolicy.RevocationFlag = X509RevocationFlag.EntireChain;
                 chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
                 chain.ChainPolicy.VerificationTime = DateTime.UtcNow;
-                chain.ChainPolicy.UrlRetrievalTimeout = TimeSpan.FromSeconds(10);
                 chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+                // The leaf, and with it any AIA issuer URL, comes from an unauthenticated caller.
+                // Every legitimate issuer is embedded below, so the chain engine must never
+                // download one: a fetch would be an attacker-directed request from the backend.
+                chain.ChainPolicy.DisableCertificateDownloads = true;
 
                 foreach (var root in roots)
                     chain.ChainPolicy.CustomTrustStore.Add(root);
