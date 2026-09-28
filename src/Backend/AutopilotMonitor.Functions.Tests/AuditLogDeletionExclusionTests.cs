@@ -31,9 +31,9 @@ public class AuditLogDeletionExclusionTests
     public void Global_fanout_filter_includes_deletion_exclusion_only_when_requested()
     {
         var without = TableStorageService.BuildAuditLogFilterWithRowKeyBound(
-            Tenant.ToString(), null, null, lastRowKey: null, excludeDeletions: false);
+            Tenant.ToString(), null, null, rowKeyBound: null, excludeDeletions: false);
         var with = TableStorageService.BuildAuditLogFilterWithRowKeyBound(
-            Tenant.ToString(), null, null, lastRowKey: null, excludeDeletions: true);
+            Tenant.ToString(), null, null, rowKeyBound: null, excludeDeletions: true);
 
         Assert.DoesNotContain("deletion_started", without);
         Assert.Contains("Action ne 'deletion_started'", with);
@@ -47,7 +47,7 @@ public class AuditLogDeletionExclusionTests
         // noise leak back into one of the two views.
         var tenant = TableStorageService.BuildAuditLogFilter(Tenant.ToString(), null, null, excludeDeletions: true);
         var global = TableStorageService.BuildAuditLogFilterWithRowKeyBound(
-            Tenant.ToString(), null, null, lastRowKey: null, excludeDeletions: true);
+            Tenant.ToString(), null, null, rowKeyBound: null, excludeDeletions: true);
 
         var clause = TableStorageService.DeletionExclusionClause();
         Assert.Contains(clause, tenant);

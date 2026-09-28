@@ -152,7 +152,7 @@ public class BusinessTimestampFilterClauseTests
 
         var plain = TableStorageService.BuildAuditLogFilter(Tenant, from, to);
         var fanOut = TableStorageService.BuildAuditLogFilterWithRowKeyBound(
-            Tenant, from, to, lastRowKey: "!0123_x", excludeDeletions: false);
+            Tenant, from, to, rowKeyBound: new PerPartitionFanOutMerge.RowKeyBound("!0123_x", Inclusive: false), excludeDeletions: false);
 
         foreach (var f in new[] { plain!, fanOut })
         {

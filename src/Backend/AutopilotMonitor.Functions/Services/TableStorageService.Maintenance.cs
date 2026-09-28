@@ -1,5 +1,6 @@
 ﻿using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
@@ -196,9 +197,7 @@ namespace AutopilotMonitor.Functions.Services
             DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
             bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
         {
-            // Cross-tenant: per-tenant fan-out + merge by RowKey. Without this
-            // fan-out Azure pages by (PK asc, RK asc) cross-partition, surfacing
-            // tenants alphabetically rather than newest-first globally.
+            // Cross-tenant: per-tenant fan-out + merge by RowKey (see PerPartitionFanOutMerge).
             return FetchAllAuditLogsPageAsync(dateFrom, dateTo, pageSize, continuation, excludeDeletions, filters);
         }
 
@@ -268,16 +267,6 @@ namespace AutopilotMonitor.Functions.Services
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
             try
             {
-                var continuations = AutopilotMonitor.Functions.DataAccess.TableStorage.PerPartitionFanOutMerge
-                    .DecodeMultiContinuation(continuation);
-                // First-page request (no continuation) fans out across every
-                // tenant in the catalog. Subsequent pages restrict to tenants
-                // still in the continuation map — anything dropped by
-                // MergeAndAdvance (because that partition exhausted on a
-                // prior page) stays dropped, which is what shrinks the
-                // wire-format token from 30+ KB to a few hundred bytes.
-                var isFirstPage = string.IsNullOrEmpty(continuation);
-
                 // Tenants come from TenantConfiguration (1 row per tenant — cheap).
                 // PLUS the synthetic global-tenant partition (Constants.AuditGlobalTenantId)
                 // where platform-action audits are written from TenantOffboardFunction,
@@ -293,45 +282,20 @@ namespace AutopilotMonitor.Functions.Services
                     tenantIds.Add(tenantId);
                 }
 
-                var activeTenantIds = tenantIds
-                    .Where(t => isFirstPage || continuations.ContainsKey(t))
-                    .ToList();
-                if (activeTenantIds.Count == 0)
-                    return new RawPage<AuditLogEntry>(new List<AuditLogEntry>(), null);
-
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
-
-                // Per-tenant fetch in parallel: filter `PartitionKey eq tenantId` plus
-                // `RowKey gt LastRowKey` (revtick scheme → strictly older than what
-                // we already returned for this tenant), plus the optional date window.
-                var fetchTasks = activeTenantIds.Select(async tid =>
-                {
-                    continuations.TryGetValue(tid, out var prior);
-                    var tenantFilter = BuildAuditLogFilterWithRowKeyBound(tid, dateFrom, dateTo, prior?.LastRowKey, excludeDeletions, filters);
-                    var fetched = new List<(string RowKey, AuditLogEntry Item)>();
-                    await foreach (var e in tableClient.QueryAsync<TableEntity>(filter: tenantFilter, maxPerPage: pageSize))
+                return await PerPartitionFanOutMerge.FetchPageAsync<AuditLogEntry>(
+                    tenantIds, pageSize, continuation,
+                    async (tenantId, bound, limit, ct) =>
                     {
-                        fetched.Add((e.RowKey, MapToAuditLogEntry(e)));
-                        if (fetched.Count >= pageSize) break;
-                    }
-                    return new AutopilotMonitor.Functions.DataAccess.TableStorage.PerPartitionFanOutMerge
-                        .PartitionFetchResult<AuditLogEntry>(tid, fetched);
-                }).ToList();
-
-                var results = await Task.WhenAll(fetchTasks);
-
-                var (items, nextContinuations) = AutopilotMonitor.Functions.DataAccess.TableStorage.PerPartitionFanOutMerge
-                    .MergeAndAdvance(results, continuations, pageSize, e => e.Timestamp);
-
-                // MergeAndAdvance only puts active partitions into the map now
-                // (exhausted ones are dropped, see PerPartitionFanOutMerge.cs).
-                // An empty map therefore means "every partition is done" and we
-                // emit no continuation, ending the pagination cleanly.
-                string? nextRawToken = nextContinuations.Count > 0
-                    ? AutopilotMonitor.Functions.DataAccess.TableStorage.PerPartitionFanOutMerge
-                        .EncodeMultiContinuation(nextContinuations)
-                    : null;
-                return new RawPage<AuditLogEntry>(items, nextRawToken);
+                        var filter = BuildAuditLogFilterWithRowKeyBound(tenantId, dateFrom, dateTo, bound, excludeDeletions, filters);
+                        var read = new List<(string RowKey, AuditLogEntry Item)>();
+                        await foreach (var e in tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: limit, cancellationToken: ct))
+                        {
+                            read.Add((e.RowKey, MapToAuditLogEntry(e)));
+                            if (read.Count >= limit) break;
+                        }
+                        return read;
+                    });
             }
             catch (Exception ex)
             {
@@ -382,8 +346,8 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         internal static string BuildAuditLogFilterWithRowKeyBound(
-            string tenantId, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey, bool excludeDeletions,
-            AuditLogQueryFilters? filters = null)
+            string tenantId, DateTime? dateFrom, DateTime? dateTo, PerPartitionFanOutMerge.RowKeyBound? rowKeyBound,
+            bool excludeDeletions, AuditLogQueryFilters? filters = null)
         {
             var clauses = new List<string>
             {
@@ -393,8 +357,8 @@ namespace AutopilotMonitor.Functions.Services
             if (excludeDeletions)
                 clauses.Add(DeletionExclusionClause());
             AppendAuditFieldFilters(clauses, filters);
-            if (!string.IsNullOrEmpty(lastRowKey))
-                clauses.Add($"RowKey gt '{lastRowKey!.Replace("'", "''")}'");
+            if (rowKeyBound != null)
+                clauses.Add(rowKeyBound.ToODataClause());
             if (dateFrom.HasValue)
                 clauses.Add(BusinessTimestamp.AuditDateFromClause(ToUtc(dateFrom.Value)));
             if (dateTo.HasValue)

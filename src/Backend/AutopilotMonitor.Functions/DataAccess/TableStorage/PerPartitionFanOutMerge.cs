@@ -3,159 +3,158 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared.Pagination;
 
 namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 {
     /// <summary>
-    /// Generic helpers driving cross-partition merge-pagination for global views
-    /// where Azure-Tables' native (PK asc, RK asc) ordering would otherwise
-    /// surface partitions one-at-a-time instead of globally newest-first.
-    /// Used by ops-events (categories as partitions) and global audit logs
-    /// (tenants as partitions).
+    /// Newest-first paging across the partitions of one table: global ops events (categories as
+    /// partitions) and the global audit log (tenants as partitions). Azure Tables pages a
+    /// cross-partition query in (PK asc, RK asc) order, which would surface one partition at a time,
+    /// so every page runs one PartitionKey query per partition and merges the results.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Per-partition continuation anchored on RowKey (not Azure's opaque token):
-    /// <c>LastRowKey</c> = the oldest RowKey we have already returned for this
-    /// partition. Next fetch filters <c>RowKey gt LastRowKey</c> — natural
-    /// ordering within the partition (revtick → newest-first) means this skips
-    /// exactly what we showed and re-considers everything older.
+    /// Invariant: every partition uses the same reverse-tick RowKey scheme, so the global order is
+    /// (RowKey asc, Partition asc) and that order is the display order. The merge sorts by exactly
+    /// that key and never by a resolved timestamp column — a merge key that disagrees with the
+    /// RowKey inside one partition would let the watermark skip rows.
     /// </para>
     /// <para>
-    /// Why not Azure's continuation token? Cross-partition merge can drop items
-    /// that were fetched but didn't survive the top-pageSize cut. If we advanced
-    /// an Azure cursor past those leftovers, we'd lose them forever. With a
-    /// RowKey bound we simply don't advance the continuation for partitions whose
-    /// fetched items lost the merge — they get re-fetched next call and compete
-    /// again at a lower floor.
+    /// The continuation is the (RowKey, Partition) of the last returned row, so its size does not
+    /// depend on the number of partitions. The earlier per-partition continuation map kept one entry
+    /// for every partition with rows and outgrew the host's URL limit (HTTP 414) on the tenant
+    /// fan-out.
     /// </para>
     /// <para>
-    /// Continuation shape: only <em>active</em> partitions are encoded. Missing
-    /// from the map = exhausted (or never had any data). For 200-tenant audit
-    /// fan-outs that previously kept exhausted entries around, the encoded
-    /// token would balloon past 30 KB and trip URL-length limits before
-    /// reaching the function (browser <c>net::ERR_FAILED</c> on Next click).
-    /// Now the token shrinks page-over-page as partitions exhaust.
+    /// Each partition reads at most <c>pageSize + 1</c> rows after the watermark. More rows exist
+    /// exactly when more than <c>pageSize</c> were read in total: if no partition reached its limit,
+    /// every partition is exhausted.
     /// </para>
     /// </remarks>
     internal static class PerPartitionFanOutMerge
     {
-        internal sealed record PartitionContinuation(string? LastRowKey);
+        /// <summary>The (RowKey, Partition) of the last row a page returned.</summary>
+        internal sealed record Watermark(string RowKey, string Partition);
 
-        internal sealed record PartitionFetchResult<T>(
-            string Partition,
-            IReadOnlyList<(string RowKey, T Item)> Items);
-
-        /// <summary>
-        /// Pure merge-and-advance step. Given pre-fetched per-partition items
-        /// (already newest-first within each list) and the previous per-partition
-        /// continuation map, returns the top-pageSize merged items plus the
-        /// next continuation map. Partitions with nothing left to return are
-        /// dropped from the map entirely — consumers treat "missing" as
-        /// exhausted on subsequent calls (see class remarks).
-        /// </summary>
-        public static (List<T> Items, Dictionary<string, PartitionContinuation> NextContinuations)
-            MergeAndAdvance<T>(
-                IReadOnlyList<PartitionFetchResult<T>> fetched,
-                IReadOnlyDictionary<string, PartitionContinuation> priorContinuations,
-                int pageSize,
-                Func<T, DateTime> timestampSelector)
+        /// <summary>Lower RowKey bound of one partition's read.</summary>
+        internal sealed record RowKeyBound(string RowKey, bool Inclusive)
         {
-            var allFetched = fetched
-                .SelectMany(r => r.Items.Select(t => (part: r.Partition, rk: t.RowKey, item: t.Item)))
-                .OrderByDescending(t => timestampSelector(t.item))
-                .ToList();
-
-            var merged = allFetched.Take(pageSize).ToList();
-            var returnedItems = merged.Select(t => t.item).ToList();
-
-            var newContinuations = new Dictionary<string, PartitionContinuation>(StringComparer.Ordinal);
-            foreach (var r in fetched)
-            {
-                var returnedFromPart = merged.Where(m => m.part == r.Partition).ToList();
-                if (returnedFromPart.Count > 0)
-                {
-                    // Advance to the oldest RowKey we returned for this partition.
-                    // Revtick scheme: larger RowKey string = older timestamp, so
-                    // OrdinalCompare-max gives us the oldest of the returned set.
-                    var oldestRk = returnedFromPart
-                        .Select(m => m.rk)
-                        .OrderBy(rk => rk, StringComparer.Ordinal)
-                        .Last();
-                    newContinuations[r.Partition] = new PartitionContinuation(oldestRk);
-                }
-                else if (r.Items.Count == 0)
-                {
-                    // No items returned from this partition's query → exhausted.
-                    // Drop from map entirely; the consumer's "missing = exhausted"
-                    // rule (when continuation was provided) does the right thing
-                    // and keeps the encoded token small.
-                }
-                else
-                {
-                    // Fetched some but they all lost the merge cut to other partitions.
-                    // Keep continuation where it was — they'll be re-fetched and likely
-                    // win on the next page when the floor drops. Wasted bandwidth, but
-                    // correct (no item silently dropped).
-                    priorContinuations.TryGetValue(r.Partition, out var prior);
-                    newContinuations[r.Partition] = prior ?? new PartitionContinuation(null);
-                }
-            }
-
-            return (returnedItems, newContinuations);
+            public string ToODataClause() => $"RowKey {(Inclusive ? "ge" : "gt")} '{RowKey.Replace("'", "''")}'";
         }
 
-        // Wire format v1 (legacy): every partition encoded with `{rk, x:bool}`.
-        // Wire format v2 (current): only ACTIVE partitions, `{rk}` only. Decoder
-        // accepts both and silently drops v1 `x:true` entries so old tokens
-        // emitted by previous deploys still page through cleanly.
-        private const int WireFormatVersion = 2;
+        /// <summary>
+        /// Delegate that reads up to <c>limit</c> rows of one partition, newest first (RowKey
+        /// ascending), restricted by <c>bound</c> when it is set. It must return every matching row
+        /// up to the limit — a short read is taken as "partition exhausted".
+        /// </summary>
+        internal delegate Task<List<(string RowKey, T Item)>> PartitionReader<T>(
+            string partition, RowKeyBound? bound, int limit, CancellationToken cancellationToken);
 
-        public static string EncodeMultiContinuation(IReadOnlyDictionary<string, PartitionContinuation> continuations)
+        /// <summary>
+        /// The rows of <paramref name="partition"/> that come strictly after the watermark in
+        /// (RowKey, Partition) order. A partition that sorts after the watermark's partition may still
+        /// hold rows with the watermark's own RowKey; one that sorts before (or is the same) may not.
+        /// </summary>
+        internal static RowKeyBound? BoundAfter(Watermark? watermark, string partition)
         {
-            var doc = new Dictionary<string, object?>
+            if (watermark == null) return null;
+            var inclusive = string.CompareOrdinal(partition, watermark.Partition) > 0;
+            return new RowKeyBound(watermark.RowKey, inclusive);
+        }
+
+        public static async Task<RawPage<T>> FetchPageAsync<T>(
+            IEnumerable<string> partitions,
+            int pageSize,
+            string? continuation,
+            PartitionReader<T> readPartition,
+            CancellationToken cancellationToken = default)
+        {
+            if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
+
+            Watermark? watermark = null;
+            if (!string.IsNullOrEmpty(continuation))
+            {
+                watermark = DecodeWatermark(continuation);
+                // The HMAC wrapper already rejected foreign tokens; one that passes it and still does
+                // not decode was minted by an older deploy. End the list rather than restart it.
+                if (watermark == null) return RawPage<T>.Empty;
+            }
+
+            var limit = pageSize + 1;
+            var rows = await BoundedFanOut.RunAsync(partitions, BoundedFanOut.CrossTenantConcurrency, async (partition, ct) =>
+            {
+                var read = await readPartition(partition, BoundAfter(watermark, partition), limit, ct).ConfigureAwait(false);
+                return read.Select(r => (Partition: partition, r.RowKey, r.Item)).ToList();
+            }, cancellationToken).ConfigureAwait(false);
+
+            return Merge(rows, pageSize);
+        }
+
+        /// <summary>
+        /// Pure merge step: orders the rows read from all partitions by (RowKey, Partition), returns
+        /// the first <paramref name="pageSize"/> and a continuation when rows are left over.
+        /// </summary>
+        internal static RawPage<T> Merge<T>(IEnumerable<(string Partition, string RowKey, T Item)> rows, int pageSize)
+        {
+            var ordered = rows
+                .OrderBy(r => r.RowKey, StringComparer.Ordinal)
+                .ThenBy(r => r.Partition, StringComparer.Ordinal)
+                .ToList();
+            var page = ordered.Take(pageSize).ToList();
+
+            string? next = null;
+            if (ordered.Count > pageSize)
+            {
+                var last = page[page.Count - 1];
+                next = EncodeWatermark(new Watermark(last.RowKey, last.Partition));
+            }
+            return new RawPage<T>(page.Select(r => r.Item).ToList(), next);
+        }
+
+        private const int WireFormatVersion = 3;
+
+        public static string EncodeWatermark(Watermark watermark)
+        {
+            var json = JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 ["v"] = WireFormatVersion,
-                ["c"] = continuations.ToDictionary(
-                    kv => kv.Key,
-                    kv => (object?)new Dictionary<string, object?>
-                    {
-                        ["rk"] = kv.Value.LastRowKey,
-                    }),
-            };
-            var json = JsonSerializer.Serialize(doc);
+                ["rk"] = watermark.RowKey,
+                ["p"] = watermark.Partition,
+            });
             return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
         }
 
-        public static Dictionary<string, PartitionContinuation> DecodeMultiContinuation(string? raw)
+        /// <summary>Decodes a watermark; null for anything that is not a v3 watermark.</summary>
+        public static Watermark? DecodeWatermark(string? raw)
         {
-            var result = new Dictionary<string, PartitionContinuation>(StringComparer.Ordinal);
-            if (string.IsNullOrEmpty(raw)) return result;
-
+            if (string.IsNullOrEmpty(raw)) return null;
             try
             {
-                var bytes = Convert.FromBase64String(raw);
-                using var doc = JsonDocument.Parse(bytes);
-                if (!doc.RootElement.TryGetProperty("c", out var entries)) return result;
-                foreach (var prop in entries.EnumerateObject())
-                {
-                    // v1 back-compat: skip entries explicitly marked exhausted.
-                    // v2 never writes them, but old in-flight tokens may.
-                    if (prop.Value.TryGetProperty("x", out var xEl) && xEl.ValueKind == JsonValueKind.True)
-                        continue;
+                using var doc = JsonDocument.Parse(Convert.FromBase64String(raw));
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return null;
+                if (!root.TryGetProperty("v", out var v) || v.ValueKind != JsonValueKind.Number
+                    || !v.TryGetInt32(out var version) || version != WireFormatVersion)
+                    return null;
+                if (!root.TryGetProperty("rk", out var rk) || rk.ValueKind != JsonValueKind.String) return null;
+                if (!root.TryGetProperty("p", out var p) || p.ValueKind != JsonValueKind.String) return null;
 
-                    string? rk = prop.Value.TryGetProperty("rk", out var rkEl) && rkEl.ValueKind == JsonValueKind.String
-                        ? rkEl.GetString()
-                        : null;
-                    result[prop.Name] = new PartitionContinuation(rk);
-                }
+                var rowKey = rk.GetString();
+                var partition = p.GetString();
+                return string.IsNullOrEmpty(rowKey) || partition == null ? null : new Watermark(rowKey, partition);
             }
-            catch
+            catch (FormatException)
             {
-                // Malformed continuation → treat as empty (start over). The wire-
-                // layer fingerprint already rejects tampered tokens before reaching here.
+                return null;
             }
-            return result;
+            catch (JsonException)
+            {
+                return null;
+            }
         }
     }
 }

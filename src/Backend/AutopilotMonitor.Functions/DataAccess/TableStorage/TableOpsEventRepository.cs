@@ -115,60 +115,35 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         // partitions would just trade certainty for cost — the coverage test guards the list instead.
         internal static readonly string[] AllCategories = OpsEventCategory.All;
 
-        private async Task<RawPage<OpsEventEntry>> FanOutAcrossCategoriesAsync(
+        private Task<RawPage<OpsEventEntry>> FanOutAcrossCategoriesAsync(
             DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
             OpsEventQueryFilters? filters = null)
         {
-            var continuations = PerPartitionFanOutMerge.DecodeMultiContinuation(continuation);
-            // First-page request fans out across every category; subsequent
-            // pages restrict to whatever is still active in the continuation
-            // map. With only 6 fixed categories this never grew to a problem
-            // size, but the convention now matches the audit fan-out so the
-            // shared fan-out helper has one rule.
-            var isFirstPage = string.IsNullOrEmpty(continuation);
-
-            var activeCats = AllCategories
-                .Where(cat => isFirstPage || continuations.ContainsKey(cat))
-                .ToList();
-            if (activeCats.Count == 0)
-                return new RawPage<OpsEventEntry>(new List<OpsEventEntry>(), null);
-
-            var fetchTasks = activeCats.Select(async cat =>
-            {
-                continuations.TryGetValue(cat, out var catContinuation);
-                var filter = BuildFilterWithRowKeyBound(cat, dateFrom, dateTo, catContinuation?.LastRowKey, filters);
-
-                var fetched = new List<(string RowKey, OpsEventEntry Item)>();
-                await foreach (var e in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: pageSize))
+            return PerPartitionFanOutMerge.FetchPageAsync<OpsEventEntry>(
+                AllCategories, pageSize, continuation,
+                async (category, bound, limit, ct) =>
                 {
-                    fetched.Add((e.RowKey, MapToEntry(e)));
-                    if (fetched.Count >= pageSize) break;
-                }
-                return new PerPartitionFanOutMerge.PartitionFetchResult<OpsEventEntry>(cat, fetched);
-            }).ToList();
-
-            var results = await Task.WhenAll(fetchTasks);
-
-            var (items, nextContinuations) = PerPartitionFanOutMerge.MergeAndAdvance(
-                results, continuations, pageSize, e => e.Timestamp);
-
-            // Map only carries active partitions; empty = pagination complete.
-            string? nextRawToken = nextContinuations.Count > 0
-                ? PerPartitionFanOutMerge.EncodeMultiContinuation(nextContinuations)
-                : null;
-            return new RawPage<OpsEventEntry>(items, nextRawToken);
+                    var filter = BuildFilterWithRowKeyBound(category, dateFrom, dateTo, bound, filters);
+                    var read = new List<(string RowKey, OpsEventEntry Item)>();
+                    await foreach (var e in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: limit, cancellationToken: ct))
+                    {
+                        read.Add((e.RowKey, MapToEntry(e)));
+                        if (read.Count >= limit) break;
+                    }
+                    return read;
+                });
         }
 
         internal static string BuildFilterWithRowKeyBound(
-            string category, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey,
+            string category, DateTime? dateFrom, DateTime? dateTo, PerPartitionFanOutMerge.RowKeyBound? rowKeyBound,
             OpsEventQueryFilters? filters = null)
         {
             var clauses = new List<string>
             {
                 $"PartitionKey eq '{category.Replace("'", "''")}'",
             };
-            if (!string.IsNullOrEmpty(lastRowKey))
-                clauses.Add($"RowKey gt '{lastRowKey!.Replace("'", "''")}'");
+            if (rowKeyBound != null)
+                clauses.Add(rowKeyBound.ToODataClause());
             if (dateFrom.HasValue)
                 clauses.Add(BusinessTimestamp.OpsDateFromClause(ToUtc(dateFrom.Value)));
             if (dateTo.HasValue)

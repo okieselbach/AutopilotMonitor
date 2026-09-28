@@ -51,7 +51,7 @@ public class AuditLogFieldFilterTests
         var filters = new AuditLogQueryFilters { Action = "device_blocked", EntityType = "Device" };
 
         var f = TableStorageService.BuildAuditLogFilterWithRowKeyBound(
-            Tenant, null, null, lastRowKey: null, excludeDeletions: false, filters);
+            Tenant, null, null, rowKeyBound: null, excludeDeletions: false, filters);
 
         Assert.Contains("Action eq 'device_blocked'", f);
         Assert.Contains("EntityType eq 'Device'", f);

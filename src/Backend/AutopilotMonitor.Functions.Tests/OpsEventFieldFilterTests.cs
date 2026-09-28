@@ -175,7 +175,8 @@ public class OpsEventFieldFilterTests
         // unfiltered rows — the exact bug this test exists to prevent.
         var filters = new OpsEventQueryFilters { EventType = "AgentEmergencyBreak", MinSeverity = "Error" };
 
-        var fanOut = TableOpsEventRepository.BuildFilterWithRowKeyBound("Agent", null, null, "0009", filters);
+        var fanOut = TableOpsEventRepository.BuildFilterWithRowKeyBound(
+            "Agent", null, null, new PerPartitionFanOutMerge.RowKeyBound("0009", Inclusive: false), filters);
 
         Assert.Contains("EventType eq 'AgentEmergencyBreak'", fanOut);
         Assert.Contains("(Severity eq 'Error' or Severity eq 'Critical')", fanOut);
