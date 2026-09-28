@@ -308,7 +308,7 @@ namespace AutopilotMonitor.Agent.V2
             Func<CleanupService> cleanupServiceFactory,
             AgentLogger logger,
             bool consoleMode,
-            Action onBreakFired = null)
+            Action<double> onBreakFired = null)
         {
             try
             {
@@ -347,7 +347,7 @@ namespace AutopilotMonitor.Agent.V2
                 // (tasks/enrollment-status-reclassification.md). Fired BEFORE cleanup, while the
                 // session state and network are still intact. Never throws — a send failure (e.g. no
                 // network) must not block the cleanup/exit that is the whole point of this guard.
-                try { onBreakFired?.Invoke(); }
+                try { onBreakFired?.Invoke(sessionAgeHours); }
                 catch (Exception cbEx) { logger.Debug($"Emergency-break notify callback failed: {cbEx.Message}"); }
 
                 // Write enrollment-complete.marker so the next start exits cleanly even if

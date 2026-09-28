@@ -149,6 +149,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             persistence.SaveSessionCreatedAt(DateTime.UtcNow.AddHours(-100));
 
             var stateDir = Path.Combine(tmp.Path, "State");
+            double? reportedAgeHours = null;
 
             var tripped = AutopilotMonitor.Agent.V2.Program.CheckSessionAgeEmergencyBreak(
                 dataDirectory: tmp.Path,
@@ -157,9 +158,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
                 selfDestructOnComplete: false,
                 cleanupServiceFactory: null,
                 logger: logger,
-                consoleMode: false);
+                consoleMode: false,
+                onBreakFired: ageHours => reportedAgeHours = ageHours);
 
             Assert.True(tripped);
+            // The measured age reaches the break report (the backend cannot derive it).
+            Assert.NotNull(reportedAgeHours);
+            Assert.InRange(reportedAgeHours.Value, 99.9, 100.1);
             // Marker must have been written so the next restart exits cleanly.
             Assert.True(File.Exists(Path.Combine(stateDir, "enrollment-complete.marker")));
             // Session must have been cleared.

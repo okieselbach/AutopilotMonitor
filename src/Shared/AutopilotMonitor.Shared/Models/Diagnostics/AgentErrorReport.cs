@@ -82,6 +82,15 @@ namespace AutopilotMonitor.Shared.Models
         public long? SequenceNumber { get; set; }
 
         /// <summary>
+        /// Session age in hours the agent measured when its absolute session-age emergency break
+        /// fired (<see cref="AgentErrorType.SessionAgeEmergencyBreak"/> only). The backend cannot
+        /// derive it: a never-registered session has no row, and a registered one may have
+        /// registered seconds before the break (hibernate resume). Null for other error types and
+        /// for agents that predate the field.
+        /// </summary>
+        public double? SessionAgeHours { get; set; }
+
+        /// <summary>
         /// Agent version string for diagnosing version-specific issues.
         /// </summary>
         public string AgentVersion { get; set; } = default!;

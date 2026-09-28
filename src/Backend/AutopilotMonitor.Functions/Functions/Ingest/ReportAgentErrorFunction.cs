@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Azure.Data.Tables;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -41,6 +44,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly ISessionRepository _sessionRepo;
         private readonly OpsEventService _opsEventService;
         private readonly Services.Deletion.ISessionDeletionInventoryReader _sessionRowReader;
+        private readonly SessionDeletionGuard _deletionGuard;
         private readonly SessionOwnerBindingObserver _ownerBinding;
 
         public ReportAgentErrorFunction(
@@ -58,6 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             ISessionRepository sessionRepo,
             OpsEventService opsEventService,
             Services.Deletion.ISessionDeletionInventoryReader sessionRowReader,
+            SessionDeletionGuard deletionGuard,
             SessionOwnerBindingObserver ownerBinding)
         {
             _logger = logger;
@@ -74,6 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _sessionRepo = sessionRepo;
             _opsEventService = opsEventService;
             _sessionRowReader = sessionRowReader;
+            _deletionGuard = deletionGuard;
             _ownerBinding = ownerBinding;
         }
 
@@ -184,16 +190,20 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentVersion"]   = report.AgentVersion ?? string.Empty,
                 ["Message"]        = report.Message ?? string.Empty,
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
+                ["SessionAgeHours"] = report.SessionAgeHours?.ToString("0.0", CultureInfo.InvariantCulture) ?? string.Empty,
             });
 
+            // One Sessions-row point-read serves the owner binding and the emergency-break verdict.
+            var sessionRead = await ReadSessionRowAsync(tenantId, report.SessionId);
+
             // SESSION-OWNER-BINDING: the emergency-break path below writes timeline events into
-            // whatever session the report names (one point-read — this function has no guard row
-            // in hand; no stamping from this path). A report naming a session bound to another
-            // device identity keeps its device-scoped diagnostics above and the binary-integrity
-            // check below, but must not write into that session. Still 200: the channel is never
-            // retried, and the agent ignores its status.
-            if (await IsSessionOwnerAllowedAsync(req, tenantId, report.SessionId, validation))
-                await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
+            // whatever session the report names (no stamping from this path). A report naming a
+            // session bound to another device identity keeps its device-scoped diagnostics above
+            // and the binary-integrity check below, but must not write into that session. Still
+            // 200: the channel is never retried, and the agent ignores its status.
+            if (IsSessionOwnerAllowed(req, tenantId, report.SessionId, sessionRead, validation))
+                await MaterializeEmergencyBreakArtifactsAsync(
+                    report, tenantId, sessionRead, _sessionRepo, _deletionGuard, _opsEventService, _logger);
 
             var adminConfig = await _adminConfigService.GetConfigurationAsync();
             await MaterializeIntegrityMismatchAsync(
@@ -204,18 +214,42 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// False only when the owner binding refuses the caller for the named session. Ids that are
-        /// not GUIDs have no row to compare against; a failed row read fails open (our defect is
-        /// not evidence of a foreign device).
+        /// Outcome of the one Sessions-row point-read: <see cref="Row"/> is null when the row does
+        /// not exist, <see cref="Failed"/> marks a read that threw (existence unknown).
         /// </summary>
-        private async Task<bool> IsSessionOwnerAllowedAsync(HttpRequestData req, string tenantId, string? sessionId, SecurityValidationResult validation)
+        internal readonly record struct SessionRowRead(TableEntity? Row, bool Failed);
+
+        /// <summary>
+        /// Null when the ids are not GUIDs: no row can exist for them, so neither the owner binding
+        /// nor the emergency break has anything to act on.
+        /// </summary>
+        private async Task<SessionRowRead?> ReadSessionRowAsync(string tenantId, string? sessionId)
         {
             if (!SecurityValidator.IsValidGuid(sessionId) || !SecurityValidator.IsValidGuid(tenantId))
+                return null;
+            try
+            {
+                return new SessionRowRead(await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId!), Failed: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ReportAgentError: session row read failed for session {SessionId}", sessionId);
+                return new SessionRowRead(null, Failed: true);
+            }
+        }
+
+        /// <summary>
+        /// False only when the owner binding refuses the caller for the named session. Ids that are
+        /// not GUIDs have no row to compare against; a failed row read or evaluation fails open (our
+        /// defect is not evidence of a foreign device).
+        /// </summary>
+        private bool IsSessionOwnerAllowed(HttpRequestData req, string tenantId, string? sessionId, SessionRowRead? sessionRead, SecurityValidationResult validation)
+        {
+            if (sessionRead is not { Failed: false } read)
                 return true;
             try
             {
-                var row = await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId!);
-                return !_ownerBinding.Observe(req, tenantId, sessionId!, row, validation, "agent/error").Rejected;
+                return !_ownerBinding.Observe(req, tenantId, sessionId!, read.Row, validation, "agent/error").Rejected;
             }
             catch (Exception ex)
             {
@@ -304,74 +338,65 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// Materializes the agent's silent 48h emergency break as (1) a timeline event so it shows
         /// in the session and the timeout classifier can see it, (2) the cross-session EventType
         /// index row, and (3) an <c>AgentEmergencyBreak</c> ops event for operator visibility
-        /// (tasks/enrollment-status-reclassification.md). Static seam with explicit dependencies so
-        /// tests can pin the artifact set without booting the Functions HTTP stack.
-        /// Best-effort — a failure here must never turn the always-200 emergency channel into a
-        /// retry loop.
+        /// (tasks/enrollment-status-reclassification.md). (1) and (2) only when the session has a
+        /// writable row (<see cref="ClassifyEmergencyBreak"/>); the ops event always, because the
+        /// feed counts breaks. Static seam with explicit dependencies so tests can pin the artifact
+        /// set without booting the Functions HTTP stack. Best-effort — a failure here must never
+        /// turn the always-200 emergency channel into a retry loop.
         /// </summary>
         internal static async Task MaterializeEmergencyBreakArtifactsAsync(
             AgentErrorReport report,
             string tenantId,
+            SessionRowRead? sessionRead,
             ISessionRepository sessionRepo,
+            SessionDeletionGuard deletionGuard,
             OpsEventService opsEventService,
             ILogger logger)
         {
-            if (report.ErrorType != AgentErrorType.SessionAgeEmergencyBreak
-                || string.IsNullOrEmpty(report.SessionId))
+            // No read means the ids are not GUIDs — no session can exist to break.
+            if (report.ErrorType != AgentErrorType.SessionAgeEmergencyBreak || sessionRead is not { } read)
             {
                 return;
             }
 
             try
             {
-                var existing = await sessionRepo.GetSessionEventsAsync(tenantId, report.SessionId, maxResults: 1000);
-                // Idempotency: the agent's emergency channel can send up to a few reports per session;
-                // only ever materialize one timeline event (and one ops event).
-                var alreadyMaterialized = existing.Any(e =>
-                    string.Equals(e.EventType, Constants.EventTypes.AgentEmergencyBreak, StringComparison.OrdinalIgnoreCase));
-                if (alreadyMaterialized)
+                var verdict = ClassifyEmergencyBreak(read.Row, read.Failed, IsDeletionLocked(read.Row, deletionGuard));
+                var message = BreakMessage(report);
+
+                if (verdict.Materialize)
                 {
-                    return;
+                    var existing = await sessionRepo.GetSessionEventsAsync(tenantId, report.SessionId, maxResults: 1000);
+                    // Idempotency: the agent's emergency channel can send up to a few reports per
+                    // session; only ever materialize one timeline event (and one ops event).
+                    var alreadyMaterialized = existing.Any(e =>
+                        string.Equals(e.EventType, Constants.EventTypes.AgentEmergencyBreak, StringComparison.OrdinalIgnoreCase));
+                    if (alreadyMaterialized)
+                    {
+                        return;
+                    }
+
+                    var evt = BuildAgentEmergencyBreakEvent(report, tenantId, existing, DateTime.UtcNow);
+                    await sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { evt });
+
+                    // StoreEventsBatchAsync writes the Events partition only — the cross-session
+                    // EventType index is normally written by EventIngestProcessor, which this
+                    // backend-materialized event never passes through. Without the upsert the event
+                    // exists on the session timeline but is invisible to every search-by-eventType
+                    // surface (portal cross-session search, MCP search_sessions_by_event /
+                    // query_raw_events) — found the hard way in the 2026-07-22 incident analysis.
+                    await sessionRepo.UpsertEventTypeIndexBatchAsync(
+                        tenantId, report.SessionId, new List<EnrollmentEvent> { evt });
                 }
-
-                var evt = BuildAgentEmergencyBreakEvent(report, tenantId, existing, DateTime.UtcNow);
-                await sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { evt });
-
-                // StoreEventsBatchAsync writes the Events partition only — the cross-session
-                // EventType index is normally written by EventIngestProcessor, which this
-                // backend-materialized event never passes through. Without the upsert the event
-                // exists on the session timeline but is invisible to every search-by-eventType
-                // surface (portal cross-session search, MCP search_sessions_by_event /
-                // query_raw_events) — found the hard way in the 2026-07-22 incident analysis.
-                await sessionRepo.UpsertEventTypeIndexBatchAsync(
-                    tenantId, report.SessionId, new List<EnrollmentEvent> { evt });
 
                 // Operator visibility: an emergency break means an agent silently gave up at its
-                // absolute age cap — exactly the "are we losing agents?" signal. Emitted only on
-                // first materialization so repeat reports for the same session cannot flood the
-                // ops feed. OpsEventService never throws.
-                //
-                // Severity follows what the platform already knows about the session (ops audit
-                // 2026-09-03): the break is wall-clock, so a device that was powered off for weeks
-                // fires it on its first boot — long after the sweep reconciled the session. That
-                // break is a late cleanup, not news; only a break on a still-open session is the
-                // decision itself (classifier rule 3). The row read is best-effort: unknown status
-                // keeps the historical Warning.
-                SessionStatus? statusAtBreak = null;
-                try
-                {
-                    statusAtBreak = (await sessionRepo.GetSessionAsync(tenantId, report.SessionId))?.Status;
-                }
-                catch (Exception readEx)
-                {
-                    logger.LogDebug(readEx,
-                        "ReportAgentError: session status read failed for emergency-break severity on {SessionId}", report.SessionId);
-                }
-
-                var verdict = ClassifyEmergencyBreak(statusAtBreak);
+                // absolute age cap — exactly the "are we losing agents?" signal. For a session with
+                // a row it is emitted only on first materialization, so repeat reports cannot flood
+                // the feed. OpsEventService never throws.
                 await opsEventService.RecordAgentEmergencyBreakAsync(
-                    tenantId, report.SessionId, report.AgentVersion, evt.Message,
-                    verdict.Severity, statusAtBreak, verdict.LateCleanup);
+                    tenantId, report.SessionId, report.AgentVersion, message,
+                    verdict.Severity, verdict.SessionStatusAtBreak, verdict.LateCleanup, verdict.Context,
+                    report.SessionAgeHours);
             }
             catch (Exception ex)
             {
@@ -381,17 +406,66 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// Ops-event verdict for an emergency break, keyed on the session status the platform holds
-        /// when the report arrives. Terminal (Succeeded / Failed / Incomplete) = the sweep already
-        /// decided the enrollment and the agent merely cleaned up late (device powered on after a
-        /// shelf period) — Info, <c>LateCleanup=true</c>. Open or unknown = the break is the first
-        /// and only signal that nothing more will arrive — Warning, the historical semantics.
+        /// The cascade-delete writer-block invariant, checked at its chokepoint on the row already in
+        /// hand (no second read). A missing row needs no tombstone check: nothing is written for it.
+        /// </summary>
+        private static bool IsDeletionLocked(TableEntity? sessionRow, SessionDeletionGuard deletionGuard)
+        {
+            try
+            {
+                deletionGuard.ThrowIfLocked(sessionRow, "V2.ReportAgentError.EmergencyBreak");
+                return false;
+            }
+            catch (SessionDeletionLockedException)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>What the ops event says and whether the break is written into the session.</summary>
+        internal readonly record struct EmergencyBreakVerdict(
+            string Severity, bool LateCleanup, bool Materialize, string SessionStatusAtBreak, string Context);
+
+        /// <summary>
+        /// Ops-event verdict for an emergency break, keyed on what the platform holds for the session
+        /// when the report arrives. The break is wall-clock and checked at agent start, so it usually
+        /// arrives long after the fact:
+        /// <list type="bullet">
+        ///   <item>Terminal (Succeeded / Failed / Incomplete): the sweep already decided the enrollment
+        ///   and the agent merely cleaned up late after a shelf period — Info, <c>LateCleanup=true</c>
+        ///   (ops audit 2026-09-03).</item>
+        ///   <item>No row: in practice a session that never registered (the agent went dark before
+        ///   register-session) — nothing to close and nobody who could open it. Info, and no
+        ///   timeline event or index row: the orphan sweep would delete the event a day later with
+        ///   a Warning of its own, and the index row would point at a session that does not
+        ///   exist.</item>
+        ///   <item>Row under cascade delete: nothing may be written past the lock — Info.</item>
+        ///   <item>Open or unparseable status, or a failed read: the break is the first and only
+        ///   signal that nothing more will arrive (classifier rule 3) — Warning, and a failed read
+        ///   keeps the historical write.</item>
+        /// </list>
         /// Pure so the rule is unit-testable.
         /// </summary>
-        internal static (string Severity, bool LateCleanup) ClassifyEmergencyBreak(SessionStatus? statusAtBreak)
-            => statusAtBreak.HasValue && Helpers.DeviceJourneyCalculator.IsTerminal(statusAtBreak.Value)
-                ? (OpsEventSeverity.Info, true)
-                : (OpsEventSeverity.Warning, false);
+        internal static EmergencyBreakVerdict ClassifyEmergencyBreak(TableEntity? sessionRow, bool rowReadFailed, bool deletionLocked)
+        {
+            if (rowReadFailed)
+                return new(OpsEventSeverity.Warning, false, true, "unknown", "session row unreadable when the break arrived");
+            if (sessionRow == null)
+                return new(OpsEventSeverity.Info, false, false, "missing", "no session row (never registered, or deleted long ago) — nothing to close");
+            if (deletionLocked)
+                return new(OpsEventSeverity.Info, false, false, "deleting", "session is being deleted — nothing written");
+
+            var status = IngestTelemetryFunction.TryReadSessionStatus(sessionRow);
+            var statusText = status?.ToString() ?? "unknown";
+            return status.HasValue && Helpers.DeviceJourneyCalculator.IsTerminal(status.Value)
+                ? new(OpsEventSeverity.Info, true, true, statusText, $"late cleanup — session already {statusText} when the break arrived")
+                : new(OpsEventSeverity.Warning, false, true, statusText, $"session still {statusText} when the break arrived");
+        }
+
+        private static string BreakMessage(AgentErrorReport report)
+            => string.IsNullOrWhiteSpace(report.Message)
+                ? "Agent absolute session-age emergency break fired — agent cleaned up and exited"
+                : report.Message;
 
         /// <summary>
         /// Builds the backend-materialized <c>agent_emergency_break</c> timeline event from the agent's
@@ -415,6 +489,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ? report.Timestamp.ToUniversalTime()
                 : nowUtc;
 
+            var data = new Dictionary<string, object>
+            {
+                ["source"] = "emergency_channel",
+                ["agentVersion"] = report.AgentVersion ?? string.Empty,
+                ["reportedAtUtc"] = report.Timestamp.ToString("o"),
+            };
+            if (report.SessionAgeHours.HasValue)
+                data["sessionAgeHours"] = report.SessionAgeHours.Value;
+
             return new EnrollmentEvent
             {
                 TenantId = tenantId,
@@ -425,15 +508,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 Phase = EnrollmentPhase.Unknown,
                 Timestamp = breakAt,
                 Sequence = maxSequence + 1,
-                Message = string.IsNullOrWhiteSpace(report.Message)
-                    ? "Agent absolute session-age emergency break fired — agent cleaned up and exited"
-                    : report.Message,
-                Data = new Dictionary<string, object>
-                {
-                    ["source"] = "emergency_channel",
-                    ["agentVersion"] = report.AgentVersion ?? string.Empty,
-                    ["reportedAtUtc"] = report.Timestamp.ToString("o"),
-                },
+                Message = BreakMessage(report),
+                Data = data,
             };
         }
     }

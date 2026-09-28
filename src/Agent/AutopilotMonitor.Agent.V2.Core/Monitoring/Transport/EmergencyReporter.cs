@@ -79,6 +79,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// exist for callers whose process is about to exit and cannot come back later
         /// (emergency break): retries stay INSIDE the one reservation, so they never
         /// multiply against the per-session budget.
+        ///
+        /// <paramref name="sessionAgeHours"/> is the emergency break's measured session age
+        /// (<see cref="AgentErrorReport.SessionAgeHours"/>); null for every other error type.
         /// </summary>
         public virtual async Task TrySendAsync(
             AgentErrorType errorType,
@@ -87,7 +90,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             long? sequenceNumber = null,
             int attempts = 1,
             TimeSpan? perAttemptTimeout = null,
-            TimeSpan? retryDelay = null)
+            TimeSpan? retryDelay = null,
+            double? sessionAgeHours = null)
         {
             // Deduplicate by error type + status code: same failure category sent only once per session.
             // All anti-flood checks are protected by a lock to prevent race conditions when
@@ -135,6 +139,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 Message = message,
                 HttpStatusCode = httpStatusCode,
                 SequenceNumber = sequenceNumber,
+                SessionAgeHours = sessionAgeHours,
                 AgentVersion = _agentVersion,
                 Timestamp = DateTime.UtcNow
             };

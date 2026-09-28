@@ -4,9 +4,11 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Azure.Data.Tables;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -94,14 +96,29 @@ public class ReportAgentErrorFunctionTests
     // (2026-07-23 hardening): timeline event + cross-session EventType index row +
     // AgentEmergencyBreak ops event, once per session. The index upsert is load-bearing:
     // StoreEventsBatchAsync alone leaves the event invisible to every search-by-eventType
-    // surface (found in the 2026-07-22 incident analysis).
+    // surface (found in the 2026-07-22 incident analysis). A session without a writable
+    // row gets the ops event only.
     // =========================================================================
+
+    private static TableEntity Row(SessionStatus? status = SessionStatus.InProgress, string? deletionState = null)
+    {
+        var row = new TableEntity(TenantId, SessionId);
+        if (status.HasValue) row["Status"] = status.Value.ToString();
+        if (deletionState != null) row["DeletionState"] = deletionState;
+        return row;
+    }
+
+    private static ReportAgentErrorFunction.SessionRowRead Read(TableEntity? row) => new(row, Failed: false);
+
+    private static readonly ReportAgentErrorFunction.SessionRowRead ReadFailed = new(null, Failed: true);
 
     private sealed class Harness
     {
         public readonly Mock<ISessionRepository> SessionRepo = new();
         public readonly List<OpsEventEntry> OpsEvents = new();
         public readonly OpsEventService OpsService;
+        private readonly SessionDeletionGuard _deletionGuard = new(
+            Mock.Of<ISessionDeletionInventoryReader>(), NullLogger<SessionDeletionGuard>.Instance);
 
         public Harness(List<EnrollmentEvent>? existingEvents = null)
         {
@@ -125,9 +142,23 @@ public class ReportAgentErrorFunctionTests
             OpsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
         }
 
+        /// <summary>Default read: an existing, open session row — the historical path.</summary>
         public Task RunAsync(AgentErrorReport report)
+            => RunAsync(report, Read(Row()));
+
+        public Task RunAsync(AgentErrorReport report, ReportAgentErrorFunction.SessionRowRead? sessionRead)
             => ReportAgentErrorFunction.MaterializeEmergencyBreakArtifactsAsync(
-                report, TenantId, SessionRepo.Object, OpsService, NullLogger<ReportAgentErrorFunction>.Instance);
+                report, TenantId, sessionRead, SessionRepo.Object, _deletionGuard, OpsService,
+                NullLogger<ReportAgentErrorFunction>.Instance);
+
+        public void VerifyNothingWrittenIntoTheSession()
+        {
+            SessionRepo.Verify(r => r.GetSessionEventsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+            SessionRepo.Verify(r => r.StoreEventsBatchAsync(It.IsAny<List<EnrollmentEvent>>()), Times.Never);
+            SessionRepo.Verify(r => r.UpsertEventTypeIndexBatchAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<EnrollmentEvent>>()), Times.Never);
+        }
     }
 
     [Fact]
@@ -165,7 +196,7 @@ public class ReportAgentErrorFunctionTests
     }
 
     [Fact]
-    public async Task Non_break_error_types_and_missing_session_id_are_ignored()
+    public async Task Non_break_error_types_and_ids_without_a_row_read_are_ignored()
     {
         var h = new Harness();
 
@@ -173,12 +204,10 @@ public class ReportAgentErrorFunctionTests
         other.ErrorType = AgentErrorType.ConfigFetchFailed;
         await h.RunAsync(other);
 
-        var noSession = Report(Now);
-        noSession.SessionId = null!;
-        await h.RunAsync(noSession);
+        // No read = the ids were not GUIDs (ReadSessionRowAsync) — no session can exist to break.
+        await h.RunAsync(Report(Now), sessionRead: null);
 
-        h.SessionRepo.Verify(r => r.GetSessionEventsAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+        h.VerifyNothingWrittenIntoTheSession();
         Assert.Empty(h.OpsEvents);
     }
 
@@ -192,10 +221,8 @@ public class ReportAgentErrorFunctionTests
     public async Task Break_on_already_terminal_session_is_info_late_cleanup(SessionStatus status)
     {
         var h = new Harness();
-        h.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
-            .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = TenantId, Status = status });
 
-        await h.RunAsync(Report(Now));
+        await h.RunAsync(Report(Now), Read(Row(status)));
 
         var ops = Assert.Single(h.OpsEvents);
         Assert.Equal(OpsEventSeverity.Info, ops.Severity);
@@ -216,44 +243,131 @@ public class ReportAgentErrorFunctionTests
     public async Task Break_on_open_session_stays_warning(SessionStatus status)
     {
         var h = new Harness();
-        h.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
-            .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = TenantId, Status = status });
 
-        await h.RunAsync(Report(Now));
+        await h.RunAsync(Report(Now), Read(Row(status)));
 
         var ops = Assert.Single(h.OpsEvents);
         Assert.Equal(OpsEventSeverity.Warning, ops.Severity);
         Assert.Contains($"still {status}", ops.Message);
         Assert.Contains("\"lateCleanup\":false", ops.Details);
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(It.IsAny<List<EnrollmentEvent>>()), Times.Once);
+    }
+
+    // 2026-09-28 sweep: every "unknown" Warning named a session that never registered. The break is
+    // the only thing the backend ever hears of it — nothing to close, and a timeline event would be
+    // an orphan the maintenance sweep deletes a day later (with a Warning of its own).
+    [Fact]
+    public async Task Break_on_session_without_row_is_info_and_writes_nothing_into_the_session()
+    {
+        var h = new Harness();
+
+        await h.RunAsync(Report(Now), Read(null));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Info, ops.Severity);
+        Assert.Contains("no session row", ops.Message);
+        Assert.Contains("\"sessionStatusAtBreak\":\"missing\"", ops.Details);
+        Assert.Contains("\"lateCleanup\":false", ops.Details);
+        h.VerifyNothingWrittenIntoTheSession();
+    }
+
+    [Theory]
+    [InlineData(AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState.Preparing)]
+    [InlineData(AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState.Queued)]
+    [InlineData(AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState.Running)]
+    [InlineData(AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState.Poisoned)]
+    public async Task Break_on_session_under_cascade_delete_writes_nothing_past_the_lock(string deletionState)
+    {
+        var h = new Harness();
+
+        await h.RunAsync(Report(Now), Read(Row(SessionStatus.InProgress, deletionState)));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Info, ops.Severity);
+        Assert.Contains("\"sessionStatusAtBreak\":\"deleting\"", ops.Details);
+        h.VerifyNothingWrittenIntoTheSession();
     }
 
     [Fact]
-    public async Task Unknown_or_unreadable_session_status_keeps_warning()
+    public async Task Unreadable_row_keeps_the_historical_warning_and_write()
     {
-        // No row (Harness default: GetSessionAsync → null) — the historical Warning semantics.
+        // Existence unknown — fail safe: the break may be the only signal for an open session.
         var h = new Harness();
-        await h.RunAsync(Report(Now));
+
+        await h.RunAsync(Report(Now), ReadFailed);
+
         var ops = Assert.Single(h.OpsEvents);
         Assert.Equal(OpsEventSeverity.Warning, ops.Severity);
         Assert.Contains("\"sessionStatusAtBreak\":\"unknown\"", ops.Details);
-
-        // Row read throws — the break must still be recorded, still as Warning.
-        var h2 = new Harness();
-        h2.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
-            .ThrowsAsync(new InvalidOperationException("table down"));
-        await h2.RunAsync(Report(Now));
-        Assert.Equal(OpsEventSeverity.Warning, Assert.Single(h2.OpsEvents).Severity);
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(It.IsAny<List<EnrollmentEvent>>()), Times.Once);
     }
 
     [Fact]
-    public void ClassifyEmergencyBreak_is_terminal_set_only()
+    public async Task Row_without_parseable_status_stays_warning()
     {
-        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Succeeded));
-        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Failed));
-        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Incomplete));
-        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.AwaitingUser));
-        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Unknown));
-        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(null));
+        var h = new Harness();
+
+        await h.RunAsync(Report(Now), Read(Row(status: null)));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Warning, ops.Severity);
+        Assert.Contains("\"sessionStatusAtBreak\":\"unknown\"", ops.Details);
+    }
+
+    // The agent-measured age separates a break just past the cap from a device that slept for
+    // weeks; the backend cannot derive it (no row, or a row registered seconds before the break).
+    [Fact]
+    public async Task Reported_session_age_lands_in_ops_details_and_timeline_data()
+    {
+        var h = new Harness();
+        var report = Report(Now);
+        report.SessionAgeHours = 478.2;
+
+        await h.RunAsync(report);
+
+        Assert.Contains("\"sessionAgeHours\":478.2", Assert.Single(h.OpsEvents).Details);
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
+            It.Is<List<EnrollmentEvent>>(e => (double)e[0].Data["sessionAgeHours"] == 478.2)), Times.Once);
+    }
+
+    [Fact]
+    public async Task Agent_without_session_age_leaves_it_null_and_out_of_the_timeline()
+    {
+        var h = new Harness();
+
+        await h.RunAsync(Report(Now));
+
+        Assert.Contains("\"sessionAgeHours\":null", Assert.Single(h.OpsEvents).Details);
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
+            It.Is<List<EnrollmentEvent>>(e => !e[0].Data.ContainsKey("sessionAgeHours"))), Times.Once);
+    }
+
+    [Fact]
+    public void ClassifyEmergencyBreak_follows_row_state()
+    {
+        static ReportAgentErrorFunction.EmergencyBreakVerdict Classify(TableEntity? row, bool failed = false, bool locked = false)
+            => ReportAgentErrorFunction.ClassifyEmergencyBreak(row, failed, locked);
+
+        foreach (var terminal in new[] { SessionStatus.Succeeded, SessionStatus.Failed, SessionStatus.Incomplete })
+        {
+            var v = Classify(Row(terminal));
+            Assert.Equal((OpsEventSeverity.Info, true, true, terminal.ToString()), (v.Severity, v.LateCleanup, v.Materialize, v.SessionStatusAtBreak));
+        }
+
+        foreach (var open in new[] { SessionStatus.InProgress, SessionStatus.Pending, SessionStatus.AwaitingUser, SessionStatus.Stalled, SessionStatus.Unknown })
+        {
+            var v = Classify(Row(open));
+            Assert.Equal((OpsEventSeverity.Warning, false, true, open.ToString()), (v.Severity, v.LateCleanup, v.Materialize, v.SessionStatusAtBreak));
+        }
+
+        var missing = Classify(null);
+        Assert.Equal((OpsEventSeverity.Info, false, false, "missing"), (missing.Severity, missing.LateCleanup, missing.Materialize, missing.SessionStatusAtBreak));
+
+        var deleting = Classify(Row(SessionStatus.Succeeded), locked: true);
+        Assert.Equal((OpsEventSeverity.Info, false, false, "deleting"), (deleting.Severity, deleting.LateCleanup, deleting.Materialize, deleting.SessionStatusAtBreak));
+
+        var unreadable = Classify(null, failed: true);
+        Assert.Equal((OpsEventSeverity.Warning, false, true, "unknown"), (unreadable.Severity, unreadable.LateCleanup, unreadable.Materialize, unreadable.SessionStatusAtBreak));
     }
 
     [Fact]

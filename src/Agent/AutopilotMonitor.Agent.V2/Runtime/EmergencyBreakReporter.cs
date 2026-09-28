@@ -36,15 +36,18 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         // Upper bound for the blocking wait: NIC wait + 3×15s attempts + 2×5s delays + slack.
         private static readonly TimeSpan OverallBudget = TimeSpan.FromSeconds(75);
 
-        public static void TrySend(AgentConfiguration agentConfig, string agentVersion, AgentLogger logger)
+        public static void TrySend(AgentConfiguration agentConfig, string agentVersion, double sessionAgeHours, AgentLogger logger)
         {
             try
             {
                 WaitForNetwork(logger);
 
                 var auth = BackendClientFactory.BuildAuthClients(agentConfig, agentVersion, logger);
-                var message =
-                    $"Agent absolute session-age emergency break fired (cap {agentConfig.AbsoluteMaxSessionHours}h) — cleaning up and exiting.";
+                // Invariant: the text lands in the backend's ops feed and timeline; a device locale
+                // would otherwise print "478,2h".
+                var roundedAgeHours = Math.Round(sessionAgeHours, 1);
+                var message = FormattableString.Invariant(
+                    $"Agent absolute session-age emergency break fired at session age {roundedAgeHours:F1}h (cap {agentConfig.AbsoluteMaxSessionHours}h) — cleaning up and exiting.");
 
                 // The process is about to exit, so block on the otherwise fire-and-forget send
                 // rather than let it be abandoned mid-flight. TrySendAsync swallows its own HTTP
@@ -56,7 +59,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         message,
                         attempts: SendAttempts,
                         perAttemptTimeout: PerAttemptTimeout,
-                        retryDelay: RetryDelay)
+                        retryDelay: RetryDelay,
+                        sessionAgeHours: roundedAgeHours)
                     .Wait(OverallBudget);
             }
             catch (Exception ex)

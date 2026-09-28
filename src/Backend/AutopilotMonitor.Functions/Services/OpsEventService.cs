@@ -954,31 +954,26 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// An agent reported its absolute session-age emergency break (48h cap) over the
-        /// emergency channel — it cleaned itself up and exited on a session that never reached
-        /// a terminal state. This is the "are we silently losing agents?" signal; emitted by
-        /// <see cref="Functions.Ingest.ReportAgentErrorFunction"/> once per session (guarded by
-        /// the timeline-event idempotency check). Severity is decided by the caller from the
-        /// session status at break time (<c>ReportAgentErrorFunction.ClassifyEmergencyBreak</c>):
-        /// Warning when the session was still open (the break IS the verdict — Telegram-rule
-        /// worthy), Info when the sweep had already terminalized it and the break is a late
-        /// cleanup after the device was powered on again. The 2026-09-03 audit found 224 of 269
-        /// breaks in three days were such late cleanups (kiosk devices stored for weeks); as
-        /// Warnings they buried the real ones. <paramref name="statusAtBreak"/> lands in the
-        /// details as <c>sessionStatusAtBreak</c> so the feed shows which case it was.
+        /// emergency channel — it cleaned itself up and exited. This is the "are we silently
+        /// losing agents?" signal; emitted by <see cref="Functions.Ingest.ReportAgentErrorFunction"/>
+        /// once per break report (for a session with a row, guarded by the timeline-event
+        /// idempotency check). Severity, <paramref name="sessionStatusAtBreak"/> and
+        /// <paramref name="context"/> come from <c>ReportAgentErrorFunction.ClassifyEmergencyBreak</c>:
+        /// Warning only when the session was still open (the break IS the verdict — Telegram-rule
+        /// worthy) or its row could not be read. The 2026-09-03 audit found 224 of 269 breaks in
+        /// three days were late cleanups on terminal sessions, the 2026-09-28 sweep that 115 of 160
+        /// remaining Warnings named sessions that never registered; as Warnings both buried the real
+        /// ones. <paramref name="sessionAgeHours"/> is the agent-measured age (null for agents that
+        /// predate the field) — it separates a break just past the cap from a device that slept for
+        /// weeks, which the backend cannot tell from its own rows.
         /// </summary>
         public Task RecordAgentEmergencyBreakAsync(
             string tenantId, string sessionId, string? agentVersion, string message,
-            string severity, SessionStatus? statusAtBreak, bool lateCleanup)
-        {
-            var statusText = statusAtBreak?.ToString() ?? "unknown";
-            var context = lateCleanup
-                ? $"late cleanup — session already {statusText} when the break arrived"
-                : $"session still {statusText} when the break arrived";
-            return WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, severity,
+            string severity, string sessionStatusAtBreak, bool lateCleanup, string context, double? sessionAgeHours)
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, severity,
                 $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}, {context}): {message}",
                 tenantId, "System.EmergencyChannel",
-                new { sessionId, agentVersion, sessionStatusAtBreak = statusText, lateCleanup });
-        }
+                new { sessionId, agentVersion, sessionStatusAtBreak, lateCleanup, sessionAgeHours });
 
         /// <summary>
         /// An agent reported that its RUNNING exe's SHA-256 differs from the hash the backend

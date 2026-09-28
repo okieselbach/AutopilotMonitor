@@ -20,6 +20,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
         private sealed class FakeApiClient : BackendApiClient
         {
             public readonly List<TimeSpan?> Timeouts = new List<TimeSpan?>();
+            public readonly List<AgentErrorReport> Reports = new List<AgentErrorReport>();
             public readonly Queue<bool> Results = new Queue<bool>();
 
             public FakeApiClient() : base(
@@ -40,6 +41,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
             public override Task<bool> ReportAgentErrorAsync(AgentErrorReport report, TimeSpan? timeout = null)
             {
                 Timeouts.Add(timeout);
+                Reports.Add(report);
                 return Task.FromResult(Results.Count > 0 && Results.Dequeue());
             }
         }
@@ -138,6 +140,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
             await reporter.TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
 
             Assert.Equal(2, client.Calls);
+        }
+
+        [Fact]
+        public async Task Session_age_is_carried_in_the_report_and_absent_by_default()
+        {
+            // One reporter per report: a delivered report starts the 10-minute cooldown.
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+
+            await Reporter(client).TrySendAsync(AgentErrorType.SessionAgeEmergencyBreak, "m", sessionAgeHours: 478.2);
+            await Reporter(client).TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
+
+            Assert.Equal(2, client.Reports.Count);
+            Assert.Equal(478.2, client.Reports[0].SessionAgeHours);
+            Assert.Null(client.Reports[1].SessionAgeHours);
         }
     }
 }
