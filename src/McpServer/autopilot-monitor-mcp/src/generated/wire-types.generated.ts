@@ -3375,7 +3375,7 @@ export interface RegisterSessionRequest {
   registration: SessionRegistration;
 }
 
-/** Response from session registration. Also the body of the 409/410 refusals — the agent reads ErrorCode from it, so the error envelope is NOT used on this route. */
+/** Response from session registration. Also the body of the 403 (session owner mismatch) and 409/410 refusals — the agent reads ErrorCode from it, so the error envelope is NOT used on this route. */
 export interface RegisterSessionResponse {
   sessionId: string;
   success: boolean;

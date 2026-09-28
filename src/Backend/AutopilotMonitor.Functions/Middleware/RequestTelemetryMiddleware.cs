@@ -184,8 +184,8 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue(CertTenantBinding.RequestItemKey, out var binding) && binding is string bindingOutcome)
                 requestTelemetry.Properties["CertTenantBinding"] = bindingOutcome;
 
-            // SESSION-OWNER-BINDING-SHADOW — set by SessionOwnerBindingObserver on register /
-            // telemetry / error-report requests. Same carrier and same reasoning as above.
+            // SESSION-OWNER-BINDING — set by SessionOwnerBindingObserver on register / telemetry /
+            // error-report / upload-url requests. Same carrier and same reasoning as above.
             if (context.Items.TryGetValue(SessionOwnershipPolicy.RequestItemKey, out var ownerBinding) && ownerBinding is string ownerOutcome)
                 requestTelemetry.Properties["SessionOwnerBinding"] = ownerOutcome;
 

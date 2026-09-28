@@ -237,6 +237,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 using (response)
                 {
                     await ThrowOnAuthFailureAsync(response).ConfigureAwait(false);
+                    await ThrowOnCodedConflictAsync(response).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
                     var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -336,6 +337,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 "The device is not authorized. Check client certificate and Autopilot device validation.",
                 (int)response.StatusCode,
                 errorCode: errorCode);
+        }
+
+        /// <summary>
+        /// Throws <see cref="BackendRefusalException"/> for a 409 whose JSON body carries a
+        /// machine-readable <c>errorCode</c> — register-session answers
+        /// <c>session_owner_mismatch</c> when another tenant claimed the session id, which no retry
+        /// can clear but a session rotation can. A 409 without a code falls through to
+        /// <c>EnsureSuccessStatusCode</c> as before.
+        /// </summary>
+        private static async Task ThrowOnCodedConflictAsync(HttpResponseMessage response)
+        {
+            if (response.StatusCode != System.Net.HttpStatusCode.Conflict)
+                return;
+
+            string body = null;
+            try
+            {
+                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // No body, no code — the generic 409 handling applies.
+            }
+
+            var errorCode = TryExtractErrorCode(body);
+            if (errorCode == null)
+                return;
+
+            throw new BackendRefusalException(
+                $"Backend returned 409 Conflict with error code {errorCode}.",
+                (int)response.StatusCode,
+                errorCode);
         }
 
         /// <summary>
@@ -468,6 +501,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         {
             StatusCode = statusCode;
             EndpointUnavailable = endpointUnavailable;
+            ErrorCode = errorCode;
+        }
+    }
+
+    /// <summary>
+    /// Thrown when the backend refuses a request on a non-auth status (409) with a machine-readable
+    /// code from Shared <c>Constants.AgentErrorCodes</c>. Unlike <see cref="BackendAuthException"/>
+    /// it says nothing about the device's authorization and must never feed the auth-failure tracker.
+    /// </summary>
+    public class BackendRefusalException : Exception
+    {
+        /// <summary>HTTP status code returned by the backend (409).</summary>
+        public int StatusCode { get; }
+
+        /// <summary>Machine-readable code from the backend's JSON body (never null).</summary>
+        public string ErrorCode { get; }
+
+        public BackendRefusalException(string message, int statusCode, string errorCode) : base(message)
+        {
+            StatusCode = statusCode;
             ErrorCode = errorCode;
         }
     }

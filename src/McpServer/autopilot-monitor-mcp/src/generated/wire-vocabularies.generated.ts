@@ -222,6 +222,7 @@ export const API_ERROR_CODES = [
   "QuotaExceeded",
   "PayloadTooLarge",
   "TelemetryItemsRejected",
+  "SessionOwnerMismatch",
   "HomeTenantUnresolved",
   "TrialAlreadyConsumed",
   "AlreadyPro",

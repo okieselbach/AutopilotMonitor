@@ -267,12 +267,11 @@ namespace AutopilotMonitor.Shared
         public static class AgentErrorCodes
         {
             /// <summary>
-            /// SESSION-OWNER-BINDING: the session named by the request is bound to a different
-            /// device identity than the caller presented. The agent's correct reaction is to
+            /// SESSION-OWNER-BINDING: the session named by the request is not this caller's.
+            /// RegisterSession answers 403 with it when the session is bound to a different device
+            /// identity, and 409 when the session id is claimed by another tenant
+            /// (SessionTenantLookup first-writer-wins). The agent's correct reaction to both is to
             /// rotate its SessionId and register afresh — NOT to count it as an auth failure.
-            /// Owner-binding: reserved in stage 1 (shadow), emitted once enforcement is on.
-            /// Already emitted by RegisterSession (409) when the session id is claimed by
-            /// another tenant (SessionTenantLookup first-writer-wins).
             /// </summary>
             public const string SessionOwnerMismatch = "session_owner_mismatch";
         }
@@ -326,6 +325,12 @@ namespace AutopilotMonitor.Shared
             /// was stored, the agent drops the named items and re-uploads the rest.
             /// </summary>
             public const string TelemetryItemsRejected = "TelemetryItemsRejected";
+
+            /// <summary>
+            /// 403 on <c>agent/telemetry</c>: the batch names a session bound to another device
+            /// identity (SESSION-OWNER-BINDING). Nothing of the batch was stored.
+            /// </summary>
+            public const string SessionOwnerMismatch = "SessionOwnerMismatch";
 
             // ── identity binding (grant endpoints, HTTP 422) ──
             public const string HomeTenantUnresolved = "HomeTenantUnresolved";

@@ -643,6 +643,7 @@ export const SHARED_MANIFEST = {
     "QuotaExceeded",
     "PayloadTooLarge",
     "TelemetryItemsRejected",
+    "SessionOwnerMismatch",
     "HomeTenantUnresolved",
     "TrialAlreadyConsumed",
     "AlreadyPro",

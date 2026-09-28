@@ -255,9 +255,16 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 });
             }
 
-            // SESSION-OWNER-BINDING-SHADOW: same observation as the session-scoped writes, so
-            // stage-2 enforcement covers this endpoint with the same data. Never rejects here.
-            await ObserveSessionOwnerAsync(req, requestBody.TenantId, requestBody.SessionId, validation);
+            // SESSION-OWNER-BINDING: the SAS is bound to the session, so a caller that does not own
+            // it gets no upload slot in it.
+            if (!await IsSessionOwnerAllowedAsync(req, requestBody.TenantId, requestBody.SessionId, validation))
+            {
+                return await req.JsonAsync(HttpStatusCode.Forbidden, new GetDiagnosticsUploadUrlResponse
+                {
+                    Success = false,
+                    Message = "Session is bound to another device identity"
+                });
+            }
 
             HostedUploadSasResult sasResult;
             try
@@ -307,18 +314,23 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             });
         }
 
-        private async Task ObserveSessionOwnerAsync(
+        /// <summary>
+        /// False only when the owner binding refuses the caller for the session. A failed row read
+        /// fails open — our defect is not evidence of a foreign device.
+        /// </summary>
+        private async Task<bool> IsSessionOwnerAllowedAsync(
             HttpRequestData req, string tenantId, string sessionId, SecurityValidationResult validation)
         {
             try
             {
                 var row = await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId);
-                _ownerBinding.Observe(req, tenantId, sessionId, row, validation, "agent/upload-url");
+                return !_ownerBinding.Observe(req, tenantId, sessionId, row, validation, "agent/upload-url").Rejected;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
                     "GetDiagnosticsUploadUrl: session-owner observation skipped for session {SessionId}", sessionId);
+                return true;
             }
         }
 

@@ -88,6 +88,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.Null(ex.ErrorCode);
         }
 
+        // ── coded 409: a refusal, never an auth failure ─────────────────────
+
+        [Fact]
+        public async Task Coded_409_is_a_refusal_not_an_auth_failure()
+        {
+            using var client = BuildClient(
+                HttpStatusCode.Conflict,
+                "{\"success\":false,\"message\":\"Session id is already registered to another tenant\",\"errorCode\":\"session_owner_mismatch\"}",
+                "application/json");
+
+            var ex = await Assert.ThrowsAsync<BackendRefusalException>(
+                () => client.RegisterSessionAsync(new AutopilotMonitor.Shared.Models.SessionRegistration()));
+
+            Assert.Equal(409, ex.StatusCode);
+            Assert.Equal("session_owner_mismatch", ex.ErrorCode);
+        }
+
+        [Fact]
+        public async Task Uncoded_409_stays_a_plain_http_error()
+        {
+            using var client = BuildClient(
+                HttpStatusCode.Conflict,
+                "{\"success\":false,\"message\":\"A diagnostics package with this name already exists\"}",
+                "application/json");
+
+            await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.GetDiagnosticsUploadUrlAsync("tenant-1", "session-1", "package.zip"));
+        }
+
         [Theory]
         [InlineData(null, null)]
         [InlineData("", null)]

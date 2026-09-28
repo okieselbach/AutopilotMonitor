@@ -163,6 +163,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
+        public void Clean_snapshot_of_a_rotated_session_adopts_the_current_session_id()
+        {
+            // SESSION-OWNER-BINDING: the backend refused the persisted session id at registration,
+            // the agent rotated, and the snapshot on disk still names the old session. The
+            // enrollment state carries over; the session id must be the current one.
+            using var rig = new Rig();
+            var saved = DecisionState.CreateInitial("S-REFUSED", TenantId)
+                .ToBuilder()
+                .WithStage(SessionStage.EspAccountSetup)
+                .WithStepIndex(7)
+                .WithLastAppliedSignalOrdinal(6)
+                .Build();
+            SeedSnapshot(rig, saved);
+
+            var result = rig.Recover();
+
+            Assert.Equal(SessionId, result.InitialState.SessionId);
+            Assert.Equal(SessionStage.EspAccountSetup, result.InitialState.Stage);
+            Assert.Equal(7, result.InitialState.StepIndex);
+        }
+
+        [Fact]
         public void Snapshot_plus_pending_tail_replays_tail_onto_snapshot()
         {
             using var rig = new Rig();

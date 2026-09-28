@@ -11,8 +11,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// SESSION-OWNER-BINDING rule matrix. The policy is pure, so every lifecycle shape that must keep
 /// working (restart, WhiteGlove Part 2, bootstrap→cert handoff, certificate re-issue, rows from
-/// before the binding) and every shape that must be visible as a would-reject (foreign cert,
-/// foreign bootstrap code, bootstrap on a cert-owned row, re-enroll without wipe) is pinned here.
+/// before the binding) and every shape that is refused (foreign cert, foreign bootstrap code,
+/// bootstrap on a cert-owned row, re-enroll without wipe) is pinned here.
 /// </summary>
 public class SessionOwnershipPolicyTests
 {
@@ -65,7 +65,7 @@ public class SessionOwnershipPolicyTests
         Assert.Equal(Thumb1, d.OwnerToStamp.Thumbprint);
         Assert.Equal(Dev1, d.OwnerToStamp.DeviceId);
         Assert.Equal("SN-1", d.OwnerToStamp.Serial);
-        Assert.False(d.WouldReject);
+        Assert.False(d.Rejected);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class SessionOwnershipPolicyTests
         var d = SessionOwnershipPolicy.Evaluate(Row(owner: CertOwner(Thumb1, Dev1)), v, Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.CallerUnidentified, d.Outcome);
         Assert.Null(d.OwnerToStamp);
-        Assert.False(d.WouldReject);
+        Assert.False(d.Rejected);
     }
 
     // ── legacy rows (pre-binding) ────────────────────────────────────────────
@@ -87,7 +87,7 @@ public class SessionOwnershipPolicyTests
         Assert.Equal(SessionOwnershipPolicy.Outcome.ClaimLegacy, d.Outcome);
         Assert.NotNull(d.OwnerToStamp);
         Assert.True(d.SerialMatch);
-        Assert.False(d.WouldReject);
+        Assert.False(d.Rejected);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class SessionOwnershipPolicyTests
         var d = SessionOwnershipPolicy.Evaluate(Row(serial: "OTHER"), Cert(Thumb1, Dev1), Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.LegacySerialMismatch, d.Outcome);
         Assert.Null(d.OwnerToStamp);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class SessionOwnershipPolicyTests
         Assert.Equal(SessionOwnershipPolicy.Outcome.RebindCertRotation, d.Outcome);
         Assert.Equal(Thumb2, d.OwnerToStamp!.Thumbprint);
         Assert.Equal(Dev1, d.OwnerToStamp.DeviceId);
-        Assert.False(d.WouldReject);
+        Assert.False(d.Rejected);
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public class SessionOwnershipPolicyTests
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchCert, d.Outcome);
         Assert.False(d.SerialMatch);
         Assert.Null(d.OwnerToStamp);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class SessionOwnershipPolicyTests
         var d = SessionOwnershipPolicy.Evaluate(Row(owner: CertOwner(Thumb1, Dev1)), Cert(Thumb2, Dev2, "SN-1"), Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchCert, d.Outcome);
         Assert.True(d.SerialMatch);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public class SessionOwnershipPolicyTests
         Assert.Equal(SessionOwnershipPolicy.Outcome.RebindBootstrapHandoff, d.Outcome);
         Assert.Equal(SessionOwner.Kinds.Cert, d.OwnerToStamp!.Kind);
         Assert.Null(d.OwnerToStamp.BootstrapCode);
-        Assert.False(d.WouldReject);
+        Assert.False(d.Rejected);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class SessionOwnershipPolicyTests
     {
         var d = SessionOwnershipPolicy.Evaluate(Row(owner: BootstrapOwner("ABC123")), Cert(Thumb1, Dev1, "OTHER"), Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchBootstrapOwned, d.Outcome);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     // ── bootstrap caller ─────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ public class SessionOwnershipPolicyTests
     {
         var d = SessionOwnershipPolicy.Evaluate(Row(owner: BootstrapOwner("ABC123")), Bootstrap(code, serial), Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchBootstrap, d.Outcome);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public class SessionOwnershipPolicyTests
     {
         var d = SessionOwnershipPolicy.Evaluate(Row(owner: CertOwner(Thumb1, Dev1)), Bootstrap("ABC123"), Now);
         Assert.Equal(SessionOwnershipPolicy.Outcome.DowngradeToBootstrap, d.Outcome);
-        Assert.True(d.WouldReject);
+        Assert.True(d.Rejected);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class SessionOwnershipPolicyTests
     [InlineData(SessionOwnershipPolicy.Outcome.RebindBootstrapHandoff)]
     [InlineData(SessionOwnershipPolicy.Outcome.CallerUnidentified)]
     public void Lifecycle_outcomes_are_deliberately_tolerated(string outcome)
-        => Assert.False(SessionOwnershipPolicy.WouldRejectUnderEnforcement(outcome));
+        => Assert.False(SessionOwnershipPolicy.Rejects(outcome));
 
     [Theory]
     [InlineData(SessionOwnershipPolicy.Outcome.LegacySerialMismatch)]
@@ -252,16 +252,22 @@ public class SessionOwnershipPolicyTests
     [InlineData(SessionOwnershipPolicy.Outcome.MismatchCert)]
     [InlineData(SessionOwnershipPolicy.Outcome.MismatchBootstrap)]
     [InlineData(SessionOwnershipPolicy.Outcome.DowngradeToBootstrap)]
-    public void Foreign_identity_outcomes_would_reject(string outcome)
-        => Assert.True(SessionOwnershipPolicy.WouldRejectUnderEnforcement(outcome));
+    public void Foreign_identity_outcomes_are_rejected(string outcome)
+        => Assert.True(SessionOwnershipPolicy.Rejects(outcome));
 
     [Fact]
-    public void Stage1_has_no_Rejects_rule()
+    public void Every_outcome_is_classified_and_the_telemetry_field_reports_the_rule()
     {
-        // Enforcement is a deliberate, visible code change (stage 2) — not something that can
-        // slip in through a refactor. Delete this test in the change that adds Rejects.
-        var rejects = typeof(SessionOwnershipPolicy).GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name == "Rejects").ToArray();
-        Assert.Empty(rejects);
+        // A new Outcome constant must land in one of the two theories above on purpose, and the
+        // shadow-era wouldReject field (KQL keeps querying it) must say exactly what Rejects does.
+        var outcomes = typeof(SessionOwnershipPolicy.Outcome)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral)
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToArray();
+
+        Assert.Equal(11, outcomes.Length);
+        Assert.Equal(5, outcomes.Count(SessionOwnershipPolicy.Rejects));
+        Assert.All(outcomes, o => Assert.Equal(SessionOwnershipPolicy.Rejects(o), SessionOwnershipPolicy.WouldRejectUnderEnforcement(o)));
     }
 }

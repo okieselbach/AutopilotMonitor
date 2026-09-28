@@ -186,12 +186,14 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
             });
 
-            // SESSION-OWNER-BINDING-SHADOW: the emergency-break path below writes timeline events
-            // into whatever session the report names. Observe the binding here as well (one
-            // point-read — this function has no guard row in hand); no stamping from this path.
-            await ObserveSessionOwnerAsync(req, tenantId, report.SessionId, validation);
-
-            await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
+            // SESSION-OWNER-BINDING: the emergency-break path below writes timeline events into
+            // whatever session the report names (one point-read — this function has no guard row
+            // in hand; no stamping from this path). A report naming a session bound to another
+            // device identity keeps its device-scoped diagnostics above and the binary-integrity
+            // check below, but must not write into that session. Still 200: the channel is never
+            // retried, and the agent ignores its status.
+            if (await IsSessionOwnerAllowedAsync(req, tenantId, report.SessionId, validation))
+                await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
 
             var adminConfig = await _adminConfigService.GetConfigurationAsync();
             await MaterializeIntegrityMismatchAsync(
@@ -201,18 +203,24 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             return req.CreateResponse(HttpStatusCode.OK);
         }
 
-        private async Task ObserveSessionOwnerAsync(HttpRequestData req, string tenantId, string? sessionId, SecurityValidationResult validation)
+        /// <summary>
+        /// False only when the owner binding refuses the caller for the named session. Ids that are
+        /// not GUIDs have no row to compare against; a failed row read fails open (our defect is
+        /// not evidence of a foreign device).
+        /// </summary>
+        private async Task<bool> IsSessionOwnerAllowedAsync(HttpRequestData req, string tenantId, string? sessionId, SecurityValidationResult validation)
         {
             if (!SecurityValidator.IsValidGuid(sessionId) || !SecurityValidator.IsValidGuid(tenantId))
-                return;
+                return true;
             try
             {
                 var row = await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId!);
-                _ownerBinding.Observe(req, tenantId, sessionId!, row, validation, "agent/error");
+                return !_ownerBinding.Observe(req, tenantId, sessionId!, row, validation, "agent/error").Rejected;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "ReportAgentError: session-owner observation skipped for session {SessionId}", sessionId);
+                return true;
             }
         }
 

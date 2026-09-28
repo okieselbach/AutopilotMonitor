@@ -34,13 +34,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///     <see cref="AuthFailureTracker"/> (which fires the first-failure distress + may trip
     ///     the shutdown threshold) and return <see cref="SessionRegistrationOutcome.AuthFailed"/>
     ///     without retrying — the backend has definitively rejected the device cert.</item>
-    ///   <item>Exception to the above — a 403 carrying error code
+    ///   <item>Exception to the above — a 403 or 409 carrying error code
     ///     <c>session_owner_mismatch</c> (SESSION-OWNER-BINDING): the persisted SessionId names a
-    ///     session bound to another device identity (typically an Intune re-enrollment without a
-    ///     wipe, where <c>session.id</c> survived but the certificate identity changed). That is
-    ///     not an auth failure: the session is rotated through <c>rotateSession</c> and
-    ///     registration retried exactly once. The tracker is NOT fed — five of these would
-    ///     otherwise soft-shutdown a perfectly authorized agent.</item>
+    ///     session that is not this device's — bound to another device identity (403, typically an
+    ///     Intune re-enrollment without a wipe, where <c>session.id</c> survived but the certificate
+    ///     identity changed) or claimed by another tenant (409). That is not an auth failure: the
+    ///     session is rotated through <c>rotateSession</c> and registration retried exactly once.
+    ///     The tracker is NOT fed — five of these would otherwise soft-shutdown a perfectly
+    ///     authorized agent.</item>
+    ///   <item>Any other coded 409 (<see cref="BackendRefusalException"/>) → <see cref="SessionRegistrationOutcome.Failed"/>
+    ///     without retrying — a refusal with a code does not clear by waiting.</item>
     ///   <item>Any other exception on the last attempt → <see cref="EmergencyReporter.TrySendAsync"/>
     ///     with <c>AgentErrorType.RegisterSessionFailed</c> so operators see the final cause.</item>
     /// </list>
@@ -113,14 +116,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     lastError = response?.Message ?? "(null response)";
                     logger.Warning($"Session registration failed: {lastError}");
                 }
-                catch (BackendAuthException ex) when (
-                    ex.ErrorCode == Constants.AgentErrorCodes.SessionOwnerMismatch
+                catch (Exception ex) when (
+                    IsSessionOwnerMismatch(ex)
                     && rotateSession != null
                     && rotatedFromSessionId == null)
                 {
-                    // SESSION-OWNER-BINDING: the id on disk belongs to a session this device
-                    // identity does not own. Become a new session and register once more —
-                    // immediately, no backoff, no auth-failure bookkeeping.
+                    // SESSION-OWNER-BINDING: the id on disk names a session this device does not
+                    // own. Become a new session and register once more — immediately, no backoff,
+                    // no auth-failure bookkeeping.
                     rotatedFromSessionId = registration.SessionId;
                     string newSessionId;
                     try
@@ -130,14 +133,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     catch (Exception rotateEx)
                     {
                         logger.Error($"Session owner mismatch reported by backend but session rotation failed: {rotateEx.Message}", rotateEx);
-                        authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session", ex.EndpointUnavailable);
-                        return SessionRegistrationResult.AuthFailed(ex.StatusCode, ex.Message);
+                        if (ex is BackendAuthException authEx)
+                        {
+                            authFailureTracker?.RecordFailure(authEx.StatusCode, "agent/register-session", authEx.EndpointUnavailable);
+                            return SessionRegistrationResult.AuthFailed(authEx.StatusCode, authEx.Message);
+                        }
+                        return SessionRegistrationResult.Failed(ex.Message);
                     }
                     logger.Warning(
                         $"Backend refused registration with {Constants.AgentErrorCodes.SessionOwnerMismatch}: session {rotatedFromSessionId} " +
-                        $"is bound to another device identity (re-enrollment without wipe?). Rotated to {newSessionId}; re-registering.");
+                        $"is not this device's (bound to another device identity after a re-enrollment without wipe, or claimed by another tenant). " +
+                        $"Rotated to {newSessionId}; re-registering.");
                     registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
                     continue;
+                }
+                catch (BackendRefusalException ex)
+                {
+                    logger.Error($"Session registration refused ({ex.StatusCode}, {ex.ErrorCode}): {ex.Message}");
+                    return SessionRegistrationResult.Failed(ex.Message);
                 }
                 catch (BackendAuthException ex)
                 {
@@ -193,6 +206,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             }
 
             return SessionRegistrationResult.Failed(lastError ?? "max retries exceeded");
+        }
+
+        private static bool IsSessionOwnerMismatch(Exception ex)
+        {
+            var code = (ex as BackendAuthException)?.ErrorCode ?? (ex as BackendRefusalException)?.ErrorCode;
+            return code == Constants.AgentErrorCodes.SessionOwnerMismatch;
         }
 
         /// <summary>V1 parity exponential backoff: 2^attempt seconds.</summary>

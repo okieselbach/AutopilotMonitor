@@ -19,9 +19,9 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// SESSION-OWNER-BINDING-SHADOW carriers: the outcome lands on the request row for every
-/// request (denominator), non-Match outcomes produce a Warning, would-reject outcomes raise one
-/// throttled ops event, stamping is fail-soft, and nothing is ever refused.
+/// SESSION-OWNER-BINDING carriers: the outcome lands on the request row for every request
+/// (denominator), non-Match outcomes produce a Warning, rejected outcomes raise one throttled
+/// ops event, stamping is fail-soft, and an evaluation defect fails open.
 /// </summary>
 public class SessionOwnerBindingObserverTests
 {
@@ -105,7 +105,7 @@ public class SessionOwnerBindingObserverTests
     }
 
     [Fact]
-    public async Task Would_reject_outcome_warns_and_raises_one_ops_event_per_session_and_outcome()
+    public async Task Rejected_outcome_warns_and_raises_one_ops_event_per_session_and_outcome()
     {
         var rig = new Rig();
         var (req, items) = Request("2.0.1500");
@@ -115,12 +115,12 @@ public class SessionOwnerBindingObserverTests
         var second = rig.Sut.Observe(req, Tenant, Session, row, Cert(Thumb2, "SN-ATTACKER"), "agent/telemetry");
 
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchCert, first.Outcome);
-        Assert.True(first.WouldReject);
+        Assert.True(first.Rejected);
         Assert.Equal(SessionOwnershipPolicy.Outcome.MismatchCert, items[SessionOwnershipPolicy.RequestItemKey]);
 
         var warnings = rig.Logger.Entries.Where(e => e.Level == LogLevel.Warning).ToList();
         Assert.Equal(2, warnings.Count);
-        Assert.All(warnings, w => Assert.Contains("AgentSessionOwnerBinding outcome=MismatchCert enforced=False wouldReject=True", w.Message));
+        Assert.All(warnings, w => Assert.Contains("AgentSessionOwnerBinding outcome=MismatchCert enforced=True wouldReject=True", w.Message));
         Assert.Contains("serialMatch=False", warnings[0].Message);
         Assert.Contains("ver=2.0.1500", warnings[0].Message);
 
@@ -130,11 +130,11 @@ public class SessionOwnerBindingObserverTests
         Assert.Equal(OpsEventCategory.Security, evt.Category);
         Assert.Equal(Tenant, evt.TenantId);
         Assert.Contains("MismatchCert", evt.Message);
-        Assert.Contains("shadow", evt.Message);
+        Assert.Contains("refused", evt.Message);
         Assert.DoesNotContain(Thumb1, evt.Message);
         Assert.DoesNotContain(Thumb2, evt.Message);
         Assert.Contains("\"serialMatch\":false", evt.Details);
-        Assert.Contains("\"enforced\":false", evt.Details);
+        Assert.Contains("\"enforced\":true", evt.Details);
         _ = second;
     }
 
@@ -151,6 +151,22 @@ public class SessionOwnerBindingObserverTests
         Assert.Equal(SessionOwnershipPolicy.Outcome.RebindBootstrapHandoff, d.Outcome);
         Assert.NotNull(d.OwnerToStamp);
         Assert.Contains(rig.Logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("wouldReject=False"));
+        Assert.Empty(rig.Ops);
+    }
+
+    [Fact]
+    public void Evaluation_defect_fails_open()
+    {
+        var rig = new Rig();
+        var (req, _) = Request();
+
+        // A null validation throws inside the policy — our defect, never evidence of a foreign device.
+        var d = rig.Sut.Observe(req, Tenant, Session, OwnedRow(Thumb1), null!, "agent/telemetry");
+
+        Assert.Equal(SessionOwnershipPolicy.Outcome.Match, d.Outcome);
+        Assert.False(d.Rejected);
+        Assert.Null(d.OwnerToStamp);
+        Assert.Contains(rig.Logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("request allowed"));
         Assert.Empty(rig.Ops);
     }
 

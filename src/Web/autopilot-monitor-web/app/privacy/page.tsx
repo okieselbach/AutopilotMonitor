@@ -209,6 +209,7 @@ export default function PrivacyPage() {
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Device authentication by mutual TLS</strong> using the Intune MDM client certificate, validated against pinned Intune root CAs rather than the operating system trust store — and rejected if no trust anchor loads</li>
             <li><strong>Device validation via Microsoft Graph</strong> — only devices your tenant actually knows are accepted (Windows Autopilot registration, corporate device identifiers, device association, the Windows 365 Cloud PC inventory, or the Intune enrollment of the certificate&apos;s device, as enabled per tenant), with an optional hardware allow-list on top</li>
+            <li><strong>Session binding</strong> — each enrollment session is bound to the device that started it, and no other device can write into it</li>
             <li><strong>Entra ID authentication</strong> for portal users with a restricted signing-algorithm allow-list and identity PII logging disabled</li>
             <li><strong>Fail-closed authorization</strong> — every API route must be registered with an access policy; an unregistered route is unreachable</li>
             <li><strong>Structural tenant isolation</strong> — storage partitioning by tenant, with the tenant identity taken from the validated token and never from a client-supplied header</li>

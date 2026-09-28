@@ -12,18 +12,19 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// SESSION-OWNER-BINDING-SHADOW — the single side-effect carrier around
+    /// SESSION-OWNER-BINDING — the single side-effect carrier around
     /// <see cref="SessionOwnershipPolicy"/>. Every session-scoped agent write (register, telemetry
-    /// ingest, error report) runs its already-loaded Sessions row and validation through
-    /// <see cref="Observe"/>, which records the outcome and returns the decision; callers that own
-    /// a write path then stamp the binding (register through <c>StoreSessionAsync</c>, ingest through
-    /// <see cref="StampAsync"/>).
+    /// ingest, error report, hosted diagnostics upload URL) runs its already-loaded Sessions row and
+    /// validation through <see cref="Observe"/>, which records the outcome and returns the decision.
+    /// The caller refuses when <see cref="SessionOwnershipPolicy.Decision.Rejected"/> is set; callers
+    /// that own a write path otherwise stamp the binding (register through <c>StoreSessionAsync</c>,
+    /// ingest through <see cref="StampAsync"/>).
     /// <para>
     /// Three carriers, deliberately (same shape as CERT-TENANT-BINDING):
     /// the request-row dimension <c>SessionOwnerBinding</c> for every outcome (denominator — worker
     /// LogInformation never reaches App Insights), a Warning trace for every non-Match/non-Fresh
     /// outcome (numerator with detail), and a throttled <c>SessionOwnerMismatch</c> ops event for
-    /// would-reject outcomes so operators can wire an alert rule. Nothing here rejects.
+    /// rejected outcomes so operators can wire an alert rule.
     /// </para>
     /// </summary>
     public sealed class SessionOwnerBindingObserver
@@ -50,7 +51,8 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Evaluates and records the binding for one request. Never throws — an exception in the
         /// evaluation is our defect, not evidence of a foreign device, and yields a Match decision
-        /// with no stamp.
+        /// with no stamp (fail open: turning it into a rejection would take devices down over a
+        /// defect on our side).
         /// </summary>
         /// <param name="req">The request (for the FunctionContext item and the agent-version header).</param>
         /// <param name="tenantId">Validated tenant.</param>
@@ -92,10 +94,10 @@ namespace AutopilotMonitor.Functions.Services
                     "AgentSessionOwnerBinding outcome={Outcome} enforced={Enforced} wouldReject={WouldReject} "
                     + "tenant={TenantId} session={SessionId} callerKind={CallerKind} ownerKind={OwnerKind} "
                     + "serialMatch={SerialMatch} endpoint={Endpoint} ver={AgentVersion}",
-                    decision.Outcome, false, decision.WouldReject, tenantId, sessionId, callerKind, ownerKind,
+                    decision.Outcome, true, decision.Rejected, tenantId, sessionId, callerKind, ownerKind,
                     decision.SerialMatch, endpoint, agentVersion);
 
-                if (decision.WouldReject)
+                if (decision.Rejected)
                     RaiseOpsEventThrottled(tenantId, sessionId, decision, callerKind, ownerKind, agentVersion, endpoint);
 
                 return decision;
@@ -112,7 +114,8 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Writes the decision's owner onto the Sessions row from a path that does not otherwise
         /// replace the row (telemetry ingest: legacy claim and rebinds). No-op without an owner to
-        /// stamp. Fail-soft — the binding is observational in stage 1 and must never cost a batch.
+        /// stamp. Fail-soft — a failed stamp only leaves the row on its previous owner (the next
+        /// request re-evaluates the same tolerated outcome) and must never cost a batch.
         /// </summary>
         public async Task StampAsync(string tenantId, string sessionId, SessionOwnershipPolicy.Decision decision)
         {

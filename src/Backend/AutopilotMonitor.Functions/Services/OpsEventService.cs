@@ -325,14 +325,6 @@ namespace AutopilotMonitor.Functions.Services
                 null, blockedBy, new { pattern });
 
         /// <summary>
-        /// SESSION-OWNER-BINDING-SHADOW: a validated agent request targeted a session that is bound
-        /// to a different device identity (see <c>SessionOwnershipPolicy</c>). Stage 1 records only —
-        /// the request went through. Throttled by <c>SessionOwnerBindingObserver</c> to one event per
-        /// session+outcome per hour. <c>serialMatch=true</c> on <c>MismatchCert</c> is the
-        /// re-enroll-without-wipe shape (same device, new certificate identity, old session id);
-        /// <c>serialMatch=false</c> is a foreign device naming somebody else's session.
-        /// </summary>
-        /// <summary>
         /// A device/bootstrap-authenticated registration named a sessionId whose SessionTenantLookup
         /// row belongs to ANOTHER tenant (first-writer-wins claim in <c>StoreSessionAsync</c>).
         /// Session ids are random GUIDs — this is a forged registration or an agent bug, never a
@@ -346,13 +338,21 @@ namespace AutopilotMonitor.Functions.Services
                 requestedTenantId, "System.SessionTenantLookup",
                 new { sessionId, owningTenantId, certificateThumbprint, agentVersion, endpoint });
 
+        /// <summary>
+        /// SESSION-OWNER-BINDING: a validated agent request named a session bound to a different
+        /// device identity (see <c>SessionOwnershipPolicy</c>) and its session write was refused.
+        /// Throttled by <c>SessionOwnerBindingObserver</c> to one event per session+outcome per hour
+        /// and Function instance. <c>serialMatch=true</c> on <c>MismatchCert</c> is the
+        /// re-enroll-without-wipe shape, on which the agent rotates to a new session;
+        /// <c>serialMatch=false</c> is a foreign device naming somebody else's session.
+        /// </summary>
         public Task RecordSessionOwnerMismatchAsync(
             string tenantId, string sessionId, string outcome, string callerKind, string ownerKind,
             bool serialMatch, string? agentVersion, string endpoint)
             => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SessionOwnerMismatch, OpsEventSeverity.Warning,
-                $"Session owner mismatch ({outcome}) on {endpoint}: {callerKind} caller vs {ownerKind}-owned session {sessionId} (serialMatch={serialMatch.ToString().ToLowerInvariant()}, shadow - allowed)",
+                $"Session owner mismatch ({outcome}) on {endpoint}: {callerKind} caller vs {ownerKind}-owned session {sessionId} (serialMatch={serialMatch.ToString().ToLowerInvariant()}, refused)",
                 tenantId, "System.SessionOwnerBinding",
-                new { sessionId, outcome, callerKind, ownerKind, serialMatch, agentVersion, endpoint, enforced = false });
+                new { sessionId, outcome, callerKind, ownerKind, serialMatch, agentVersion, endpoint, enforced = true });
 
         /// <summary>
         /// Assume-breach signal for the Global-Admin-only surface: an authenticated caller was refused

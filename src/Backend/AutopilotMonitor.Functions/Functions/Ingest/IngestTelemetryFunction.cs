@@ -6,6 +6,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -265,12 +266,18 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // EventIngestProcessor, saving one Sessions point-read per batch.
                 var preFetchedStatus = TryReadSessionStatus(guardSessionRow);
 
-                // SESSION-OWNER-BINDING-SHADOW: is the device behind this certificate/token the
-                // device this session belongs to? Same guard row, zero extra reads. Stage 1 records
-                // the outcome (request-row dimension + Warning + throttled ops event) and stamps
-                // legacy claims / rebinds; it never refuses the batch. Covers the Signal-only path
-                // too — that is where pending ServerActions get fetched-and-cleared.
+                // SESSION-OWNER-BINDING: is the device behind this certificate/token the device this
+                // session belongs to? Same guard row, zero extra reads. A foreign identity gets 403
+                // before anything is stored — covering the Signal-only path too, which is where
+                // pending ServerActions get fetched-and-cleared. An honest agent never gets here:
+                // it picks its certificate once per process and registration (which rotates on
+                // mismatch) precedes its first batch. Tolerated outcomes stamp legacy claims / rebinds.
                 var ownerDecision = _ownerBinding.Observe(req, bodyTenantId, sessionId, guardSessionRow, validation, "agent/telemetry");
+                if (ownerDecision.Rejected)
+                {
+                    return AsOutput(await req.ErrorAsync(HttpStatusCode.Forbidden, Constants.ApiErrorCodes.SessionOwnerMismatch,
+                        "Session is bound to another device identity; the batch was not stored."));
+                }
                 if (guardSessionRow != null)
                     await _ownerBinding.StampAsync(bodyTenantId, sessionId, ownerDecision);
 

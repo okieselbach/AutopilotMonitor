@@ -189,14 +189,15 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             bool isFreshRegistration = preExistingSession == null;
             bool isWhiteGloveResume = preExistingSession?.Status == SessionStatus.Pending;
 
-            // SESSION-OWNER-BINDING-SHADOW: compare the caller's validated identity against the
-            // owner already on the row (reusing the guard's read). Stage 1 never refuses — the
-            // decision only records the outcome and yields the owner to stamp (fresh bind,
-            // legacy claim, cert rotation, bootstrap→cert handoff). Enforcement (stage 2) will turn
-            // a would-reject here into 403 + AgentErrorCodes.SessionOwnerMismatch, on which the
-            // agent rotates its session id.
+            // SESSION-OWNER-BINDING: compare the caller's validated identity against the owner
+            // already on the row (reusing the guard's read). A foreign identity is refused with
+            // 403 + AgentErrorCodes.SessionOwnerMismatch BEFORE anything is written — the agent
+            // rotates its session id on that code and registers afresh. Tolerated outcomes yield
+            // the owner to stamp (fresh bind, legacy claim, cert rotation, bootstrap→cert handoff).
             var ownerDecision = _ownerBinding.Observe(
                 req, registration.TenantId, registration.SessionId, guardSessionRow, validation, "agent/register-session");
+            if (ownerDecision.Rejected)
+                return new RegisterSessionOutput { HttpResponse = await WriteSessionOwnerMismatchAsync(req, registration.SessionId) };
 
             // Store session in Azure Table Storage. The sessionId → tenantId lookup claim inside is
             // first-writer-wins: a sessionId already owned by another tenant is refused with 409 so
@@ -466,6 +467,21 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             {
                 Success = false,
                 Message = "Session id is already registered to another tenant; register with a new session id.",
+                RegisteredAt = DateTime.UtcNow,
+                ErrorCode = Constants.AgentErrorCodes.SessionOwnerMismatch,
+            });
+
+        /// <summary>
+        /// 403 for a session bound to another device identity (SESSION-OWNER-BINDING). Carries
+        /// <see cref="Constants.AgentErrorCodes.SessionOwnerMismatch"/>, on which the agent rotates its
+        /// SessionId and registers afresh instead of counting an auth failure.
+        /// </summary>
+        private static Task<HttpResponseData> WriteSessionOwnerMismatchAsync(HttpRequestData req, string sessionId)
+            => req.JsonAsync(HttpStatusCode.Forbidden, new RegisterSessionResponse
+            {
+                SessionId = sessionId,
+                Success = false,
+                Message = "Session is bound to another device identity; register with a new session id.",
                 RegisteredAt = DateTime.UtcNow,
                 ErrorCode = Constants.AgentErrorCodes.SessionOwnerMismatch,
             });

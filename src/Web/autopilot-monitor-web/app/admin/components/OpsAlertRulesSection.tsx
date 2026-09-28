@@ -116,9 +116,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // creation. Emitted by KillSwitchEvaluator, throttled 24h per tenant+serial+pattern.
     // Dual-register per memory feedback_ops_event_types_dual_register.
     "KillSignalDelivered",
-    // SESSION-OWNER-BINDING-SHADOW: a validated agent request named a session bound to a
-    // different device identity (SessionOwnerBindingObserver, throttled 1h per session+outcome).
-    // Stage 1 observes only. Dual-register per memory feedback_ops_event_types_dual_register.
+    // SESSION-OWNER-BINDING: a validated agent request named a session bound to a different
+    // device identity and was refused (SessionOwnerBindingObserver, throttled 1h per
+    // session+outcome). Dual-register per memory feedback_ops_event_types_dual_register.
     "SessionOwnerMismatch",
     // A registration named a sessionId already owned by ANOTHER tenant (first-writer-wins
     // SessionTenantLookup claim) and was refused with 409. Dual-register per memory

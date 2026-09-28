@@ -420,7 +420,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // Re-stamp AgentBootUtc so the current run's deadlines floor at "now" — the
                 // persisted boot anchor is from the prior run and using it would let replayed
                 // tail signals arm deadlines that are already past-due (premature fire).
-                seed = loadedState.ToBuilder().WithAgentBootUtc(agentBootUtc).Build();
+                // Re-stamp SessionId too: after a session rotation at registration
+                // (SESSION-OWNER-BINDING) the snapshot still names the refused session, and the
+                // timeline emitter takes each event's SessionId from this state.
+                var seedBuilder = loadedState.ToBuilder().WithAgentBootUtc(agentBootUtc);
+                seedBuilder.SessionId = sessionId;
+                seed = seedBuilder.Build();
                 signalsToReplay = CollectSignalLogTailAfter(signalLog, loadedState.LastAppliedSignalOrdinal);
                 branchTag = signalsToReplay.Count > 0 ? "b-tail-replay" : "b-snapshot-current";
             }

@@ -18,19 +18,19 @@ namespace AutopilotMonitor.Functions.Security
     /// </para>
     /// </summary>
     /// <remarks>
-    /// STAGE 1 — SHADOW (<c>SESSION-OWNER-BINDING-SHADOW</c>): nothing is rejected. Every outcome
-    /// is recorded on the request row (denominator), non-Match outcomes are logged as Warnings and
-    /// would-reject outcomes raise a throttled <c>SessionOwnerMismatch</c> ops event. Bindings are
-    /// stamped from stage 1 on so the data exists when enforcement is switched on.
+    /// ENFORCED (stage 2): <see cref="Rejects"/> is the whole rule. It ran as shadow-only first and
+    /// was switched on against four weeks of measured data in which every would-reject outcome was
+    /// an Intune re-enrollment without a wipe. Every outcome is still recorded on the request row,
+    /// non-Match outcomes as Warnings, rejected ones as a throttled <c>SessionOwnerMismatch</c> ops event.
     /// <para>
-    /// Enforcement (stage 2, separate change, after a long observation window) adds a
-    /// <c>Rejects</c> rule and answers a would-reject with 403 + error code
+    /// A rejected registration answers 403 + error code
     /// <see cref="AutopilotMonitor.Shared.Constants.AgentErrorCodes.SessionOwnerMismatch"/>, on which
-    /// the agent rotates its session id instead of counting an auth failure. That is what makes the
-    /// one legitimate collision — an Intune re-enrollment WITHOUT a wipe, where <c>session.id</c>
-    /// survives but the device gets a new certificate identity — resolve into a fresh session rather
-    /// than a dead one. Deliberately no <c>Rejects</c> in this file yet: KQL written against the
-    /// shadow field must keep working, and the switch has to be a visible code change.
+    /// the agent rotates its session id instead of counting an auth failure. That is what turns the
+    /// one legitimate collision — a re-enrollment WITHOUT a wipe, where <c>session.id</c> survives but
+    /// the device gets a new certificate identity — into a fresh session rather than a dead one. It
+    /// only works because the agent picks its certificate once per process, before registration: an
+    /// identity change therefore always surfaces at registration, never on a later ingest.
+    /// Grep marker for the sites involved: <c>SESSION-OWNER-BINDING</c>.
     /// </para>
     /// <para>
     /// What this does NOT prove: the serial number is a caller-supplied header on both auth paths.
@@ -107,7 +107,8 @@ namespace AutopilotMonitor.Functions.Security
             /// <summary>Whether the caller's announced serial equals the serial on the row. Diagnostic — distinguishes re-enroll-without-wipe from a foreign device on <see cref="SessionOwnershipPolicy.Outcome.MismatchCert"/>.</summary>
             public bool SerialMatch { get; }
 
-            public bool WouldReject => WouldRejectUnderEnforcement(Outcome);
+            /// <summary>Whether the request is refused (<see cref="Rejects"/>).</summary>
+            public bool Rejected => Rejects(Outcome);
         }
 
         /// <summary>
@@ -165,8 +166,7 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// Whether an outcome will block the request once enforcement is on. Recorded on every
-        /// non-Match observation so the shadow data answers "what would we have rejected".
+        /// Whether an outcome blocks the request. This is the enforcement rule, in one place.
         /// <para>
         /// Tolerated by design (never reject): <see cref="Outcome.Fresh"/>, <see cref="Outcome.Match"/>,
         /// <see cref="Outcome.ClaimLegacy"/> (rows from before the binding must not lock their own
@@ -174,12 +174,18 @@ namespace AutopilotMonitor.Functions.Security
         /// normal lifecycle), and <see cref="Outcome.CallerUnidentified"/> (nothing to compare).
         /// </para>
         /// </summary>
-        public static bool WouldRejectUnderEnforcement(string outcome) =>
+        public static bool Rejects(string outcome) =>
             outcome == Outcome.LegacySerialMismatch
             || outcome == Outcome.MismatchBootstrapOwned
             || outcome == Outcome.MismatchCert
             || outcome == Outcome.MismatchBootstrap
             || outcome == Outcome.DowngradeToBootstrap;
+
+        /// <summary>
+        /// Retained name for the <c>wouldReject</c> telemetry field. Identical to <see cref="Rejects"/> —
+        /// kept so KQL written during the shadow phase keeps working.
+        /// </summary>
+        public static bool WouldRejectUnderEnforcement(string outcome) => Rejects(outcome);
 
         /// <summary>
         /// Builds the caller's identity from a successful validation. Null when the request carried

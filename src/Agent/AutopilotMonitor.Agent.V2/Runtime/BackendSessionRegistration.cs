@@ -70,8 +70,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// ours" into a new session. Rotates the persisted id, points the runtime config at it,
         /// drops the transport spool (its lines carry the refused session's partition key and
         /// would otherwise be uploaded against it after the rotation) and re-targets the
-        /// emergency reporter, which snapshotted the id before registration. Everything else
-        /// reads <c>agentConfig.SessionId</c> live after Phase 6.
+        /// emergency reporter, which snapshotted the id before registration. Everything else that
+        /// holds a session id (orchestrator, emitters, spool) is built in Phase 7 from the rotated
+        /// <c>agentConfig.SessionId</c> — keep it that way: a component built before Phase 6 needs
+        /// its own re-target here.
         /// </summary>
         internal static string RotateSession(
             AgentConfiguration agentConfig,
