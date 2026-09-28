@@ -17,6 +17,10 @@ describe("AppHomingAddOnStep", () => {
     expect(html).toContain('-ClientId &quot;886ab5e2-0000-0000-0000-000000000000&quot;');
     expect(html).toContain("Copy command");
     expect(html).toContain("Detect existing access");
+    // Only these two Entra roles can grant Microsoft Graph application permissions.
+    expect(html).toContain("Global Administrator");
+    expect(html).toContain("Privileged Role Administrator");
+    expect(html).not.toContain("Cloud Application Administrator");
     expect(html).toContain(`href="${DOCS_URL}/troubleshooting-and-support/app-registration-migration#optional-graph-add-on-permissions"`);
     expect(html).toContain(`href="${DOCS_URL}/reference/optional-graph-permissions"`);
     // Progress, not an error: stays in the blue family of the funnel banner.
