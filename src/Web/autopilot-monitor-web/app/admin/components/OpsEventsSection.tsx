@@ -1,12 +1,13 @@
 "use client";
 
 import { sessionUrl, deviceBlockUrl } from "@/lib/routes";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
-import { extractContinuation } from "@/lib/paginationLink";
+import type { CursorPage } from "@/lib/cursorPager";
+import { useCursorPager } from "@/hooks/useCursorPager";
 import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { OpsEventEntry, OpsEventListResponse } from "@/utils/wire-types.generated";
@@ -120,8 +121,6 @@ export function OpsEventsSection({
   onSaveConfig,
   savingConfig,
 }: OpsEventsSectionProps) {
-  const [events, setEvents] = useState<OpsEvent[]>([]);
-  const [loading, setLoading] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<OpsEvent | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -129,15 +128,8 @@ export function OpsEventsSection({
   const [dateFromIso, setDateFromIso] = useState<string>(defaultIsoDateFrom());
   const [dateToIso, setDateToIso] = useState<string>(defaultIsoDateTo());
 
-  // Pattern B1 click-next replace state — backend pagination
-  const [continuation, setContinuation] = useState<string | null>(null);
-  const [nextLink, setNextLink] = useState<string | null>(null);
-  const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
-  const [pageNumber, setPageNumber] = useState(1);
-
-  const fetchEvents = useCallback(async (cursor: string | null) => {
+  const fetchEvents = async (cursor: string | null): Promise<CursorPage<OpsEvent> | null> => {
     try {
-      setLoading(true);
       // 404 = the table does not exist yet: no events, not an error.
       const data = await fetchJson<OpsEventListResponse>(
         api.opsEvents.list(categoryFilter || undefined, {
@@ -148,51 +140,24 @@ export function OpsEventsSection({
         }),
         getAccessToken
       ).catch(nullOn404);
-      setEvents(data?.events ?? []);
-      setNextLink(data?.nextLink ?? null);
+      return { items: data?.events ?? [], nextLink: data?.nextLink ?? null };
     } catch (err) {
       setError(apiErrorText(err, "Failed to load ops events"));
-    } finally {
-      setLoading(false);
+      return null;
     }
-  }, [categoryFilter, dateFromIso, dateToIso, getAccessToken, setError]);
+  };
+  const pager = useCursorPager(fetchEvents);
+  const { reset } = pager;
+  const events = pager.items;
+  const loading = !pager.settled || pager.pending !== null;
 
-  // Reset pagination + refetch whenever the filter window or category changes.
-  // fetchEvents is intentionally excluded from deps: getAccessToken's identity
-  // churns on every MSAL accounts-array refresh, which happens after each
-  // authenticatedFetch — leaving fetchEvents in deps causes the effect to
-  // re-fire after every successful page-N click, race a page-1 fetch against
-  // it, and snap the user back to page 1.
+  // Back to page 1 whenever the filter window or category changes.
   useEffect(() => {
     const run = async () => {
-      setContinuation(null);
-      setContinuationStack([]);
-      setPageNumber(1);
-      await fetchEvents(null);
+      await reset();
     };
     void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryFilter, dateFromIso, dateToIso]);
-
-  const handleNextPage = () => {
-    const nextCont = extractContinuation(nextLink);
-    if (!nextCont) return;
-    setContinuationStack(stack => [...stack, continuation]);
-    setContinuation(nextCont);
-    setPageNumber(n => n + 1);
-    fetchEvents(nextCont);
-  };
-
-  const handlePrevPage = () => {
-    if (continuationStack.length === 0) return;
-    const prev = continuationStack[continuationStack.length - 1];
-    setContinuationStack(stack => stack.slice(0, -1));
-    setContinuation(prev ?? null);
-    setPageNumber(n => Math.max(1, n - 1));
-    fetchEvents(prev ?? null);
-  };
-
-  const handleRefresh = () => fetchEvents(continuation);
+  }, [reset, categoryFilter, dateFromIso, dateToIso]);
 
   // Search filter operates on the current backend page only — Pattern B1 shows
   // one page at a time, so cross-page totals are intentionally not surfaced.
@@ -244,7 +209,7 @@ export function OpsEventsSection({
               Configure Alerts
             </Link>
             <button
-              onClick={handleRefresh}
+              onClick={() => void pager.refresh()}
               disabled={loading}
               className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors"
             >
@@ -444,19 +409,19 @@ export function OpsEventsSection({
             {/* Pagination (Pattern B1 — backend-driven) */}
             <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {filteredEvents.length} on page {pageNumber}{searchQuery && ` (filtered)`}{nextLink ? "" : " (last)"}
+                {filteredEvents.length} on page {pager.pageNumber}{searchQuery && ` (filtered)`}{pager.hasNext ? "" : " (last)"}
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handlePrevPage}
-                  disabled={continuationStack.length === 0 || loading}
+                  onClick={() => void pager.prev()}
+                  disabled={!pager.hasPrev || loading}
                   className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Previous
                 </button>
                 <button
-                  onClick={handleNextPage}
-                  disabled={!nextLink || loading}
+                  onClick={() => void pager.next()}
+                  disabled={!pager.hasNext || loading}
                   className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Next

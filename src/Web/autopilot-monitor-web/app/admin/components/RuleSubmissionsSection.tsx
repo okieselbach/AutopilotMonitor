@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { extractContinuation } from "@/lib/paginationLink";
+import type { CursorPage } from "@/lib/cursorPager";
+import { useCursorPager } from "@/hooks/useCursorPager";
 import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
@@ -84,18 +85,12 @@ export function RuleSubmissionsSection(props: RuleSubmissionsSectionProps) {
 function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissionsSectionProps) {
   // Decisions and the reseed are GA-only (GlobalAdminOnly routes); a Global Reader may look.
   const canMutate = useCanMutatePlatform();
-  const [items, setItems] = useState<RuleSubmissionItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<RuleSubmissionDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [tenantFilterInput, setTenantFilterInput] = useState("");
   const [tenantFilterApplied, setTenantFilterApplied] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [continuation, setContinuation] = useState<string | null>(null);
-  const [nextLink, setNextLink] = useState<string | null>(null);
-  const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
-  const [pageNumber, setPageNumber] = useState(1);
 
   const openDetail = useCallback(async (submissionId: string) => {
     try {
@@ -122,33 +117,29 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
     void run();
   }, [submissionIdParam, openDetail]);
 
-  const fetchPage = useCallback(async (cursor: string | null, filterTenantId: string | undefined, status: string) => {
+  const fetchPage = async (cursor: string | null): Promise<CursorPage<RuleSubmissionItem> | null> => {
     try {
-      setLoading(true);
       const data = await fetchJson<RuleSubmissionListResponse>(
-        api.ruleSubmissions.list({ tenantId: filterTenantId, status: status || undefined, pageSize: PAGE_SIZE, continuation: cursor ?? undefined }),
+        api.ruleSubmissions.list({ tenantId: tenantFilterApplied, status: statusFilter || undefined, pageSize: PAGE_SIZE, continuation: cursor ?? undefined }),
         getAccessToken,
       ).catch(nullOn404);
-      setItems(data?.submissions ?? []);
-      setNextLink(data?.nextLink ?? null);
+      return { items: data?.submissions ?? [], nextLink: data?.nextLink ?? null };
     } catch (err) {
       setError(apiErrorText(err, "Failed to load rule submissions"));
-    } finally {
-      setLoading(false);
+      return null;
     }
-    // getAccessToken churns on every MSAL refresh — see SessionReportsSection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setError]);
+  };
+  const pager = useCursorPager(fetchPage);
+  const { reset, updateItems } = pager;
+  const items = pager.items;
+  const loading = !pager.settled || pager.pending !== null;
 
   useEffect(() => {
     const run = async () => {
-      setContinuation(null);
-      setContinuationStack([]);
-      setPageNumber(1);
-      await fetchPage(null, tenantFilterApplied, statusFilter);
+      await reset();
     };
     void run();
-  }, [tenantFilterApplied, statusFilter, fetchPage]);
+  }, [reset, tenantFilterApplied, statusFilter]);
 
   const handleApplyTenantFilter = () => {
     const trimmed = tenantFilterInput.trim();
@@ -160,33 +151,13 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
     setTenantFilterApplied(trimmed || undefined);
   };
 
-  const handleNextPage = () => {
-    const nextCont = extractContinuation(nextLink);
-    if (!nextCont) return;
-    setContinuationStack((stack) => [...stack, continuation]);
-    setContinuation(nextCont);
-    setPageNumber((n) => n + 1);
-    void fetchPage(nextCont, tenantFilterApplied, statusFilter);
-  };
-
-  const handlePrevPage = () => {
-    if (continuationStack.length === 0) return;
-    const prev = continuationStack[continuationStack.length - 1];
-    setContinuationStack((stack) => stack.slice(0, -1));
-    setContinuation(prev ?? null);
-    setPageNumber((n) => Math.max(1, n - 1));
-    void fetchPage(prev ?? null, tenantFilterApplied, statusFilter);
-  };
-
-  const handleRefresh = () => fetchPage(continuation, tenantFilterApplied, statusFilter);
-
   const handleReviewed = (updated: RuleSubmissionItem) => {
-    setItems((prev) => prev.map((s) => (s.submissionId === updated.submissionId ? updated : s)));
+    updateItems((prev) => prev.map((s) => (s.submissionId === updated.submissionId ? updated : s)));
     void openDetail(updated.submissionId);
   };
 
   const handleDeleted = (submissionId: string) => {
-    setItems((prev) => prev.filter((s) => s.submissionId !== submissionId));
+    updateItems((prev) => prev.filter((s) => s.submissionId !== submissionId));
     setDetail(null);
   };
 
@@ -226,7 +197,7 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
           <option value="">All statuses</option>
           {STATUS_FILTERS.map((s) => <option key={s} value={s}>{submissionStatusBadge(s).label}</option>)}
         </select>
-        <button onClick={handleRefresh} disabled={loading} className="ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors">
+        <button onClick={() => void pager.refresh()} disabled={loading} className="ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors">
           {loading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -275,10 +246,10 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
               </tbody>
             </table>
             <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{items.length} on page {pageNumber}{nextLink ? "" : " (last)"}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{items.length} on page {pager.pageNumber}{pager.hasNext ? "" : " (last)"}</span>
               <div className="flex items-center gap-2">
-                <button onClick={handlePrevPage} disabled={continuationStack.length === 0 || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Previous</button>
-                <button onClick={handleNextPage} disabled={!nextLink || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next</button>
+                <button onClick={() => void pager.prev()} disabled={!pager.hasPrev || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Previous</button>
+                <button onClick={() => void pager.next()} disabled={!pager.hasNext || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next</button>
               </div>
             </div>
           </div>

@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { extractContinuation } from "@/lib/paginationLink";
+import type { CursorPage } from "@/lib/cursorPager";
+import { useCursorPager } from "@/hooks/useCursorPager";
 import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
@@ -185,20 +186,36 @@ function SessionReportsSectionInner({
   // Admin Note is GA-only (PATCH session-reports/{id}/note is GlobalAdminOnly). A read-only Global
   // Reader may view reports + notes but not edit them.
   const canMutate = useCanMutatePlatform();
-  const [reports, setReports] = useState<SessionReport[]>([]);
-  // true from the start: the fetch fires on mount, and a false initial value
-  // flashes the empty state for one paint.
-  const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<SessionReport | null>(null);
   const [downloadingBlob, setDownloadingBlob] = useState<string | null>(null);
 
   // Pattern B1 click-next replace state — backend pagination
   const [tenantFilterInput, setTenantFilterInput] = useState("");
   const [tenantFilterApplied, setTenantFilterApplied] = useState<string | undefined>(undefined);
-  const [continuation, setContinuation] = useState<string | null>(null);
-  const [nextLink, setNextLink] = useState<string | null>(null);
-  const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
-  const [pageNumber, setPageNumber] = useState(1);
+
+  const fetchReports = async (cursor: string | null): Promise<CursorPage<SessionReport> | null> => {
+    try {
+      // 404 = table/container does not exist yet: no reports submitted so far, not an error.
+      const data = await fetchJson<SessionReportListResponse>(
+        api.reports.list({
+          tenantId: tenantFilterApplied,
+          pageSize: PAGE_SIZE,
+          continuation: cursor ?? undefined,
+        }),
+        getAccessToken,
+      ).catch(nullOn404);
+      return { items: data?.reports ?? [], nextLink: data?.nextLink ?? null };
+    } catch (err) {
+      setError(apiErrorText(err, "Failed to load reports"));
+      return null;
+    }
+  };
+  const pager = useCursorPager(fetchReports);
+  const { reset, updateItems } = pager;
+  const reports = pager.items;
+  // Loading until the first fetch settles: the fetch fires on mount, and a false
+  // initial value flashes the empty state for one paint.
+  const loading = !pager.settled || pager.pending !== null;
 
   // Deep link from GA notifications: ?reportId=… auto-opens the report modal once
   // the first page has loaded (one-shot). Reports are listed newest-first, so a
@@ -254,47 +271,16 @@ function SessionReportsSectionInner({
 
   const handleNoteSaved = (updated: SessionReport) => {
     setSelectedReport(updated);
-    setReports(prev => prev.map(r => r.reportId === updated.reportId ? updated : r));
+    updateItems(prev => prev.map(r => r.reportId === updated.reportId ? updated : r));
   };
 
-  const fetchReports = useCallback(async (cursor: string | null, filterTenantId: string | undefined) => {
-    try {
-      setLoading(true);
-
-      // 404 = table/container does not exist yet: no reports submitted so far, not an error.
-      const data = await fetchJson<SessionReportListResponse>(
-        api.reports.list({
-          tenantId: filterTenantId,
-          pageSize: PAGE_SIZE,
-          continuation: cursor ?? undefined,
-        }),
-        getAccessToken,
-      ).catch(nullOn404);
-      setReports(data?.reports ?? []);
-      setNextLink(data?.nextLink ?? null);
-    } catch (err) {
-      setError(apiErrorText(err, "Failed to load reports"));
-    } finally {
-      setLoading(false);
-    }
-  }, [getAccessToken, setError]);
-
   // Initial load + reload whenever the applied tenant filter changes.
-  // fetchReports is intentionally excluded from deps: getAccessToken's identity
-  // churns on every MSAL accounts-array refresh, which happens after each
-  // authenticatedFetch — leaving fetchReports in deps causes the effect to
-  // re-fire after every successful page-N click, race a page-1 fetch against
-  // it, and snap the user back to page 1.
   useEffect(() => {
     const run = async () => {
-      setContinuation(null);
-      setContinuationStack([]);
-      setPageNumber(1);
-      await fetchReports(null, tenantFilterApplied);
+      await reset();
     };
     void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantFilterApplied]);
+  }, [reset, tenantFilterApplied]);
 
   const handleApplyTenantFilter = () => {
     const trimmed = tenantFilterInput.trim();
@@ -310,26 +296,6 @@ function SessionReportsSectionInner({
     setTenantFilterInput("");
     setTenantFilterApplied(undefined);
   };
-
-  const handleNextPage = () => {
-    const nextCont = extractContinuation(nextLink);
-    if (!nextCont) return;
-    setContinuationStack(stack => [...stack, continuation]);
-    setContinuation(nextCont);
-    setPageNumber(n => n + 1);
-    fetchReports(nextCont, tenantFilterApplied);
-  };
-
-  const handlePrevPage = () => {
-    if (continuationStack.length === 0) return;
-    const prev = continuationStack[continuationStack.length - 1];
-    setContinuationStack(stack => stack.slice(0, -1));
-    setContinuation(prev ?? null);
-    setPageNumber(n => Math.max(1, n - 1));
-    fetchReports(prev ?? null, tenantFilterApplied);
-  };
-
-  const handleRefresh = () => fetchReports(continuation, tenantFilterApplied);
 
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 border-2 border-indigo-300 dark:border-indigo-700 rounded-lg shadow-lg">
@@ -376,7 +342,7 @@ function SessionReportsSectionInner({
           </span>
         )}
         <button
-          onClick={handleRefresh}
+          onClick={() => void pager.refresh()}
           disabled={loading}
           className="ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors"
         >
@@ -460,19 +426,19 @@ function SessionReportsSectionInner({
             {/* Pagination (Pattern B1 — backend-driven) */}
             <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {reports.length} on page {pageNumber}{nextLink ? "" : " (last)"}
+                {reports.length} on page {pager.pageNumber}{pager.hasNext ? "" : " (last)"}
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handlePrevPage}
-                  disabled={continuationStack.length === 0 || loading}
+                  onClick={() => void pager.prev()}
+                  disabled={!pager.hasPrev || loading}
                   className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Previous
                 </button>
                 <button
-                  onClick={handleNextPage}
-                  disabled={!nextLink || loading}
+                  onClick={() => void pager.next()}
+                  disabled={!pager.hasNext || loading}
                   className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Next

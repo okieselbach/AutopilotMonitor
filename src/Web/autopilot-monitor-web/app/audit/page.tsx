@@ -1,13 +1,14 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { scopedApi } from "@/lib/scopedApi";
-import { extractContinuation } from "@/lib/paginationLink";
+import type { CursorPage } from "@/lib/cursorPager";
 import { useAggregatedAdminScope } from "@/hooks";
+import { useCursorPager } from "@/hooks/useCursorPager";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { DocsLink } from "@/components/DocsLink";
@@ -69,9 +70,6 @@ export default function AuditPage() {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<ActionFilter>('DEFAULT');
   const [entityTypeFilter, setEntityTypeFilter] = useState<EntityTypeFilter>('ALL');
@@ -80,12 +78,6 @@ export default function AuditPage() {
   // Date window — both default to the last 30 days (matches backend default).
   const [dateFromIso, setDateFromIso] = useState<string>(defaultIsoDateFrom());
   const [dateToIso, setDateToIso] = useState<string>(defaultIsoDateTo());
-
-  // Pattern B1 click-next replace state
-  const [continuation, setContinuation] = useState<string | null>(null);
-  const [nextLink, setNextLink] = useState<string | null>(null);
-  const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
-  const [pageNumber, setPageNumber] = useState(1);
 
   // Cross-tenant scope: a GA/Reader gets the "All tenants" aggregate AND a per-tenant drill-down; a
   // delegated ("MSP") admin gets the per-tenant dropdown only (no aggregate). selectedTenantId is the audit
@@ -101,18 +93,13 @@ export default function AuditPage() {
   // an all-deletions page that the client would strip down to nothing.
   const excludeDeletions = actionFilter === 'DEFAULT';
 
-  const fetchPage = useCallback(async (
-    nextContinuation: string | null,
-    isInitial: boolean,
-  ) => {
+  const fetchPage = async (cursor: string | null): Promise<CursorPage<AuditLogEntry> | null> => {
     try {
-      if (isInitial) setLoading(true); else setRefreshing(true);
-
       const opts = {
         dateFrom: dateFromIso,
         dateTo: dateToIso,
         pageSize: PAGE_SIZE,
-        continuation: nextContinuation ?? undefined,
+        continuation: cursor ?? undefined,
         excludeDeletions,
       };
       // Cross-tenant: globalLogs with the selected tenant ("" → GA aggregate over all tenants; a managed
@@ -120,62 +107,30 @@ export default function AuditPage() {
       // caller viewing their HOME tenant (routeGlobal false): the tenant-scoped logs.
       const endpoint = scopedApi.auditLogs({ routeGlobal, selectedTenantId, effectiveTenantId }, opts);
       const data = await fetchJson<AuditLogListResponse>(endpoint, getAccessToken);
-      setLogs(data.logs || []);
-      setNextLink(data.nextLink ?? null);
+      return { items: data.logs || [], nextLink: data.nextLink ?? null };
     } catch (err) {
       console.error('Error fetching audit logs:', err);
       notifyApiError(addNotification, 'Backend Error', err, 'audit-fetch-error', 'Unable to load audit logs.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      return null;
     }
-  }, [dateFromIso, dateToIso, getAccessToken, routeGlobal, selectedTenantId, effectiveTenantId, excludeDeletions, addNotification]);
+  };
+  const pager = useCursorPager(fetchPage);
+  const { reset } = pager;
+  const logs = pager.items;
+  // Skeleton until the first load settles and on every reset; Next/Previous/Refresh keep the table on screen.
+  const loading = !pager.settled || pager.pending === 'reset';
+  const refreshing = pager.pending !== null && pager.pending !== 'reset';
 
-  // Initial / window-change fetch resets pagination state.
-  // fetchPage is intentionally excluded from deps: its identity churns whenever
-  // MSAL refreshes the `accounts` array (getAccessToken → useCallback → fetchPage),
-  // which happens after every authenticatedFetch. With fetchPage in deps the
-  // effect fires immediately after each successful Next click, resets the
-  // pagination state, and races a fresh page-1 fetch against the in-flight
-  // page-N fetch — giving the visible "Next does nothing" symptom. The
-  // useCallback closure is rebuilt from the same window deps the effect
-  // already tracks, so the latest fetchPage is invoked when the effect runs.
   useEffect(() => {
     // Wait until the scope's default selection settles (own tenant, or the first managed tenant for a
     // delegated caller) so we don't fire a wasted request in the wrong scope. scopeKey changes on a
     // tenant/GA-mode switch → refetch from page 1.
     if (!scopeInitialized) return;
     const run = async () => {
-      setContinuation(null);
-      setContinuationStack([]);
-      setPageNumber(1);
-      await fetchPage(null, true);
+      await reset();
     };
     void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, scopeInitialized, dateFromIso, dateToIso, excludeDeletions]);
-
-  const handleRefresh = () => {
-    fetchPage(continuation, false);
-  };
-
-  const handleNextPage = () => {
-    const nextCont = extractContinuation(nextLink);
-    if (!nextCont) return;
-    setContinuationStack(stack => [...stack, continuation]);
-    setContinuation(nextCont);
-    setPageNumber(n => n + 1);
-    fetchPage(nextCont, false);
-  };
-
-  const handlePrevPage = () => {
-    if (continuationStack.length === 0) return;
-    const prev = continuationStack[continuationStack.length - 1];
-    setContinuationStack(stack => stack.slice(0, -1));
-    setContinuation(prev ?? null);
-    setPageNumber(n => Math.max(1, n - 1));
-    fetchPage(prev ?? null, false);
-  };
+  }, [reset, scopeKey, scopeInitialized, dateFromIso, dateToIso, excludeDeletions]);
 
   // Client-side filters operate on the current page only — Pattern B1 shows one
   // backend page at a time, so global counts are intentionally not surfaced.
@@ -254,8 +209,8 @@ export default function AuditPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 <button
-                  onClick={handleRefresh}
-                  disabled={refreshing}
+                  onClick={() => void pager.refresh()}
+                  disabled={pager.pending !== null}
                   className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
               >
                 <svg className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -441,20 +396,20 @@ export default function AuditPage() {
           {/* Pagination Controls (Pattern B1) */}
           <div className="mt-4 flex items-center justify-between">
             <div className="text-sm text-gray-700">
-              Page {pageNumber}
-              {nextLink ? '' : ' (last)'}
+              Page {pager.pageNumber}
+              {pager.hasNext ? '' : ' (last)'}
             </div>
             <div className="flex gap-2">
               <button
-                onClick={handlePrevPage}
-                disabled={continuationStack.length === 0 || refreshing}
+                onClick={() => void pager.prev()}
+                disabled={!pager.hasPrev || pager.pending !== null}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 &larr; Previous
               </button>
               <button
-                onClick={handleNextPage}
-                disabled={!nextLink || refreshing}
+                onClick={() => void pager.next()}
+                disabled={!pager.hasNext || pager.pending !== null}
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next &rarr;
