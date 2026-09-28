@@ -743,6 +743,18 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     // that still reaches a save (the backend would 403 the PATCH regardless).
     if (!tenantId || !config || !canEditConfig) return false;
 
+    // The validation gates and Unrestricted Mode have no save bar, so their form state must always
+    // equal the stored row. Some of their toggles move the state before this save runs, so a failed
+    // save puts it back: success syncs to the merged row, failure to the loaded one.
+    const syncGateState = (stored: TenantConfiguration) => {
+      setValidateAutopilotDevice(stored.validateAutopilotDevice);
+      setValidateCorporateIdentifier(stored.validateCorporateIdentifier ?? false);
+      setValidateDeviceAssociation(stored.validateDeviceAssociation ?? false);
+      setValidateCloudPcDevice(stored.validateCloudPcDevice ?? false);
+      setValidateIntuneDeviceBinding(stored.validateIntuneDeviceBinding ?? false);
+      setUnrestrictedMode(stored.unrestrictedMode ?? false);
+    };
+
     try {
       setSavingSection(sectionName);
       setError(null);
@@ -836,18 +848,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       // Sync the gate-relevant form state with what is now persisted (merge of loaded
       // config + this patch) — mirrors the old PUT-response sync.
-      const persisted = { ...config, ...patchFields } as TenantConfiguration;
-      setValidateAutopilotDevice(persisted.validateAutopilotDevice);
-      setValidateCorporateIdentifier(persisted.validateCorporateIdentifier ?? false);
-      setValidateDeviceAssociation(persisted.validateDeviceAssociation ?? false);
-      setValidateCloudPcDevice(persisted.validateCloudPcDevice ?? false);
-      setValidateIntuneDeviceBinding(persisted.validateIntuneDeviceBinding ?? false);
-      setUnrestrictedMode(persisted.unrestrictedMode ?? false);
+      syncGateState({ ...config, ...patchFields } as TenantConfiguration);
       trackEvent("settings_saved", { section: sectionName, fieldCount: Object.keys(patchFields).length });
       setSuccessMessage("Configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
       return true;
     } catch (err) {
+      syncGateState(config);
       const msg = apiErrorText(err, "Failed to save configuration");
       trackEvent("settings_error", { action: "save", section: sectionName, error: msg });
       setError(msg);
@@ -900,8 +907,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [tenantId, getAccessToken, noteHomingProbe]);
 
   // Direct gate persist for the toggle UI (disable + second-gate enable): same shared config
-  // PUT, explicit override values. saveConfiguration re-syncs the local gate state from the
-  // server response, so the toggle reflects the persisted truth (or snaps back on failure).
+  // PATCH, explicit override values. saveConfiguration re-syncs the local gate state to the stored
+  // row (the merge on success, the loaded row on failure), so the toggle shows the persisted truth.
   const saveValidationGate = useCallback(
     (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }): Promise<boolean> =>
       saveConfiguration("autopilotValidation", changes),
@@ -1310,7 +1317,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
    * Toggle the Windows 365 Cloud PC validation fallback. No consent flow — the backing
    * CloudPC.Read.All permission is an Optional Graph capabilities add-on (grant script);
    * without the grant the backend simply keeps rejecting Cloud PCs with a pointer to the
-   * add-on, so enabling early is safe.
+   * add-on, so enabling early is safe. The toggle moves at once; a failed save moves it back
+   * (saveConfiguration re-syncs the gates).
    */
   const handleToggleCloudPcValidation = useCallback(async (newValue: boolean) => {
     setValidateCloudPcDevice(newValue);
@@ -1321,7 +1329,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
    * Toggle Intune Enrollment Validation (field name validateIntuneDeviceBinding). No consent
    * flow — DeviceManagementManagedDevices.Read.All is an Optional Graph capabilities add-on
    * granted with the script; until it is granted no device is admitted through this option
-   * (the backend answers 503 Retry-After, like a missing core consent).
+   * (the backend answers 503 Retry-After, like a missing core consent). Moves at once and back on
+   * a failed save, like the Cloud PC toggle.
    */
   const handleToggleIntuneDeviceBinding = useCallback(async (newValue: boolean) => {
     setValidateIntuneDeviceBinding(newValue);
