@@ -450,6 +450,8 @@ export interface AppAnalyticsFailureCode {
 export interface AppAnalyticsResponse {
   success: boolean;
   appName: string;
+  /** Install channel (AppInstallSources): "ime" or "realmjoin". */
+  source: string;
   appType: string;
   windowDays: number;
   collisionExcluded: number;
@@ -559,6 +561,8 @@ export interface AppInstallerPhaseCount {
 /** One app's aggregate across its install rows in the window. */
 export interface AppMetricsAppGroup {
   appName: string;
+  /** Install channel (AppInstallSources): "ime" or "realmjoin". */
+  source: string;
   totalInstalls: number;
   succeeded: number;
   skipped: number;
@@ -661,6 +665,8 @@ export interface AppVersionBreakdownItem {
 export interface AppVersionRegressionAlert {
   tenantId: string;
   appName: string;
+  /** Install channel (AppInstallSources): "ime" or "realmjoin". */
+  source: string;
   /** The regressed (newer) version — episode key together with the app. */
   currentVersion: string;
   /** The comparison version: latest first-seen strictly before the current version's first-seen. */
@@ -681,6 +687,8 @@ export interface AppVersionRegressionAlert {
 /** One app row of the apps list (failed desc, then failure rate, then name). */
 export interface AppsListItem {
   appName: string;
+  /** Install channel (AppInstallSources): "ime" or "realmjoin". */
+  source: string;
   appType: string;
   totalInstalls: number;
   succeeded: number;
@@ -5197,6 +5205,8 @@ export interface TopCve {
 /** An app with a high failure rate. */
 export interface TopFailingApp {
   appName: string;
+  /** Install channel (AppInstallSources): "ime" or "realmjoin". */
+  source: string;
   failCount: number;
   totalCount: number;
   successRate: number;

@@ -8,6 +8,8 @@ public sealed class AppVersionDurationRegressionFinding
 {
     public string TenantId { get; init; } = string.Empty;
     public string AppName { get; init; } = string.Empty;
+    /// <summary>Install channel (<see cref="AppInstallSources"/>); part of the app identity.</summary>
+    public string Source { get; init; } = AppInstallSources.Ime;
     public string CurrentVersion { get; init; } = string.Empty;
     public string PreviousVersion { get; init; } = string.Empty;
 
@@ -23,7 +25,7 @@ public sealed class AppVersionDurationRegressionFinding
 /// <summary>
 /// Deterministic, I/O-free core of the app-version duration regression radar. Detects
 /// "version X made this app's installs much slower" from the per-(session, app) install
-/// summaries: per (tenant, app), the newest version's MEDIAN measured install duration is
+/// summaries: per (tenant, channel, app), the newest version's MEDIAN measured install duration is
 /// compared against the previous version's median. Medians (nearest-rank, shared with the
 /// apps dashboard via <see cref="AppsAnalyticsHelper.Percentile"/>) rather than means —
 /// a single back-stamped straggler must not fire a fleet alert. A regression fires only
@@ -90,7 +92,8 @@ public static class AppVersionRegressionRadar
             findings.Add(new AppVersionDurationRegressionFinding
             {
                 TenantId = app.Value[0].TenantId,
-                AppName = app.Key,
+                AppName = app.Key.AppName,
+                Source = app.Key.Source,
                 CurrentVersion = current.Version,
                 PreviousVersion = previous.Version,
                 CurrentMedianSeconds = current.MedianSeconds,
@@ -103,6 +106,7 @@ public static class AppVersionRegressionRadar
         return findings
             .OrderByDescending(f => f.Lift)
             .ThenBy(f => f.AppName, StringComparer.Ordinal)
+            .ThenBy(f => f.Source, StringComparer.Ordinal)
             .ToList();
     }
 
@@ -116,7 +120,7 @@ public static class AppVersionRegressionRadar
     /// </summary>
     public static bool ShouldReArm(IReadOnlyList<AppInstallSummary> tenantSummaries, AppVersionRegressionAlert alert)
     {
-        var stats = ComputeVersionStatsForApp(tenantSummaries, alert.AppName);
+        var stats = ComputeVersionStatsForApp(tenantSummaries, AppInstallSources.Normalize(alert.Source), alert.AppName);
         var current = stats.FirstOrDefault(s => string.Equals(s.Version, alert.CurrentVersion, StringComparison.Ordinal));
         if (current == null || current.MeasuredCount < MinMeasuredInstalls) return true;
 
@@ -126,26 +130,23 @@ public static class AppVersionRegressionRadar
         return current.MedianSeconds < ReArmLiftFactor * previous.MedianSeconds;
     }
 
-    /// <summary>Per-version stats for one app (measured rows only), or empty when the app has none.</summary>
-    public static List<VersionStats> ComputeVersionStatsForApp(IReadOnlyList<AppInstallSummary> tenantSummaries, string appName)
+    /// <summary>Per-version stats for one app of one channel (measured rows only), or empty when the app has none.</summary>
+    public static List<VersionStats> ComputeVersionStatsForApp(IReadOnlyList<AppInstallSummary> tenantSummaries, string source, string appName)
     {
-        foreach (var app in MeasuredAppGroups(tenantSummaries))
-        {
-            if (string.Equals(app.Key, appName, StringComparison.OrdinalIgnoreCase))
-                return ComputeVersionStats(app.Value);
-        }
-        return new List<VersionStats>();
+        return MeasuredAppGroups(tenantSummaries).TryGetValue((source, appName), out var rows)
+            ? ComputeVersionStats(rows)
+            : new List<VersionStats>();
     }
 
     /// <summary>
-    /// Groups the MEASURED rows by app name: succeeded, non-skip, plausible duration,
+    /// Groups the MEASURED rows by (channel, app name): succeeded, non-skip, plausible duration,
     /// no AppId collision (a second app's outcomes must not fire this app's alert),
     /// non-empty version. Rate/failure signals are deliberately out of scope — this
     /// radar alerts on duration only.
     /// </summary>
-    internal static Dictionary<string, List<AppInstallSummary>> MeasuredAppGroups(IReadOnlyList<AppInstallSummary> summaries)
+    internal static Dictionary<(string Source, string AppName), List<AppInstallSummary>> MeasuredAppGroups(IReadOnlyList<AppInstallSummary> summaries)
     {
-        var groups = new Dictionary<string, List<AppInstallSummary>>(StringComparer.OrdinalIgnoreCase);
+        var groups = new Dictionary<(string Source, string AppName), List<AppInstallSummary>>(AppKeyComparer.Instance);
         foreach (var summary in summaries)
         {
             if (string.IsNullOrEmpty(summary.AppName)) continue;
@@ -158,14 +159,28 @@ public static class AppVersionRegressionRadar
             // enter the duration population, on both sides of every comparison.
             if (!summary.LastAttemptStartedAt.HasValue) continue;
 
-            if (!groups.TryGetValue(summary.AppName, out var list))
+            var key = (AppInstallSources.Normalize(summary.Source), summary.AppName);
+            if (!groups.TryGetValue(key, out var list))
             {
                 list = new List<AppInstallSummary>();
-                groups[summary.AppName] = list;
+                groups[key] = list;
             }
             list.Add(summary);
         }
         return groups;
+    }
+
+    /// <summary>(channel, app) key: channel ordinal, app name case-insensitive like every per-app lookup.</summary>
+    private sealed class AppKeyComparer : IEqualityComparer<(string Source, string AppName)>
+    {
+        public static readonly AppKeyComparer Instance = new();
+
+        public bool Equals((string Source, string AppName) x, (string Source, string AppName) y) =>
+            string.Equals(x.Source, y.Source, StringComparison.Ordinal) &&
+            string.Equals(x.AppName, y.AppName, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Source, string AppName) key) =>
+            HashCode.Combine(StringComparer.Ordinal.GetHashCode(key.Source), StringComparer.OrdinalIgnoreCase.GetHashCode(key.AppName));
     }
 
     /// <summary>Per-version first/last-seen and nearest-rank median over one app's measured rows.</summary>

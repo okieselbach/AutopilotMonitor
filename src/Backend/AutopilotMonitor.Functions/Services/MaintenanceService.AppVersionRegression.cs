@@ -84,14 +84,14 @@ namespace AutopilotMonitor.Functions.Services
             var findings = AppVersionRegressionRadar.Evaluate(tenantSummaries);
             var active = await _hardwareRejectionTracker.GetAppVersionRegressionsAsync(tenantId);
             var activeByKey = active.ToDictionary(
-                a => AppVersionEpisodeKey(a.AppName, a.CurrentVersion), StringComparer.OrdinalIgnoreCase);
+                a => AppVersionEpisodeKey(a.Source, a.AppName, a.CurrentVersion), StringComparer.OrdinalIgnoreCase);
 
             int fired = 0, refreshed = 0, rearmed = 0;
             var firedKeys = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var finding in findings)
             {
-                var key = AppVersionEpisodeKey(finding.AppName, finding.CurrentVersion);
+                var key = AppVersionEpisodeKey(finding.Source, finding.AppName, finding.CurrentVersion);
                 firedKeys.Add(key);
 
                 if (activeByKey.TryGetValue(key, out var existing))
@@ -109,27 +109,30 @@ namespace AutopilotMonitor.Functions.Services
                     continue; // a concurrent pass won the episode — its bell suffices
 
                 fired++;
+                var isIme = finding.Source == AppInstallSources.Ime;
                 await _tenantNotificationService.CreateNotificationAsync(
                     tenantId,
                     type: "app_version_duration_regression",
-                    title: $"Install duration regressed: {finding.AppName}",
+                    title: $"Install duration regressed: {finding.AppName}" + (isIme ? string.Empty : " (RealmJoin)"),
                     message: BuildAppVersionRegressionMessage(finding),
-                    // Canonical appDetailUrl shape (lib/routes.ts) with the radar's horizon window.
-                    href: $"/apps/detail?name={Uri.EscapeDataString(finding.AppName)}&days={AppVersionRegressionRadar.HorizonDays}");
+                    // Canonical appDetailUrl shape (lib/routes.ts) with the radar's horizon window;
+                    // source is omitted for IME, its default.
+                    href: $"/apps/detail?name={Uri.EscapeDataString(finding.AppName)}&days={AppVersionRegressionRadar.HorizonDays}"
+                          + (isIme ? string.Empty : $"&source={Uri.EscapeDataString(finding.Source)}"));
                 await _opsEventService.RecordAppVersionDurationRegressionAsync(
-                    tenantId, finding.AppName, finding.CurrentVersion, finding.PreviousVersion,
+                    tenantId, finding.AppName, finding.Source, finding.CurrentVersion, finding.PreviousVersion,
                     finding.CurrentMedianSeconds, finding.PreviousMedianSeconds,
                     finding.CurrentMeasuredCount, finding.PreviousMeasuredCount, finding.Lift);
             }
 
             foreach (var alert in active)
             {
-                if (firedKeys.Contains(AppVersionEpisodeKey(alert.AppName, alert.CurrentVersion)))
+                if (firedKeys.Contains(AppVersionEpisodeKey(alert.Source, alert.AppName, alert.CurrentVersion)))
                     continue;
 
                 if (AppVersionRegressionRadar.ShouldReArm(tenantSummaries, alert))
                 {
-                    await _hardwareRejectionTracker.DeleteAppVersionRegressionAsync(tenantId, alert.AppName, alert.CurrentVersion);
+                    await _hardwareRejectionTracker.DeleteAppVersionRegressionAsync(tenantId, alert.Source, alert.AppName, alert.CurrentVersion);
                     rearmed++;
                 }
                 else
@@ -149,8 +152,8 @@ namespace AutopilotMonitor.Functions.Services
             return (fired, refreshed, rearmed);
         }
 
-        private static string AppVersionEpisodeKey(string appName, string version)
-            => $"{appName}\n{version}";
+        private static string AppVersionEpisodeKey(string source, string appName, string version)
+            => $"{AppInstallSources.Normalize(source)}\n{appName}\n{version}";
 
         private static AppVersionRegressionAlert BuildAppVersionAlert(
             AppVersionDurationRegressionFinding finding, DateTime firstNotifiedAt)
@@ -158,6 +161,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 TenantId = finding.TenantId,
                 AppName = finding.AppName,
+                Source = finding.Source,
                 CurrentVersion = finding.CurrentVersion,
                 PreviousVersion = finding.PreviousVersion,
                 CurrentMedianSeconds = finding.CurrentMedianSeconds,
@@ -177,7 +181,8 @@ namespace AutopilotMonitor.Functions.Services
         private static AppVersionRegressionAlert? TryBuildOngoingAppVersionAlert(
             System.Collections.Generic.IReadOnlyList<AppInstallSummary> tenantSummaries, AppVersionRegressionAlert existing)
         {
-            var stats = AppVersionRegressionRadar.ComputeVersionStatsForApp(tenantSummaries, existing.AppName);
+            var source = AppInstallSources.Normalize(existing.Source);
+            var stats = AppVersionRegressionRadar.ComputeVersionStatsForApp(tenantSummaries, source, existing.AppName);
             var current = stats.FirstOrDefault(s => string.Equals(s.Version, existing.CurrentVersion, StringComparison.Ordinal));
             var previous = stats.FirstOrDefault(s => string.Equals(s.Version, existing.PreviousVersion, StringComparison.Ordinal));
             if (current == null || previous == null || previous.MedianSeconds <= 0)
@@ -187,6 +192,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 TenantId = existing.TenantId,
                 AppName = existing.AppName,
+                Source = source,
                 CurrentVersion = existing.CurrentVersion,
                 PreviousVersion = existing.PreviousVersion,
                 CurrentMedianSeconds = current.MedianSeconds,

@@ -2015,7 +2015,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'before 2026-08 carry the old first-observation-to-last-terminal span), and a fleet "deliveryOptimization" ' +
         'rollup — total bytes downloaded and how much came ' +
         'from peers / Microsoft Connected Cache (MCC) vs. the CDN, plus a peerOffloadPercent (bandwidth saved by ' +
-        'not pulling from the internet). Use this to answer "which app breaks or slows down my enrollments?" and ' +
+        'not pulling from the internet). Every app group carries its install channel in "source": "ime" for Intune ' +
+        'apps, "realmjoin" for packages the RealmJoin agent installed (their version is the package version). ' +
+        'Use this to answer "which app breaks or slows down my enrollments?" and ' +
         '"how much install bandwidth is served locally?".',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, undefined, 'Ignored — metrics are scoped to your tenant.')),

@@ -18,6 +18,8 @@ export interface ReportTimeSeriesPoint {
 
 export interface AppReportAnalytics {
   appType: string;
+  /** Install channel; absent on responses from before channels existed (Intune). */
+  source?: string;
   windowDays: number;
   bucket: "day" | "week";
   summary: {
@@ -276,6 +278,7 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
     appName,
     appType: analytics.appType,
     metaLine:
+      (analytics.source === "realmjoin" ? "RealmJoin package · " : "") +
       `${analytics.windowDays} day window · ${analytics.bucket === "day" ? "daily" : "weekly"} buckets · ` +
       `${input.scopeLabel} · Generated ${formatReportDate(generatedAt)}`,
     fileName: appReportFileName(appName, days, generatedAt),

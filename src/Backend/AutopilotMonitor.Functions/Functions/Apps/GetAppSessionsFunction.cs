@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,10 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
+                if (!AppsAnalyticsHelper.TryParseSourceQueryParam(query["source"], out var source))
+                {
+                    return await req.BadRequestAsync($"source must be one of: {string.Join(", ", AppInstallSources.All)}");
+                }
 
                 var statusFilter = (query["status"] ?? "all").Trim().ToLowerInvariant();
                 var modelFilter = query["model"];
@@ -58,7 +63,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 var body = await AppsAnalyticsHelper.BuildSessionsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, days,
+                    summaries, _sessionRepo, decodedAppName, source, days,
                     statusFilter, modelFilter, versionFilter, offset, limit);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);

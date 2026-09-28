@@ -265,11 +265,13 @@ namespace AutopilotMonitor.Functions.Services
                         var failed = appInstalls.Count(a => a.Status == "Failed");
                         var rate = SlaEvaluationWindow.AppInstallSuccessRate(appInstalls);
                         var target = (double)config.SlaTargetAppInstallSuccessRate.Value;
+                        // Grouped per (channel, name) like the SLA page; a RealmJoin package is
+                        // named as such in the notification text.
                         var topFailing = appInstalls
                             .Where(a => a.Status == "Failed")
-                            .GroupBy(a => a.AppName)
+                            .GroupBy(a => (Source: AppInstallSources.Normalize(a.Source), a.AppName))
                             .OrderByDescending(g => g.Count())
-                            .Select(g => g.Key)
+                            .Select(g => g.Key.Source == AppInstallSources.RealmJoin ? $"{g.Key.AppName} (RealmJoin)" : g.Key.AppName)
                             .FirstOrDefault();
                         var isBreaching = rate < target;
                         if (isBreaching) breaches++;

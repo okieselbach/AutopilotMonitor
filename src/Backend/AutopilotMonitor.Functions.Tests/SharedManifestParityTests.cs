@@ -88,6 +88,8 @@ public sealed class SharedManifestParityTests
             ["webhookProviderTypes"] = EnumMap<WebhookProviderType>(),
             ["annotationLanes"] = AnnotationLanes.All,
             ["annotationVerdicts"] = AnnotationVerdicts.All,
+            // Install channels of the app rows (AppInstallSummary.Source and the per-app DTOs).
+            ["appInstallSources"] = AppInstallSources.All,
             // Community rule submissions: kinds, effective statuses (incl. the derived "published"),
             // attribution modes and reviewer decisions — the MCP tool schemas enumerate these.
             ["ruleSubmissionKinds"] = RuleSubmissionKinds.All,

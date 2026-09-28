@@ -6,6 +6,7 @@ import { useTenant } from '../../contexts/TenantContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import TruncatedLabel from '@/components/TruncatedLabel';
+import { InstallSourcePill } from '@/components/InstallSourcePill';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
 import dynamic from "next/dynamic";
@@ -295,11 +296,14 @@ export default function SlaPage() {
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Top Failing Apps</h2>
                     <div className="space-y-3">
                       {metrics.appInstallSla.topFailingApps.map((app, i) => (
-                        <div key={app.appName} className="flex items-center space-x-3">
+                        <div key={`${app.source}|${app.appName}`} className="flex items-center space-x-3">
                           <span className="text-xs text-gray-400 w-4">{i + 1}</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
-                              <TruncatedLabel text={app.appName} className="text-sm text-gray-700 dark:text-gray-300 pr-2" />
+                              <div className="flex items-center gap-2 min-w-0">
+                                <TruncatedLabel text={app.appName} className="text-sm text-gray-700 dark:text-gray-300 pr-2" />
+                                <InstallSourcePill source={app.source} />
+                              </div>
                               <span className="text-sm font-medium text-red-600 dark:text-red-400 flex-shrink-0">{app.failCount} failed</span>
                             </div>
                             <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">

@@ -53,6 +53,10 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     return await req.BadRequestAsync("tenantId must be a valid GUID");
                 }
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
+                if (!AppsAnalyticsHelper.TryParseSourceQueryParam(query["source"], out var source))
+                {
+                    return await req.BadRequestAsync($"source must be one of: {string.Join(", ", AppInstallSources.All)}");
+                }
 
                 _logger.LogInformation(
                     "Global apps/{App}/analytics requested (user: {User}, tenantId: {TenantId}, days: {Days})",
@@ -64,10 +68,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var versionRegressions = string.IsNullOrEmpty(scopedTenantId)
                     ? new List<AppVersionRegressionAlert>()
                     : (await _notificationTracker.GetAppVersionRegressionsAsync(scopedTenantId!))
-                        .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase))
+                        .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase)
+                                    && AppInstallSources.Normalize(a.Source) == source)
                         .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, days, versionRegressions);
+                    summaries, _sessionRepo, decodedAppName, source, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

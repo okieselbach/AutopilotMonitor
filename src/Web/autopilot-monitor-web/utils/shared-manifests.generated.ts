@@ -491,6 +491,10 @@ export const SHARED_MANIFEST = {
     "different_problem",
     "inconclusive"
   ],
+  "appInstallSources": [
+    "ime",
+    "realmjoin"
+  ],
   "ruleSubmissionKinds": [
     "gather",
     "analyze"

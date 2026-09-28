@@ -306,7 +306,7 @@ public class AppInstallIdentityAndEspBlockingTests
         };
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            summaries, repo.Object, "Company Portal", days: 30));
+            summaries, repo.Object, "Company Portal", AppInstallSources.Ime, days: 30));
 
         Assert.Equal(1, root.GetProperty("collisionExcluded").GetInt32());
         var stats = root.GetProperty("summary");
@@ -325,7 +325,7 @@ public class AppInstallIdentityAndEspBlockingTests
         var summaries = new List<AppInstallSummary> { Summary("Company Portal", collision: true) };
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            summaries, repo.Object, "Company Portal", days: 30));
+            summaries, repo.Object, "Company Portal", AppInstallSources.Ime, days: 30));
 
         Assert.Equal(1, root.GetProperty("collisionExcluded").GetInt32());
         Assert.Equal(0, root.GetProperty("summary").GetProperty("totalInstalls").GetInt32());

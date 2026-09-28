@@ -21,6 +21,8 @@ import { CalculatingInline } from "@/components/CalculatingCard";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { chartColors } from "../../../components/charts/chartTheme";
 import { fetchJson } from "@/lib/apiClient";
+import { parseAppInstallSource } from "@/lib/appInstallSources";
+import { InstallSourcePill } from "@/components/InstallSourcePill";
 
 // A cross-tenant analytics aggregation can take tens of seconds server-side; the default 30s
 // fetch timeout would abort it client-side while the server keeps computing.
@@ -100,6 +102,7 @@ interface DeviceModelRow {
 interface AnalyticsResponse {
   success: boolean;
   appName: string;
+  source?: string;
   appType: string;
   windowDays: number;
   bucket: "day" | "week";
@@ -208,6 +211,8 @@ function AppDetailContent() {
   // `?name=` carries the app name verbatim (searchParams already decodes the
   // percent-encoding applied by appDetailUrl).
   const appName = searchParams?.get("name") ?? "";
+  // `?source=` = install channel; absent (every Intune link) means the Intune channel.
+  const source = parseAppInstallSource(searchParams?.get("source"));
 
   const initialDays = (() => {
     const d = parseInt(searchParams?.get("days") ?? "30", 10);
@@ -323,7 +328,7 @@ function AppDetailContent() {
     try {
       setLoading(true);
       progressBegin();
-      const url = scopedApi.appAnalytics(scope, appName, days);
+      const url = scopedApi.appAnalytics(scope, appName, days, { source });
       setAnalytics(await fetchJson<AnalyticsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
       succeeded = true;
     } catch (err) {
@@ -345,7 +350,7 @@ function AppDetailContent() {
     if (!isGlobalAdmin && !tenantId) return;
     try {
       setSessionsLoading(true);
-      const url = scopedApi.appSessions(scope, appName, days, status, offset, SESSIONS_PAGE_SIZE);
+      const url = scopedApi.appSessions(scope, appName, days, status, offset, SESSIONS_PAGE_SIZE, { source });
       setSessions(await fetchJson<SessionsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
     } catch (err) {
       console.error("Failed to fetch sessions", err);
@@ -360,6 +365,7 @@ function AppDetailContent() {
     const t0 = performance.now();
     const baseProps = {
       appName,
+      source,
       appType: analytics.appType,
       windowDays: days,
       scope: scope.isAggregatedGlobalView ? "aggregated" : "tenant",
@@ -440,6 +446,7 @@ function AppDetailContent() {
               <div className="min-w-0">
                 <h1 className="text-2xl font-normal text-gray-900 flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="break-words">{appName}</span>
+                  <InstallSourcePill source={source} />
                   {analytics?.appType && (
                     <span className="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
                       {analytics.appType}

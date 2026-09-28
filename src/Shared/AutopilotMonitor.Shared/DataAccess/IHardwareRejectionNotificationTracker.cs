@@ -88,7 +88,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task RefreshAppVersionRegressionAsync(string tenantId, AppVersionRegressionAlert alert);
 
         /// <summary>Closes an episode (median re-armed or the version drained out of the horizon). 404-tolerant.</summary>
-        Task DeleteAppVersionRegressionAsync(string tenantId, string appName, string currentVersion);
+        Task DeleteAppVersionRegressionAsync(string tenantId, string source, string appName, string currentVersion);
 
         /// <summary>Active app-version regression episodes of one tenant (RowKey-prefix scan; empty on failure — fail-soft reads).</summary>
         Task<List<AppVersionRegressionAlert>> GetAppVersionRegressionsAsync(string tenantId);

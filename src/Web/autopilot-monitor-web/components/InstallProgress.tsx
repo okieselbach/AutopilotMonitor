@@ -3,8 +3,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
-import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
+import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
+import { InstallSourcePill } from "@/components/InstallSourcePill";
 import PendingAppRow from "@/components/PendingAppRow";
 import PhaseDivider from "@/components/PhaseDivider";
 import AssignmentPill from "@/components/AssignmentPill";
@@ -34,24 +35,6 @@ interface InstallProgressProps {
 // Finals counted by the historic-replay partition — one per hidden install, so the note
 // is not inflated by started/progress events of the same app.
 const APP_FINAL_TYPES: ReadonlySet<string> = new Set(["app_install_completed", "app_install_failed"]);
-
-// Source pills. Intune/IME is the default and deliberately carries no pill — labelling
-// every ordinary app row would be noise. Only rows the customer would otherwise mistake
-// for a duplicate Intune app get one, with a tooltip explaining what they are looking at.
-const SOURCE_PILLS: Partial<Record<InstallSource, { label: string; title: string }>> = {
-  "office-c2r": {
-    label: "Click-to-Run",
-    title:
-      "Observed directly from the Office Click-to-Run installer, not from Intune. " +
-      "If you also deploy Microsoft 365 Apps as your own Win32 app, that row shows Intune's view of " +
-      "the deployment — this row shows when Office actually finished laying itself down on disk, " +
-      "which is usually much later.",
-  },
-  realmjoin: {
-    label: "RealmJoin",
-    title: "Package installed by the RealmJoin agent, not by Intune's management extension.",
-  },
-};
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -280,7 +263,6 @@ function InstallItemRow({ item }: { item: InstallItem }) {
       ? liveElapsed.elapsedMs
       : null;
 
-  const sourcePill = SOURCE_PILLS[item.source];
 
   // Session 080edee9 follow-up — only the genuine "no HRESULT available" timeout
   // case wears the hedged orange treatment. Detection-failures and install-failures
@@ -336,16 +318,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
             </svg>
           )}
           <TruncatedLabel text={item.appName} className={`text-sm font-medium ${item.state === "Skipped" ? "text-gray-500" : "text-gray-900"}`} />
-          {sourcePill && (
-            // Neutral outline so the source never competes with the coloured state badge
-            // next to it. Dark mode is covered by the global gray-family overrides.
-            <span
-              className="text-xs px-2 py-0.5 rounded-full bg-gray-100 border border-gray-300 text-gray-600 font-medium whitespace-nowrap"
-              title={sourcePill.title}
-            >
-              {sourcePill.label}
-            </span>
-          )}
+          <InstallSourcePill source={item.source} />
           <AssignmentPill targeted={item.targeted} />
           {item.state === "Skipped" && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>

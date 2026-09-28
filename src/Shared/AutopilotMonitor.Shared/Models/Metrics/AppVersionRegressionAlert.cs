@@ -17,6 +17,8 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string TenantId { get; set; } = string.Empty;
         public string AppName { get; set; } = string.Empty;
+        /// <summary>Install channel (<see cref="AppInstallSources"/>): "ime" or "realmjoin".</summary>
+        public string Source { get; set; } = string.Empty;
 
         /// <summary>The regressed (newer) version — episode key together with the app.</summary>
         public string CurrentVersion { get; set; } = string.Empty;

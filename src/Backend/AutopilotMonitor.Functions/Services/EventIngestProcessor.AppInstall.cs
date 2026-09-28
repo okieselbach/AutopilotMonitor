@@ -5,7 +5,8 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// Per-app install summary aggregation — folds a batch of <c>app_install_*</c> +
     /// <c>download_progress</c> + <c>do_telemetry</c> events into an
-    /// <see cref="AppInstallSummary"/> keyed by app name.
+    /// <see cref="AppInstallSummary"/> keyed by app name. RealmJoin package events fold into
+    /// their own rows (<c>.RealmJoinPackages.cs</c>).
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
@@ -13,6 +14,12 @@ namespace AutopilotMonitor.Functions.Services
         // test seam so the TerminalState / status-fold contract is pinned by unit tests (PR0).
         internal static void AggregateAppInstallEvent(EnrollmentEvent evt, string tenantId, string sessionId, Dictionary<string, AppInstallAggregationState> summaries)
         {
+            if (IsRealmJoinPackageEvent(evt.EventType))
+            {
+                AggregateRealmJoinPackageEvent(evt, tenantId, sessionId, summaries);
+                return;
+            }
+
             bool isRelevant =
                 evt.EventType == "app_install_started" || evt.EventType == "app_install_start" ||
                 evt.EventType == "app_install_completed" || evt.EventType == "app_install_complete" ||

@@ -208,14 +208,14 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Stores or updates an app install summary.
         /// Merges with any existing record so StartedAt is never overwritten with a later timestamp.
-        /// PartitionKey: TenantId, RowKey: {SessionId}_{AppName}
+        /// PartitionKey: TenantId, RowKey: <see cref="BuildAppInstallSummaryRowKey"/>.
         /// </summary>
         public async Task<bool> StoreAppInstallSummaryAsync(AppInstallSummary summary)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var rowKey = SanitizeTableKey($"{summary.SessionId}_{summary.AppName}");
+                var rowKey = BuildAppInstallSummaryRowKey(summary);
 
                 // Merge with existing record to preserve StartedAt from a prior batch
                 var existingResult = await tableClient.GetEntityIfExistsAsync<TableEntity>(summary.TenantId, rowKey);
@@ -238,6 +238,20 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, $"Failed to store app install summary for {summary.AppName}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// RowKey of an AppInstallSummaries row; every key starts with "{SessionId}_", which the
+        /// per-session range scans (ESP stamp, close step, deletion) rely on. IME rows stay
+        /// name-keyed (no key migration); RealmJoin rows are keyed by scope + package id, the
+        /// identity the watcher reports — their display name can appear late.
+        /// </summary>
+        internal static string BuildAppInstallSummaryRowKey(AppInstallSummary summary)
+        {
+            var source = AppInstallSources.Normalize(summary.Source);
+            return SanitizeTableKey(source == AppInstallSources.Ime
+                ? $"{summary.SessionId}_{summary.AppName}"
+                : $"{summary.SessionId}_{source}|{summary.InstallScope}|{summary.AppId}");
         }
 
         /// <summary>
@@ -376,6 +390,16 @@ namespace AutopilotMonitor.Functions.Services
                         }
                     }
 
+                    // A RealmJoin row carries its package id as the name until RealmJoin writes
+                    // DisplayName; a later batch without the name must not replace a stored one.
+                    if (AppInstallSources.Normalize(summary.Source) == AppInstallSources.RealmJoin &&
+                        summary.AppName == summary.AppId)
+                    {
+                        var existingAppName = existing.GetString("AppName");
+                        if (!string.IsNullOrEmpty(existingAppName))
+                            summary.AppName = existingAppName!;
+                    }
+
                     // Preserve app metadata fields: AppVersion, AppType, AttemptNumber come from app_install_started
                     // and must not be wiped by a later _completed/_failed batch that doesn't re-emit them.
                     if (string.IsNullOrEmpty(summary.AppVersion))
@@ -484,7 +508,7 @@ namespace AutopilotMonitor.Functions.Services
                 var filter = $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,
-                    select: new[] { "PartitionKey", "RowKey", "AppId", "EspBlocking", "AppIdCollision" });
+                    select: new[] { "PartitionKey", "RowKey", "Source", "AppId", "EspBlocking", "AppIdCollision" });
 
                 var stamped = 0;
                 await foreach (var row in query)
@@ -520,6 +544,8 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         internal static bool ShouldStampEspBlocking(TableEntity row, EspBlockingSets sets)
         {
+            // The ESP lists hold Intune identities only; other channels' ids are never members.
+            if (AppInstallSources.Normalize(row.GetString("Source")) != AppInstallSources.Ime) return false;
             var appId = row.GetString("AppId");
             if (string.IsNullOrEmpty(appId)) return false;
             if (row.GetBoolean("AppIdCollision") ?? false) return false;
@@ -712,7 +738,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         internal static readonly string[] AppMetricsProjection =
         {
-            "PartitionKey", "RowKey", "AppName", "Status", "TerminalState", "StartedAt",
+            "PartitionKey", "RowKey", "AppName", "Source", "Status", "TerminalState", "StartedAt",
             "DurationSeconds", "DownloadBytes", "FailureCode",
             "DoDownloadMode", "DoTotalBytesDownloaded", "DoBytesFromPeers", "DoBytesFromHttp",
             "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",
@@ -735,7 +761,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         internal static readonly string[] AppsDashboardProjection =
         {
-            "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "AppType", "AppVersion",
+            "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "Source", "AppType", "AppVersion",
             "Status", "TerminalState", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
             "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult",
             "AppId", "EspBlocking", "AppIdCollision",
@@ -852,6 +878,8 @@ namespace AutopilotMonitor.Functions.Services
                 AppName = entity.GetString("AppName") ?? string.Empty,
                 SessionId = entity.GetString("SessionId") ?? string.Empty,
                 TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
+                Source = entity.GetString("Source") ?? string.Empty,
+                InstallScope = entity.GetString("InstallScope") ?? string.Empty,
                 Status = entity.GetString("Status") ?? "InProgress",
                 TerminalState = entity.GetString("TerminalState") ?? string.Empty,
                 DurationSeconds = entity.GetInt32("DurationSeconds") ?? 0,
@@ -2111,6 +2139,12 @@ namespace AutopilotMonitor.Functions.Services
             //                        is persisted (Merge cannot un-set an absent column).
             if (!string.IsNullOrEmpty(summary.AppId))
                 entity["AppId"] = summary.AppId;
+            // Channel columns: absent on IME rows (empty Source reads as IME), so IME entities
+            // keep their pre-channel shape.
+            if (!string.IsNullOrEmpty(summary.Source))
+                entity["Source"] = summary.Source;
+            if (!string.IsNullOrEmpty(summary.InstallScope))
+                entity["InstallScope"] = summary.InstallScope;
             if (summary.EspBlocking.HasValue)
                 entity["EspBlocking"] = summary.EspBlocking.Value;
             if (summary.AppIdCollision)

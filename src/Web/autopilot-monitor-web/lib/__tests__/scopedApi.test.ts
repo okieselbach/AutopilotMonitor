@@ -92,4 +92,13 @@ describe("scopedApi routing", () => {
     }
     expect(g).toContain(`tenantId=${OTHER}`);
   });
+
+  it("per-app URLs carry a non-Intune install channel and leave the Intune default out", () => {
+    for (const sel of [tenantMode, override]) {
+      expect(scopedApi.appAnalytics(sel, "7-Zip", 30, { source: "realmjoin" })).toContain("source=realmjoin");
+      expect(scopedApi.appSessions(sel, "7-Zip", 30, "all", 0, 10, { source: "realmjoin" })).toContain("source=realmjoin");
+      expect(scopedApi.appAnalytics(sel, "7-Zip", 30, { source: "ime" })).not.toContain("source=");
+      expect(scopedApi.appSessions(sel, "7-Zip", 30, "all", 0, 10)).not.toContain("source=");
+    }
+  });
 });

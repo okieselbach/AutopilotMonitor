@@ -59,10 +59,10 @@ export const scopedApi = {
   appsList: (sel: TenantScopeSelection, days: number) =>
     sel.routeGlobal ? api.apps.globalList(days, globalTenantParam(sel)) : api.apps.list(sel.effectiveTenantId, days),
 
-  appAnalytics: (sel: TenantScopeSelection, appName: string, days: number) =>
+  appAnalytics: (sel: TenantScopeSelection, appName: string, days: number, opts?: { source?: string }) =>
     sel.routeGlobal
-      ? api.apps.globalAnalytics(appName, days, globalTenantParam(sel))
-      : api.apps.analytics(sel.effectiveTenantId, appName, days),
+      ? api.apps.globalAnalytics(appName, days, globalTenantParam(sel), opts)
+      : api.apps.analytics(sel.effectiveTenantId, appName, days, opts),
 
   appSessions: (
     sel: TenantScopeSelection,
@@ -71,7 +71,7 @@ export const scopedApi = {
     status: "all" | "failed" | "succeeded",
     offset: number,
     limit: number,
-    opts?: { model?: string; version?: string },
+    opts?: { model?: string; version?: string; source?: string },
   ) =>
     sel.routeGlobal
       ? api.apps.globalSessions(appName, days, status, offset, limit, globalTenantParam(sel), opts)

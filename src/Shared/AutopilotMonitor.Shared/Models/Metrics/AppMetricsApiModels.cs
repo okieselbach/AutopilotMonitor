@@ -29,6 +29,8 @@ namespace AutopilotMonitor.Shared.Models
     public class AppMetricsAppGroup
     {
         public string AppName { get; set; } = string.Empty;
+        /// <summary>Install channel (<see cref="AppInstallSources"/>): "ime" or "realmjoin".</summary>
+        public string Source { get; set; } = string.Empty;
         public int TotalInstalls { get; set; }
         public int Succeeded { get; set; }
         public int Skipped { get; set; }

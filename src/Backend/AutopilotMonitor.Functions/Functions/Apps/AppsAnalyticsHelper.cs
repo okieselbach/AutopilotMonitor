@@ -30,6 +30,17 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             return Guid.TryParse(raw, out _);
         }
 
+        /// <summary>
+        /// Parses the optional <c>?source=</c> install channel of the per-app endpoints. Absent means
+        /// <see cref="AppInstallSources.Ime"/>, the channel every app link carried before channels
+        /// existed. Returns <c>false</c> for an unknown value (caller should emit a 400).
+        /// </summary>
+        public static bool TryParseSourceQueryParam(string? raw, out string source)
+        {
+            source = string.IsNullOrEmpty(raw) ? AppInstallSources.Ime : raw!.Trim().ToLowerInvariant();
+            return AppInstallSources.IsKnown(source);
+        }
+
         // ── Opt-in pagination ───────────────────────────────────────────────
 
         /// <summary>Upper bound for a single <c>apps/list</c> page when the caller opts into pagination.</summary>
@@ -141,7 +152,9 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             // they are excluded from every per-app group and disclosed via collisionExcluded.
             var collisionExcluded = summaries.Count(s => s.AppIdCollision);
 
-            var apps = summaries.Where(s => !s.AppIdCollision).GroupBy(s => s.AppName).Select(g =>
+            // One group per (channel, name): an Intune app and a RealmJoin package that share a
+            // display name are different installs and stay separate rows.
+            var apps = summaries.Where(s => !s.AppIdCollision).GroupBy(s => (Source: AppInstallSources.Normalize(s.Source), s.AppName)).Select(g =>
             {
                 // PR0 classification (see MetricsMath.IsSkipTerminalState / HasMeasuredDuration):
                 // skips leave the rate + durations; duration stats read measured rows only.
@@ -159,7 +172,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 return new AppsListItem
                 {
-                    AppName = g.Key,
+                    AppName = g.Key.AppName,
+                    Source = g.Key.Source,
                     AppType = g.Select(s => s.AppType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? string.Empty,
                     TotalInstalls = total,
                     Succeeded = installed.Count,
@@ -178,6 +192,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             .OrderByDescending(a => a.Failed)
             .ThenByDescending(a => a.FailureRate)
             .ThenBy(a => a.AppName, StringComparer.OrdinalIgnoreCase) // deterministic tiebreaker for stable paging cursors
+            .ThenBy(a => a.Source, StringComparer.Ordinal)
             .ToList();
 
             // Legacy mode: caller did not opt into pagination → full array (web UI pages client-side).
@@ -225,6 +240,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             List<AppInstallSummary> allSummaries,
             ISessionRepository sessionRepo,
             string appName,
+            string source,
             int days,
             IReadOnlyList<AppVersionRegressionAlert>? versionRegressions = null)
         {
@@ -238,6 +254,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             var inWindow = allSummaries
                 .Where(s => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
+                            && AppInstallSources.Normalize(s.Source) == source
                             && s.StartedAt >= cutoff)
                 .ToList();
 
@@ -252,6 +269,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     Success = true,
                     AppName = appName,
+                    Source = source,
                     AppType = string.Empty,
                     WindowDays = days,
                     CollisionExcluded = collisionExcluded,
@@ -413,6 +431,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             {
                 Success = true,
                 AppName = appName,
+                Source = source,
                 AppType = appType,
                 WindowDays = days,
                 CollisionExcluded = collisionExcluded,
@@ -449,6 +468,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             List<AppInstallSummary> allSummaries,
             ISessionRepository sessionRepo,
             string appName,
+            string source,
             int days,
             string statusFilter,
             string? modelFilter,
@@ -460,6 +480,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             var summaries = allSummaries
                 .Where(s => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
+                            && AppInstallSources.Normalize(s.Source) == source
                             && s.StartedAt >= cutoff)
                 .ToList();
 

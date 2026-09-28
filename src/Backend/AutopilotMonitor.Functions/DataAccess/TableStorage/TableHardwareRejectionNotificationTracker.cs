@@ -18,6 +18,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     ///   - F3 rule regression: "ruleregression|{ruleId-lower}" (trimmed; payload-carrying rows
     ///     that are refreshed while the episode is active and deleted on re-arm)
     ///   - app-version duration regression: "appversionregression|{app-lower}|{version-lower}"
+    ///     (non-IME channels: "appversionregression|{source}:{app-lower}|{version-lower}")
     ///     (trimmed + table-key-sanitized; same payload-carrying episode semantics — raw
     ///     AppName/CurrentVersion live in columns, the mapper never parses the RowKey)
     /// Race-safe via AddEntityAsync: Azure Table Storage returns 409 Conflict if the entity already exists.
@@ -309,7 +310,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task DeleteAppVersionRegressionAsync(string tenantId, string appName, string currentVersion)
+        public async Task DeleteAppVersionRegressionAsync(string tenantId, string source, string appName, string currentVersion)
         {
             if (string.IsNullOrWhiteSpace(tenantId)
                 || string.IsNullOrWhiteSpace(appName)
@@ -320,7 +321,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             try
             {
                 await _table.DeleteEntityAsync(
-                    tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(appName, currentVersion));
+                    tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(source, appName, currentVersion));
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
@@ -576,10 +577,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         /// two apps share an episode row — tolerable); the raw values live in columns and the
         /// mapper reads them, never the RowKey.
         /// </summary>
-        internal static string BuildAppVersionRegressionRowKey(string appName, string version)
+        internal static string BuildAppVersionRegressionRowKey(string? source, string appName, string version)
         {
             var app = SanitizeTableKey((appName ?? string.Empty).Trim().ToLowerInvariant());
             var ver = SanitizeTableKey((version ?? string.Empty).Trim().ToLowerInvariant());
+            // IME keys predate channels and keep their shape; other channels prefix the app part.
+            var channel = AppInstallSources.Normalize(source);
+            if (channel != AppInstallSources.Ime)
+                app = $"{SanitizeTableKey(channel)}:{app}";
             return $"{AppVersionRegressionRowKeyPrefix}{app}|{ver}";
         }
 
@@ -598,10 +603,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         internal static TableEntity BuildAppVersionRegressionEntity(string tenantId, AppVersionRegressionAlert alert)
         {
             return new TableEntity(
-                tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(alert.AppName, alert.CurrentVersion))
+                tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(alert.Source, alert.AppName, alert.CurrentVersion))
             {
                 ["TenantId"] = tenantId,
                 ["AppName"] = alert.AppName,
+                ["Source"] = AppInstallSources.Normalize(alert.Source),
                 ["CurrentVersion"] = alert.CurrentVersion,
                 ["PreviousVersion"] = alert.PreviousVersion ?? string.Empty,
                 ["CurrentMedianSeconds"] = alert.CurrentMedianSeconds,
@@ -620,6 +626,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             {
                 TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
                 AppName = entity.GetString("AppName") ?? string.Empty,
+                // Rows written before channels existed are IME episodes.
+                Source = AppInstallSources.Normalize(entity.GetString("Source")),
                 CurrentVersion = entity.GetString("CurrentVersion") ?? string.Empty,
                 PreviousVersion = entity.GetString("PreviousVersion") ?? string.Empty,
                 CurrentMedianSeconds = entity.GetInt32("CurrentMedianSeconds") ?? 0,

@@ -81,7 +81,8 @@ public static class MetricsMath
         // keeps every row, since transferred bytes are real regardless of identity mixing.
         var totalCollisionExcluded = summaryList.Count(s => s.AppIdCollision);
 
-        var appGroups = summaryList.Where(s => !s.AppIdCollision).GroupBy(s => s.AppName).Select(g =>
+        // One group per (channel, name) — see AppsAnalyticsHelper.BuildAppsListResponse.
+        var appGroups = summaryList.Where(s => !s.AppIdCollision).GroupBy(s => (Source: AppInstallSources.Normalize(s.Source), s.AppName)).Select(g =>
         {
             // PR0 (2026-07-26) classification — see IsSkipTerminalState / HasMeasuredDuration:
             //   skipped    = no real install attempt (TerminalState Skipped/Postponed)
@@ -105,7 +106,8 @@ public static class MetricsMath
 
             return new AppMetricsAppGroup
             {
-                AppName = g.Key,
+                AppName = g.Key.AppName,
+                Source = g.Key.Source,
                 TotalInstalls = total,
                 Succeeded = installed.Count,
                 Skipped = skipped.Count,

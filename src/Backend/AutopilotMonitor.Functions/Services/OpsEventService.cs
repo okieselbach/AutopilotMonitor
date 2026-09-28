@@ -846,7 +846,7 @@ namespace AutopilotMonitor.Functions.Services
         /// (memory: feedback_ops_event_types_dual_register).
         /// </summary>
         public Task RecordAppVersionDurationRegressionAsync(
-            string tenantId, string appName, string currentVersion, string previousVersion,
+            string tenantId, string appName, string source, string currentVersion, string previousVersion,
             int currentMedianSeconds, int previousMedianSeconds,
             int currentMeasuredCount, int previousMeasuredCount, double lift)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.AppVersionDurationRegression, OpsEventSeverity.Warning,
@@ -857,6 +857,7 @@ namespace AutopilotMonitor.Functions.Services
                 new
                 {
                     appName,
+                    source,
                     currentVersion,
                     previousVersion,
                     currentMedianSeconds,

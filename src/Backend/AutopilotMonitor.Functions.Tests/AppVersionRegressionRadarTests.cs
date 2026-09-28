@@ -196,6 +196,37 @@ public class AppVersionRegressionRadarTests
     }
 
     [Fact]
+    public void Evaluate_SameNameInTwoChannels_IsTwoApps()
+    {
+        // The RealmJoin package regressed; the Intune app of the same name did not. A shared
+        // group would dilute the RealmJoin medians with the Intune rows and hide the regression.
+        var rows = new List<AppInstallSummary>();
+        rows.AddRange(Batch("1.0", 10, 300, Now.AddDays(-20)).Select(s => { s.Source = AppInstallSources.RealmJoin; return s; }));
+        rows.AddRange(Batch("2.0", 10, 900, Now.AddDays(-5)).Select(s => { s.Source = AppInstallSources.RealmJoin; return s; }));
+        rows.AddRange(Batch("1.0", 30, 300, Now.AddDays(-20)));
+        rows.AddRange(Batch("2.0", 30, 300, Now.AddDays(-5)));
+
+        var finding = Assert.Single(AppVersionRegressionRadar.Evaluate(rows));
+        Assert.Equal(AppInstallSources.RealmJoin, finding.Source);
+        Assert.Equal(App, finding.AppName);
+        Assert.Equal(900, finding.CurrentMedianSeconds);
+    }
+
+    [Fact]
+    public void ShouldReArm_ReadsTheAlertsOwnChannel()
+    {
+        // The IME app still regresses; the RealmJoin episode's version has no measured installs.
+        var rows = new List<AppInstallSummary>();
+        rows.AddRange(Batch("1.0", 10, 300, Now.AddDays(-20)));
+        rows.AddRange(Batch("2.0", 10, 900, Now.AddDays(-5)));
+
+        var rjAlert = Alert();
+        rjAlert.Source = AppInstallSources.RealmJoin;
+        Assert.True(AppVersionRegressionRadar.ShouldReArm(rows, rjAlert));
+        Assert.False(AppVersionRegressionRadar.ShouldReArm(rows, Alert()));
+    }
+
+    [Fact]
     public void Evaluate_DeterministicOrdering_LiftDesc_ThenAppNameOrdinal()
     {
         var rows = new List<AppInstallSummary>();
@@ -279,18 +310,63 @@ public class AppVersionRegressionRadarTests
     {
         Assert.Equal("appversionregression|contoso app_2|1.0_beta_",
             TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(
-                "  Contoso App/2 ", " 1.0#Beta? "));
+                AppInstallSources.Ime, "  Contoso App/2 ", " 1.0#Beta? "));
+    }
+
+    [Fact]
+    public void AppVersionRegressionRowKey_ImeKeepsPreChannelShape_OtherChannelsPrefixTheApp()
+    {
+        // Episodes written before channels existed must keep resolving (re-arm deletes them by key).
+        Assert.Equal("appversionregression|contoso vpn|2.0",
+            TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(null, App, "2.0"));
+        Assert.Equal("appversionregression|contoso vpn|2.0",
+            TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(string.Empty, App, "2.0"));
+        Assert.Equal("appversionregression|realmjoin:contoso vpn|2.0",
+            TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(AppInstallSources.RealmJoin, App, "2.0"));
     }
 
     [Fact]
     public void AppVersionRegressionRowKey_NoPrefixCollisionWithOtherKeyspaces()
     {
-        var key = TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(App, "1.0");
+        var key = TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionRowKey(AppInstallSources.RealmJoin, App, "1.0");
         Assert.StartsWith("appversionregression|", key, StringComparison.Ordinal);
         // The prefix range [prefix, "appversionregression}") must not swallow the sibling
         // keyspaces ("ruleregression|", "tpmpss|", "{mfr}|{model}").
         Assert.True(string.CompareOrdinal("ruleregression|", "appversionregression}") > 0);
         Assert.True(string.CompareOrdinal("tpmpss|", "appversionregression}") > 0);
+    }
+
+    [Fact]
+    public void AppVersionRegressionEntity_RealmJoinChannel_RoundTripsWithPrefixedKey()
+    {
+        var alert = new AppVersionRegressionAlert
+        {
+            TenantId = TenantA,
+            AppName = App,
+            Source = AppInstallSources.RealmJoin,
+            CurrentVersion = "2.4.0",
+            PreviousVersion = "2.3.9",
+            FirstNotifiedAt = Now,
+            LastEvaluatedAt = Now,
+        };
+
+        var entity = TableHardwareRejectionNotificationTracker.BuildAppVersionRegressionEntity(TenantA, alert);
+        Assert.Equal("appversionregression|realmjoin:contoso vpn|2.4.0", entity.RowKey);
+        Assert.Equal(AppInstallSources.RealmJoin,
+            TableHardwareRejectionNotificationTracker.MapToAppVersionRegressionAlert(entity).Source);
+    }
+
+    [Fact]
+    public void AppVersionRegressionEntity_RowWithoutSourceColumn_MapsToIme()
+    {
+        var entity = new Azure.Data.Tables.TableEntity(TenantA.ToLowerInvariant(), "appversionregression|contoso vpn|2.4.0")
+        {
+            ["TenantId"] = TenantA,
+            ["AppName"] = App,
+            ["CurrentVersion"] = "2.4.0",
+        };
+        Assert.Equal(AppInstallSources.Ime,
+            TableHardwareRejectionNotificationTracker.MapToAppVersionRegressionAlert(entity).Source);
     }
 
     [Fact]
@@ -318,6 +394,7 @@ public class AppVersionRegressionRadarTests
         var mapped = TableHardwareRejectionNotificationTracker.MapToAppVersionRegressionAlert(entity);
         Assert.Equal(TenantA, mapped.TenantId);
         Assert.Equal(App, mapped.AppName);
+        Assert.Equal(AppInstallSources.Ime, mapped.Source);
         Assert.Equal("2.4.0", mapped.CurrentVersion);
         Assert.Equal("2.3.9", mapped.PreviousVersion);
         Assert.Equal(1740, mapped.CurrentMedianSeconds);
@@ -371,7 +448,7 @@ public class AppVersionRegressionRadarTests
         };
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            rows, sessionRepo.Object, App, days: 30));
+            rows, sessionRepo.Object, App, AppInstallSources.Ime, days: 30));
 
         var version = root.GetProperty("versionBreakdown")[0];
         Assert.Equal("1.0", version.GetProperty("appVersion").GetString());
@@ -395,12 +472,12 @@ public class AppVersionRegressionRadarTests
 
         // Empty-data early return still surfaces the block (episodes can outlive window data).
         var emptyRoot = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            new List<AppInstallSummary>(), sessionRepo.Object, App, days: 30,
+            new List<AppInstallSummary>(), sessionRepo.Object, App, AppInstallSources.Ime, days: 30,
             new List<AppVersionRegressionAlert> { alert }));
         Assert.Equal(1, emptyRoot.GetProperty("versionRegressions").GetArrayLength());
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            new List<AppInstallSummary> { Install("1.0", 100, Recent) }, sessionRepo.Object, App, days: 30,
+            new List<AppInstallSummary> { Install("1.0", 100, Recent) }, sessionRepo.Object, App, AppInstallSources.Ime, days: 30,
             new List<AppVersionRegressionAlert> { alert }));
 
         var regression = root.GetProperty("versionRegressions")[0];

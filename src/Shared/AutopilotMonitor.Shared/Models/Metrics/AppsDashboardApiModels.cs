@@ -35,6 +35,8 @@ namespace AutopilotMonitor.Shared.Models
     public class AppsListItem
     {
         public string AppName { get; set; } = string.Empty;
+        /// <summary>Install channel (<see cref="AppInstallSources"/>): "ime" or "realmjoin".</summary>
+        public string Source { get; set; } = string.Empty;
         public string AppType { get; set; } = string.Empty;
         public int TotalInstalls { get; set; }
         public int Succeeded { get; set; }
@@ -57,6 +59,8 @@ namespace AutopilotMonitor.Shared.Models
     {
         public bool Success { get; set; }
         public string AppName { get; set; } = string.Empty;
+        /// <summary>Install channel (<see cref="AppInstallSources"/>): "ime" or "realmjoin".</summary>
+        public string Source { get; set; } = string.Empty;
         public string AppType { get; set; } = string.Empty;
         public int WindowDays { get; set; }
         public int CollisionExcluded { get; set; }

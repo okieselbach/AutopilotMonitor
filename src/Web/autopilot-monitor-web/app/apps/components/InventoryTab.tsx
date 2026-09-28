@@ -144,7 +144,9 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
           <div className="p-8 text-center text-gray-500">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            {search ? "No software matches your search." : "No software inventory collected for this tenant yet."}
+            {search
+              ? "No software matches your search."
+              : "No software inventory collected for this tenant yet. It fills once the Software Inventory & Vulnerability Analyzer is on in the agent settings."}
           </div>
         ) : (
           <>

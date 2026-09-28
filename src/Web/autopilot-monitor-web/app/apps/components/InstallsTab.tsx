@@ -11,6 +11,8 @@ import { fetchJson } from "@/lib/apiClient";
 import { formatBytes, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "@/components/DoBreakdownBar";
 import { CalculatingInline } from "@/components/CalculatingCard";
+import { InstallSourcePill, installSourceLabel } from "@/components/InstallSourcePill";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import type { SoftwareTabScope, TimeRange } from "./types";
 import { rangeToDays } from "./types";
@@ -21,6 +23,8 @@ const APPS_FETCH_TIMEOUT_MS = 180_000;
 
 interface AppRow {
   appName: string;
+  /** Install channel: "ime" (Intune) or "realmjoin". Part of the app identity. */
+  source: string;
   appType: string;
   totalInstalls: number;
   succeeded: number;
@@ -88,6 +92,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const [doRollup, setDoRollup] = useState<DeliveryOptimizationRollup | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("failureRate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -140,10 +145,21 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, timeRange, scopeKey]);
 
+  // Channels present in the window; the filter only appears when there is a choice.
+  const sources = useMemo(
+    () => [...new Set((data?.apps ?? []).map((a) => a.source))].sort(),
+    [data],
+  );
+  // A selected channel that left the window falls back to "all" rather than hiding every row
+  // behind a filter that is no longer shown.
+  const activeSource = sources.includes(sourceFilter) ? sourceFilter : "all";
+
   const filteredAndSorted = useMemo<AppRow[]>(() => {
     if (!data?.apps) return [];
     const q = search.trim().toLowerCase();
-    const rows = q ? data.apps.filter((a) => a.appName.toLowerCase().includes(q)) : [...data.apps];
+    const rows = data.apps.filter((a) =>
+      (activeSource === "all" || a.source === activeSource) &&
+      (!q || a.appName.toLowerCase().includes(q)));
 
     const dir = sortDir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
@@ -155,15 +171,15 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
       return ((a[sortKey] as number) - (b[sortKey] as number)) * dir;
     });
     return rows;
-  }, [data, search, sortKey, sortDir]);
+  }, [data, search, activeSource, sortKey, sortDir]);
 
   // Reset to the first page whenever the filtered/sorted set or the loaded data
   // changes (adjust-during-render pattern, see react.dev "storing information
   // from previous renders"). `data` compares by reference, exactly like the
   // dependency array of the effect this replaces did.
-  const [prevPageResetKey, setPrevPageResetKey] = useState<[string, SortKey, SortDir, AppsListResponse | null]>([search, sortKey, sortDir, data]);
-  if (prevPageResetKey[0] !== search || prevPageResetKey[1] !== sortKey || prevPageResetKey[2] !== sortDir || prevPageResetKey[3] !== data) {
-    setPrevPageResetKey([search, sortKey, sortDir, data]);
+  const [prevPageResetKey, setPrevPageResetKey] = useState<[string, string, SortKey, SortDir, AppsListResponse | null]>([search, activeSource, sortKey, sortDir, data]);
+  if (prevPageResetKey[0] !== search || prevPageResetKey[1] !== activeSource || prevPageResetKey[2] !== sortKey || prevPageResetKey[3] !== sortDir || prevPageResetKey[4] !== data) {
+    setPrevPageResetKey([search, activeSource, sortKey, sortDir, data]);
     setPage(0);
   }
 
@@ -219,10 +235,10 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     return <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-xs ${color}`}>{type}</span>;
   }
 
-  function openApp(appName: string) {
+  function openApp(row: AppRow) {
     const days = rangeToDays(timeRange);
     // Tenant scope is carried in sessionStorage (see useAggregatedAdminScope), so no scope params needed.
-    router.push(appDetailUrl(appName, { days: String(days) }));
+    router.push(appDetailUrl(row.appName, { days: String(days), source: row.source }));
   }
 
   return (
@@ -246,8 +262,8 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
       {/* Delivery Optimization rollup */}
       <DoCard rollup={doRollup} days={rangeToDays(timeRange)} />
 
-      {/* Search */}
-      <div className="bg-white rounded-lg shadow mb-4 p-4">
+      {/* Search + channel filter */}
+      <div className="bg-white rounded-lg shadow mb-4 p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
           type="text"
           placeholder="Search apps by name…"
@@ -255,6 +271,14 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
         />
+        {sources.length > 1 && (
+          <SegmentedControl
+            options={[{ value: "all", label: "All" }, ...sources.map((s) => ({ value: s, label: installSourceLabel(s) }))]}
+            value={activeSource}
+            onChange={setSourceFilter}
+            className="self-start sm:self-auto"
+          />
+        )}
       </div>
 
       {/* Table */}
@@ -292,9 +316,10 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {pageRows.map((row) => (
-                  <tr key={row.appName} onClick={() => openApp(row.appName)} className="hover:bg-gray-50 cursor-pointer text-sm">
+                  <tr key={`${row.source}|${row.appName}`} onClick={() => openApp(row)} className="hover:bg-gray-50 cursor-pointer text-sm">
                     <td className="px-4 py-3 text-gray-900">
                       <span className="font-medium">{row.appName}</span>
+                      <InstallSourcePill source={row.source} className="ml-2" />
                       {appTypeBadge(row.appType)}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">{row.totalInstalls}</td>

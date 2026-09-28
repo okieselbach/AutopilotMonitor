@@ -4,6 +4,7 @@
  */
 import { API_BASE_URL } from "@/utils/config";
 import type { BackupOutcome } from "@/utils/wire-types.generated";
+import { appInstallSourceParam } from "@/lib/appInstallSources";
 
 function qs(params: Record<string, string | undefined>): string {
   const p = new URLSearchParams();
@@ -357,8 +358,9 @@ export const api = {
   apps: {
     list: (tenantId: string, days: number) =>
       `${API_BASE_URL}/api/apps/list${qs({ tenantId, days: String(days) })}`,
-    analytics: (tenantId: string, appName: string, days: number) =>
-      `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/analytics${qs({ tenantId, days: String(days) })}`,
+    // source = install channel ("realmjoin"); the Intune default is left out of the URL.
+    analytics: (tenantId: string, appName: string, days: number, opts?: { source?: string }) =>
+      `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/analytics${qs({ tenantId, days: String(days), source: appInstallSourceParam(opts?.source) })}`,
     // model/version live in an options object: as trailing positional strings they sat
     // adjacent to other optional strings, so a forgotten argument silently shifted the
     // next one into its place (compiles fine, queries the wrong thing).
@@ -369,7 +371,7 @@ export const api = {
       status: "all" | "failed" | "succeeded" = "all",
       offset = 0,
       limit = 50,
-      opts?: { model?: string; version?: string }
+      opts?: { model?: string; version?: string; source?: string }
     ) =>
       `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/sessions${qs({
         tenantId,
@@ -379,6 +381,7 @@ export const api = {
         limit: String(limit),
         model: opts?.model,
         version: opts?.version,
+        source: appInstallSourceParam(opts?.source),
       })}`,
 
     // Global Admin variants — tenantId is optional:
@@ -386,8 +389,8 @@ export const api = {
     //   - provided → returns per-tenant view for any tenant (GA override)
     globalList: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/apps/list${qs({ days: String(days), tenantId })}`,
-    globalAnalytics: (appName: string, days: number, tenantId?: string) =>
-      `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/analytics${qs({ days: String(days), tenantId })}`,
+    globalAnalytics: (appName: string, days: number, tenantId?: string, opts?: { source?: string }) =>
+      `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/analytics${qs({ days: String(days), tenantId, source: appInstallSourceParam(opts?.source) })}`,
     globalSessions: (
       appName: string,
       days: number,
@@ -395,7 +398,7 @@ export const api = {
       offset = 0,
       limit = 50,
       tenantId?: string,
-      opts?: { model?: string; version?: string }
+      opts?: { model?: string; version?: string; source?: string }
     ) =>
       `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/sessions${qs({
         days: String(days),
@@ -405,6 +408,7 @@ export const api = {
         tenantId,
         model: opts?.model,
         version: opts?.version,
+        source: appInstallSourceParam(opts?.source),
       })}`,
   },
 

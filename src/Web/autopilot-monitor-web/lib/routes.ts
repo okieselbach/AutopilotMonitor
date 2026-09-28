@@ -13,6 +13,7 @@
  */
 
 import type { Route } from "next";
+import { appInstallSourceParam } from "@/lib/appInstallSources";
 
 function withQuery<T extends string>(
   path: Route<T>,
@@ -46,14 +47,16 @@ export function diagnosisUrl(sessionId: string): Route {
   return withQuery("/diagnosis", { id: sessionId });
 }
 
+/** `source` is the install channel; the Intune default ("ime") is left out of the URL. */
 export function appDetailUrl(
   appName: string,
-  opts?: { days?: string; tenantId?: string },
+  opts?: { days?: string; tenantId?: string; source?: string },
 ): Route {
   return withQuery("/apps/detail", {
     name: appName,
     days: opts?.days,
     tenantId: opts?.tenantId,
+    source: appInstallSourceParam(opts?.source),
   });
 }
 

@@ -191,6 +191,7 @@ public class TypedContractCompletionWireParityTests
                     new
                     {
                         appName = "Contoso App",
+                        source = "ime",
                         totalInstalls = 4,
                         succeeded = 2,
                         skipped = 1,
@@ -234,6 +235,7 @@ public class TypedContractCompletionWireParityTests
                     new AppMetricsAppGroup
                     {
                         AppName = "Contoso App",
+                        Source = AppInstallSources.Ime,
                         TotalInstalls = 4,
                         Succeeded = 2,
                         Skipped = 1,
@@ -593,6 +595,7 @@ public class TypedContractCompletionWireParityTests
         var item = new AppsListItem
         {
             AppName = "Contoso App",
+            Source = AppInstallSources.Ime,
             AppType = "Win32",
             TotalInstalls = 5,
             Succeeded = 3,
@@ -610,6 +613,7 @@ public class TypedContractCompletionWireParityTests
         var anonymousItem = new
         {
             appName = "Contoso App",
+            source = "ime",
             appType = "Win32",
             totalInstalls = 5,
             succeeded = 3,
@@ -677,6 +681,7 @@ public class TypedContractCompletionWireParityTests
             {
                 success = true,
                 appName = "Contoso App",
+                source = "ime",
                 appType = string.Empty,
                 windowDays = 30,
                 collisionExcluded = 0,
@@ -709,6 +714,7 @@ public class TypedContractCompletionWireParityTests
             {
                 Success = true,
                 AppName = "Contoso App",
+                Source = AppInstallSources.Ime,
                 AppType = string.Empty,
                 WindowDays = 30,
                 CollisionExcluded = 0,

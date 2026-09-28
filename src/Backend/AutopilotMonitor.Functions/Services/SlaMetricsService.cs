@@ -194,15 +194,18 @@ namespace AutopilotMonitor.Functions.Services
                     var appFailed = currentWeekApps.Count(a => a.Status == "Failed");
                     var appRate = SlaEvaluationWindow.AppInstallSuccessRate(currentWeekApps);
 
+                    // Per (channel, name): the rate covers every channel, an app group never mixes two.
                     var topFailing = currentWeekApps
                         .Where(a => a.Status == "Failed")
-                        .GroupBy(a => a.AppName)
+                        .GroupBy(a => (Source: AppInstallSources.Normalize(a.Source), a.AppName))
                         .Select(g =>
                         {
-                            var totalForApp = currentWeekApps.Count(a => a.AppName == g.Key);
+                            var totalForApp = currentWeekApps.Count(a =>
+                                a.AppName == g.Key.AppName && AppInstallSources.Normalize(a.Source) == g.Key.Source);
                             return new TopFailingApp
                             {
-                                AppName = g.Key,
+                                AppName = g.Key.AppName,
+                                Source = g.Key.Source,
                                 FailCount = g.Count(),
                                 TotalCount = totalForApp,
                                 SuccessRate = totalForApp > 0

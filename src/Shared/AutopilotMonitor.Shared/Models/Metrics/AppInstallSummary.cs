@@ -13,13 +13,27 @@ namespace AutopilotMonitor.Shared.Models
         public string TenantId { get; set; } = string.Empty;
 
         /// <summary>
-        /// Intune app identity from the agent's app events (<c>appId</c> payload field) —
-        /// Win32/IME apps carry the Intune app GUID in lowercase dashed form
-        /// (<c>AppPackageState.Id</c>). Empty = sentinel: written before this column existed
-        /// (2026-07 F1 PR1) or the events carried no appId. The row stays name-keyed
-        /// (RowKey = {SessionId}_{AppName}); this column adds identity without a key migration.
+        /// Install channel of this row (<see cref="AppInstallSources"/>). Empty = sentinel for rows
+        /// written before the column existed, all of them IME rows — read it through
+        /// <see cref="AppInstallSources.Normalize"/>. Part of the row identity and of every per-app
+        /// aggregation key.
+        /// </summary>
+        public string Source { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Channel-local app identity. IME rows: the Intune app GUID from the agent's app events
+        /// (<c>appId</c> payload field, lowercase dashed, <c>AppPackageState.Id</c>); empty =
+        /// sentinel (written before 2026-07 F1 PR1, or no appId in the events). IME rows stay
+        /// name-keyed (RowKey = {SessionId}_{AppName}); this column adds identity without a key
+        /// migration. RealmJoin rows: the RealmJoin package id, which keys the row together with
+        /// <see cref="InstallScope"/>.
         /// </summary>
         public string AppId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// RealmJoin registration scope of the package: "machine" or "user". Empty for IME rows.
+        /// </summary>
+        public string InstallScope { get; set; } = string.Empty;
 
         /// <summary>
         /// Whether this app is in the ESP's own blocking/tracking set

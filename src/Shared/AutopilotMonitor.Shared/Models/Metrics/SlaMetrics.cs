@@ -133,6 +133,8 @@ namespace AutopilotMonitor.Shared.Models.Metrics
     public class TopFailingApp
     {
         public string AppName { get; set; } = default!;
+        /// <summary>Install channel (<see cref="AppInstallSources"/>): "ime" or "realmjoin".</summary>
+        public string Source { get; set; } = string.Empty;
         public int FailCount { get; set; }
         public int TotalCount { get; set; }
         public double SuccessRate { get; set; }

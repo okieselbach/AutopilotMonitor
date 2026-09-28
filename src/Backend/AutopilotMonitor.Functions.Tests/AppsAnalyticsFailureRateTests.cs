@@ -131,7 +131,7 @@ public class AppsAnalyticsFailureRateTests
             sessionRepo = mock.Object;
         }
         var result = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            summaries, sessionRepo, "Contoso App", days: 30);
+            summaries, sessionRepo, "Contoso App", AppInstallSources.Ime, days: 30);
         return TestWire.SerializeToElement(result);
     }
 

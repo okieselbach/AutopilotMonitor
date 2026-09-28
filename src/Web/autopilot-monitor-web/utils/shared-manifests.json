@@ -487,6 +487,10 @@
     "different_problem",
     "inconclusive"
   ],
+  "appInstallSources": [
+    "ime",
+    "realmjoin"
+  ],
   "ruleSubmissionKinds": [
     "gather",
     "analyze"
@@ -2752,6 +2756,14 @@
           }
         },
         {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Install channel (AppInstallSources): \"ime\" or \"realmjoin\"."
+        },
+        {
           "name": "appType",
           "type": {
             "kind": "primitive",
@@ -3256,6 +3268,14 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Install channel (AppInstallSources): \"ime\" or \"realmjoin\"."
         },
         {
           "name": "totalInstalls",
@@ -3783,6 +3803,14 @@
           }
         },
         {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Install channel (AppInstallSources): \"ime\" or \"realmjoin\"."
+        },
+        {
           "name": "currentVersion",
           "type": {
             "kind": "primitive",
@@ -3863,6 +3891,14 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Install channel (AppInstallSources): \"ime\" or \"realmjoin\"."
         },
         {
           "name": "appType",
@@ -23682,6 +23718,14 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Install channel (AppInstallSources): \"ime\" or \"realmjoin\"."
         },
         {
           "name": "failCount",

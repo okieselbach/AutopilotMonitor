@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -48,14 +49,19 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
+                if (!AppsAnalyticsHelper.TryParseSourceQueryParam(query["source"], out var source))
+                {
+                    return await req.BadRequestAsync($"source must be one of: {string.Join(", ", AppInstallSources.All)}");
+                }
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 // Active duration-regression episodes for this app (fail-soft: empty on error).
                 var versionRegressions = (await _notificationTracker.GetAppVersionRegressionsAsync(tenantId))
-                    .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase))
+                    .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase)
+                                && AppInstallSources.Normalize(a.Source) == source)
                     .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, days, versionRegressions);
+                    summaries, _sessionRepo, decodedAppName, source, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

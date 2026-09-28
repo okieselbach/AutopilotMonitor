@@ -17,6 +17,7 @@ import FleetStatCard from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
 import DeviceJourneySection, { DeviceJourneyResponseDto } from "./components/DeviceJourneySection";
 import TruncatedLabel from "../../components/TruncatedLabel";
+import { InstallSourcePill } from "../../components/InstallSourcePill";
 import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
@@ -31,6 +32,8 @@ import { notifyApiError } from "@/contexts/NotificationContext";
 
 interface AppMetric {
   appName: string;
+  /** Install channel: "ime" (Intune) or "realmjoin". */
+  source: string;
   totalInstalls: number;
   succeeded: number;
   failed: number;
@@ -599,7 +602,7 @@ export default function FleetHealthPage() {
                     );
                     return (
                       <div
-                        key={app.appName}
+                        key={`${app.source}|${app.appName}`}
                         className="flex items-center space-x-3"
                       >
                         <span className="text-xs text-gray-400 w-4">
@@ -607,10 +610,13 @@ export default function FleetHealthPage() {
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
-                            <TruncatedLabel
-                              text={app.appName}
-                              className="text-sm text-gray-700 pr-2"
-                            />
+                            <div className="flex items-center gap-2 min-w-0">
+                              <TruncatedLabel
+                                text={app.appName}
+                                className="text-sm text-gray-700 pr-2"
+                              />
+                              <InstallSourcePill source={app.source} />
+                            </div>
                             <span className="text-sm font-medium text-gray-900 flex-shrink-0">
                               {avgLabel} avg
                             </span>
@@ -650,7 +656,7 @@ export default function FleetHealthPage() {
                 <div className="space-y-3">
                   {appMetrics.topFailingApps.map((app, i) => (
                     <div
-                      key={app.appName}
+                      key={`${app.source}|${app.appName}`}
                       className="flex items-center space-x-3"
                     >
                       <span className="text-xs text-gray-400 w-4">
@@ -658,10 +664,13 @@ export default function FleetHealthPage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <TruncatedLabel
-                            text={app.appName}
-                            className="text-sm text-gray-700 pr-2"
-                          />
+                          <div className="flex items-center gap-2 min-w-0">
+                            <TruncatedLabel
+                              text={app.appName}
+                              className="text-sm text-gray-700 pr-2"
+                            />
+                            <InstallSourcePill source={app.source} />
+                          </div>
                           <span className="text-sm font-medium text-red-600 flex-shrink-0">
                             {app.failed} failed
                           </span>
