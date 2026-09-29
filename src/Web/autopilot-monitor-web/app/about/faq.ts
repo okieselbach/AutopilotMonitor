@@ -57,7 +57,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "Is Autopilot Monitor free and open source?",
     answer:
-      "Yes. The Community plan is free and stays free, includes the complete current feature set, and is meant for production fleets, not just labs. The source code is on GitHub: the agent under the MIT license, the backend, portal, and MCP server under AGPL-3.0. A commercial Pro plan is coming for organizations that need reliability commitments, priority support, longer data retention, and delegated administration across customer tenants.",
+      "Yes. The Community plan is free, stays free, and is meant for production fleets, not just labs: live monitoring, the full rules engine including custom rules, fleet analytics, notifications, diagnostics, and AI integration through MCP within usage limits, with 90-day data retention. The source code is on GitHub: the agent under the MIT license, the backend, portal, and MCP server under AGPL-3.0. The optional Pro plan, sold through Microsoft Marketplace and Cleverbridge, adds 365-day retention, higher API and AI usage limits, delegated administration across customer tenants, OOBE bootstrap sessions, reliability commitments, and priority support; a tenant administrator can try it free for 30 days.",
   },
   {
     question: "How is the agent deployed, and does it stay on the device?",
