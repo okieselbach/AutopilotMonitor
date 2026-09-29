@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canManageBootstrapSessions,
   hasOwnTenantOrPlatformRole,
   hasTenantReadScope,
   type TenantScopeUser,
@@ -79,5 +80,30 @@ describe("hasTenantReadScope", () => {
     expect(
       hasTenantReadScope(user({ isGlobalAdmin: true, isTenantAdmin: true, role: "Admin" }))
     ).toBe(true);
+  });
+});
+
+describe("canManageBootstrapSessions (mirror of BootstrapManagerOrGA)", () => {
+  it("is false for null/undefined and a roleless user", () => {
+    expect(canManageBootstrapSessions(null)).toBe(false);
+    expect(canManageBootstrapSessions(undefined)).toBe(false);
+    expect(canManageBootstrapSessions(user())).toBe(false);
+  });
+
+  it("is true for a Global Admin and the tenant Admin", () => {
+    expect(canManageBootstrapSessions(user({ isGlobalAdmin: true }))).toBe(true);
+    expect(canManageBootstrapSessions(user({ isTenantAdmin: true }))).toBe(true);
+    expect(canManageBootstrapSessions(user({ role: "Admin" }))).toBe(true);
+  });
+
+  it("admits an Operator only with the bootstrap grant", () => {
+    expect(canManageBootstrapSessions(user({ role: "Operator" }))).toBe(false);
+    expect(canManageBootstrapSessions(user({ role: "Operator", canManageBootstrapTokens: true }))).toBe(true);
+  });
+
+  it("refuses a Viewer even with the flag, a Global Reader and a delegated admin (write tier)", () => {
+    expect(canManageBootstrapSessions(user({ role: "Viewer", canManageBootstrapTokens: true }))).toBe(false);
+    expect(canManageBootstrapSessions(user({ isGlobalReader: true }))).toBe(false);
+    expect(canManageBootstrapSessions(user({ isDelegated: true }))).toBe(false);
   });
 });

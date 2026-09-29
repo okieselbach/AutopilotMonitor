@@ -11,6 +11,7 @@ export interface TenantScopeUser {
   isGlobalReader?: boolean;
   isDelegated?: boolean;
   role?: string | null;
+  canManageBootstrapTokens?: boolean;
 }
 
 /** The three assignable tenant roles (mirrors Constants.TenantRoles in the backend). */
@@ -49,4 +50,22 @@ export function hasTenantReadScope(
 ): boolean {
   if (!user) return false;
   return hasOwnTenantOrPlatformRole(user) || !!user.isDelegated;
+}
+
+/**
+ * True when the user may list and manage their OWN tenant's bootstrap sessions — the client
+ * mirror of the backend's BootstrapManagerOrGA tier: Global Admin, the tenant Admin, or an
+ * Operator granted "manage bootstrap tokens". It is a write tier, so neither the read-only
+ * Global Reader nor a delegated grant is admitted.
+ */
+export function canManageBootstrapSessions(
+  user: TenantScopeUser | null | undefined
+): boolean {
+  if (!user) return false;
+  return !!(
+    user.isGlobalAdmin ||
+    user.isTenantAdmin ||
+    user.role === "Admin" ||
+    (user.role === "Operator" && user.canManageBootstrapTokens)
+  );
 }

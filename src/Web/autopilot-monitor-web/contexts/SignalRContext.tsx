@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
 import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { createGroupRegistry } from '@/lib/signalrGroupRegistry';
+import { refusedJoinStatus } from '@/lib/signalrGroupAccess';
 import { useLatest } from '@/hooks/useLatest';
 import { useAuth } from './AuthContext';
 import { ApiError, fetchOk, jsonBody, type GetAccessToken } from "@/lib/apiClient";
@@ -67,7 +68,15 @@ function getTransportName(conn: HubConnection): string {
 }
 
 export function SignalRProvider({ children }: { children: React.ReactNode }) {
-  const { getAccessToken, isAuthenticated } = useAuth();
+  const { getAccessToken, isAuthenticated, user } = useAuth();
+  // The caller's standing for the join gate (lib/signalrGroupAccess), held as primitives so joinGroup
+  // keeps its identity until the standing itself changes — in practice once, when auth/me resolves,
+  // in the same commit that delivers the tenant id the consumers join with.
+  const callerTenantId = user?.tenantId ?? '';
+  const callerRole = user?.role ?? null;
+  const callerIsTenantAdmin = user?.isTenantAdmin ?? false;
+  const callerIsGlobalAdmin = user?.isGlobalAdmin ?? false;
+  const callerIsGlobalReader = user?.isGlobalReader ?? false;
   const [connection, setConnection] = useState<HubConnection | null>(null);
   const [connectionState, setConnectionState] = useState<HubConnectionState>(HubConnectionState.Disconnected);
   const connectionRef = useRef<HubConnection | null>(null);
@@ -353,6 +362,24 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // A join the backend refuses by rule for this caller is not sent. The consumer learns it exactly
+    // as from the server's answer, and nothing is held for the reconnect rejoin.
+    const caller = callerTenantId
+      ? {
+          tenantId: callerTenantId,
+          role: callerRole,
+          isTenantAdmin: callerIsTenantAdmin,
+          isGlobalAdmin: callerIsGlobalAdmin,
+          isGlobalReader: callerIsGlobalReader,
+        }
+      : null;
+    const refused = refusedJoinStatus(groupName, caller, options?.serialNumber);
+    if (refused !== null) {
+      console.info(`[SignalR] Not joining group ${groupName}: the server refuses it for this user (status ${refused})`);
+      options?.onDenied?.(refused);
+      return;
+    }
+
     // Add to Set immediately to prevent race conditions with multiple simultaneous calls
     joinedGroupsRef.current.add(groupName);
     if (options?.serialNumber) {
@@ -395,7 +422,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       joinSerialsRef.current.delete(groupName);
       syncJoinedGroups();
     }
-  }, [groupRegistry, getToken, syncJoinedGroups]);
+  }, [groupRegistry, getToken, syncJoinedGroups, callerTenantId, callerRole, callerIsTenantAdmin, callerIsGlobalAdmin, callerIsGlobalReader]);
 
   const leaveGroup = useCallback((groupName: string): Promise<void> => {
     // Only this consumer's reference is dropped here; the hub leave follows from the registry

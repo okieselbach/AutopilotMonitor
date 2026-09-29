@@ -12,6 +12,7 @@ import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthF
 import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
 import { primaryClientId } from "@/lib/authApp";
+import { canManageBootstrapSessions } from "@/lib/tenantScope";
 
 type ValidationTrigger = "autopilot" | "corporate" | "device-preparation";
 
@@ -721,16 +722,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     }
   }, [tenantId, getAccessToken]);
 
+  // The list route is the BootstrapManagerOrGA tier: any other role only ever received a 403.
+  const canManageBootstrap = canManageBootstrapSessions(user);
+
   useEffect(() => {
     // Effective availability (mirrors backend IsBootstrapEnabled): Pro plan includes bootstrap;
     // the per-tenant GA flag is the additive Community enable.
     const bootstrapAvailable = editionInfo.edition === "pro" || config?.bootstrapTokenEnabled;
-    if (!tenantId || !bootstrapAvailable) return;
+    if (!tenantId || !bootstrapAvailable || !canManageBootstrap) return;
     const run = async () => {
       await fetchBootstrapSessions();
     };
     void run();
-  }, [tenantId, editionInfo.edition, config?.bootstrapTokenEnabled, fetchBootstrapSessions]);
+  }, [tenantId, editionInfo.edition, config?.bootstrapTokenEnabled, canManageBootstrap, fetchBootstrapSessions]);
 
   // Built-in sections + global diagnostics paths are read-only context for every role and
   // live in useDiagnosticsPathsCatalog (GET /api/diagnostics/paths), not in this provider.
