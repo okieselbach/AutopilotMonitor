@@ -58,11 +58,25 @@ public class HelloWaitTimeoutConfigTests
     }
 
     [Fact]
-    public void Default_is_30_seconds_which_keeps_the_built_in_window()
+    public void Default_is_the_built_in_five_minutes()
     {
-        Assert.Equal(30, TenantConfiguration.CreateDefault(TenantId).HelloWaitTimeoutSeconds);
-        Assert.Equal(30, new CollectorConfiguration().HelloWaitTimeoutSeconds);
+        Assert.Equal(300, TenantConfiguration.CreateDefault(TenantId).HelloWaitTimeoutSeconds);
+        Assert.Equal(300, new CollectorConfiguration().HelloWaitTimeoutSeconds);
         Assert.Equal(300, HelloWaitTimeout.EffectiveSeconds(HelloWaitTimeout.DefaultSeconds));
+    }
+
+    [Fact]
+    public void Stored_old_default_stays_valid_and_keeps_the_built_in_window()
+    {
+        // Every tenant that ever saved the agent settings page has the old 30 s default stored.
+        var existing = TenantConfiguration.CreateDefault(TenantId);
+        existing.HelloWaitTimeoutSeconds = 30;
+        var candidate = TenantConfiguration.CreateDefault(TenantId);
+        candidate.HelloWaitTimeoutSeconds = 30;
+        candidate.ContactEmail = "it@example.com";
+
+        Assert.Null(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false));
+        Assert.Equal(300, HelloWaitTimeout.EffectiveSeconds(30));
     }
 
     [Theory]
@@ -82,6 +96,15 @@ public class HelloWaitTimeoutConfigTests
     {
         var entity = TableConfigRepository.ConvertToTenantTableEntity(TenantConfiguration.CreateDefault(TenantId));
         entity.Remove("HelloWaitTimeoutSeconds");
+
+        Assert.Equal(300, TableConfigRepository.ConvertFromTenantTableEntity(entity).HelloWaitTimeoutSeconds);
+    }
+
+    [Fact]
+    public void Stored_value_is_read_verbatim()
+    {
+        var entity = TableConfigRepository.ConvertToTenantTableEntity(TenantConfiguration.CreateDefault(TenantId));
+        entity["HelloWaitTimeoutSeconds"] = 30;
 
         Assert.Equal(30, TableConfigRepository.ConvertFromTenantTableEntity(entity).HelloWaitTimeoutSeconds);
     }

@@ -424,19 +424,23 @@ namespace AutopilotMonitor.DecisionCore.Engine
         }
 
         /// <summary>
-        /// <c>true</c> while <see cref="DeadlineNames.HelloSafety"/> is armed in
-        /// <paramref name="state"/> and not yet due at <paramref name="nowUtc"/>: the session is
-        /// waiting on a bounded Hello window (up to <see cref="HelloWaitTimeout.MaxSeconds"/>)
-        /// that resolves it either way — not stalled. Read by the agent's stall probe.
+        /// <c>true</c> while a tenant-extended Hello wait is running: the tenant window is
+        /// recorded and a Hello resolution deadline (<see cref="DeadlineNames.HelloSafety"/>, or
+        /// the Device Preparation backstop that stands in for it) is armed and not yet due at
+        /// <paramref name="nowUtc"/>. The session is then waiting on a bounded window (up to
+        /// <see cref="HelloWaitTimeout.MaxSeconds"/>) that resolves it either way — not stalled.
+        /// Always <c>false</c> on the built-in window, so default tenants keep their stall
+        /// reporting unchanged. Read by the agent's stall probe.
         /// </summary>
-        public static bool IsHelloSafetyPending(DecisionState? state, DateTime nowUtc)
+        public static bool IsTenantHelloWaitPending(DecisionState? state, DateTime nowUtc)
         {
-            if (state == null)
+            if (state?.ScenarioObservations.HelloWaitTimeoutSeconds == null)
                 return false;
             foreach (var d in state.Deadlines)
             {
-                if (d.Name == DeadlineNames.HelloSafety)
-                    return d.DueAtUtc > nowUtc;
+                if ((d.Name == DeadlineNames.HelloSafety || d.Name == DeadlineNames.DevicePrepCompletion)
+                    && d.DueAtUtc > nowUtc)
+                    return true;
             }
             return false;
         }
@@ -581,7 +585,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// finished AccountSetup) OR <see cref="EnrollmentScenarioObservations.SkipUserEsp"/>
         /// is <c>true</c> (no User-ESP page on this flow) — synthesise
         /// <c>HelloOutcome="Skipped"</c> here and route directly through Finalizing.
-        /// This avoids waiting out the full 5-min HelloSafety window when the policy reader
+        /// This avoids waiting out the full HelloSafety window when the policy reader
         /// already told us no Hello wizard is expected. Belt-and-suspenders alongside the
         /// EspExiting → HelloSafety reducer path: the path that fires first wins.
         /// </para>

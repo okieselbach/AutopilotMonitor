@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
@@ -25,7 +26,8 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [InlineData("301", 301)]
         [InlineData("3600", 3600)]
         [InlineData("86400", 3600)] // beyond the ceiling — clamped
-        [InlineData("120", 300)]    // below the floor (the agent never stamps it) — floored
+        [InlineData("300", 300)]    // not an extension — ignored (the agent never stamps it)
+        [InlineData("120", 300)]
         public void Esp_exit_arms_hello_safety_with_the_tenant_window(string? helloWait, int expectedSeconds)
         {
             var engine = new DecisionEngine();
@@ -122,9 +124,41 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var step = engine.Reduce(state, Facts(20, EspExit.AddSeconds(10), helloWait));
 
             Assert.Empty(step.Effects);
+            Assert.Null(step.NewState.ScenarioObservations.HelloWaitTimeoutSeconds);
             Assert.Equal(
                 EspExit.AddSeconds(300),
                 Assert.Single(step.NewState.Deadlines, d => d.Name == DeadlineNames.HelloSafety).DueAtUtc);
+        }
+
+        [Fact]
+        public void Fire_of_the_replaced_built_in_deadline_is_dead_ended_after_the_late_extension()
+        {
+            // The old timer fired while the facts signal was still queued ahead of it: the facts
+            // step moves hello_safety out, then the queued fire of the replaced incarnation
+            // arrives. It must not time Hello out at the built-in window.
+            var engine = new DecisionEngine();
+            var state = ReduceAll(engine, ClassicUntilEspExit(helloWait: null));
+            var builtInDue = EspExit.AddSeconds(300);
+            state = engine.Reduce(state, Facts(20, EspExit.AddSeconds(10), "1800")).NewState;
+
+            var stale = engine.Reduce(state, MakeSignal(21, DecisionSignalKind.DeadlineFired, builtInDue.AddSeconds(2),
+                Fired(DeadlineNames.HelloSafety, builtInDue)));
+
+            Assert.False(stale.Transition.Taken);
+            Assert.Equal("hello_safety_stale_superseded_by_rearm", stale.Transition.DeadEndReason);
+            Assert.Empty(stale.Effects);
+            Assert.Null(stale.NewState.HelloResolvedUtc);
+            Assert.Equal(SessionStage.AwaitingHello, stale.NewState.Stage);
+            var extendedDue = EspExit.AddSeconds(1800);
+            Assert.Equal(
+                extendedDue,
+                Assert.Single(stale.NewState.Deadlines, d => d.Name == DeadlineNames.HelloSafety).DueAtUtc);
+
+            // The fire of the current incarnation still times Hello out (desktop is in → Finalizing).
+            var current = engine.Reduce(stale.NewState, MakeSignal(22, DecisionSignalKind.DeadlineFired, extendedDue,
+                Fired(DeadlineNames.HelloSafety, extendedDue)));
+            Assert.Equal(SessionStage.Finalizing, current.NewState.Stage);
+            Assert.Equal("Timeout", current.NewState.HelloOutcome!.Value);
         }
 
         [Fact]
@@ -218,23 +252,49 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
-        public void IsHelloSafetyPending_is_true_only_while_hello_safety_is_armed_and_not_yet_due()
+        public void IsTenantHelloWaitPending_is_true_only_while_an_extended_window_is_armed_and_not_yet_due()
         {
             var engine = new DecisionEngine();
             var awaiting = ReduceAll(engine, ClassicUntilEspExit("1800"));
             var due = EspExit.AddSeconds(1800);
 
-            Assert.True(DecisionEngine.IsHelloSafetyPending(awaiting, EspExit.AddMinutes(1)));
-            Assert.True(DecisionEngine.IsHelloSafetyPending(awaiting, due.AddSeconds(-1)));
-            Assert.False(DecisionEngine.IsHelloSafetyPending(awaiting, due));
-            Assert.False(DecisionEngine.IsHelloSafetyPending(awaiting, due.AddSeconds(1)));
-            Assert.False(DecisionEngine.IsHelloSafetyPending(null, EspExit));
-            Assert.False(DecisionEngine.IsHelloSafetyPending(Seed(), EspExit));
+            Assert.True(DecisionEngine.IsTenantHelloWaitPending(awaiting, EspExit.AddMinutes(1)));
+            Assert.True(DecisionEngine.IsTenantHelloWaitPending(awaiting, due.AddSeconds(-1)));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(awaiting, due));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(awaiting, due.AddSeconds(1)));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(null, EspExit));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(Seed(), EspExit));
+
+            // The built-in window never counts: default tenants keep their stall reporting.
+            var builtIn = ReduceAll(engine, ClassicUntilEspExit(helloWait: null));
+            Assert.Contains(builtIn.Deadlines, d => d.Name == DeadlineNames.HelloSafety);
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(builtIn, EspExit.AddMinutes(1)));
 
             // Hello resolved → the deadline is cancelled → nothing pending any more.
             var resolved = engine.Reduce(awaiting, MakeSignal(20, DecisionSignalKind.HelloResolved, EspExit.AddMinutes(10),
                 new Dictionary<string, string> { [SignalPayloadKeys.HelloOutcome] = "completed" })).NewState;
-            Assert.False(DecisionEngine.IsHelloSafetyPending(resolved, EspExit.AddMinutes(11)));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(resolved, EspExit.AddMinutes(11)));
+        }
+
+        [Fact]
+        public void IsTenantHelloWaitPending_covers_the_device_preparation_backstop()
+        {
+            var engine = new DecisionEngine();
+            var desktop = T0.AddMinutes(9);
+            var state = ReduceAll(engine, new[]
+            {
+                MakeSignal(0, DecisionSignalKind.SessionStarted, T0),
+                MakeSignal(1, DecisionSignalKind.EnrollmentFactsObserved, T0, new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v2",
+                    [SignalPayloadKeys.EnrollmentTypeDeterministic] = "true",
+                    [SignalPayloadKeys.HelloWaitTimeoutSeconds] = "3600",
+                }),
+                MakeSignal(2, DecisionSignalKind.DesktopArrived, desktop),
+            });
+
+            Assert.True(DecisionEngine.IsTenantHelloWaitPending(state, desktop.AddMinutes(59)));
+            Assert.False(DecisionEngine.IsTenantHelloWaitPending(state, desktop.AddMinutes(60)));
         }
 
         // ============================================================ helpers
@@ -268,6 +328,13 @@ namespace AutopilotMonitor.DecisionCore.Tests
         private static DecisionSignal Facts(long ordinal, DateTime occurredAtUtc, string helloWait) =>
             MakeSignal(ordinal, DecisionSignalKind.EnrollmentFactsObserved, occurredAtUtc,
                 new Dictionary<string, string> { [SignalPayloadKeys.HelloWaitTimeoutSeconds] = helloWait });
+
+        private static Dictionary<string, string> Fired(string deadlineName, DateTime dueAtUtc) =>
+            new Dictionary<string, string>
+            {
+                [SignalPayloadKeys.Deadline] = deadlineName,
+                [SignalPayloadKeys.DeadlineDueAtUtc] = dueAtUtc.ToString("O", CultureInfo.InvariantCulture),
+            };
 
         private static Dictionary<string, string> Phase(string phase) =>
             new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = phase };

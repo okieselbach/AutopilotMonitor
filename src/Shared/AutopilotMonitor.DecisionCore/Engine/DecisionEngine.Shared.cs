@@ -393,6 +393,27 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         private DecisionStep HandleHelloSafetyDeadlineFired(DecisionState state, DecisionSignal signal)
         {
+            // Stale fire of a replaced incarnation (same shape as the RealmJoin guard): the armed
+            // hello_safety is due LATER than the due time this fire belongs to — e.g. the tenant
+            // window arrived and moved the deadline out while the old timer's fire was already
+            // queued. Deciding on it would time Hello out at the replaced, shorter window.
+            foreach (var armed in state.Deadlines)
+            {
+                if (armed.Name == DeadlineNames.HelloSafety && armed.DueAtUtc > DeadlineDueAtUtc(signal))
+                {
+                    var bookkept = BumpStepBookkeeping(state, signal);
+                    return new DecisionStep(
+                        bookkept,
+                        BuildDeadEndTransition(
+                            state: state,
+                            signal: signal,
+                            nextStepIndex: bookkept.StepIndex,
+                            trigger: $"DeadlineFired:{DeadlineNames.HelloSafety}",
+                            deadEndReason: "hello_safety_stale_superseded_by_rearm"),
+                        Array.Empty<DecisionEffect>());
+                }
+            }
+
             var nextStep = state.StepIndex + 1;
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
@@ -566,13 +587,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
             }
 
             // Tenant Hello wait (remote config, not a registry fact) — widens the hello_safety
-            // window. Set-once. This signal is posted right after agent start, but a backfilled
-            // ESP exit can arm hello_safety first; that deadline is moved out to the tenant window.
+            // window. Set-once, and only a value that actually extends the built-in window counts
+            // (the agent never stamps anything else). This signal is posted right after agent
+            // start, but a backfilled ESP exit can arm hello_safety first; that deadline is moved
+            // out to the tenant window.
             DecisionEffect? helloSafetyExtendEffect = null;
             if (signal.Payload != null
                 && signal.Payload.TryGetValue(SignalPayloadKeys.HelloWaitTimeoutSeconds, out var rawHelloWait)
                 && int.TryParse(rawHelloWait, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var helloWaitSeconds)
-                && helloWaitSeconds > 0)
+                && helloWaitSeconds > HelloWaitTimeout.BuiltInSeconds)
             {
                 builder.ScenarioObservations = builder.ScenarioObservations
                     .WithHelloWaitTimeoutSeconds(helloWaitSeconds, signal.SessionSignalOrdinal);

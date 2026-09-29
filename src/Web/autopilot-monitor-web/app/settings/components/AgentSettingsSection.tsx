@@ -6,6 +6,7 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import {
   clampHelloWaitTimeoutSeconds,
+  HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS,
   HELLO_WAIT_TIMEOUT_MAX_SECONDS,
   HELLO_WAIT_TIMEOUT_MIN_SECONDS,
 } from "../lib/helloWaitTimeout";
@@ -437,13 +438,13 @@ export default function AgentSettingsSection({
                     min={HELLO_WAIT_TIMEOUT_MIN_SECONDS}
                     max={HELLO_WAIT_TIMEOUT_MAX_SECONDS}
                     value={helloWaitTimeoutSeconds}
-                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || HELLO_WAIT_TIMEOUT_MIN_SECONDS)}
+                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS)}
                     onBlur={() => setHelloWaitTimeoutSeconds(clampHelloWaitTimeoutSeconds(helloWaitTimeoutSeconds))}
                     className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                   <span className="text-sm text-gray-500">seconds</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 3600 seconds (1 hour)</p>
+                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 3600 seconds (1 hour). Values up to 300 seconds use the built-in 5-minute wait.</p>
               </div>
             </div>
           </div>

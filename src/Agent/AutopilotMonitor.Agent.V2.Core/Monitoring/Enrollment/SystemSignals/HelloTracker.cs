@@ -126,7 +126,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string tenantId,
             InformationalEventPost post,
             AgentLogger logger,
-            int helloWaitTimeoutSeconds = 30)
+            int helloWaitTimeoutSeconds = HelloWaitTimeout.DefaultSeconds)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));

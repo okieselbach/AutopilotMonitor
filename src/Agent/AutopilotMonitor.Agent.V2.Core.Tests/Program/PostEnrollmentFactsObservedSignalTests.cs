@@ -75,8 +75,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Theory]
-        [InlineData(30)]  // the default — the payload stays exactly what it was before the key existed
-        [InlineData(300)] // the built-in window itself
+        [InlineData(300)] // the default — the payload stays exactly what it was before the key existed
+        [InlineData(30)]  // the old default, still stored for many tenants
         [InlineData(0)]
         public void Hello_wait_not_extending_the_built_in_window_is_not_stamped(int helloWaitTimeoutSeconds)
         {

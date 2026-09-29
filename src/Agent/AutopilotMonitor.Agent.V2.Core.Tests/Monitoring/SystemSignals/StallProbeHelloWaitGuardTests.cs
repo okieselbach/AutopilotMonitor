@@ -14,11 +14,11 @@ using Xunit;
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 {
     /// <summary>
-    /// A tenant Hello wait runs up to 60 min — exactly the default session_stalled threshold. While
-    /// the engine's hello_safety window is pending the session waits on a bounded timer that
-    /// resolves it either way, so the stall probe must not report it Stalled; once the window is
-    /// over (or without the probe) the report fires as before. The collector runs with no scan
-    /// sources, so only the session_stalled decision is exercised.
+    /// A tenant-extended Hello wait runs up to 60 min — the default session_stalled threshold. While
+    /// it is pending the session waits on a bounded timer that resolves it either way, so the stall
+    /// probe holds the report back instead of flagging the session Stalled; once the wait is over
+    /// and the session is still idle the report fires, and real activity drops it. The collector
+    /// runs with no scan sources, so only the session_stalled decision is exercised.
     /// </summary>
     public sealed class StallProbeHelloWaitGuardTests
     {
@@ -26,19 +26,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         private const double IdleAtStallThreshold = 60;
 
         [Fact]
-        public void Session_stalled_is_skipped_while_the_hello_wait_is_pending()
+        public void Session_stalled_is_held_back_while_the_hello_wait_is_pending()
         {
             using var tmp = new TempDirectory();
             var ingress = new FakeSignalIngressSink();
             var collector = NewCollector(tmp, ingress, helloWaitPending: () => true);
 
             collector.CheckAndRunProbes(IdleAtStallThreshold);
+            collector.CheckAndRunProbes(IdleAtStallThreshold + 1);
 
             Assert.Equal(0, StalledCount(ingress));
         }
 
         [Fact]
-        public void Session_stalled_fires_in_the_next_idle_window_once_the_hello_wait_is_over()
+        public void Held_back_report_fires_once_the_hello_wait_is_over_and_the_session_is_still_idle()
         {
             using var tmp = new TempDirectory();
             var ingress = new FakeSignalIngressSink();
@@ -48,11 +49,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             collector.CheckAndRunProbes(IdleAtStallThreshold);
             Assert.Equal(0, StalledCount(ingress));
 
-            // Real activity starts a new idle window; the skip did not consume the fire-once report.
+            // hello_safety resolved (a deadline fire is no activity, so no ResetProbes): the next
+            // tick emits the held-back report — once.
+            pending = false;
+            collector.CheckAndRunProbes(IdleAtStallThreshold + 1);
+            collector.CheckAndRunProbes(IdleAtStallThreshold + 2);
+
+            Assert.Equal(1, StalledCount(ingress));
+        }
+
+        [Fact]
+        public void Real_activity_drops_the_held_back_report()
+        {
+            using var tmp = new TempDirectory();
+            var ingress = new FakeSignalIngressSink();
+            var pending = true;
+            var collector = NewCollector(tmp, ingress, helloWaitPending: () => pending);
+
+            collector.CheckAndRunProbes(IdleAtStallThreshold);
             pending = false;
             collector.ResetProbes();
-            collector.CheckAndRunProbes(IdleAtStallThreshold);
+            collector.CheckAndRunProbes(1);
+            Assert.Equal(0, StalledCount(ingress));
 
+            // A new idle window reaches the threshold again — the fire-once report is still unused.
+            collector.CheckAndRunProbes(IdleAtStallThreshold);
             Assert.Equal(1, StalledCount(ingress));
         }
 

@@ -15,14 +15,14 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Largest configurable value (1 hour) — also the ceiling of the effective wait.</summary>
         public const int MaxSeconds = 3600;
 
-        /// <summary>Default for tenants that never changed the setting.</summary>
-        public const int DefaultSeconds = 30;
-
         /// <summary>
-        /// The engine's built-in Hello window (5 minutes). Configured values up to it — the
-        /// default included — keep it; only larger values extend the wait.
+        /// The engine's built-in Hello window (5 minutes). Configured values up to it keep it —
+        /// the old 30 s default is still stored for many tenants — only larger values extend it.
         /// </summary>
         public const int BuiltInSeconds = 300;
+
+        /// <summary>Default for tenants that never changed the setting: the built-in window.</summary>
+        public const int DefaultSeconds = BuiltInSeconds;
 
         /// <summary>
         /// The wait a configured value stands for: clamped into
