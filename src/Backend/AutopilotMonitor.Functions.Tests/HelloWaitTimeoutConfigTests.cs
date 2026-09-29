@@ -1,22 +1,22 @@
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.Models;
-using Azure.Data.Tables;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tenant Hello wait (<see cref="TenantConfiguration.HelloWaitTimeoutSeconds"/>): writes must lie
-/// in 300..3600 s, and stored rows are read as their effective value — so rows still holding the
-/// old 30 s default never block an unrelated save or a backup revert (both validate the whole
-/// model) and the patch verify round-trip stays drift-free.
+/// Tenant Hello wait (<see cref="TenantConfiguration.HelloWaitTimeoutSeconds"/>): a changed value
+/// must lie in 30..3600 s. Like the retention cap, only a CHANGED value is checked, so a value
+/// stored before the rule existed never blocks an unrelated save or a backup revert (both
+/// validate the whole model).
 /// </summary>
 public class HelloWaitTimeoutConfigTests
 {
     private const string TenantId = "11111111-1111-1111-1111-111111111111";
 
     [Theory]
+    [InlineData(30)]
     [InlineData(300)]
     [InlineData(1800)]
     [InlineData(3600)]
@@ -29,41 +29,52 @@ public class HelloWaitTimeoutConfigTests
     }
 
     [Theory]
-    [InlineData(299)]
+    [InlineData(29)]
     [InlineData(3601)]
-    [InlineData(30)]
     [InlineData(0)]
     [InlineData(-1)]
-    public void ValidateModel_rejects_values_outside_the_range(int seconds)
+    public void ValidateModel_rejects_a_changed_value_outside_the_range(int seconds)
     {
         var candidate = TenantConfiguration.CreateDefault(TenantId);
         candidate.HelloWaitTimeoutSeconds = seconds;
 
         var error = TenantConfigValidation.ValidateModel(candidate, TenantConfiguration.CreateDefault(TenantId), isGlobalAdmin: true);
 
-        Assert.Equal("Hello wait timeout must be between 300 and 3600 seconds.", error);
+        Assert.Equal("Hello wait timeout must be between 30 and 3600 seconds.", error);
     }
 
     [Fact]
-    public void Default_is_the_built_in_five_minutes()
+    public void ValidateModel_lets_an_unchanged_out_of_range_value_through()
     {
-        Assert.Equal(300, TenantConfiguration.CreateDefault(TenantId).HelloWaitTimeoutSeconds);
-        Assert.Equal(300, new CollectorConfiguration().HelloWaitTimeoutSeconds);
+        // Written through the API before the range was validated — an unrelated save (or a
+        // revert to a snapshot holding the same value) must not fail on it.
+        var existing = TenantConfiguration.CreateDefault(TenantId);
+        existing.HelloWaitTimeoutSeconds = 86400;
+        var candidate = TenantConfiguration.CreateDefault(TenantId);
+        candidate.HelloWaitTimeoutSeconds = 86400;
+        candidate.ContactEmail = "it@example.com";
+
+        Assert.Null(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false));
+    }
+
+    [Fact]
+    public void Default_is_30_seconds_which_keeps_the_built_in_window()
+    {
+        Assert.Equal(30, TenantConfiguration.CreateDefault(TenantId).HelloWaitTimeoutSeconds);
+        Assert.Equal(30, new CollectorConfiguration().HelloWaitTimeoutSeconds);
+        Assert.Equal(300, HelloWaitTimeout.EffectiveSeconds(HelloWaitTimeout.DefaultSeconds));
     }
 
     [Theory]
-    [InlineData(30, 300)]     // old default still stored for many tenants
-    [InlineData(1800, 1800)]
-    [InlineData(86400, 3600)] // written before the server validated the range
-    public void Stored_row_is_read_as_its_effective_value(int stored, int expected)
+    [InlineData(30, 300)]
+    [InlineData(300, 300)]
+    [InlineData(301, 301)]
+    [InlineData(3600, 3600)]
+    [InlineData(86400, 3600)]
+    [InlineData(0, 300)]
+    public void EffectiveSeconds_keeps_the_built_in_window_as_floor_and_caps_at_one_hour(int configured, int expected)
     {
-        var entity = TableConfigRepository.ConvertToTenantTableEntity(TenantConfiguration.CreateDefault(TenantId));
-        entity["HelloWaitTimeoutSeconds"] = stored;
-
-        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(entity);
-
-        Assert.Equal(expected, mapped.HelloWaitTimeoutSeconds);
-        Assert.Null(TenantConfigValidation.ValidateModel(mapped, mapped, isGlobalAdmin: false));
+        Assert.Equal(expected, HelloWaitTimeout.EffectiveSeconds(configured));
     }
 
     [Fact]
@@ -72,11 +83,11 @@ public class HelloWaitTimeoutConfigTests
         var entity = TableConfigRepository.ConvertToTenantTableEntity(TenantConfiguration.CreateDefault(TenantId));
         entity.Remove("HelloWaitTimeoutSeconds");
 
-        Assert.Equal(300, TableConfigRepository.ConvertFromTenantTableEntity(entity).HelloWaitTimeoutSeconds);
+        Assert.Equal(30, TableConfigRepository.ConvertFromTenantTableEntity(entity).HelloWaitTimeoutSeconds);
     }
 
     [Fact]
-    public void Supported_value_roundtrips_store_and_map()
+    public void Configured_value_roundtrips_store_and_map()
     {
         var config = TenantConfiguration.CreateDefault(TenantId);
         config.HelloWaitTimeoutSeconds = 2400;

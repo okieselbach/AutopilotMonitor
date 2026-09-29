@@ -428,7 +428,7 @@ export default function AgentSettingsSection({
               <div className="flex items-center space-x-2">
                 <p className="font-medium text-gray-900">Hello Wait Timeout</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1">How long the agent waits after the Enrollment Status Page closes for Windows Hello for Business to finish (wizard and setup). When the time runs out, Hello is recorded as timed out.</p>
+              <p className="text-sm text-gray-500 mt-1">Seconds to wait for the Windows Hello wizard after ESP exit</p>
               <div className="mt-2">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">Timeout:</span>
@@ -443,7 +443,7 @@ export default function AgentSettingsSection({
                   />
                   <span className="text-sm text-gray-500">seconds</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Minimum: 300 seconds (5 minutes), Maximum: 3600 seconds (1 hour)</p>
+                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 3600 seconds (1 hour)</p>
               </div>
             </div>
           </div>

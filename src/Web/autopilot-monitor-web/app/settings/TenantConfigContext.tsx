@@ -28,7 +28,6 @@ import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
-import { clampHelloWaitTimeoutSeconds, HELLO_WAIT_TIMEOUT_MIN_SECONDS } from "./lib/helloWaitTimeout";
 import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
 import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
@@ -430,7 +429,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Collector settings
   const [enablePerformanceCollector, setEnablePerformanceCollector] = useState(true);
   const [performanceCollectorInterval, setPerformanceCollectorInterval] = useState(30);
-  const [helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds] = useState(HELLO_WAIT_TIMEOUT_MIN_SECONDS);
+  const [helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds] = useState(30);
   const [autopilotConsentInProgress, setAutopilotConsentInProgress] = useState(false);
 
   // Agent behavior
@@ -593,7 +592,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setSessionTimeoutHours(data.sessionTimeoutHours ?? 5);
         setEnablePerformanceCollector(data.enablePerformanceCollector ?? true);
         setPerformanceCollectorInterval(data.performanceCollectorIntervalSeconds ?? 30);
-        setHelloWaitTimeoutSeconds(clampHelloWaitTimeoutSeconds(data.helloWaitTimeoutSeconds));
+        setHelloWaitTimeoutSeconds(data.helloWaitTimeoutSeconds ?? 30);
         setSelfDestructOnComplete(data.selfDestructOnComplete ?? true);
         setKeepLogFile(data.keepLogFile ?? false);
         setRebootOnComplete(data.rebootOnComplete ?? false);
@@ -1228,7 +1227,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     if (!config) return;
     setEnablePerformanceCollector(config.enablePerformanceCollector ?? true);
     setPerformanceCollectorInterval(config.performanceCollectorIntervalSeconds ?? 30);
-    setHelloWaitTimeoutSeconds(clampHelloWaitTimeoutSeconds(config.helloWaitTimeoutSeconds));
+    setHelloWaitTimeoutSeconds(config.helloWaitTimeoutSeconds ?? 30);
     setSelfDestructOnComplete(config.selfDestructOnComplete ?? true);
     setKeepLogFile(config.keepLogFile ?? false);
     setRebootOnComplete(config.rebootOnComplete ?? false);

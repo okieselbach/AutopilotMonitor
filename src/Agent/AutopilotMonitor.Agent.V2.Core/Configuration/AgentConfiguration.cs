@@ -157,11 +157,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public double ReplaySpeedFactor { get; set; } = 50;
 
         /// <summary>
-        /// Tenant Hello wait in seconds: how long after the ESP exit Windows Hello (wizard and
-        /// setup) may take before it is recorded as timed out. Resolved through
-        /// <see cref="HelloWaitTimeout.EffectiveSeconds"/> (300..3600) by the Hello tracker and,
-        /// stamped on <c>EnrollmentFactsObserved</c>, by the decision engine's hello_safety window.
-        /// Default: 300 seconds.
+        /// Tenant Hello wait in seconds after the ESP exit. Resolved through
+        /// <see cref="HelloWaitTimeout.EffectiveSeconds"/> (at least the built-in 300 s, at most
+        /// 3600 s) by the Hello tracker and, stamped on <c>EnrollmentFactsObserved</c>, by the
+        /// decision engine's hello_safety window. Default: 30 seconds (= the built-in 300 s).
         /// </summary>
         public int HelloWaitTimeoutSeconds { get; set; } = HelloWaitTimeout.DefaultSeconds;
 

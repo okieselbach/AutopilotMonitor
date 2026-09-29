@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         private static readonly DateTime Fixed = new DateTime(2026, 9, 29, 8, 0, 0, DateTimeKind.Utc);
 
         [Theory]
-        [InlineData(30, 300)]     // old default → built-in floor
+        [InlineData(30, 300)]     // the default → the built-in window
         [InlineData(0, 300)]
         [InlineData(300, 300)]
         [InlineData(1800, 1800)]

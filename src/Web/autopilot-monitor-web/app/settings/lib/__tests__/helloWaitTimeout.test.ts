@@ -18,24 +18,19 @@ describe("Hello wait timeout bounds", () => {
   });
 
   it("keeps values inside the range", () => {
+    expect(clampHelloWaitTimeoutSeconds(30)).toBe(30);
     expect(clampHelloWaitTimeoutSeconds(300)).toBe(300);
-    expect(clampHelloWaitTimeoutSeconds(1800)).toBe(1800);
     expect(clampHelloWaitTimeoutSeconds(3600)).toBe(3600);
   });
 
   it("clamps values outside the range", () => {
-    expect(clampHelloWaitTimeoutSeconds(30)).toBe(300); // the old default
-    expect(clampHelloWaitTimeoutSeconds(0)).toBe(300);
+    expect(clampHelloWaitTimeoutSeconds(0)).toBe(30);
+    expect(clampHelloWaitTimeoutSeconds(29)).toBe(30);
     expect(clampHelloWaitTimeoutSeconds(86400)).toBe(3600);
   });
 
-  it("resolves missing or non-numeric values to the minimum", () => {
-    expect(clampHelloWaitTimeoutSeconds(undefined)).toBe(300);
-    expect(clampHelloWaitTimeoutSeconds(null)).toBe(300);
-    expect(clampHelloWaitTimeoutSeconds(Number.NaN)).toBe(300);
-  });
-
-  it("rounds fractional input", () => {
+  it("resolves a non-numeric value to the minimum and rounds fractions", () => {
+    expect(clampHelloWaitTimeoutSeconds(Number.NaN)).toBe(30);
     expect(clampHelloWaitTimeoutSeconds(1800.6)).toBe(1801);
   });
 });

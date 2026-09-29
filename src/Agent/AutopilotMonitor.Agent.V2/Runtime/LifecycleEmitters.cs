@@ -358,7 +358,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 // widens the engine's built-in hello_safety window, so sessions on the default
                 // post the same payload as before.
                 var helloWaitSeconds = HelloWaitTimeout.EffectiveSeconds(helloWaitTimeoutSeconds);
-                if (helloWaitSeconds > HelloWaitTimeout.MinSeconds)
+                if (helloWaitSeconds > HelloWaitTimeout.BuiltInSeconds)
                 {
                     payload[SignalPayloadKeys.HelloWaitTimeoutSeconds] =
                         helloWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);

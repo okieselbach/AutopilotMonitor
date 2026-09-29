@@ -161,10 +161,11 @@ namespace AutopilotMonitor.Functions.Helpers
                 && (registrations < 1 || registrations > Services.McpClientRegistrationService.MaxRegistrationLimit))
                 return $"Self-hosted AI client registrations must be between 1 and {Services.McpClientRegistrationService.MaxRegistrationLimit} (or left blank for the default of {Services.McpClientRegistrationService.DefaultRegistrationLimit}).";
 
-            // Stored rows are read as their effective value (TableConfigRepository), so a legacy
-            // 30 s row never trips this on an unrelated save or a backup revert.
-            if (candidate.HelloWaitTimeoutSeconds < HelloWaitTimeout.MinSeconds
-                || candidate.HelloWaitTimeoutSeconds > HelloWaitTimeout.MaxSeconds)
+            // Only a CHANGED value is checked (same rule as the retention cap below): a stored value
+            // written before this rule existed must not block unrelated saves or backup reverts.
+            if (candidate.HelloWaitTimeoutSeconds != existing.HelloWaitTimeoutSeconds
+                && (candidate.HelloWaitTimeoutSeconds < HelloWaitTimeout.MinSeconds
+                    || candidate.HelloWaitTimeoutSeconds > HelloWaitTimeout.MaxSeconds))
                 return $"Hello wait timeout must be between {HelloWaitTimeout.MinSeconds} and {HelloWaitTimeout.MaxSeconds} seconds.";
 
             var contactEmailError = ValidateContactEmail(candidate.ContactEmail);

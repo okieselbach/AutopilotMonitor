@@ -370,7 +370,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         internal static TimeSpan HelloSafetyWindow(EnrollmentScenarioObservations observations) =>
             TimeSpan.FromSeconds(HelloWaitTimeout.EffectiveSeconds(
-                observations.HelloWaitTimeoutSeconds?.Value ?? HelloWaitTimeout.DefaultSeconds));
+                observations.HelloWaitTimeoutSeconds?.Value ?? HelloWaitTimeout.BuiltInSeconds));
 
         /// <summary>
         /// The <see cref="DeadlineNames.HelloSafety"/> deadline every arm site schedules:
