@@ -3,9 +3,7 @@ export const dynamic = "force-static";
 
 import type { MetadataRoute } from "next";
 import { PAGE_LASTMOD } from "@/utils/page-lastmod.generated";
-import { SITE_URL } from "@/utils/config";
-
-const BASE_URL = SITE_URL;
+import { sitePageUrl } from "@/utils/config";
 
 // Build-time only (static export): a URL missing from PAGE_LASTMOD means
 // scripts/generate-lastmod.js drifted from this list -- fail the build rather
@@ -24,49 +22,49 @@ function lastmod(urlPath: string): Date {
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: `${BASE_URL}/`,
+      url: sitePageUrl("/"),
       lastModified: lastmod("/"),
       changeFrequency: "monthly",
       priority: 1,
     },
     {
-      url: `${BASE_URL}/about`,
+      url: sitePageUrl("/about"),
       lastModified: lastmod("/about"),
       changeFrequency: "monthly",
       priority: 0.7,
     },
     {
-      url: `${BASE_URL}/get-started`,
+      url: sitePageUrl("/get-started"),
       lastModified: lastmod("/get-started"),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
-      url: `${BASE_URL}/plans`,
+      url: sitePageUrl("/plans"),
       lastModified: lastmod("/plans"),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
-      url: `${BASE_URL}/buy`,
+      url: sitePageUrl("/buy"),
       lastModified: lastmod("/buy"),
       changeFrequency: "monthly",
       priority: 0.6,
     },
     {
-      url: `${BASE_URL}/help`,
+      url: sitePageUrl("/help"),
       lastModified: lastmod("/help"),
       changeFrequency: "monthly",
       priority: 0.5,
     },
     {
-      url: `${BASE_URL}/privacy`,
+      url: sitePageUrl("/privacy"),
       lastModified: lastmod("/privacy"),
       changeFrequency: "yearly",
       priority: 0.3,
     },
     {
-      url: `${BASE_URL}/terms`,
+      url: sitePageUrl("/terms"),
       lastModified: lastmod("/terms"),
       changeFrequency: "yearly",
       priority: 0.3,

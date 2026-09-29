@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { isProViaMsp, missingContactProfileParts, trialDaysLeft } from "@/lib/edition";
 import { PlanCards } from "@/components/plans/PlanCards";
-import { SITE_URL } from "@/utils/config";
+import { sitePageUrl } from "@/utils/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -108,7 +108,7 @@ export function SectionPlan() {
       <p className="mt-3 text-xs text-gray-600">
         Ready to buy? Pro is sold through Microsoft Marketplace and Cleverbridge —{" "}
         <a
-          href={`${SITE_URL}/buy`}
+          href={sitePageUrl("/buy")}
           target="_blank"
           rel="noopener noreferrer"
           className="text-purple-700 hover:underline dark:text-purple-300"

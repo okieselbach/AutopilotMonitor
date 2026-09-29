@@ -2,17 +2,18 @@
 
 > Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments managed through Microsoft Intune. A lightweight, temporary agent streams enrollment events to a web portal, analyze rules flag failure patterns automatically, and a Model Context Protocol (MCP) server lets AI assistants query the data. Created and maintained by Oliver Kieselbach (Microsoft MVP); the hosted service is operated by glueckkanja AG and runs in Azure Germany West Central.
 
-Autopilot Monitor is for IT administrators, helpdesk engineers, and managed service providers who deploy Windows devices with Intune and Autopilot. The Community plan is free and covers the full current feature set; a Pro plan with reliability commitments, priority support, longer retention, and delegated administration across customer tenants is coming.
+Autopilot Monitor is for IT administrators, helpdesk engineers, and managed service providers who deploy Windows devices with Intune and Autopilot. The Community plan is free and stays free: live monitoring, the full rules engine, fleet analytics, and AI integration (MCP) within usage limits. The optional Pro plan adds 365-day instead of 90-day retention, higher usage limits, delegated administration across customer tenants, OOBE bootstrap sessions, reliability commitments, and priority support; it is sold through Microsoft Marketplace and Cleverbridge, and a tenant administrator can try it free for 30 days.
 
 ## Portal
 
 - [Home](https://www.autopilotmonitor.com/): product overview
-- [About](https://www.autopilotmonitor.com/about): what it is, how it works, common questions
-- [Get started](https://www.autopilotmonitor.com/get-started): first steps for a new tenant
-- [Plans](https://www.autopilotmonitor.com/plans): Community vs. Pro
-- [Help](https://www.autopilotmonitor.com/help): support channels
-- [Privacy Policy](https://www.autopilotmonitor.com/privacy)
-- [Terms of Use](https://www.autopilotmonitor.com/terms)
+- [About](https://www.autopilotmonitor.com/about/): what it is, how it works, common questions
+- [Get started](https://www.autopilotmonitor.com/get-started/): first steps for a new tenant
+- [Plans](https://www.autopilotmonitor.com/plans/): Community vs. Pro
+- [Get Pro](https://www.autopilotmonitor.com/buy/): purchase options and the free 30-day trial
+- [Help](https://www.autopilotmonitor.com/help/): support channels
+- [Privacy Policy](https://www.autopilotmonitor.com/privacy/)
+- [Terms of Use](https://www.autopilotmonitor.com/terms/)
 
 ## Documentation
 
