@@ -18,7 +18,7 @@ import AppInsightsInit from "../components/AppInsightsInit";
 import ChunkReloadRecovery from "../components/ChunkReloadRecovery";
 import { HostRoutingGuard } from "../components/HostRoutingGuard";
 import { LegacyPathRedirect } from "../components/LegacyPathRedirect";
-import { API_BASE_URL, DOCS_URL, SITE_URL } from "@/utils/config";
+import { API_BASE_URL, DOCS_URL, SITE_URL, sitePageUrl } from "@/utils/config";
 import { AUTH_HINT_INLINE_SCRIPT } from "@/lib/authHint";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -145,7 +145,7 @@ const jsonLd = {
         name: "Community plan",
         price: "0",
         priceCurrency: "EUR",
-        url: `${SITE_URL}/plans`,
+        url: sitePageUrl("/plans"),
       },
       author: { "@id": PERSON_ID },
       creator: { "@id": PERSON_ID },

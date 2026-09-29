@@ -7,12 +7,12 @@ Autopilot Monitor is for IT administrators, helpdesk engineers, and managed serv
 ## Portal
 
 - [Home](https://www.autopilotmonitor.com/): product overview
-- [About](https://www.autopilotmonitor.com/about): what it is, how it works, common questions
-- [Get started](https://www.autopilotmonitor.com/get-started): first steps for a new tenant
-- [Plans](https://www.autopilotmonitor.com/plans): Community vs. Pro
-- [Help](https://www.autopilotmonitor.com/help): support channels
-- [Privacy Policy](https://www.autopilotmonitor.com/privacy)
-- [Terms of Use](https://www.autopilotmonitor.com/terms)
+- [About](https://www.autopilotmonitor.com/about/): what it is, how it works, common questions
+- [Get started](https://www.autopilotmonitor.com/get-started/): first steps for a new tenant
+- [Plans](https://www.autopilotmonitor.com/plans/): Community vs. Pro
+- [Help](https://www.autopilotmonitor.com/help/): support channels
+- [Privacy Policy](https://www.autopilotmonitor.com/privacy/)
+- [Terms of Use](https://www.autopilotmonitor.com/terms/)
 
 ## Documentation
 

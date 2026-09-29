@@ -29,6 +29,19 @@ export const DOCS_URL = "https://docs.autopilotmonitor.com";
 /** Public marketing/product website (also feeds metadataBase/sitemap/robots). */
 export const SITE_URL = "https://www.autopilotmonitor.com";
 
+/**
+ * Absolute URL of a public page in the /page/ form the site serves: the static
+ * export writes page/index.html (next.config trailingSlash: true) and SWA
+ * 301-redirects /page to /page/. Next applies that form to metadata URLs
+ * (canonical, og:url) itself; every page URL built outside metadata (sitemap,
+ * JSON-LD, absolute links) goes through here, so crawlers get the canonical URL
+ * instead of a redirect. sitePageUrl.guard.test.ts pins the coupling.
+ */
+export function sitePageUrl(path: `/${string}`): string {
+  const slashed = path.endsWith("/") ? path : `${path}/`;
+  return `${SITE_URL}${slashed}`;
+}
+
 /** Customer portal (deep links rendered into generated bootstrap scripts). */
 export const PORTAL_URL = "https://portal.autopilotmonitor.com";
 
