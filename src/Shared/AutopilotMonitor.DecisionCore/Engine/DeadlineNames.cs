@@ -12,7 +12,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
     /// </summary>
     public static class DeadlineNames
     {
-        /// <summary>Post-ESP-exit grace period for Hello resolution. Plan §2.7 (300 s).</summary>
+        /// <summary>
+        /// Post-ESP-exit grace period for Hello resolution. Plan §2.7 (300 s built in; a tenant
+        /// can extend it to 3600 s via <c>HelloWaitTimeoutSeconds</c>).
+        /// </summary>
         public const string HelloSafety = "hello_safety";
 
         /// <summary>Brief settle window after ESP exit before we emit completion.</summary>
@@ -189,6 +192,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// signals ever arriving.
         /// </summary>
         public const string IsCloudPc = "isCloudPc";
+
+        /// <summary>
+        /// On <c>EnrollmentFactsObserved</c>: the tenant's Hello wait in seconds (remote config
+        /// <c>HelloWaitTimeoutSeconds</c>, stamped by the agent — NOT a registry fact). Only
+        /// stamped when it extends the built-in 300 s <see cref="DeadlineNames.HelloSafety"/>
+        /// window; missing → the built-in window.
+        /// </summary>
+        public const string HelloWaitTimeoutSeconds = "helloWaitTimeoutSeconds";
 
         // --- InformationalEvent payload (plan §1.3, single-rail refactor) ------------
         // Mirrors the EnrollmentEvent fields the reducer must reconstruct for the

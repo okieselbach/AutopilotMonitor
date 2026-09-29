@@ -27,6 +27,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         private static readonly TimeSpan s_devicePrepCompletionWindow = TimeSpan.FromMinutes(30);
 
+        private static TimeSpan DevicePrepCompletionWindow(EnrollmentScenarioObservations observations)
+        {
+            var helloWindow = HelloSafetyWindow(observations);
+            return helloWindow > s_devicePrepCompletionWindow ? helloWindow : s_devicePrepCompletionWindow;
+        }
+
         /// <summary>True when <see cref="DeadlineNames.DevicePrepCompletion"/> is armed in <paramref name="state"/>.</summary>
         private static bool HasDevicePrepCompletionDeadline(DecisionState state)
         {
@@ -39,12 +45,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
         /// <summary>
         /// Build the <see cref="DeadlineNames.DevicePrepCompletion"/> backstop deadline.
-        /// Replay-safe via <see cref="EffectiveDeadlineBase"/> (floored at AgentBootUtc).
+        /// Replay-safe via <see cref="EffectiveDeadlineBase"/> (floored at AgentBootUtc). Never
+        /// shorter than the tenant's Hello window (<see cref="HelloSafetyWindow"/>, up to 60 min):
+        /// the tracker's Hello completion timer runs on that budget, and this stays the last net.
         /// </summary>
         internal static ActiveDeadline BuildDevicePrepCompletionDeadline(DecisionState state, DecisionSignal signal) =>
             new ActiveDeadline(
                 name: DeadlineNames.DevicePrepCompletion,
-                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(s_devicePrepCompletionWindow),
+                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(DevicePrepCompletionWindow(state.ScenarioObservations)),
                 firesSignalKind: DecisionSignalKind.DeadlineFired,
                 firesPayload: new Dictionary<string, string>
                 {

@@ -47,7 +47,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         internal const string HResult_UserSkippedHello = "0x801C044F";
 
-        internal const int HelloCompletionTimeoutSeconds = 300;
         internal const int BackfillLookbackMinutes = 5;
 
         private static readonly HashSet<int> TrackedUdrEventIds = new HashSet<int>
@@ -80,6 +79,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
         private readonly int _helloWaitTimeoutSeconds;
+
+        // How long a started Hello wizard may take to reach a terminal event (300/301/362): the
+        // tenant's Hello wait resolved through HelloWaitTimeout (300..3600 s). The engine's
+        // hello_safety window spends the same budget from the ESP exit, so this timer never cuts
+        // a user off inside the wizard before the tenant's budget is used up.
+        private readonly int _helloCompletionTimeoutSeconds;
 
         private EventLogWatcher _udrWatcher;
         private EventLogWatcher _helloForBusinessWatcher;
@@ -128,6 +133,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _helloWaitTimeoutSeconds = helloWaitTimeoutSeconds;
+            _helloCompletionTimeoutSeconds = HelloWaitTimeout.EffectiveSeconds(helloWaitTimeoutSeconds);
         }
 
         // =====================================================================
@@ -1094,7 +1100,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (policyKnownEnabled)
                 {
                     _logger.Info($"Hello wait timeout ({_helloWaitTimeoutSeconds}s) expired but Hello policy is enabled — " +
-                                 $"wizard not yet visible, starting long completion timer ({HelloCompletionTimeoutSeconds}s)");
+                                 $"wizard not yet visible, starting long completion timer ({_helloCompletionTimeoutSeconds}s)");
 
                     _post.Emit(new EnrollmentEvent
                     {
@@ -1105,7 +1111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         Source = "EspAndHelloTracker",
                         Phase = EnrollmentPhase.Unknown,
                         Message = $"Hello wizard did not start within {_helloWaitTimeoutSeconds}s after ESP exit — " +
-                                  $"Hello policy is enabled, waiting up to {HelloCompletionTimeoutSeconds}s for wizard",
+                                  $"Hello policy is enabled, waiting up to {_helloCompletionTimeoutSeconds}s for wizard",
                         Data = new Dictionary<string, object>
                         {
                             { "timeoutSeconds", _helloWaitTimeoutSeconds },
@@ -1205,11 +1211,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (_isHelloCompleted) return;
             if (_helloCompletionTimer != null) return;
 
-            _logger.Info($"Starting Hello completion timer ({HelloCompletionTimeoutSeconds}s) - waiting for terminal Hello event (300/301/362)");
+            _logger.Info($"Starting Hello completion timer ({_helloCompletionTimeoutSeconds}s) - waiting for terminal Hello event (300/301/362)");
             _helloCompletionTimer = new System.Threading.Timer(
                 OnHelloCompletionTimeout,
                 null,
-                TimeSpan.FromSeconds(HelloCompletionTimeoutSeconds),
+                TimeSpan.FromSeconds(_helloCompletionTimeoutSeconds),
                 TimeSpan.FromMilliseconds(-1));
         }
 
@@ -1230,7 +1236,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     return;
                 }
 
-                _logger.Warning($"Hello completion timeout ({HelloCompletionTimeoutSeconds}s) expired after wizard start without terminal event");
+                _logger.Warning($"Hello completion timeout ({_helloCompletionTimeoutSeconds}s) expired after wizard start without terminal event");
                 _isHelloCompleted = true;
                 HelloOutcome = _helloWizardStarted ? "timeout" : "wizard_not_started";
                 StopHelloCompletionTimerLocked();
@@ -1243,10 +1249,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     Severity = EventSeverity.Warning,
                     Source = "EspAndHelloTracker",
                     Phase = EnrollmentPhase.Unknown,
-                    Message = $"Hello wizard started but no terminal event (300/301/362) arrived within {HelloCompletionTimeoutSeconds}s",
+                    Message = $"Hello wizard started but no terminal event (300/301/362) arrived within {_helloCompletionTimeoutSeconds}s",
                     Data = new Dictionary<string, object>
                     {
-                        { "timeoutSeconds", HelloCompletionTimeoutSeconds },
+                        { "timeoutSeconds", _helloCompletionTimeoutSeconds },
                         { "helloWizardStarted", _helloWizardStarted }
                     },
                     ImmediateUpload = true
@@ -1304,6 +1310,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void TriggerWaitTimeoutForTest() => OnHelloWaitTimeout(null);
         internal void TriggerCompletionTimeoutForTest() => OnHelloCompletionTimeout(null);
 
+        internal int CompletionTimeoutSecondsForTest => _helloCompletionTimeoutSeconds;
         internal bool IsWaitTimerActiveForTest { get { lock (_stateLock) { return _helloWaitTimer != null; } } }
         internal bool IsCompletionTimerActiveForTest { get { lock (_stateLock) { return _helloCompletionTimer != null; } } }
         internal bool IsHelloWizardStartedForTest { get { lock (_stateLock) { return _helloWizardStarted; } } }

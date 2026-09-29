@@ -269,7 +269,7 @@
       "maxNdjsonPayloadSizeMB": 5,
       "enablePerformanceCollector": true,
       "performanceCollectorIntervalSeconds": 30,
-      "helloWaitTimeoutSeconds": 30,
+      "helloWaitTimeoutSeconds": 300,
       "maxAuthFailures": null,
       "authFailureTimeoutMinutes": null,
       "agentMaxLifetimeMinutes": null,
@@ -379,7 +379,7 @@
       "desktopDetectorNoCandidateTimeoutMinutes": 10,
       "enableAgentSelfMetrics": true,
       "agentSelfMetricsIntervalSeconds": 60,
-      "helloWaitTimeoutSeconds": 30,
+      "helloWaitTimeoutSeconds": 300,
       "agentMaxLifetimeMinutes": 360,
       "enableDeliveryOptimizationCollector": true,
       "deliveryOptimizationIntervalSeconds": 3,
@@ -5485,7 +5485,7 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Seconds to wait for the Windows Hello wizard after ESP exit. Default: 30 seconds"
+          "doc": "Seconds after the ESP exit the agent waits for Windows Hello (wizard and setup) before recording Hello as timed out. Effective range 300..3600; smaller values act as 300. Default: 300 seconds"
         },
         {
           "name": "agentMaxLifetimeMinutes",
@@ -22023,7 +22023,7 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Seconds to wait for the Windows Hello wizard after ESP exit Default: 30 seconds"
+          "doc": "Seconds after the ESP exit the agent waits for Windows Hello (wizard and setup) before recording Hello as timed out. Effective range 300..3600; smaller values act as 300. Default: 300 seconds"
         },
         {
           "name": "maxAuthFailures",

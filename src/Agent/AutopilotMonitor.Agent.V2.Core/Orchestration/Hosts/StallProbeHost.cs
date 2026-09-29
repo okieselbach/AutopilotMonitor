@@ -58,7 +58,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string[]? sources,
             int sessionStalledAfterProbeIndex,
             int[]? harmlessModernDeploymentEventIds,
-            bool isDevicePreparation = false)
+            bool isDevicePreparation = false,
+            Func<bool>? helloWaitPending = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -74,7 +75,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 sources: sources ?? new[] { "provisioning_registry", "diagnostics_registry", "eventlog", "appworkload_log" },
                 sessionStalledAfterProbeIndex: sessionStalledAfterProbeIndex,
                 harmlessModernDeploymentEventIds: harmlessModernDeploymentEventIds,
-                isDevicePreparation: isDevicePreparation);
+                isDevicePreparation: isDevicePreparation,
+                helloWaitPending: helloWaitPending);
 
             _adapter = new StallProbeCollectorAdapter(_collector, ingress, clock);
             _observableIngress = ingress as SignalIngress;

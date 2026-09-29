@@ -949,7 +949,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 EnrollmentSummaryTimeoutSeconds = entity.GetInt32("EnrollmentSummaryTimeoutSeconds"),
                 EnrollmentSummaryBrandingImageUrl = entity.GetString("EnrollmentSummaryBrandingImageUrl"),
                 EnrollmentSummaryLaunchRetrySeconds = entity.GetInt32("EnrollmentSummaryLaunchRetrySeconds"),
-                HelloWaitTimeoutSeconds = entity.GetInt32("HelloWaitTimeoutSeconds") ?? 30,
+                // Read as the effective value: rows still holding the old 30 s default surface as
+                // the 300 s the agent actually waits, so unrelated saves and backup reverts pass
+                // the 300..3600 validation and the verify round-trip stays drift-free.
+                HelloWaitTimeoutSeconds = HelloWaitTimeout.EffectiveSeconds(
+                    entity.GetInt32("HelloWaitTimeoutSeconds") ?? HelloWaitTimeout.DefaultSeconds),
                 AgentMaxLifetimeMinutes = entity.GetInt32("AgentMaxLifetimeMinutes"),
                 SendTraceEvents = entity.GetBoolean("SendTraceEvents") ?? true,
                 EnableLocalAdminAnalyzer = entity.GetBoolean("EnableLocalAdminAnalyzer"),

@@ -54,6 +54,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly HashSet<int> _harmlessModernDeploymentEventIds;
         private readonly bool _isDevicePreparation;
 
+        // True while the decision engine's hello_safety deadline is armed and not yet due. A
+        // tenant Hello wait runs up to 60 min, exactly the default session_stalled threshold —
+        // but it is a bounded wait that resolves the session either way, not a stall.
+        private readonly Func<bool> _helloWaitPending;
+
         private readonly object _stateLock = new object();
         private readonly HashSet<int> _firedProbeIndices = new HashSet<int>();
         private bool _sessionStalledFired;
@@ -153,9 +158,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string[] sources,
             int sessionStalledAfterProbeIndex,
             int[] harmlessModernDeploymentEventIds = null,
-            bool isDevicePreparation = false)
+            bool isDevicePreparation = false,
+            Func<bool> helloWaitPending = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
+            _helloWaitPending = helloWaitPending;
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -292,9 +299,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // else: non-trace probe without anomaly → silent except for agent log.
 
             // session_stalled is fire-once across the whole session. It fires at the configured
-            // probe index UNLESS activeInstalls is observed (activeInstalls counts as progress).
+            // probe index UNLESS activeInstalls is observed (activeInstalls counts as progress)
+            // or the engine's hello_safety window is still pending (a bounded Hello wait).
             if (probeIndex == _sessionStalledAfterProbeIndex && !hasActiveInstalls)
             {
+                if (IsHelloWaitPending())
+                {
+                    _logger.Info($"StallProbeCollector: session_stalled skipped at probe {probeIndex} — the Hello wait (hello_safety) is still pending");
+                    return;
+                }
+
                 lock (_stateLock)
                 {
                     if (_sessionStalledFired)
@@ -302,6 +316,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     _sessionStalledFired = true;
                 }
                 EmitSessionStalledEvent(result);
+            }
+        }
+
+        private bool IsHelloWaitPending()
+        {
+            if (_helloWaitPending == null)
+                return false;
+            try
+            {
+                return _helloWaitPending();
+            }
+            catch (Exception ex)
+            {
+                // A failing probe must never cost the stall report — treat as not pending.
+                _logger.Warning($"StallProbeCollector: Hello-wait probe threw, treating as not pending: {ex.Message}");
+                return false;
             }
         }
 

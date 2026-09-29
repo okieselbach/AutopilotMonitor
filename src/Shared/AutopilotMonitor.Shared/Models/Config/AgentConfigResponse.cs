@@ -317,10 +317,11 @@ namespace AutopilotMonitor.Shared.Models
         public int AgentSelfMetricsIntervalSeconds { get; set; } = 60;
 
         /// <summary>
-        /// Seconds to wait for the Windows Hello wizard after ESP exit.
-        /// Default: 30 seconds
+        /// Seconds after the ESP exit the agent waits for Windows Hello (wizard and setup) before
+        /// recording Hello as timed out. Effective range 300..3600; smaller values act as 300.
+        /// Default: 300 seconds
         /// </summary>
-        public int HelloWaitTimeoutSeconds { get; set; } = 30;
+        public int HelloWaitTimeoutSeconds { get; set; } = HelloWaitTimeout.DefaultSeconds;
 
         /// <summary>
         /// Maximum agent lifetime in minutes. Safety net to prevent zombie agents.

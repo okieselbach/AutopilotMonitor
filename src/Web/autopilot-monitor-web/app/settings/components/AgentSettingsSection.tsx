@@ -4,6 +4,11 @@ import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import {
+  clampHelloWaitTimeoutSeconds,
+  HELLO_WAIT_TIMEOUT_MAX_SECONDS,
+  HELLO_WAIT_TIMEOUT_MIN_SECONDS,
+} from "../lib/helloWaitTimeout";
 
 interface AgentSettingsSectionProps {
   enablePerformanceCollector: boolean;
@@ -423,22 +428,22 @@ export default function AgentSettingsSection({
               <div className="flex items-center space-x-2">
                 <p className="font-medium text-gray-900">Hello Wait Timeout</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1">Seconds to wait for the Windows Hello wizard after ESP exit</p>
+              <p className="text-sm text-gray-500 mt-1">How long the agent waits after the Enrollment Status Page closes for Windows Hello for Business to finish (wizard and setup). When the time runs out, Hello is recorded as timed out.</p>
               <div className="mt-2">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">Timeout:</span>
                   <input
                     type="number"
-                    min={30}
-                    max={300}
+                    min={HELLO_WAIT_TIMEOUT_MIN_SECONDS}
+                    max={HELLO_WAIT_TIMEOUT_MAX_SECONDS}
                     value={helloWaitTimeoutSeconds}
-                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || 30)}
-                    onBlur={() => setHelloWaitTimeoutSeconds(Math.max(30, Math.min(300, helloWaitTimeoutSeconds)))}
+                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || HELLO_WAIT_TIMEOUT_MIN_SECONDS)}
+                    onBlur={() => setHelloWaitTimeoutSeconds(clampHelloWaitTimeoutSeconds(helloWaitTimeoutSeconds))}
                     className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                   <span className="text-sm text-gray-500">seconds</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 300 seconds (5 minutes)</p>
+                <p className="text-xs text-gray-400 mt-1">Minimum: 300 seconds (5 minutes), Maximum: 3600 seconds (1 hour)</p>
               </div>
             </div>
           </div>

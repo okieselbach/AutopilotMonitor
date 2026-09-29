@@ -4,6 +4,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
+using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
@@ -29,7 +30,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             var sink = new FakeSignalIngressSink();
             var logger = NewLogger(tmp.Path);
 
-            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, logger);
+            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, HelloWaitTimeout.DefaultSeconds, logger);
 
             Assert.Single(sink.Posted);
             var posted = sink.Posted[0];
@@ -47,7 +48,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             var sink = new FakeSignalIngressSink();
             var logger = NewLogger(tmp.Path);
 
-            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, logger);
+            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, HelloWaitTimeout.DefaultSeconds, logger);
 
             var payload = sink.Posted[0].Payload;
             Assert.NotNull(payload);
@@ -73,6 +74,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.True(cloudPc == "true" || cloudPc == "false");
         }
 
+        [Theory]
+        [InlineData(300)] // the default — the payload stays exactly what it was before the key existed
+        [InlineData(30)]  // the old default, below the floor
+        [InlineData(0)]
+        public void Hello_wait_not_extending_the_built_in_window_is_not_stamped(int helloWaitTimeoutSeconds)
+        {
+            using var tmp = new TempDirectory();
+            var sink = new FakeSignalIngressSink();
+
+            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, helloWaitTimeoutSeconds, NewLogger(tmp.Path));
+
+            Assert.DoesNotContain(SignalPayloadKeys.HelloWaitTimeoutSeconds, (IDictionary<string, string>)sink.Posted[0].Payload!);
+        }
+
+        [Theory]
+        [InlineData(1800, "1800")]
+        [InlineData(3600, "3600")]
+        [InlineData(86400, "3600")] // the effective (clamped) value is what the engine should arm
+        public void Extended_hello_wait_is_stamped_as_its_effective_value(int helloWaitTimeoutSeconds, string expected)
+        {
+            using var tmp = new TempDirectory();
+            var sink = new FakeSignalIngressSink();
+
+            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, helloWaitTimeoutSeconds, NewLogger(tmp.Path));
+
+            Assert.Equal(expected, sink.Posted[0].Payload![SignalPayloadKeys.HelloWaitTimeoutSeconds]);
+        }
+
         [Fact]
         public void Swallows_sink_exceptions()
         {
@@ -82,7 +111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             var logger = NewLogger(tmp.Path);
 
             var ex = Record.Exception(() =>
-                AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, logger));
+                AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(sink, HelloWaitTimeout.DefaultSeconds, logger));
 
             Assert.Null(ex);
         }
