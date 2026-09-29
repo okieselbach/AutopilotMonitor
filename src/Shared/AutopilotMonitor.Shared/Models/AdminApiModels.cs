@@ -588,11 +588,13 @@ namespace AutopilotMonitor.Shared.Models
         public string Name { get; set; } = string.Empty;
     }
 
-    /// <summary>Body of PATCH global/tenant-groups/{groupId} — a rename.</summary>
+    /// <summary>Body of PATCH global/tenant-groups/{groupId} — only the fields to change; at least one is required.</summary>
     public class UpdateTenantGroupRequest : IApiRequest
     {
-        /// <summary>New display name.</summary>
+        /// <summary>New display name (Global Admin UI only).</summary>
         public string? Name { get; set; }
+        /// <summary>The name managed customers see for this operator group; an empty string clears it back to "Platform support". Rejected on self-service groups.</summary>
+        public string? CustomerLabel { get; set; }
     }
 
     /// <summary>Body of POST global/tenant-groups/{groupId}/tenants.</summary>

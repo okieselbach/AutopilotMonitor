@@ -584,17 +584,18 @@ public class DelegatedAdminServiceTests
     }
 
     [Fact]
-    public async Task RenameGroup_DoesNotInvalidateCache()
+    public async Task UpdateGroup_DoesNotInvalidateCache()
     {
         var (svc, repo) = Build();
         ReturnsGroups(repo, Assignment(GroupId1));
         GroupTenants(repo, GroupId1, TenantA);
-        repo.Setup(r => r.RenameTenantGroupAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+        repo.Setup(r => r.UpdateTenantGroupAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>())).ReturnsAsync(true);
 
         await svc.GetScopeAsync(Id(Upn));
-        await svc.RenameGroupAsync(GroupId1, "Renamed");
-        await svc.GetScopeAsync(Id(Upn)); // name-only change → scope stays cached
+        await svc.UpdateGroupAsync(GroupId1, "Renamed", "Service Desk");
+        await svc.GetScopeAsync(Id(Upn)); // name/label change → scope stays cached
 
+        repo.Verify(r => r.UpdateTenantGroupAsync(GroupId1, "Renamed", "Service Desk"), Times.Once);
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Once);
     }
 }

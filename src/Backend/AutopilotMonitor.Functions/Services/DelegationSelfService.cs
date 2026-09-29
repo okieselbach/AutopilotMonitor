@@ -48,10 +48,13 @@ public class DelegationSelfService
     public const string SourceSelfService = "self-service";
     public const string SourceOperator = "operator";
     /// <summary>
-    /// The one label a managed tenant sees for every operator-provisioned access (operator-created groups and
-    /// direct grants alike). Operator groups are internal organisation — their names never reach a customer.
+    /// The label a managed tenant sees for operator-provisioned access: direct grants, and operator-created groups
+    /// without a <see cref="TenantGroup.CustomerLabel"/>. Operator groups are internal organisation — their names
+    /// never reach a customer (D-267, D-300).
     /// </summary>
     public const string OperatorLabel = "Platform support";
+    /// <summary>Longest customer label a Global Admin may set on an operator group.</summary>
+    public const int CustomerLabelMaxLength = 80;
     private const string AuditGroupAccess = "DelegatedGroupAccess";
     private const string AuditInvitation = "DelegationInvitation";
     private const string AuditManagedTenant = "DelegationManagedTenant";
@@ -382,11 +385,10 @@ public class DelegationSelfService
                     .Select(r => r.AcceptedAt)
                     .Max();
             }
-            // An owned group carries its managing tenant's name; an operator group is internal and shows
-            // only the neutral label (its assignees stay visible — the customer must know who can read it).
+            // Its assignees stay visible either way — the customer must know who can read it.
             result.Add(owner != null
-                ? new TenantManagerView(group.GroupId, owner, await DomainAsync(owner), group.Name, SourceSelfService, group.Assignees, since, Revocable: true)
-                : new TenantManagerView(group.GroupId, null, null, OperatorLabel, SourceOperator, group.Assignees, null, Revocable: false));
+                ? new TenantManagerView(group.GroupId, owner, await DomainAsync(owner), CustomerNameOf(group), SourceSelfService, group.Assignees, since, Revocable: true)
+                : new TenantManagerView(group.GroupId, null, null, CustomerNameOf(group), SourceOperator, group.Assignees, null, Revocable: false));
         }
 
         var direct = (await _adminRepo.GetDelegatedAssigneesAsync(target))
@@ -400,6 +402,19 @@ public class DelegationSelfService
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The ONE place that decides how a group is named to a managed customer — the "Who can read this tenant"
+    /// view and every audit row written under a member tenant use it. An owned (self-service) group carries its
+    /// managing tenant's name; an operator group shows the customer label a Global Admin set for it, else the
+    /// neutral <see cref="OperatorLabel"/>. The operator group's own name never reaches a customer.
+    /// </summary>
+    public static string CustomerNameOf(TenantGroup group)
+    {
+        if (!string.IsNullOrWhiteSpace(group.OwnerTenantId))
+            return group.Name;
+        return string.IsNullOrWhiteSpace(group.CustomerLabel) ? OperatorLabel : group.CustomerLabel.Trim();
+    }
 
     /// <summary>Decodes the ticket and loads the row. 400 for anything the link itself is wrong about.</summary>
     private async Task<DelegationResult<DelegationInvitation>> LocateAsync(string token)

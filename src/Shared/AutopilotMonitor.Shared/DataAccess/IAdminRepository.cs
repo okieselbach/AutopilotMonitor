@@ -51,8 +51,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Tenant Groups (app-internal tenant bundles for delegated admins / "MSP mode") ---
         /// <summary>Creates a group (meta row) and returns the generated groupId.</summary>
         Task<string> CreateTenantGroupAsync(string name, string createdBy);
-        /// <summary>Renames a group (meta row). Returns false if the group does not exist.</summary>
-        Task<bool> RenameTenantGroupAsync(string groupId, string name);
+        /// <summary>
+        /// Updates a group's meta row: <paramref name="name"/> and <paramref name="customerLabel"/> are each left
+        /// unchanged when null; an empty label clears it. Returns false if the group does not exist.
+        /// </summary>
+        Task<bool> UpdateTenantGroupAsync(string groupId, string? name, string? customerLabel);
         /// <summary>Deletes a group: all rows in its partition (meta + membership) AND every UPN
         /// assignment referencing it (cross-partition RowKey scan of the assignments table).</summary>
         Task<bool> DeleteTenantGroupAsync(string groupId);
@@ -153,6 +156,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         public List<TenantGroupAssignment> Assignees { get; set; } = new();
         /// <summary>The managing tenant that owns this self-service group (<c>msp-{tenantId}</c>); null for operator-created groups.</summary>
         public string? OwnerTenantId { get; set; }
+        /// <summary>Operator-created groups only: the name a managed customer sees for this access instead of the neutral "Platform support"; absent when none is set. The group name itself never reaches a customer.</summary>
+        public string? CustomerLabel { get; set; }
     }
 
     /// <summary>

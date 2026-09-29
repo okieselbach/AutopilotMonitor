@@ -268,9 +268,9 @@ public class DelegatedAdminService
     public Task<string> CreateGroupAsync(string name, string createdBy)
         => _adminRepo.CreateTenantGroupAsync(name, createdBy);
 
-    /// <summary>Renames a group (name only — no scope effect, no invalidation needed).</summary>
-    public Task<bool> RenameGroupAsync(string groupId, string name)
-        => _adminRepo.RenameTenantGroupAsync(NormalizeGroupId(groupId), name);
+    /// <summary>Renames a group and/or sets its customer label (null = unchanged) — no scope effect, no invalidation needed.</summary>
+    public Task<bool> UpdateGroupAsync(string groupId, string? name, string? customerLabel)
+        => _adminRepo.UpdateTenantGroupAsync(NormalizeGroupId(groupId), name, customerLabel);
 
     /// <summary>Creates a tenant-OWNED (self-service) group's meta row if missing — no scope effect (a fresh group has no members).</summary>
     public Task EnsureOwnedGroupAsync(string groupId, string name, string ownerTenantId)
@@ -521,6 +521,9 @@ public class TenantGroupEntity : ITableEntity
 
     /// <summary>Meta row only: the managing tenant that owns this self-service group (see <see cref="Constants.TenantGroupIds"/>); null on operator-created groups.</summary>
     public string? OwnerTenantId { get; set; }
+
+    /// <summary>Meta row only: the name a managed customer sees for an operator-created group (see <see cref="DelegationSelfService.CustomerNameOf"/>); null or empty when none is set.</summary>
+    public string? CustomerLabel { get; set; }
 }
 
 /// <summary>

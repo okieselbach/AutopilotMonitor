@@ -5004,6 +5004,8 @@ export interface TenantGroup {
   assignees: TenantGroupAssignment[];
   /** The managing tenant that owns this self-service group (msp-{tenantId}); null for operator-created groups. */
   ownerTenantId?: string;
+  /** Operator-created groups only: the name a managed customer sees for this access instead of the neutral "Platform support"; absent when none is set. The group name itself never reaches a customer. */
+  customerLabel?: string;
 }
 
 /** One UPN→group assignment. PK=UPN, RK=groupId in storage. */
@@ -5036,7 +5038,7 @@ export interface TenantManagerItem {
   /** The managing tenant that owns the group (self-service); absent for operator-created groups and direct grants. */
   ownerTenantId?: string;
   ownerDomain?: string;
-  /** The owned group's name for a self-service delegation; the neutral operator label ("Platform support") for every operator-provisioned entry — internal group names never reach a customer. */
+  /** The owned group's name for a self-service delegation; for an operator group its customer label, else the neutral "Platform support" (always for direct operator grants) — internal group names never reach a customer. */
   name: string;
   /** self-service | operator */
   source: string;
@@ -5339,10 +5341,12 @@ export interface UpdateTenantAppHomingResponse {
   probe: AppHomingProbeWire;
 }
 
-/** Body of PATCH global/tenant-groups/{groupId} — a rename. */
+/** Body of PATCH global/tenant-groups/{groupId} — only the fields to change; at least one is required. */
 export interface UpdateTenantGroupRequest {
-  /** New display name. */
+  /** New display name (Global Admin UI only). */
   name?: string | null;
+  /** The name managed customers see for this operator group; an empty string clears it back to "Platform support". Rejected on self-service groups. */
+  customerLabel?: string | null;
 }
 
 /** Response of PUT sessions/{sessionId}/annotations/{lane} when both verdict and note were empty and the lane was cleared. */

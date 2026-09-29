@@ -22866,6 +22866,15 @@
           },
           "optional": true,
           "doc": "The managing tenant that owns this self-service group (msp-{tenantId}); null for operator-created groups."
+        },
+        {
+          "name": "customerLabel",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Operator-created groups only: the name a managed customer sees for this access instead of the neutral \"Platform support\"; absent when none is set. The group name itself never reaches a customer."
         }
       ]
     },
@@ -22997,7 +23006,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "The owned group's name for a self-service delegation; the neutral operator label (\"Platform support\") for every operator-provisioned entry — internal group names never reach a customer."
+          "doc": "The owned group's name for a self-service delegation; for an operator group its customer label, else the neutral \"Platform support\" (always for direct operator grants) — internal group names never reach a customer."
         },
         {
           "name": "source",
@@ -24307,7 +24316,7 @@
     },
     "UpdateTenantGroupRequest": {
       "kind": "object",
-      "doc": "Body of PATCH global/tenant-groups/{groupId} — a rename.",
+      "doc": "Body of PATCH global/tenant-groups/{groupId} — only the fields to change; at least one is required.",
       "fields": [
         {
           "name": "name",
@@ -24317,7 +24326,17 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "New display name."
+          "doc": "New display name (Global Admin UI only)."
+        },
+        {
+          "name": "customerLabel",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The name managed customers see for this operator group; an empty string clears it back to \"Platform support\". Rejected on self-service groups."
         }
       ]
     },

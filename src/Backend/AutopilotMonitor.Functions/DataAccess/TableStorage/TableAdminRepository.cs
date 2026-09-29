@@ -498,7 +498,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return groupIds;
         }
 
-        public async Task<bool> RenameTenantGroupAsync(string groupId, string name)
+        public async Task<bool> UpdateTenantGroupAsync(string groupId, string? name, string? customerLabel)
         {
             if (string.IsNullOrWhiteSpace(groupId))
                 return false;
@@ -510,7 +510,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 var entity = result.Value;
                 if (entity == null) return false;
 
-                entity.Name = name?.Trim() ?? string.Empty;
+                if (name != null)
+                    entity.Name = name.Trim();
+                if (customerLabel != null)
+                    entity.CustomerLabel = customerLabel.Trim();
                 await _tenantGroupsTableClient.UpdateEntityAsync(entity, ETag.All);
                 return true;
             }
@@ -1022,6 +1025,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 group.CreatedBy = entity.CreatedBy;
                 group.CreatedAt = entity.CreatedDate ?? default;
                 group.OwnerTenantId = string.IsNullOrEmpty(entity.OwnerTenantId) ? null : entity.OwnerTenantId;
+                group.CustomerLabel = string.IsNullOrEmpty(entity.CustomerLabel) ? null : entity.CustomerLabel;
                 return true;
             }
 

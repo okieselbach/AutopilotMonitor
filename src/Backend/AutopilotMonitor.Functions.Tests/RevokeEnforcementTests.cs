@@ -373,4 +373,106 @@ public class RevokeEnforcementTests
 
         proConferral.Verify(p => p.RecordLossAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
+
+    // --- Customer-visible audit rows name the group as the customer sees it, never internally ---
+
+    [Theory]
+    [InlineData(null, "Platform support")]
+    [InlineData("Contoso Service Desk", "Contoso Service Desk")]
+    public async Task UnassignCore_AuditNamesTheGroupByItsCustomerName(string? label, string expected)
+    {
+        var (fn, repo, audit, _) = BuildGroupFn();
+        repo.Setup(r => r.GetTenantGroupAsync(GroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = GroupId,
+            Name = "Internal MSP customers north",
+            CustomerLabel = label,
+            TenantIds = new List<string> { TenantA },
+            AssigneeCount = 1,
+        });
+        repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(UpnLower))
+            .ReturnsAsync(new List<TenantGroupAssignment> { new() { Upn = UpnLower, GroupId = GroupId } });
+        repo.Setup(r => r.UnassignGroupAsync(UpnLower, GroupId)).ReturnsAsync(true);
+
+        await fn.UnassignCoreAsync(GroupId, Upn, "ga@vendor.example");
+
+        audit.Verify(a => a.LogAuditEntryAsync(
+            TenantA, "DELETE", "DelegatedGroupAccess", UpnLower, "ga@vendor.example",
+            It.Is<Dictionary<string, string>?>(d => d != null && d["Group"] == expected && d["GroupId"] == GroupId)), Times.Once);
+    }
+
+    // --- Group update: name and/or customer label (PATCH only what changes) ---
+
+    [Theory]
+    [InlineData(null, null, "name or customerLabel is required")]
+    [InlineData("  ", null, "name must not be empty")]
+    [InlineData("Renamed", null, null)]
+    [InlineData(null, "", null)] // clears the label
+    [InlineData(null, "Contoso Service Desk", null)]
+    public void ValidateUpdateRequest_Shapes(string? name, string? label, string? expectedError)
+        => Assert.Equal(expectedError,
+            TenantGroupManagementFunction.ValidateUpdateRequest(new UpdateTenantGroupRequest { Name = name, CustomerLabel = label }));
+
+    [Fact]
+    public void ValidateUpdateRequest_LabelLongerThanCap_Rejected_TrimmedLengthCounts()
+    {
+        var atCap = "  " + new string('x', DelegationSelfService.CustomerLabelMaxLength) + "  ";
+        Assert.Null(TenantGroupManagementFunction.ValidateUpdateRequest(new UpdateTenantGroupRequest { CustomerLabel = atCap }));
+
+        var tooLong = new string('x', DelegationSelfService.CustomerLabelMaxLength + 1);
+        Assert.NotNull(TenantGroupManagementFunction.ValidateUpdateRequest(new UpdateTenantGroupRequest { CustomerLabel = tooLong }));
+    }
+
+    [Fact]
+    public async Task UpdateGroupCore_Label_OnOperatorGroup_WritesOnlyTheLabel_NoAudit()
+    {
+        var (fn, repo, audit, _) = BuildGroupFn();
+        repo.Setup(r => r.GetTenantGroupAsync(GroupId)).ReturnsAsync(new TenantGroup { GroupId = GroupId, Name = "MSP Customers" });
+        repo.Setup(r => r.UpdateTenantGroupAsync(GroupId, null, "Contoso Service Desk")).ReturnsAsync(true);
+
+        var outcome = await fn.UpdateGroupCoreAsync(GroupId, new UpdateTenantGroupRequest { CustomerLabel = "Contoso Service Desk" }, "ga@vendor.example");
+
+        Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.Updated, outcome);
+        repo.Verify(r => r.UpdateTenantGroupAsync(GroupId, null, "Contoso Service Desk"), Times.Once);
+        VerifyNoAudit(audit); // naming is not an access change
+    }
+
+    [Fact]
+    public async Task UpdateGroupCore_Label_OnOwnedGroup_Refused_NothingWritten()
+    {
+        var (fn, repo, _, _) = BuildGroupFn();
+        var ownedGroupId = Constants.TenantGroupIds.ForHomeTenant(OwnerTenant);
+        repo.Setup(r => r.GetTenantGroupAsync(ownedGroupId)).ReturnsAsync(new TenantGroup { GroupId = ownedGroupId, Name = "partner.example", OwnerTenantId = OwnerTenant });
+
+        var outcome = await fn.UpdateGroupCoreAsync(ownedGroupId, new UpdateTenantGroupRequest { CustomerLabel = "Anything" }, "ga@vendor.example");
+
+        Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.LabelOnOwnedGroup, outcome);
+        repo.Verify(r => r.UpdateTenantGroupAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateGroupCore_Label_UnknownGroup_NotFound()
+    {
+        var (fn, repo, _, _) = BuildGroupFn(); // default: no group
+
+        var outcome = await fn.UpdateGroupCoreAsync(GroupId, new UpdateTenantGroupRequest { CustomerLabel = "Anything" }, "ga@vendor.example");
+
+        Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.NotFound, outcome);
+        repo.Verify(r => r.UpdateTenantGroupAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateGroupCore_RenameOnly_LeavesTheLabelAlone_MissIsNotFound()
+    {
+        var (fn, repo, _, _) = BuildGroupFn();
+        repo.Setup(r => r.UpdateTenantGroupAsync(GroupId, "Renamed", null)).ReturnsAsync(true);
+
+        Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.Updated,
+            await fn.UpdateGroupCoreAsync(GroupId, new UpdateTenantGroupRequest { Name = "Renamed" }, "ga@vendor.example"));
+        repo.Verify(r => r.UpdateTenantGroupAsync(GroupId, "Renamed", null), Times.Once);
+
+        repo.Setup(r => r.UpdateTenantGroupAsync("tpl-missing", "Renamed", null)).ReturnsAsync(false);
+        Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.NotFound,
+            await fn.UpdateGroupCoreAsync("tpl-missing", new UpdateTenantGroupRequest { Name = "Renamed" }, "ga@vendor.example"));
+    }
 }

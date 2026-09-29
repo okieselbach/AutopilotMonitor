@@ -23,6 +23,9 @@ interface SlotPromptState extends SlotLimitError {
   retry: { key: string; url: string; method: string; body: string | undefined; ok: string };
 }
 
+/** What a managed customer sees for an operator group without a customer label (DelegationSelfService.OperatorLabel). */
+const OPERATOR_LABEL = "Platform support";
+
 const ROLE_LABELS: Record<string, string> = {
   DelegatedReader: "Reader (read-only)",
   DelegatedAdmin: "Admin (read + write)",
@@ -156,6 +159,23 @@ export function SectionTenantGroups() {
       const name = prompt("Rename group:", t.name)?.trim();
       if (!name || name === t.name) return;
       await mutate(`rename:${t.groupId}`, api.tenantGroups.update(t.groupId), "PATCH", jsonBody<UpdateTenantGroupRequest>({ name }), `Renamed to "${name}".`);
+    },
+    [mutate],
+  );
+
+  const handleCustomerLabel = useCallback(
+    async (t: TenantGroup) => {
+      const input = prompt(`Name managed customers see for this group (empty = "${OPERATOR_LABEL}"):`, t.customerLabel ?? "");
+      if (input === null) return;
+      const customerLabel = input.trim();
+      if (customerLabel === (t.customerLabel ?? "")) return;
+      await mutate(
+        `label:${t.groupId}`,
+        api.tenantGroups.update(t.groupId),
+        "PATCH",
+        jsonBody<UpdateTenantGroupRequest>({ customerLabel }),
+        customerLabel ? `Customers now see "${customerLabel}".` : `Customers now see "${OPERATOR_LABEL}".`,
+      );
     },
     [mutate],
   );
@@ -363,6 +383,11 @@ export function SectionTenantGroups() {
                           Owned by {domainOf(t.ownerTenantId) || t.ownerTenantId}
                         </span>
                       )}
+                      {!t.ownerTenantId && (
+                        <p className="text-xs text-gray-500">
+                          Customers see:{" "}<span className="text-gray-700">{t.customerLabel || OPERATOR_LABEL}</span>
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {!t.ownerTenantId && (
@@ -372,6 +397,13 @@ export function SectionTenantGroups() {
                             className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
                           >
                             Rename
+                          </button>
+                          <button
+                            onClick={() => handleCustomerLabel(t)}
+                            disabled={busyKey === `label:${t.groupId}`}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                          >
+                            Customer label
                           </button>
                           <button
                             onClick={() => handleDeleteGroup(t)}
@@ -516,7 +548,8 @@ export function SectionTenantGroups() {
 
         <p className="text-xs text-gray-500">
           Reader is read-only (secrets redacted). Only onboarded tenants appear in the dropdown. Changes take
-          effect on the assignee&rsquo;s next request.
+          effect on the assignee&rsquo;s next request. Customers never see a group&rsquo;s name: they see its customer
+          label, or &ldquo;{OPERATOR_LABEL}&rdquo; when none is set.
         </p>
       </div>
     </div>

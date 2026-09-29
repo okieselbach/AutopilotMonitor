@@ -563,4 +563,62 @@ public class DelegationSelfServiceTests
         Assert.False(group.Revocable);
         Assert.Equal(2, group.Assignees.Count);
     }
+
+    [Fact]
+    public async Task ListManagers_TwoLabelledOperatorGroups_AreDistinguishable_DirectGrantsStayNeutral()
+    {
+        const string serviceGroupId = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+        const string careGroupId = "1a2b3c4d5e6f70819293a4b5c6d7e8f9";
+        var h = Build();
+        h.Repo.Setup(x => x.GetGroupIdsContainingTenantAsync(Customer)).ReturnsAsync(new List<string> { serviceGroupId, careGroupId });
+        h.Repo.Setup(x => x.GetTenantGroupAsync(serviceGroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = serviceGroupId, Name = "Internal managed service tenants", CustomerLabel = "Contoso Managed Service Team",
+            TenantIds = new List<string> { Customer },
+        });
+        h.Repo.Setup(x => x.GetTenantGroupAsync(careGroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = careGroupId, Name = "Internal care unit", CustomerLabel = "  Contoso Customer Care Unit  ",
+            TenantIds = new List<string> { Customer },
+        });
+        h.Repo.Setup(x => x.GetDelegatedAssigneesAsync(Customer)).ReturnsAsync(new List<DelegatedAdminEntry>
+        {
+            new() { Upn = "ops@vendor.example", TenantId = Customer, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true, Status = Constants.DelegatedStatus.Active, GrantedAt = Now.AddDays(-10) },
+        });
+
+        var managers = await h.Svc.ListManagersAsync(Customer);
+
+        Assert.Equal("Contoso Managed Service Team", managers.Single(m => m.GroupId == serviceGroupId).Name);
+        Assert.Equal("Contoso Customer Care Unit", managers.Single(m => m.GroupId == careGroupId).Name);
+        Assert.All(managers.Where(m => m.GroupId != null), m =>
+        {
+            Assert.Equal(DelegationSelfService.SourceOperator, m.Source);
+            Assert.False(m.Revocable);
+            Assert.DoesNotContain("Internal", m.Name, StringComparison.Ordinal);
+        });
+        // A direct grant has no group, hence no label — it keeps the neutral name.
+        Assert.Equal(DelegationSelfService.OperatorLabel, managers.Single(m => m.GroupId == null).Name);
+    }
+
+    // ── Customer-facing group name ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null, "Platform support")]
+    [InlineData("", "Platform support")]
+    [InlineData("   ", "Platform support")]
+    [InlineData(" Contoso Service Desk ", "Contoso Service Desk")]
+    public void CustomerNameOf_OperatorGroup_LabelElseNeutral_NeverTheInternalName(string? label, string expected)
+    {
+        var group = new TenantGroup { GroupId = "0f1e2d3c4b5a69788796a5b4c3d2e1f0", Name = "Internal name", CustomerLabel = label };
+
+        Assert.Equal(expected, DelegationSelfService.CustomerNameOf(group));
+    }
+
+    [Fact]
+    public void CustomerNameOf_OwnedGroup_IsItsName_LabelIgnored()
+    {
+        var group = new TenantGroup { GroupId = GroupId, Name = "partner.example", OwnerTenantId = Home, CustomerLabel = "Ignored" };
+
+        Assert.Equal("partner.example", DelegationSelfService.CustomerNameOf(group));
+    }
 }

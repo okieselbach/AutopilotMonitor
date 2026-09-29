@@ -23,8 +23,9 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// repository directly) so the delegated-scope cache is invalidated in lockstep.
 ///
 /// Audit: access-affecting mutations are logged under the <b>affected managed tenant(s)</b>' trail (so the
-/// customer sees "who can read my tenant" / "access removed"). Group create/rename carry no tenant context
-/// and are not customer-visible access changes — they are logged operationally only (no AuditLogs partition).
+/// customer sees "who can read my tenant" / "access removed"); the group appears there under its customer-facing
+/// name (<see cref="DelegationSelfService.CustomerNameOf"/>), never its internal name. Group create/rename/label
+/// carry no access change — they are logged operationally only (no AuditLogs partition).
 /// </summary>
 public class TenantGroupManagementFunction
 {
@@ -100,8 +101,11 @@ public class TenantGroupManagementFunction
     }
 
     /// <summary>
-    /// PATCH /api/global/tenant-groups/{groupId} — rename a group. GlobalAdminOnly.
-    /// Body: { "name": "..." }. A rename has no scope effect.
+    /// PATCH /api/global/tenant-groups/{groupId} — rename a group and/or set the customer label of an operator
+    /// group. GlobalAdminOnly. Body: { "name"?: "...", "customerLabel"?: "..." } (only the fields to change;
+    /// an empty label clears it). Neither has a scope effect; the label only changes how the access is named to
+    /// the member tenants (<see cref="DelegationSelfService.CustomerNameOf"/>), so it is logged operationally
+    /// like a rename, not audited as an access change.
     /// </summary>
     [Function("UpdateTenantGroup")]
     [Authorize]
@@ -114,14 +118,55 @@ public class TenantGroupManagementFunction
         var read = await req.ReadAsync<UpdateTenantGroupRequest>();
         if (read.Error != null) return read.Error;
         var body = read.Value!;
-        if (string.IsNullOrWhiteSpace(body.Name))
-            return await Bad(req, "name is required");
+        var validationError = ValidateUpdateRequest(body);
+        if (validationError != null)
+            return await Bad(req, validationError);
 
-        if (!await _delegatedAdminService.RenameGroupAsync(groupId, body.Name))
-            return await NotFound(req);
-        _logger.LogInformation("Tenant group renamed: {GroupId} -> '{Name}' by {By}", groupId, body.Name, currentUpn);
+        return await UpdateGroupCoreAsync(groupId, body, currentUpn) switch
+        {
+            GroupUpdateOutcome.NotFound => await NotFound(req),
+            GroupUpdateOutcome.LabelOnOwnedGroup => await req.ConflictAsync(
+                "A self-service group has no customer label: its customers see the managing organization's name."),
+            _ => await req.OkAsync(new MessageResponse { Message = "Group updated" }),
+        };
+    }
 
-        return await req.OkAsync(new MessageResponse { Message = "Group updated" });
+    /// <summary>Outcome of <see cref="UpdateGroupCoreAsync"/>.</summary>
+    internal enum GroupUpdateOutcome { Updated, NotFound, LabelOnOwnedGroup }
+
+    /// <summary>Shape check of a PATCH body (400 message, or null when valid): at least one field, no blank name, a bounded label.</summary>
+    internal static string? ValidateUpdateRequest(UpdateTenantGroupRequest body)
+    {
+        if (body.Name == null && body.CustomerLabel == null)
+            return "name or customerLabel is required";
+        if (body.Name != null && string.IsNullOrWhiteSpace(body.Name))
+            return "name must not be empty";
+        if (body.CustomerLabel != null && body.CustomerLabel.Trim().Length > DelegationSelfService.CustomerLabelMaxLength)
+            return $"customerLabel must be at most {DelegationSelfService.CustomerLabelMaxLength} characters";
+        return null;
+    }
+
+    /// <summary>
+    /// Testable core of the group update (body already validated). A customer label is refused on an OWNED
+    /// (self-service) group — its customers see the managing tenant's name, so a label there would be dead data.
+    /// </summary>
+    internal async Task<GroupUpdateOutcome> UpdateGroupCoreAsync(string groupId, UpdateTenantGroupRequest body, string? currentUpn)
+    {
+        if (body.CustomerLabel != null)
+        {
+            var group = await _delegatedAdminService.GetGroupAsync(groupId);
+            if (group == null)
+                return GroupUpdateOutcome.NotFound;
+            if (!string.IsNullOrWhiteSpace(group.OwnerTenantId))
+                return GroupUpdateOutcome.LabelOnOwnedGroup;
+        }
+
+        if (!await _delegatedAdminService.UpdateGroupAsync(groupId, body.Name, body.CustomerLabel))
+            return GroupUpdateOutcome.NotFound;
+
+        _logger.LogInformation("Tenant group updated: {GroupId} name='{Name}' customerLabel='{CustomerLabel}' by {By}",
+            groupId, body.Name, body.CustomerLabel, currentUpn);
+        return GroupUpdateOutcome.Updated;
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId} — delete group + all its assignments. GlobalAdminOnly.</summary>
@@ -173,7 +218,7 @@ public class TenantGroupManagementFunction
             await AuditPerTenantAsync(group.TenantIds, "DELETE", "*", currentUpn,
                 new Dictionary<string, string>
                 {
-                    { "Group", group.Name },
+                    { "Group", DelegationSelfService.CustomerNameOf(group) },
                     { "GroupId", groupId },
                     { "Reason", "group-deleted" },
                     { "AssigneeCount", group.AssigneeCount.ToString() },
@@ -335,7 +380,7 @@ public class TenantGroupManagementFunction
         await AuditPerTenantAsync(group.TenantIds, "CREATE", upn, currentUpn,
             new Dictionary<string, string>
             {
-                { "Group", group.Name },
+                { "Group", DelegationSelfService.CustomerNameOf(group) },
                 { "GroupId", groupId },
                 { "Role", role },
                 { "Reason", "group-assigned" },
@@ -384,7 +429,7 @@ public class TenantGroupManagementFunction
             await AuditPerTenantAsync(group.TenantIds, "DELETE", normalizedUpn, currentUpn,
                 new Dictionary<string, string>
                 {
-                    { "Group", group.Name },
+                    { "Group", DelegationSelfService.CustomerNameOf(group) },
                     { "GroupId", groupId },
                     { "Reason", "group-unassigned" },
                 });
