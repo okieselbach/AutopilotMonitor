@@ -114,6 +114,15 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </summary>
         public SignalFact<bool>? CloudPc { get; init; }
 
+        /// <summary>
+        /// Tenant-config fact from <see cref="Signals.DecisionSignalKind.EnrollmentFactsObserved"/>
+        /// (payload <c>helloWaitTimeoutSeconds</c>, stamped by the agent from
+        /// <c>RemoteConfig.HelloWaitTimeoutSeconds</c> only when it exceeds the built-in 300 s):
+        /// the <c>hello_safety</c> window the engine arms instead of the built-in one.
+        /// <c>null</c> = built-in window. Set-once.
+        /// </summary>
+        public SignalFact<int>? HelloWaitTimeoutSeconds { get; init; }
+
         public EnrollmentScenarioObservations WithShellCoreWhiteGloveSuccessSeen(long sourceSignalOrdinal) =>
             ShellCoreWhiteGloveSuccessSeen != null
                 ? this
@@ -168,5 +177,10 @@ namespace AutopilotMonitor.DecisionCore.State
             CloudPc != null
                 ? this
                 : this with { CloudPc = new SignalFact<bool>(value, sourceSignalOrdinal) };
+
+        public EnrollmentScenarioObservations WithHelloWaitTimeoutSeconds(int value, long sourceSignalOrdinal) =>
+            HelloWaitTimeoutSeconds != null
+                ? this
+                : this with { HelloWaitTimeoutSeconds = new SignalFact<int>(value, sourceSignalOrdinal) };
     }
 }

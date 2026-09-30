@@ -314,7 +314,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// <see cref="DecisionSignalKind.EnrollmentFactsObserved"/> signal carrying the
         /// registry-derived enrollment facts (<c>enrollmentType</c> + <c>isHybridJoin</c>)
         /// so the reducer can seed <see cref="State.EnrollmentScenarioProfile"/> via the
-        /// stage-agnostic <c>HandleEnrollmentFactsObservedV1</c> handler.
+        /// stage-agnostic <c>HandleEnrollmentFactsObservedV1</c> handler — plus the tenant's
+        /// Hello wait when it extends the engine's built-in hello_safety window.
         /// <para>
         /// Posted immediately before <see cref="PostSessionStarted"/> so the Inspector
         /// timeline reads naturally (facts → anchor) — but the reducer correctness does
@@ -329,6 +330,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// </summary>
         public static void PostEnrollmentFactsObserved(
             ISignalIngressSink ingressSink,
+            int helloWaitTimeoutSeconds,
             AgentLogger logger)
         {
             try
@@ -352,6 +354,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     ["isCloudPc"] = isCloudPc ? "true" : "false",
                 };
 
+                // Tenant Hello wait (remote config, not a registry fact) — stamped only when it
+                // widens the engine's built-in hello_safety window, so sessions on the default
+                // post the same payload as before.
+                var helloWaitSeconds = HelloWaitTimeout.EffectiveSeconds(helloWaitTimeoutSeconds);
+                if (helloWaitSeconds > HelloWaitTimeout.BuiltInSeconds)
+                {
+                    payload[SignalPayloadKeys.HelloWaitTimeoutSeconds] =
+                        helloWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+
                 var evidence = new Evidence(
                     kind: EvidenceKind.Synthetic,
                     identifier: "enrollment_registry_facts_read",
@@ -364,7 +376,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     evidence: evidence,
                     payload: payload);
 
-                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}, isSelfDeployingProfile={isSelfDeploying}, isCloudPc={isCloudPc}).");
+                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}, isSelfDeployingProfile={isSelfDeploying}, isCloudPc={isCloudPc}, helloWaitSeconds={helloWaitSeconds}).");
             }
             catch (Exception ex)
             {

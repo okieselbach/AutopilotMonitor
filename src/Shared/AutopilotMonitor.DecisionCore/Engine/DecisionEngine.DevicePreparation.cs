@@ -20,12 +20,19 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>
         /// Resolution window from real-user desktop arrival on a Device Preparation session.
         /// Deliberately the same order of magnitude as <c>AdvisoryCompletion</c> (30 min),
-        /// not <c>HelloSafety</c> (300 s): the user may legitimately still be walking
-        /// through a configured Hello wizard, and the tracker's own Hello completion
-        /// timers normally resolve long before this fires — it is the last net, not the
-        /// expected path.
+        /// not the built-in <c>HelloSafety</c> window (300 s): the user may legitimately still
+        /// be walking through a configured Hello wizard, and with the built-in budget the
+        /// tracker's own Hello completion timer normally resolves long before this fires — it
+        /// is the last net, not the expected path. A tenant-extended Hello wait lengthens it
+        /// (see <see cref="BuildDevicePrepCompletionDeadline"/>).
         /// </summary>
         private static readonly TimeSpan s_devicePrepCompletionWindow = TimeSpan.FromMinutes(30);
+
+        private static TimeSpan DevicePrepCompletionWindow(EnrollmentScenarioObservations observations)
+        {
+            var helloWindow = HelloSafetyWindow(observations);
+            return helloWindow > s_devicePrepCompletionWindow ? helloWindow : s_devicePrepCompletionWindow;
+        }
 
         /// <summary>True when <see cref="DeadlineNames.DevicePrepCompletion"/> is armed in <paramref name="state"/>.</summary>
         private static bool HasDevicePrepCompletionDeadline(DecisionState state)
@@ -39,12 +46,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
         /// <summary>
         /// Build the <see cref="DeadlineNames.DevicePrepCompletion"/> backstop deadline.
-        /// Replay-safe via <see cref="EffectiveDeadlineBase"/> (floored at AgentBootUtc).
+        /// Replay-safe via <see cref="EffectiveDeadlineBase"/> (floored at AgentBootUtc). Never
+        /// shorter than the tenant's Hello window (<see cref="HelloSafetyWindow"/>, up to 60 min),
+        /// so a tenant that allows Hello an hour gets that hour on WDP too. With a window of 30 min
+        /// or more it may resolve before the tracker's timer (it counts from the desktop, the
+        /// tracker from the wizard start). A tenant window that arrives after the backstop was
+        /// armed (agent update mid-session) does not move it.
         /// </summary>
         internal static ActiveDeadline BuildDevicePrepCompletionDeadline(DecisionState state, DecisionSignal signal) =>
             new ActiveDeadline(
                 name: DeadlineNames.DevicePrepCompletion,
-                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(s_devicePrepCompletionWindow),
+                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(DevicePrepCompletionWindow(state.ScenarioObservations)),
                 firesSignalKind: DecisionSignalKind.DeadlineFired,
                 firesPayload: new Dictionary<string, string>
                 {

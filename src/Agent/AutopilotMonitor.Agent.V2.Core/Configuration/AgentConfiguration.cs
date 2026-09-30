@@ -157,12 +157,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public double ReplaySpeedFactor { get; set; } = 50;
 
         /// <summary>
-        /// Wait time in seconds after ESP exit before marking Hello as skipped.
-        /// When ESP exits, we wait this duration for Hello wizard to start (event 62404).
-        /// Default: 30 seconds (reasonable for systems under load).
-        /// If Hello wizard starts within this window, we continue waiting for Hello completion (300/301).
+        /// Tenant Hello wait in seconds after the ESP exit, merged from RemoteConfig. Stamped on
+        /// <c>EnrollmentFactsObserved</c> for the decision engine's hello_safety window; the Hello
+        /// tracker gets the same remote value through the collector configuration. Both resolve it
+        /// through <see cref="HelloWaitTimeout.EffectiveSeconds"/> (at least the built-in 300 s,
+        /// at most 3600 s). Default: 300 seconds.
         /// </summary>
-        public int HelloWaitTimeoutSeconds { get; set; } = 30;
+        public int HelloWaitTimeoutSeconds { get; set; } = HelloWaitTimeout.DefaultSeconds;
 
         /// <summary>
         /// Maximum consecutive authentication failures (401/403) before the agent shuts down.

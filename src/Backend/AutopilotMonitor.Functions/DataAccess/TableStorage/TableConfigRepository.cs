@@ -949,7 +949,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 EnrollmentSummaryTimeoutSeconds = entity.GetInt32("EnrollmentSummaryTimeoutSeconds"),
                 EnrollmentSummaryBrandingImageUrl = entity.GetString("EnrollmentSummaryBrandingImageUrl"),
                 EnrollmentSummaryLaunchRetrySeconds = entity.GetInt32("EnrollmentSummaryLaunchRetrySeconds"),
-                HelloWaitTimeoutSeconds = entity.GetInt32("HelloWaitTimeoutSeconds") ?? 30,
+                HelloWaitTimeoutSeconds = entity.GetInt32("HelloWaitTimeoutSeconds") ?? HelloWaitTimeout.DefaultSeconds,
                 AgentMaxLifetimeMinutes = entity.GetInt32("AgentMaxLifetimeMinutes"),
                 SendTraceEvents = entity.GetBoolean("SendTraceEvents") ?? true,
                 EnableLocalAdminAnalyzer = entity.GetBoolean("EnableLocalAdminAnalyzer"),

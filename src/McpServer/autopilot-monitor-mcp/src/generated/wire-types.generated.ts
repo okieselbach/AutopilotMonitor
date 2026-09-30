@@ -1043,7 +1043,7 @@ export interface CollectorConfiguration {
   enableAgentSelfMetrics: boolean;
   /** Interval in seconds for agent self-metrics snapshots. Default: 60 seconds */
   agentSelfMetricsIntervalSeconds: number;
-  /** Seconds to wait for the Windows Hello wizard after ESP exit. Default: 30 seconds */
+  /** Seconds to wait for the Windows Hello wizard after ESP exit (range 30..3600). Values up to 300 keep the built-in 300 s Hello window; larger values extend it. Default: 300 seconds */
   helloWaitTimeoutSeconds: number;
   /** Maximum agent lifetime in minutes. Safety net to prevent zombie agents. 0 = disabled (no lifetime limit). Default: 360 (6 hours). */
   agentMaxLifetimeMinutes: number;
@@ -4810,7 +4810,7 @@ export interface TenantConfiguration {
   enablePerformanceCollector: boolean;
   /** Performance collector interval in seconds Default: 30 seconds */
   performanceCollectorIntervalSeconds: number;
-  /** Seconds to wait for the Windows Hello wizard after ESP exit Default: 30 seconds */
+  /** Seconds to wait for the Windows Hello wizard after ESP exit (range 30..3600). Values up to 300 keep the built-in 300 s Hello window; larger values extend it. Default: 300 seconds */
   helloWaitTimeoutSeconds: number;
   /** Maximum consecutive authentication failures (401/403) before the agent shuts down. null = use default (5). 0 = disabled (retry forever). */
   maxAuthFailures?: number | null;

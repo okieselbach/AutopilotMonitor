@@ -177,6 +177,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 seen.Add("cloud_pc_marker");
                 evidence["cloudPcMarker"] = OrdinalEvidence(obs.CloudPc.SourceSignalOrdinal);
             }
+            // Tenant-extended Hello window — surfaced so a terminal audit trail explains a Hello
+            // timeout (or AwaitingHello dwell) longer than the built-in 5 minutes.
+            if (obs.HelloWaitTimeoutSeconds != null)
+            {
+                seen.Add("hello_wait_extended");
+                evidence["helloWaitExtended"] = new Dictionary<string, object>(capacity: 2, StringComparer.Ordinal)
+                {
+                    ["ordinal"] = obs.HelloWaitTimeoutSeconds.SourceSignalOrdinal,
+                    ["seconds"] = obs.HelloWaitTimeoutSeconds.Value,
+                };
+            }
 
             return new SignalCensusResult(seen, timestamps, evidence);
         }

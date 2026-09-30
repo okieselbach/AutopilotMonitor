@@ -770,15 +770,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 && state.HelloPolicyEnabled?.Value == false
                 && state.HelloWizardStartedUtc != null)
             {
-                var wizardHelloSafetyDueAt = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-                var wizardHelloSafety = new ActiveDeadline(
-                    name: DeadlineNames.HelloSafety,
-                    dueAtUtc: wizardHelloSafetyDueAt,
-                    firesSignalKind: DecisionSignalKind.DeadlineFired,
-                    firesPayload: new Dictionary<string, string>
-                    {
-                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                    });
+                var wizardHelloSafety = BuildHelloSafetyDeadline(state, signal);
 
                 builder = builder
                     .WithStage(SessionStage.AwaitingHello)
@@ -886,15 +878,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 && state.HelloPolicyEnabled == null
                 && state.HelloWizardStartedUtc == null)
             {
-                var neverObservedSafetyDueAt = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-                var neverObservedSafety = new ActiveDeadline(
-                    name: DeadlineNames.HelloSafety,
-                    dueAtUtc: neverObservedSafetyDueAt,
-                    firesSignalKind: DecisionSignalKind.DeadlineFired,
-                    firesPayload: new Dictionary<string, string>
-                    {
-                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                    });
+                var neverObservedSafety = BuildHelloSafetyDeadline(state, signal);
 
                 builder = builder
                     .WithStage(SessionStage.AwaitingHello)

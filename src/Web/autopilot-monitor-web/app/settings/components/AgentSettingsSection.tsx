@@ -4,6 +4,12 @@ import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import {
+  clampHelloWaitTimeoutSeconds,
+  HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS,
+  HELLO_WAIT_TIMEOUT_MAX_SECONDS,
+  HELLO_WAIT_TIMEOUT_MIN_SECONDS,
+} from "../lib/helloWaitTimeout";
 
 interface AgentSettingsSectionProps {
   enablePerformanceCollector: boolean;
@@ -429,16 +435,16 @@ export default function AgentSettingsSection({
                   <span className="text-sm text-gray-600">Timeout:</span>
                   <input
                     type="number"
-                    min={30}
-                    max={300}
+                    min={HELLO_WAIT_TIMEOUT_MIN_SECONDS}
+                    max={HELLO_WAIT_TIMEOUT_MAX_SECONDS}
                     value={helloWaitTimeoutSeconds}
-                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || 30)}
-                    onBlur={() => setHelloWaitTimeoutSeconds(Math.max(30, Math.min(300, helloWaitTimeoutSeconds)))}
+                    onChange={(e) => setHelloWaitTimeoutSeconds(parseInt(e.target.value) || HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS)}
+                    onBlur={() => setHelloWaitTimeoutSeconds(clampHelloWaitTimeoutSeconds(helloWaitTimeoutSeconds))}
                     className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                   <span className="text-sm text-gray-500">seconds</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 300 seconds (5 minutes)</p>
+                <p className="text-xs text-gray-400 mt-1">Minimum: 30 seconds, Maximum: 3600 seconds (1 hour). Values up to 300 seconds use the built-in 5-minute wait.</p>
               </div>
             </div>
           </div>

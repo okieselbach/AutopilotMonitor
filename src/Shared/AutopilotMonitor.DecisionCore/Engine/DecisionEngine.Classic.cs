@@ -10,9 +10,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
     // Classic UserDriven-v1 enrollment handlers. Plan §2.5 partial-class layout.
     public sealed partial class DecisionEngine
     {
-        // Post-ESP Hello-safety grace period per plan §2.7.
-        private static readonly TimeSpan s_helloSafetyWindow = TimeSpan.FromSeconds(300);
-
         // Grace window between both-prerequisites-resolved and Completed. Plan §5 Fix 6.
         // Short enough that the user doesn't notice; long enough for the reducer's
         // phase_transition(FinalizingSetup) + enrollment_complete effects to reach the
@@ -267,18 +264,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                         : null);
             }
 
-            // Replay-safety: floor the 300-s Hello-safety window at AgentBootUtc so a replayed
-            // EspExiting signal from CMTrace doesn't fire HelloSafety immediately at boot
-            // (which would mark Hello as Timeout the moment the agent reads the log tail).
-            var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-            var helloSafety = new ActiveDeadline(
-                name: DeadlineNames.HelloSafety,
-                dueAtUtc: dueAtUtc,
-                firesSignalKind: DecisionSignalKind.DeadlineFired,
-                firesPayload: new Dictionary<string, string>
-                {
-                    [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                });
+            var helloSafety = BuildHelloSafetyDeadline(state, signal);
 
             builder = builder
                 .WithStage(SessionStage.AwaitingHello)
@@ -377,6 +363,89 @@ namespace AutopilotMonitor.DecisionCore.Engine
         }
 
         /// <summary>
+        /// Post-ESP Hello-safety window (plan §2.7): the built-in 300 s, or the tenant's longer
+        /// <c>HelloWaitTimeoutSeconds</c> once the agent stamped it
+        /// (<see cref="EnrollmentScenarioObservations.HelloWaitTimeoutSeconds"/>), clamped to
+        /// <see cref="HelloWaitTimeout.MaxSeconds"/>.
+        /// </summary>
+        internal static TimeSpan HelloSafetyWindow(EnrollmentScenarioObservations observations) =>
+            TimeSpan.FromSeconds(HelloWaitTimeout.EffectiveSeconds(
+                observations.HelloWaitTimeoutSeconds?.Value ?? HelloWaitTimeout.BuiltInSeconds));
+
+        /// <summary>
+        /// The <see cref="DeadlineNames.HelloSafety"/> deadline every arm site schedules:
+        /// <see cref="HelloSafetyWindow"/> after the signal, floored at the agent boot
+        /// (<see cref="EffectiveDeadlineBase"/>) so a replayed EspExiting from CMTrace doesn't
+        /// fire HelloSafety immediately at boot (which would mark Hello as Timeout the moment
+        /// the agent reads the log tail).
+        /// </summary>
+        private static ActiveDeadline BuildHelloSafetyDeadline(DecisionState state, DecisionSignal signal) =>
+            new ActiveDeadline(
+                name: DeadlineNames.HelloSafety,
+                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(HelloSafetyWindow(state.ScenarioObservations)),
+                firesSignalKind: DecisionSignalKind.DeadlineFired,
+                firesPayload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
+                });
+
+        /// <summary>
+        /// The tenant window arrived after <see cref="DeadlineNames.HelloSafety"/> was armed —
+        /// necessarily with the built-in window, the fact being set-once. Moves the armed
+        /// deadline out by the difference so the tenant's window counts from the original
+        /// anchor, and returns the re-schedule effect (the live scheduler replaces a timer of
+        /// the same name). <c>null</c> when nothing changes: the fact was already known, the
+        /// window is not longer, no deadline is armed, or it had expired at this signal —
+        /// then its pending fire decides.
+        /// </summary>
+        private static DecisionEffect? ExtendArmedHelloSafetyToTenantWindow(
+            DecisionState before, DecisionStateBuilder builder, DecisionSignal signal)
+        {
+            if (before.ScenarioObservations.HelloWaitTimeoutSeconds != null)
+                return null;
+
+            var extension = HelloSafetyWindow(builder.ScenarioObservations) - HelloSafetyWindow(before.ScenarioObservations);
+            if (extension <= TimeSpan.Zero)
+                return null;
+
+            foreach (var armed in before.Deadlines)
+            {
+                if (armed.Name != DeadlineNames.HelloSafety)
+                    continue;
+                if (armed.DueAtUtc <= signal.OccurredAtUtc)
+                    return null;
+
+                var extended = new ActiveDeadline(
+                    armed.Name, armed.DueAtUtc.Add(extension), armed.FiresSignalKind, armed.FiresPayload);
+                builder.AddDeadline(extended);
+                return new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: extended);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// <c>true</c> while a tenant-extended Hello wait is running: the tenant window is
+        /// recorded and a Hello resolution deadline (<see cref="DeadlineNames.HelloSafety"/>, or
+        /// the Device Preparation backstop that stands in for it) is armed and not yet due at
+        /// <paramref name="nowUtc"/>. The session is then waiting on a bounded window (up to
+        /// <see cref="HelloWaitTimeout.MaxSeconds"/>) that resolves it either way — not stalled.
+        /// Always <c>false</c> on the built-in window, so default tenants keep their stall
+        /// reporting unchanged. Read by the agent's stall probe.
+        /// </summary>
+        public static bool IsTenantHelloWaitPending(DecisionState? state, DateTime nowUtc)
+        {
+            if (state?.ScenarioObservations.HelloWaitTimeoutSeconds == null)
+                return false;
+            foreach (var d in state.Deadlines)
+            {
+                if ((d.Name == DeadlineNames.HelloSafety || d.Name == DeadlineNames.DevicePrepCompletion)
+                    && d.DueAtUtc > nowUtc)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Session 8b8d611d fix (2026-05-20): emit a <see cref="DecisionEffectKind.CancelDeadline"/>
         /// effect for <see cref="DeadlineNames.HelloSafety"/> when it is actually armed in
         /// <paramref name="state"/>. Returns <c>null</c> when the deadline is not present —
@@ -469,15 +538,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     builder.CancelDeadline(DeadlineNames.FinalizingGrace);
                 }
 
-                var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-                var helloSafety = new ActiveDeadline(
-                    name: DeadlineNames.HelloSafety,
-                    dueAtUtc: dueAtUtc,
-                    firesSignalKind: DecisionSignalKind.DeadlineFired,
-                    firesPayload: new Dictionary<string, string>
-                    {
-                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                    });
+                var helloSafety = BuildHelloSafetyDeadline(state, signal);
                 builder = builder
                     .WithStage(SessionStage.AwaitingHello)
                     .AddDeadline(helloSafety);
@@ -524,7 +585,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// finished AccountSetup) OR <see cref="EnrollmentScenarioObservations.SkipUserEsp"/>
         /// is <c>true</c> (no User-ESP page on this flow) — synthesise
         /// <c>HelloOutcome="Skipped"</c> here and route directly through Finalizing.
-        /// This avoids waiting out the full 5-min HelloSafety window when the policy reader
+        /// This avoids waiting out the full HelloSafety window when the policy reader
         /// already told us no Hello wizard is expected. Belt-and-suspenders alongside the
         /// EspExiting → HelloSafety reducer path: the path that fires first wins.
         /// </para>
@@ -842,15 +903,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 // AgentBootUtc for replay safety) — mirror of the deferred-promote tail in
                 // HandleAccountSetupProvisioningCompleteV1. A real HelloResolved then completes
                 // normally; a no-show resolves via HelloSafety's synthetic outcome.
-                var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-                var helloSafety = new ActiveDeadline(
-                    name: DeadlineNames.HelloSafety,
-                    dueAtUtc: dueAtUtc,
-                    firesSignalKind: DecisionSignalKind.DeadlineFired,
-                    firesPayload: new Dictionary<string, string>
-                    {
-                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                    });
+                var helloSafety = BuildHelloSafetyDeadline(state, signal);
 
                 builder = builder
                     .WithStage(SessionStage.AwaitingHello)

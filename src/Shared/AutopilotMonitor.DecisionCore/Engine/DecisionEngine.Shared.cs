@@ -393,6 +393,27 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         private DecisionStep HandleHelloSafetyDeadlineFired(DecisionState state, DecisionSignal signal)
         {
+            // Stale fire of a replaced incarnation (same shape as the RealmJoin guard): the armed
+            // hello_safety is due LATER than the due time this fire belongs to — e.g. the tenant
+            // window arrived and moved the deadline out while the old timer's fire was already
+            // queued. Deciding on it would time Hello out at the replaced, shorter window.
+            foreach (var armed in state.Deadlines)
+            {
+                if (armed.Name == DeadlineNames.HelloSafety && armed.DueAtUtc > DeadlineDueAtUtc(signal))
+                {
+                    var bookkept = BumpStepBookkeeping(state, signal);
+                    return new DecisionStep(
+                        bookkept,
+                        BuildDeadEndTransition(
+                            state: state,
+                            signal: signal,
+                            nextStepIndex: bookkept.StepIndex,
+                            trigger: $"DeadlineFired:{DeadlineNames.HelloSafety}",
+                            deadEndReason: "hello_safety_stale_superseded_by_rearm"),
+                        Array.Empty<DecisionEffect>());
+                }
+            }
+
             var nextStep = state.StepIndex + 1;
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
@@ -523,6 +544,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// the handler delegates the merge logic and only carries out the standard
         /// step bookkeeping + transition.
         /// </para>
+        /// <para>
+        /// The one effect it can emit: a <see cref="DecisionEffectKind.ScheduleDeadline"/> that
+        /// moves an already armed <see cref="DeadlineNames.HelloSafety"/> out to the tenant's
+        /// Hello window when that fact arrives late (see
+        /// <see cref="ExtendArmedHelloSafetyToTenantWindow"/>).
+        /// </para>
         /// </summary>
         private DecisionStep HandleEnrollmentFactsObservedV1(DecisionState state, DecisionSignal signal)
         {
@@ -559,6 +586,22 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     .WithCloudPc(isCloudPc, signal.SessionSignalOrdinal);
             }
 
+            // Tenant Hello wait (remote config, not a registry fact) — widens the hello_safety
+            // window. Set-once, and only a value that actually extends the built-in window counts
+            // (the agent never stamps anything else). This signal is posted right after agent
+            // start, but a backfilled ESP exit can arm hello_safety first; that deadline is moved
+            // out to the tenant window.
+            DecisionEffect? helloSafetyExtendEffect = null;
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.HelloWaitTimeoutSeconds, out var rawHelloWait)
+                && int.TryParse(rawHelloWait, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var helloWaitSeconds)
+                && helloWaitSeconds > HelloWaitTimeout.BuiltInSeconds)
+            {
+                builder.ScenarioObservations = builder.ScenarioObservations
+                    .WithHelloWaitTimeoutSeconds(helloWaitSeconds, signal.SessionSignalOrdinal);
+                helloSafetyExtendEffect = ExtendArmedHelloSafetyToTenantWindow(state, builder, signal);
+            }
+
             var newState = builder.Build();
             var transition = BuildTakenTransition(
                 before: state,
@@ -567,7 +610,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.EnrollmentFactsObserved));
 
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+            return new DecisionStep(
+                newState,
+                transition,
+                helloSafetyExtendEffect != null ? new[] { helloSafetyExtendEffect } : Array.Empty<DecisionEffect>());
         }
 
         /// <summary>
@@ -959,15 +1005,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // Mirror of HandleEspExitingV1's promote branch, using this signal's instant as
             // the deadline base. EffectiveDeadlineBase still floors at AgentBootUtc to keep
             // the replay-safety guarantee.
-            var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
-            var helloSafety = new ActiveDeadline(
-                name: DeadlineNames.HelloSafety,
-                dueAtUtc: dueAtUtc,
-                firesSignalKind: DecisionSignalKind.DeadlineFired,
-                firesPayload: new Dictionary<string, string>
-                {
-                    [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
-                });
+            var helloSafety = BuildHelloSafetyDeadline(state, signal);
 
             builder = builder
                 .WithStage(SessionStage.AwaitingHello)

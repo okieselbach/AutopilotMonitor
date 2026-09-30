@@ -241,7 +241,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string tenantId,
             InformationalEventPost post,
             AgentLogger logger,
-            int helloWaitTimeoutSeconds = 30,
+            int helloWaitTimeoutSeconds = HelloWaitTimeout.DefaultSeconds,
             bool modernDeploymentWatcherEnabled = true,
             int modernDeploymentLogLevelMax = 3,
             bool modernDeploymentBackfillEnabled = true,

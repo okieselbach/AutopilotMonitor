@@ -479,6 +479,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             if (collectors.StallProbeEnabled)
             {
+                // A pending tenant Hello wait (up to 60 min) is a bounded wait that resolves the
+                // session either way — the probe holds session_stalled back until it is over.
+                Func<bool>? helloWaitPending = null;
+                if (decisionStateProbe != null)
+                    helloWaitPending = () => DecisionEngine.IsTenantHelloWaitPending(decisionStateProbe(), clock.UtcNow);
+
                 hosts.Add(new StallProbeHost(
                     sessionId: sessionId,
                     tenantId: tenantId,
@@ -490,7 +496,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     sources: collectors.StallProbeSources,
                     sessionStalledAfterProbeIndex: collectors.SessionStalledAfterProbeIndex,
                     harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds,
-                    isDevicePreparation: isDevicePreparation));
+                    isDevicePreparation: isDevicePreparation,
+                    helloWaitPending: helloWaitPending));
             }
 
             // ESP policy-provider stall tripwire — always-on kernel host (no config gate, like

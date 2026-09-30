@@ -39,7 +39,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     ///   - Trace-indexed probes: emit a <c>stall_probe_check</c> Trace event on quiet/activeInstalls.
     ///   - Non-trace probes: emit nothing when no anomaly is found (agent log only).
     ///   - Anomaly found: always emit <c>stall_probe_result</c> Warning (plus EspFailureDetected if terminal).
-    ///   - Probe index configured as "session-stalled": emit fire-once <c>session_stalled</c> Warning.
+    ///   - Probe index configured as "session-stalled": emit fire-once <c>session_stalled</c> Warning
+    ///     (held back while a tenant-extended Hello wait is pending, emitted once it is over).
     /// </summary>
     public class StallProbeCollector
     {
@@ -54,9 +55,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly HashSet<int> _harmlessModernDeploymentEventIds;
         private readonly bool _isDevicePreparation;
 
+        // True while a tenant-extended Hello wait (up to 60 min) is pending in the decision
+        // engine. It is a bounded wait that resolves the session either way — not a stall — so
+        // session_stalled is held back until it is over.
+        private readonly Func<bool> _helloWaitPending;
+
         private readonly object _stateLock = new object();
         private readonly HashSet<int> _firedProbeIndices = new HashSet<int>();
         private bool _sessionStalledFired;
+
+        // The session_stalled report held back while the Hello wait was pending (the probe result
+        // of that idle window). Emitted on a later tick once the wait is over and the session is
+        // still idle; dropped by real activity (ResetProbes).
+        private ProbeResult _deferredSessionStalled;
 
         // P2 — monotonic generation, bumped by ResetProbes. RunProbe runs OUTSIDE _stateLock; if a
         // real-activity reset lands while a probe is in flight, the post-probe "mark fired" must be
@@ -153,9 +164,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string[] sources,
             int sessionStalledAfterProbeIndex,
             int[] harmlessModernDeploymentEventIds = null,
-            bool isDevicePreparation = false)
+            bool isDevicePreparation = false,
+            Func<bool> helloWaitPending = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
+            _helloWaitPending = helloWaitPending;
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -192,6 +205,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // Always bump the generation, even when no probes are currently marked fired — a
                 // probe may be running right now (outside the lock) and must not re-mark itself.
                 _probeGeneration++;
+                _deferredSessionStalled = null;
                 if (_firedProbeIndices.Count > 0)
                 {
                     _logger.Trace($"StallProbeCollector: resetting {_firedProbeIndices.Count} fired probes");
@@ -206,6 +220,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// </summary>
         public void CheckAndRunProbes(double idleMinutes)
         {
+            EmitDeferredSessionStalledIfDue(idleMinutes);
+
             // Iterate thresholds from lowest to highest so probes fire in order.
             for (int i = 0; i < _thresholdsMinutes.Length; i++)
             {
@@ -225,7 +241,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (alreadyFired)
                     continue;
 
-                RunProbe(probeIndex, thresholdMinutes, idleMinutes);
+                RunProbe(probeIndex, thresholdMinutes, idleMinutes, genAtStart);
 
                 lock (_stateLock)
                 {
@@ -237,7 +253,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
-        private void RunProbe(int probeIndex, int thresholdMinutes, double idleMinutes)
+        private void RunProbe(int probeIndex, int thresholdMinutes, double idleMinutes, int generation)
         {
             var started = DateTime.UtcNow;
             var result = new ProbeResult { ProbeIndex = probeIndex, IdleMinutes = Math.Round(idleMinutes, 1) };
@@ -293,8 +309,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             // session_stalled is fire-once across the whole session. It fires at the configured
             // probe index UNLESS activeInstalls is observed (activeInstalls counts as progress).
+            // While a tenant Hello wait is pending it is held back, not dropped.
             if (probeIndex == _sessionStalledAfterProbeIndex && !hasActiveInstalls)
             {
+                if (IsHelloWaitPending())
+                {
+                    lock (_stateLock)
+                    {
+                        // P2: a reset that landed while this probe ran ended the idle window.
+                        if (!_sessionStalledFired && _probeGeneration == generation)
+                            _deferredSessionStalled = result;
+                    }
+                    _logger.Info($"StallProbeCollector: session_stalled held back at probe {probeIndex} — a tenant Hello wait is still pending");
+                    return;
+                }
+
                 lock (_stateLock)
                 {
                     if (_sessionStalledFired)
@@ -302,6 +331,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     _sessionStalledFired = true;
                 }
                 EmitSessionStalledEvent(result);
+            }
+        }
+
+        /// <summary>
+        /// Emits the held-back session_stalled report once the Hello wait is over and the session
+        /// is still idle (no ResetProbes since), with the idle time of this tick.
+        /// </summary>
+        private void EmitDeferredSessionStalledIfDue(double idleMinutes)
+        {
+            ProbeResult deferred;
+            lock (_stateLock)
+            {
+                deferred = _deferredSessionStalled;
+                if (deferred == null || _sessionStalledFired)
+                    return;
+            }
+
+            if (IsHelloWaitPending())
+                return;
+
+            lock (_stateLock)
+            {
+                if (_sessionStalledFired || !ReferenceEquals(_deferredSessionStalled, deferred))
+                    return;
+                _sessionStalledFired = true;
+                _deferredSessionStalled = null;
+            }
+
+            deferred.IdleMinutes = Math.Round(idleMinutes, 1);
+            _logger.Info($"StallProbeCollector: Hello wait over, still idle at {deferred.IdleMinutes}min — emitting the held-back session_stalled");
+            EmitSessionStalledEvent(deferred);
+        }
+
+        private bool IsHelloWaitPending()
+        {
+            if (_helloWaitPending == null)
+                return false;
+            try
+            {
+                return _helloWaitPending();
+            }
+            catch (Exception ex)
+            {
+                // A failing probe must never cost the stall report — treat as not pending.
+                _logger.Warning($"StallProbeCollector: Hello-wait probe threw, treating as not pending: {ex.Message}");
+                return false;
             }
         }
 
