@@ -8,15 +8,33 @@
  * Keep the resolution order in lock-step with the web copy:
  *   1. matchedConditions entry whose `field` equals `token`.
  *   2. matchedConditions entry carrying a whitelisted same-event auto-field
- *      named `token` (backend `AddDataFieldsToEvidence`: appId, appName,
- *      errorPatternId, errorCode, exitCode, status). First non-empty wins so the
+ *      named `token` (`RULE_TEMPLATE_AUTO_FIELDS`). First non-empty wins so the
  *      value pins to the rule's required-condition event.
  *   3. matchedConditions entry whose key (signal name) equals `token`.
  *   4. Unresolved tokens are left untouched so authors notice the typo (and the
  *      reworded ANALYZE-ENRL-001 footnote explains a genuinely-absent field).
  *
  * Token chars: [a-zA-Z0-9_]. Whitespace inside the braces is tolerated.
+ *
+ * Web, MCP and the backend (notifications) all run the cases in
+ * `tests/fixtures/rule-template-interpolation/cases.json` at the repo root.
  */
+
+/**
+ * Mirror of the backend evidence auto-capture whitelist (`RuleEngine.EvidenceAutoFields`).
+ * Explicit list keeps a rogue evidence key (e.g. accidental `description`) from shadowing
+ * a token. Also the list validate_rule lints tokens against.
+ */
+export const RULE_TEMPLATE_AUTO_FIELDS = [
+  'appId',
+  'appName',
+  'errorPatternId',
+  'errorCode',
+  'exitCode',
+  'status',
+  'timeoutHours',
+] as const;
+
 export function interpolateRuleTemplate(
   text: string | null | undefined,
   matchedConditions: Record<string, unknown> | null | undefined
@@ -27,10 +45,6 @@ export function interpolateRuleTemplate(
   const byField = new Map<string, string>();
   const byAutoField = new Map<string, string>();
   const bySignal = new Map<string, string>();
-
-  // Mirror of the backend AddDataFieldsToEvidence whitelist. Explicit list keeps a
-  // rogue evidence key (e.g. accidental `description`) from shadowing a token.
-  const AUTO_FIELDS = ['appId', 'appName', 'errorPatternId', 'errorCode', 'exitCode', 'status'];
 
   for (const [signal, evidence] of Object.entries(matchedConditions)) {
     if (!evidence || typeof evidence !== 'object') {
@@ -44,7 +58,7 @@ export function interpolateRuleTemplate(
     if ('value' in e) {
       bySignal.set(signal, formatValue(e.value));
     }
-    for (const af of AUTO_FIELDS) {
+    for (const af of RULE_TEMPLATE_AUTO_FIELDS) {
       if (byAutoField.has(af)) continue;
       const v = e[af];
       if (v != null && v !== '') byAutoField.set(af, formatValue(v));

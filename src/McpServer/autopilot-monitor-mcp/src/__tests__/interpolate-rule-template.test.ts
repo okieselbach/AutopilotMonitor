@@ -1,5 +1,45 @@
 import { describe, it, expect } from 'vitest';
-import { interpolateRuleTemplate, interpolateAnalysisResults } from '../interpolate-rule-template.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  interpolateRuleTemplate,
+  interpolateAnalysisResults,
+  RULE_TEMPLATE_AUTO_FIELDS,
+} from '../interpolate-rule-template.js';
+
+interface SharedCase {
+  name: string;
+  template: string | null;
+  matchedConditions: Record<string, unknown> | null;
+  expected: string;
+}
+
+/** tests/fixtures/rule-template-interpolation at the repo root — the cases every renderer runs. */
+function loadSharedCases(): { autoFields: string[]; cases: SharedCase[] } {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (!existsSync(join(dir, 'AutopilotMonitor.sln'))) {
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('repository root (AutopilotMonitor.sln) not found');
+    dir = parent;
+  }
+  return JSON.parse(
+    readFileSync(join(dir, 'tests', 'fixtures', 'rule-template-interpolation', 'cases.json'), 'utf8'),
+  );
+}
+
+describe('interpolateRuleTemplate — shared cases (web = MCP = backend)', () => {
+  const shared = loadSharedCases();
+
+  it('has cases and the same auto-field list as the rule engine', () => {
+    expect(shared.cases.length).toBeGreaterThanOrEqual(20);
+    expect([...RULE_TEMPLATE_AUTO_FIELDS]).toEqual(shared.autoFields);
+  });
+
+  it.each(shared.cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    expect(interpolateRuleTemplate(c.template, c.matchedConditions)).toBe(c.expected);
+  });
+});
 
 describe('interpolateRuleTemplate', () => {
   // Shape of a real ANALYZE-ENRL-001 matchedConditions map (the case from the

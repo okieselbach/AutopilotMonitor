@@ -1,0 +1,181 @@
+{
+  "autoFields": ["appId", "appName", "errorPatternId", "errorCode", "exitCode", "status", "timeoutHours"],
+  "cases": [
+    {
+      "name": "token resolves from the entry whose field equals it",
+      "template": "Status: `{{uefiCA2023Status}}`",
+      "matchedConditions": {
+        "ca2023_not_updated": { "eventId": "evt-1", "sequence": 23, "timestamp": "2026-04-28T18:24:16Z", "eventType": "secureboot_status", "field": "uefiCA2023Status", "value": "NotStarted" }
+      },
+      "expected": "Status: `NotStarted`"
+    },
+    {
+      "name": "several tokens in one text, engine evidence shape",
+      "template": "- **Failure reason:** `{{reason}}`\n- **First failed app:** `{{appName}}`\n- **ESP failed subcategory:** `{{failedSubcategory}}`\n- **ESP HRESULT:** `{{errorCode}}`",
+      "matchedConditions": {
+        "enrollment_failed": { "eventId": "evt-9", "sequence": 431, "timestamp": "2026-05-28T10:41:16Z", "eventType": "enrollment_failed", "count": 1, "errorCode": "0x87d1041c" },
+        "enrollment_failed_reason": { "eventId": "evt-9", "sequence": 431, "timestamp": "2026-05-28T10:41:16Z", "eventType": "enrollment_failed", "field": "reason", "value": "esp_terminal_failure", "errorCode": "0x87d1041c" },
+        "esp_failure_subcategory": { "eventId": "evt-8", "sequence": 429, "timestamp": "2026-05-28T10:41:12Z", "eventType": "esp_failure_settle_started", "field": "failedSubcategory", "value": "Apps", "errorCode": "0x87d1041c" },
+        "esp_failure_errorcode": { "eventId": "evt-8", "sequence": 429, "timestamp": "2026-05-28T10:41:12Z", "eventType": "esp_failure_settle_started", "field": "errorCode", "value": "0x87d1041c", "errorCode": "0x87d1041c" },
+        "failed_app": { "eventId": "evt-7", "sequence": 420, "timestamp": "2026-05-28T10:41:06Z", "eventType": "app_install_failed", "field": "appName", "value": "Contoso Productivity Suite", "appId": "00000000-0000-4000-8000-000000000001", "appName": "Contoso Productivity Suite", "errorCode": "0x87d1041c" },
+        "factor_failed_app": true
+      },
+      "expected": "- **Failure reason:** `esp_terminal_failure`\n- **First failed app:** `Contoso Productivity Suite`\n- **ESP failed subcategory:** `Apps`\n- **ESP HRESULT:** `0x87d1041c`"
+    },
+    {
+      "name": "token without evidence stays literal",
+      "template": "sub: `{{failedSubcategory}}` reason: {{reason}}",
+      "matchedConditions": {
+        "enrollment_failed_reason": { "field": "reason", "value": "hello_timeout" }
+      },
+      "expected": "sub: `{{failedSubcategory}}` reason: hello_timeout"
+    },
+    {
+      "name": "whitespace inside the braces is tolerated",
+      "template": "[{{  appName  }}]",
+      "matchedConditions": { "failed_app": { "field": "appName", "value": "Contoso VPN" } },
+      "expected": "[Contoso VPN]"
+    },
+    {
+      "name": "no evidence map leaves the text unchanged",
+      "template": "hello {{reason}}",
+      "matchedConditions": null,
+      "expected": "hello {{reason}}"
+    },
+    {
+      "name": "empty text",
+      "template": "",
+      "matchedConditions": { "sig": { "field": "reason", "value": "x" } },
+      "expected": ""
+    },
+    {
+      "name": "missing text yields an empty string",
+      "template": null,
+      "matchedConditions": { "sig": { "field": "reason", "value": "x" } },
+      "expected": ""
+    },
+    {
+      "name": "text without placeholders",
+      "template": "plain text with {single} braces",
+      "matchedConditions": { "sig": { "field": "reason", "value": "x" } },
+      "expected": "plain text with {single} braces"
+    },
+    {
+      "name": "numbers and booleans render without type decoration",
+      "template": "seq={{n}} ok={{b}} ratio={{r}} whole={{w}} on={{t}}",
+      "matchedConditions": {
+        "a": { "field": "n", "value": 42 },
+        "b": { "field": "b", "value": false },
+        "c": { "field": "r", "value": 1.5 },
+        "d": { "field": "w", "value": 120.0 },
+        "e": { "field": "t", "value": true }
+      },
+      "expected": "seq=42 ok=false ratio=1.5 whole=120 on=true"
+    },
+    {
+      "name": "signal name resolves when no field matches",
+      "template": "{{ca2023_not_updated}}",
+      "matchedConditions": {
+        "ca2023_not_updated": { "field": "uefiCA2023Status", "value": "NotStarted" }
+      },
+      "expected": "NotStarted"
+    },
+    {
+      "name": "scalar evidence resolves by signal name",
+      "template": "{{factor_failed_app}} {{note}} {{hits}}",
+      "matchedConditions": { "factor_failed_app": true, "note": "plain", "hits": 3 },
+      "expected": "true plain 3"
+    },
+    {
+      "name": "auto-field comes from the first entry that carries it",
+      "template": "App={{appName}} HR={{errorCode}}",
+      "matchedConditions": {
+        "esp_apps_detection_failure": { "field": "failureType", "value": "esp_apps_detection_failure", "appName": "Contoso Productivity Suite", "errorCode": "0x87d1041c" },
+        "another_app_failure": { "field": "isError", "value": "true", "appName": "Some Other App", "errorCode": "0x80070005" }
+      },
+      "expected": "App=Contoso Productivity Suite HR=0x87d1041c"
+    },
+    {
+      "name": "empty auto-field is skipped for a later entry",
+      "template": "{{exitCode}}/{{status}}",
+      "matchedConditions": {
+        "first": { "field": "x", "value": "1", "exitCode": "", "status": null },
+        "second": { "field": "y", "value": "2", "exitCode": "1603", "status": "Failed" }
+      },
+      "expected": "1603/Failed"
+    },
+    {
+      "name": "every auto-field is resolvable",
+      "template": "{{appId}}|{{appName}}|{{errorPatternId}}|{{errorCode}}|{{exitCode}}|{{status}}|{{timeoutHours}}",
+      "matchedConditions": {
+        "sig": { "field": "other", "value": "v", "appId": "id-1", "appName": "Contoso VPN", "errorPatternId": "pattern-1", "errorCode": "0x1", "exitCode": "2", "status": "Failed", "timeoutHours": "5" }
+      },
+      "expected": "id-1|Contoso VPN|pattern-1|0x1|2|Failed|5"
+    },
+    {
+      "name": "explicit field beats an auto-field, whatever the order",
+      "template": "{{appName}} / {{errorCode}}",
+      "matchedConditions": {
+        "with_auto": { "field": "failureType", "value": "x", "appName": "Auto-field value", "errorCode": "auto" },
+        "explicit_appname": { "field": "appName", "value": "Explicit value" },
+        "explicit_errorcode": { "field": "errorCode", "value": "explicit" }
+      },
+      "expected": "Explicit value / explicit"
+    },
+    {
+      "name": "two entries with the same field: the later one wins",
+      "template": "{{appName}}",
+      "matchedConditions": {
+        "first_app": { "field": "appName", "value": "First App" },
+        "second_app": { "field": "appName", "value": "Second App" }
+      },
+      "expected": "Second App"
+    },
+    {
+      "name": "field beats a signal of the same name",
+      "template": "{{reason}}",
+      "matchedConditions": {
+        "reason": { "field": "other", "value": "from signal" },
+        "enrollment_failed_reason": { "field": "reason", "value": "from field" }
+      },
+      "expected": "from field"
+    },
+    {
+      "name": "internal evidence keys are not tokens",
+      "template": "{{eventId}} {{sequence}} {{timestamp}} {{eventType}} {{field}} {{value}} {{count}}",
+      "matchedConditions": {
+        "sig": { "eventId": "evt-secret", "sequence": 42, "timestamp": "2026-05-28T10:00:00Z", "eventType": "app_install_failed", "field": "failureType", "value": "esp_apps_detection_failure", "count": 2 }
+      },
+      "expected": "{{eventId}} {{sequence}} {{timestamp}} {{eventType}} {{field}} {{value}} {{count}}"
+    },
+    {
+      "name": "prefixed correlation fields are not auto-fields",
+      "template": "{{appName}} {{eventA_appName}}",
+      "matchedConditions": {
+        "pair": { "eventA_appName": "Contoso VPN", "eventB_appName": "Contoso VPN", "totalMatches": 1 }
+      },
+      "expected": "{{appName}} {{eventA_appName}}"
+    },
+    {
+      "name": "null value renders empty",
+      "template": "[{{reason}}]",
+      "matchedConditions": { "sig": { "field": "reason", "value": null } },
+      "expected": "[]"
+    },
+    {
+      "name": "object and array values render as compact JSON",
+      "template": "{{detail}} {{names}}",
+      "matchedConditions": {
+        "a": { "field": "detail", "value": { "a": 1, "b": "x" } },
+        "b": { "field": "names", "value": ["one", "two"] }
+      },
+      "expected": "{\"a\":1,\"b\":\"x\"} [\"one\",\"two\"]"
+    },
+    {
+      "name": "the meta placeholder of the rule footnote is not a token",
+      "template": "Any field still shown as a literal `{{…}}` placeholder was not recorded: {{reason}}",
+      "matchedConditions": { "sig": { "field": "reason", "value": "max_lifetime" } },
+      "expected": "Any field still shown as a literal `{{…}}` placeholder was not recorded: max_lifetime"
+    }
+  ]
+}

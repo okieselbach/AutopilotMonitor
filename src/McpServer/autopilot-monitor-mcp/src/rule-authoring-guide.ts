@@ -250,7 +250,7 @@ export const RULE_AUTHORING_GUIDE = {
       'explanation and remediation text may contain {{token}} placeholders, resolved from the ' +
       'matched evidence at display time: first a matched condition whose dataField equals the ' +
       'token, then the auto-captured fields appId / appName / errorPatternId / errorCode / ' +
-      'exitCode / status from the matched events, then a condition SIGNAL name. Unresolved tokens ' +
+      'exitCode / status / timeoutHours from the matched events, then a condition SIGNAL name. Unresolved tokens ' +
       'stay visible as {{token}} so typos are noticeable. test_analyze_rule returns the ' +
       'interpolated preview for a real session.',
     markSessionAsFailed:

@@ -233,13 +233,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 },
             };
 
-            if (!string.IsNullOrEmpty(result.Explanation))
-            {
-                var explanation = result.Explanation.Length > 300
-                    ? result.Explanation[..300] + "..."
-                    : result.Explanation;
+            var explanation = RenderExplanation(result, RuleFiredExplanationMaxLength);
+            if (explanation.Length > 0)
                 alert.Sections.Add(new NotificationSection { Title = "Explanation", Text = explanation });
-            }
 
             if (!string.IsNullOrEmpty(sessionUrl))
                 alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Open session", Url = sessionUrl });
@@ -273,16 +269,75 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     _ => "\ud83d\udfe1"
                 };
 
-                var explanation = r.Explanation?.Length > 200
-                    ? r.Explanation[..200] + "..."
-                    : r.Explanation ?? "";
-
                 alert.Sections.Add(new NotificationSection
                 {
                     Title = $"{emoji} {r.RuleTitle}",
-                    Text = explanation
+                    Text = RenderExplanation(r, RuleSectionExplanationMaxLength)
                 });
             }
+        }
+
+        internal const int RuleFiredExplanationMaxLength = 300;
+        internal const int RuleSectionExplanationMaxLength = 200;
+
+        /// <summary>
+        /// A stored <see cref="RuleResult.Explanation"/> is the rule's template. Tokens are
+        /// resolved BEFORE the cut: cutting first would split a placeholder or spend the
+        /// budget on placeholder names instead of the values.
+        /// </summary>
+        private static string RenderExplanation(RuleResult result, int maxLength)
+            => TruncateAtBoundary(
+                RuleTemplateInterpolator.InterpolateForNotification(result.Explanation, result.MatchedConditions),
+                maxLength);
+
+        /// <summary>
+        /// Shortens to at most <paramref name="maxLength"/> characters at the last line break
+        /// inside the limit, else the last sentence end, else the last word. A boundary in the
+        /// first half of the limit is not taken, so the cut never throws away most of the budget.
+        /// A bold or code span the cut left open is closed by dropping its opening marker.
+        /// </summary>
+        internal static string TruncateAtBoundary(string text, int maxLength)
+        {
+            const string marker = " …";
+            if (text.Length <= maxLength)
+                return text;
+
+            var window = text[..(maxLength - marker.Length)];
+            var floor = window.Length / 2;
+
+            var cut = window.LastIndexOf('\n');
+            if (cut < floor)
+            {
+                cut = -1;
+                for (var i = window.Length - 2; i >= floor; i--)
+                {
+                    if (window[i] is '.' or '!' or '?' && char.IsWhiteSpace(window[i + 1]))
+                    {
+                        cut = i + 1;
+                        break;
+                    }
+                }
+            }
+            if (cut < floor)
+                cut = window.LastIndexOf(' ');
+            if (cut < floor)
+                cut = window.Length;
+
+            var kept = DropUnpairedMarker(DropUnpairedMarker(window[..cut], "**"), "`");
+            return kept.TrimEnd() + marker;
+        }
+
+        private static string DropUnpairedMarker(string text, string markdownMarker)
+        {
+            var count = 0;
+            var last = -1;
+            for (var i = text.IndexOf(markdownMarker, StringComparison.Ordinal); i >= 0;
+                 i = text.IndexOf(markdownMarker, i + markdownMarker.Length, StringComparison.Ordinal))
+            {
+                count++;
+                last = i;
+            }
+            return count % 2 == 0 ? text : text.Remove(last, markdownMarker.Length);
         }
 
         /// <summary>

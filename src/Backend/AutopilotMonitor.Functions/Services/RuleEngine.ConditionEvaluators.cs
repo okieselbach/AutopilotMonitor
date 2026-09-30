@@ -1308,6 +1308,17 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Same-event fields copied into every evidence entry. Whitelist: short identifiers only;
+        /// errorDetail/message are excluded (can be multi-KB). Every renderer resolves these as
+        /// <c>{{token}}</c> — the web, the MCP server and <see cref="RuleTemplateInterpolator"/>
+        /// carry the same list, pinned by tests/fixtures/rule-template-interpolation/cases.json.
+        /// </summary>
+        internal static readonly IReadOnlyList<string> EvidenceAutoFields = new[]
+        {
+            "appId", "appName", "errorPatternId", "errorCode", "exitCode", "status", "timeoutHours"
+        };
+
+        /// <summary>
         /// Adds slim identifying data fields from an event to the evidence dictionary with a prefix.
         /// Free-text fields like <c>errorDetail</c> (often a stack trace) and <c>message</c> are
         /// deliberately excluded to keep <see cref="RuleResult.MatchedConditions"/> below Table
@@ -1317,10 +1328,7 @@ namespace AutopilotMonitor.Functions.Services
         {
             if (evt.Data == null) return;
 
-            // Whitelist: short identifiers only. errorDetail/message removed (can be multi-KB).
-            var knownFields = new[] { "appId", "appName", "errorPatternId", "errorCode", "exitCode", "status", "timeoutHours" };
-
-            foreach (var field in knownFields)
+            foreach (var field in EvidenceAutoFields)
             {
                 var val = GetDataFieldValue(evt, field);
                 if (val != null)

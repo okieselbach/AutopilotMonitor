@@ -27,6 +27,7 @@ import addFormatsModule from 'ajv-formats';
 const addFormats = addFormatsModule as unknown as (ajv: Ajv2020) => void;
 import { GATHER_RULE_SCHEMA, ANALYZE_RULE_SCHEMA, RULE_GUARDRAILS } from './rule-authoring.generated.js';
 import { isKnownEventType } from './resource-catalog.js';
+import { RULE_TEMPLATE_AUTO_FIELDS } from './interpolate-rule-template.js';
 
 export type FindingLevel = 'error' | 'warning' | 'info';
 
@@ -274,9 +275,8 @@ function checkGatherTarget(collectorType: string, target: string): ValidationFin
 
 // ── Analyze-rule semantic lint ──────────────────────────────────────────────
 
-/** Mirrors the backend evidence auto-capture whitelist (AddDataFieldsToEvidence) and
- * the interpolation resolution order (interpolate-rule-template.ts). */
-const AUTO_FIELDS = ['appId', 'appName', 'errorPatternId', 'errorCode', 'exitCode', 'status'];
+/** The auto-captured fields a token may resolve to — the interpolator's own list. */
+const AUTO_FIELDS = RULE_TEMPLATE_AUTO_FIELDS;
 
 /** The only condition strings EvaluateConfidenceFactor parses — anything else is
  * silently false in production. Exact spacing matters. */
