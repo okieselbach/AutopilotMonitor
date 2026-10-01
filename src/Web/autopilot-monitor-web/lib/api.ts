@@ -341,10 +341,12 @@ export const api = {
       `${API_BASE_URL}/api/metrics/rule-hit-sessions${qs({ ruleId, days: days?.toString(), tenantId })}`,
     globalRuleStats: (startDate?: string, endDate?: string, ruleType?: string, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/rule-stats${qs({ startDate, endDate, ruleType, tenantId })}`,
-    vulnerability: (days?: number, topN?: number) =>
-      `${API_BASE_URL}/api/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString() })}`,
-    globalVulnerability: (days?: number, topN?: number, tenantId?: string) =>
-      `${API_BASE_URL}/api/global/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), tenantId })}`,
+    // perBand: per severity/priority band, its top entries outside the lists (bandCves/bandSoftware),
+    // so the panel's band filters never come up empty while the band has entries.
+    vulnerability: (days?: number, topN?: number, perBand?: number) =>
+      `${API_BASE_URL}/api/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), perBand: perBand?.toString() })}`,
+    globalVulnerability: (days?: number, topN?: number, tenantId?: string, perBand?: number) =>
+      `${API_BASE_URL}/api/global/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), tenantId, perBand: perBand?.toString() })}`,
     // Tenant-scoped installed-software inventory (JWT-scoped; MemberRead).
     softwareInventory: () =>
       `${API_BASE_URL}/api/metrics/software-inventory`,

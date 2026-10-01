@@ -51,10 +51,10 @@ export const scopedApi = {
       ? api.metrics.globalGeographic(days, groupBy, globalTenantParam(sel))
       : api.metrics.geographic(sel.effectiveTenantId, days, groupBy),
 
-  vulnerability: (sel: TenantScopeSelection, days: number, topN: number) =>
+  vulnerability: (sel: TenantScopeSelection, days: number, topN: number, perBand?: number) =>
     sel.routeGlobal
-      ? api.metrics.globalVulnerability(days, topN, globalTenantParam(sel))
-      : api.metrics.vulnerability(days, topN),
+      ? api.metrics.globalVulnerability(days, topN, globalTenantParam(sel), perBand)
+      : api.metrics.vulnerability(days, topN, perBand),
 
   appsList: (sel: TenantScopeSelection, days: number) =>
     sel.routeGlobal ? api.apps.globalList(days, globalTenantParam(sel)) : api.apps.list(sel.effectiveTenantId, days),

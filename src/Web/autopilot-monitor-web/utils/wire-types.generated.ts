@@ -1258,6 +1258,10 @@ export interface CveExposureSummary {
   topCves: TopCve[];
   /** The top min(topN, 20) products by affected sessions, plus the products with a KEV CVE that rank below them (at most 10 extra), ordered by affected sessions. */
   topSoftware: TopSoftware[];
+  /** For list filters: per CVSS severity band and per priority band, the band's top CVEs by affected sessions that TopCves does not already hold (at most perBand per band). Only on request (perBand above 0, which the portal sends); null (key omitted) otherwise. */
+  bandCves?: TopCve[];
+  /** The same for products, banded by their most severe CVE and their highest priority, minus the entries of TopSoftware. Only on request; null (key omitted) otherwise. */
+  bandSoftware?: TopSoftware[];
   truncated: boolean;
 }
 

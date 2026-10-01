@@ -7,6 +7,7 @@
  * The bar is capped at 95% — it never claims "done" before the response actually lands.
  *
  * CalculatingCard: full-page card (page-level loading states).
+ * CalculatingDialog: the same card without the page, for a tab whose header stays visible.
  * CalculatingInline: compact block for in-place placeholders (tab/table bodies).
  */
 
@@ -58,27 +59,34 @@ export function CalculatingInline({
   );
 }
 
-export function CalculatingCard({
-  title,
-  subtitle,
-  elapsedMs,
-  estimateMs,
-}: {
+interface CalculatingDialogProps {
   title: string;
   subtitle: string;
   elapsedMs: number;
   estimateMs: number;
-}) {
+}
+
+/**
+ * The loading dialog itself (spinner, title, subtitle, progress) without a page around it, for
+ * a tab or section whose header stays visible while its body aggregates.
+ */
+export function CalculatingDialog({ title, subtitle, elapsedMs, estimateMs }: CalculatingDialogProps) {
+  return (
+    <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+        <h2 className="mt-4 text-xl font-semibold text-gray-900">{title}</h2>
+        <p className="mt-2 text-sm text-gray-600">{subtitle}</p>
+        <ProgressBarWithCaption elapsedMs={elapsedMs} estimateMs={estimateMs} />
+      </div>
+    </div>
+  );
+}
+
+export function CalculatingCard(props: CalculatingDialogProps) {
   return (
     <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-          <h2 className="mt-4 text-xl font-semibold text-gray-900">{title}</h2>
-          <p className="mt-2 text-sm text-gray-600">{subtitle}</p>
-          <ProgressBarWithCaption elapsedMs={elapsedMs} estimateMs={estimateMs} />
-        </div>
-      </div>
+      <CalculatingDialog {...props} />
     </div>
   );
 }
