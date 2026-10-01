@@ -6311,11 +6311,27 @@
           }
         },
         {
+          "name": "distinctSoftware",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Distinct affected products, grouped as in TopSoftware, with at least one CVE in the window."
+        },
+        {
           "name": "kevCves",
           "type": {
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "kevAffectedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Distinct affected sessions that carry at least one CISA KEV (known-exploited) CVE."
         },
         {
           "name": "severityBreakdown",
@@ -6339,7 +6355,19 @@
               "kind": "ref",
               "name": "TopCve"
             }
-          }
+          },
+          "doc": "The topN CVEs by affected sessions, plus the KEV CVEs that rank below them (at most 25 extra), all ordered by affected sessions. The list can therefore be longer than topN."
+        },
+        {
+          "name": "topSoftware",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TopSoftware"
+            }
+          },
+          "doc": "The top min(topN, 20) products by affected sessions, plus the products with a KEV CVE that rank below them (at most 10 extra), ordered by affected sessions."
         },
         {
           "name": "truncated",
@@ -20595,6 +20623,62 @@
         }
       ]
     },
+    "SoftwareCve": {
+      "kind": "object",
+      "doc": "One CVE of a TopSoftware entry; AffectedSessions counts that product's sessions only.",
+      "fields": [
+        {
+          "name": "cveId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "cvssSeverity",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "cvssScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "isKev",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "epssScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "priority",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "affectedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "SoftwareInventoryResponse": {
       "kind": "object",
       "doc": "Shared response of GET vulnerability/software-inventory (Global Admin, ?tenantId=) and GET metrics/software-inventory (caller's own tenant): the raw SoftwareInventory rows plus matched/unmatched counts. Consumed by the MCP get_software_inventory tool — key names are part of that contract.",
@@ -23757,6 +23841,94 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "TopSoftware": {
+      "kind": "object",
+      "doc": "One affected product: every CveIndex row of the product folded together. Severity, score and priority are the worst values across its CVEs; AffectedSessions counts distinct sessions.",
+      "fields": [
+        {
+          "name": "product",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Grouping key: the CPE \"vendor:product\" the correlation matched (e.g. \"7-zip:7-zip\"). A row written before the index carried it borrows the product of another row with the same title; failing that, its raw title is the key."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Display name derived from the detected titles (shared leading words, or the most common title without its version and architecture)."
+        },
+        {
+          "name": "affectedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "cveCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "kevCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "cvssSeverity",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Highest CVSS severity band across the product's CVEs."
+        },
+        {
+          "name": "cvssScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "priority",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Highest act/attend/track band across the product's CVEs (empty when only legacy rows carry it)."
+        },
+        {
+          "name": "titles",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "Raw display names the product was detected under, most sessions first (at most 3)."
+        },
+        {
+          "name": "cves",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "SoftwareCve"
+            }
+          },
+          "doc": "The product's most urgent CVEs (priority, then EPSS, then CVSS), at most 3; CveCount is the full count."
         }
       ]
     },

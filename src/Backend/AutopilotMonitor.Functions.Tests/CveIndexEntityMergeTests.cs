@@ -122,4 +122,22 @@ public class CveIndexEntityMergeTests
 
         Assert.Single(TableStorageService.BuildCveIndexEntities(Tenant, Session, findings));
     }
+
+    [Fact]
+    public void Product_IsTheCpeVendorAndProduct_ofTheWinningOccurrence()
+    {
+        var zip = Finding("7-Zip 24.08 (x64 edition)", "high", Vuln("CVE-1", 7.8, "HIGH"), Vuln("CVE-2", 3.3, "LOW"));
+        zip["cpeUri"] = "cpe:2.3:a:7-zip:7-zip:24.08";
+        var teams = Finding("Microsoft Teams", "high", Vuln("CVE-1", 8.8, "HIGH"));
+        teams["cpeUri"] = "cpe:2.3:a:microsoft:teams:1.6.00.4472";
+        var noCpe = Finding("Contoso Tool", "high", Vuln("CVE-3", 7.0, "HIGH"));
+
+        var entities = TableStorageService.BuildCveIndexEntities(Tenant, Session, new List<Dictionary<string, object>> { zip, teams, noCpe });
+
+        var cve1 = entities.Single(x => x.GetString("CveId") == "CVE-1");
+        Assert.Equal("Microsoft Teams", cve1.GetString("SoftwareName"));   // name and product move together
+        Assert.Equal("microsoft:teams", cve1.GetString("Product"));
+        Assert.Equal("7-zip:7-zip", entities.Single(x => x.GetString("CveId") == "CVE-2").GetString("Product"));
+        Assert.Equal("", entities.Single(x => x.GetString("CveId") == "CVE-3").GetString("Product"));
+    }
 }

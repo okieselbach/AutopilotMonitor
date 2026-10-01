@@ -1247,10 +1247,17 @@ export interface CveExposureSummary {
   /** Distinct affected tenants; null (key omitted) on tenant-scoped reads. */
   totalAffectedTenants?: number;
   distinctCves: number;
+  /** Distinct affected products, grouped as in TopSoftware, with at least one CVE in the window. */
+  distinctSoftware: number;
   kevCves: number;
+  /** Distinct affected sessions that carry at least one CISA KEV (known-exploited) CVE. */
+  kevAffectedSessions: number;
   severityBreakdown: SeverityBreakdown;
   priorityBreakdown: PriorityBreakdown;
+  /** The topN CVEs by affected sessions, plus the KEV CVEs that rank below them (at most 25 extra), all ordered by affected sessions. The list can therefore be longer than topN. */
   topCves: TopCve[];
+  /** The top min(topN, 20) products by affected sessions, plus the products with a KEV CVE that rank below them (at most 10 extra), ordered by affected sessions. */
+  topSoftware: TopSoftware[];
   truncated: boolean;
 }
 
@@ -4477,6 +4484,17 @@ export interface SleepSpan {
   kind: string;
 }
 
+/** One CVE of a TopSoftware entry; AffectedSessions counts that product's sessions only. */
+export interface SoftwareCve {
+  cveId: string;
+  cvssSeverity: string;
+  cvssScore: number;
+  isKev: boolean;
+  epssScore?: number;
+  priority: string;
+  affectedSessions: number;
+}
+
 /** Shared response of GET vulnerability/software-inventory (Global Admin, ?tenantId=) and GET metrics/software-inventory (caller's own tenant): the raw SoftwareInventory rows plus matched/unmatched counts. Consumed by the MCP get_software_inventory tool — key names are part of that contract. */
 export interface SoftwareInventoryResponse {
   success: boolean;
@@ -5212,6 +5230,26 @@ export interface TopFailingApp {
   failCount: number;
   totalCount: number;
   successRate: number;
+}
+
+/** One affected product: every CveIndex row of the product folded together. Severity, score and priority are the worst values across its CVEs; AffectedSessions counts distinct sessions. */
+export interface TopSoftware {
+  /** Grouping key: the CPE "vendor:product" the correlation matched (e.g. "7-zip:7-zip"). A row written before the index carried it borrows the product of another row with the same title; failing that, its raw title is the key. */
+  product: string;
+  /** Display name derived from the detected titles (shared leading words, or the most common title without its version and architecture). */
+  name: string;
+  affectedSessions: number;
+  cveCount: number;
+  kevCount: number;
+  /** Highest CVSS severity band across the product's CVEs. */
+  cvssSeverity: string;
+  cvssScore: number;
+  /** Highest act/attend/track band across the product's CVEs (empty when only legacy rows carry it). */
+  priority: string;
+  /** Raw display names the product was detected under, most sessions first (at most 3). */
+  titles: string[];
+  /** The product's most urgent CVEs (priority, then EPSS, then CVSS), at most 3; CveCount is the full count. */
+  cves: SoftwareCve[];
 }
 
 /** One serial-number bucket in the GetTpmPssUnsupported aggregation. All values are self-reported by devices through the unauthenticated distress channel — UNVERIFIED. */

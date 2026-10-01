@@ -1967,15 +1967,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Vulnerability Summary',
       description:
         'Get a fleet-wide vulnerability exposure summary aggregated from detected CVEs: total affected devices, ' +
-        'distinct CVE count, KEV (CISA Known-Exploited) count, a severity breakdown, a priority breakdown ' +
-        '(act/attend/track counts over every CVE in the window), and the top CVEs ranked by how ' +
-        'many devices they affect. Each top CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS ' +
+        'distinct CVE and product counts, KEV (CISA Known-Exploited) count and the devices carrying one, a severity breakdown, ' +
+        'a priority breakdown (act/attend/track counts over every CVE in the window), the top CVEs ranked by how ' +
+        'many devices they affect (every KEV CVE is added even below topN), and topSoftware: the most exposed products ' +
+        '(grouped by CPE vendor:product, KEV products always added) with devices, CVE and KEV counts, worst severity and ' +
+        'priority, and their most urgent CVEs. Each CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS ' +
         'probability of exploitation within 30 days, 0-1, null when unscored) and priority ("act" = in CISA KEV, ' +
         '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = everything else) — rank remediation by priority, then EPSS, ' +
         'not by CVSS alone. ' +
         (ga ? 'The cross-tenant overview also returns the affected tenant count. ' : '') +
         'Use this to answer "how exposed is the fleet / this ' +
-        'tenant?" and "which CVEs affect the most devices?" — for the device list of a single CVE use search_sessions_by_cve. ' +
+        'tenant?", "which CVEs affect the most devices?" and "which software to update first?" — for the device list of a single CVE use search_sessions_by_cve. ' +
         'If "truncated" is true, the underlying index scan hit its cap and counts are a lower bound (narrow with tenantId). ' +
         'Requires vulnerability scanning to be enabled (an empty summary means no findings, not necessarily "not affected").',
       inputSchema: {
@@ -1983,7 +1985,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe(daysDescription(30, 365, 'Filters CVEs by detection time.')),
         topN: z.coerce.number().int().min(1).max(100).optional().default(20)
-          .describe('How many top CVEs to return, ranked by affected device count (1-100, default 20).'),
+          .describe('How many top CVEs to return, ranked by affected device count (1-100, default 20); also sizes topSoftware (at most 20).'),
       },
       annotations: READ_ONLY,
     },

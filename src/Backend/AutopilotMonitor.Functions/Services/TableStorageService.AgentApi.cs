@@ -291,8 +291,9 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Collapses report findings to one entity per CVE. Merge rule: the occurrence with the
-        /// highest CVSS score supplies score/severity/software name (ties keep report order),
-        /// IsKev is OR-ed, OverallRisk is the highest risk level seen across occurrences.
+        /// highest CVSS score supplies score/severity/software name/product (ties keep report
+        /// order), IsKev is OR-ed, OverallRisk is the highest risk level seen across occurrences.
+        /// Product is the finding's CPE "vendor:product" (<see cref="Vulnerability.CpeMatchScorer.ProductKey"/>).
         /// </summary>
         internal static List<TableEntity> BuildCveIndexEntities(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
         {
@@ -302,6 +303,7 @@ namespace AutopilotMonitor.Functions.Services
             foreach (var finding in findings)
             {
                 var softwareName = finding.TryGetValue("softwareName", out var sn) ? sn?.ToString() ?? "" : "";
+                var product = Vulnerability.CpeMatchScorer.ProductKey(finding.TryGetValue("cpeUri", out var cu) ? cu?.ToString() : null);
                 var overallRisk = finding.TryGetValue("riskLevel", out var rl) ? rl?.ToString() ?? "" : "";
 
                 if (!finding.TryGetValue("vulnerabilities", out var vulnsObj) || vulnsObj == null) continue;
@@ -330,6 +332,7 @@ namespace AutopilotMonitor.Functions.Services
                             existing["CvssScore"] = cvssScore;
                             existing["CvssSeverity"] = cvssSeverity;
                             existing["SoftwareName"] = softwareName;
+                            existing["Product"] = product;
                         }
                         existing["IsKev"] = existing.GetBoolean("IsKev") == true || isKev;
                         if (epssScore.HasValue && epssScore.Value > (existing.GetDouble("EpssScore") ?? -1))
@@ -347,6 +350,7 @@ namespace AutopilotMonitor.Functions.Services
                         ["TenantId"] = tenantId,
                         ["CveId"] = cveId,
                         ["SoftwareName"] = softwareName,
+                        ["Product"] = product,
                         ["CvssScore"] = cvssScore,
                         ["CvssSeverity"] = cvssSeverity,
                         ["IsKev"] = isKev,
@@ -1380,7 +1384,7 @@ namespace AutopilotMonitor.Functions.Services
 
             var select = new[]
             {
-                "SessionId", "TenantId", "CveId", "SoftwareName",
+                "SessionId", "TenantId", "CveId", "SoftwareName", "Product",
                 "CvssScore", "CvssSeverity", "IsKev", "EpssScore", "Priority", "OverallRisk", "DetectedAt",
             };
 
@@ -1406,6 +1410,7 @@ namespace AutopilotMonitor.Functions.Services
                     CveId = e.GetString("CveId") ?? string.Empty,
                     SessionId = e.GetString("SessionId") ?? e.RowKey,
                     SoftwareName = e.GetString("SoftwareName") ?? string.Empty,
+                    Product = e.GetString("Product") ?? string.Empty,
                     CvssScore = e.GetDouble("CvssScore") ?? 0,
                     CvssSeverity = e.GetString("CvssSeverity") ?? string.Empty,
                     IsKev = e.GetBoolean("IsKev") ?? false,
