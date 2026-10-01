@@ -103,7 +103,7 @@ export default function GetStartedPage() {
             <p className="mt-6 text-sm text-[var(--lp-ink-faint)] leading-relaxed max-w-xl">
               When you need more later: the{" "}
               <a
-                href="/plans"
+                href="/plans/"
                 data-track="get_started_pro_plan"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >

@@ -210,7 +210,7 @@ export default function GeographicPerformancePage() {
                 <div className="text-sm font-medium text-amber-800">Geo-Location collection is disabled</div>
                 <div className="text-sm text-amber-700 mt-0.5">
                   New sessions will not collect location data. Enable geo-location in{" "}
-                  <a href="/settings" className="underline hover:text-amber-900">Configuration</a>{" "}
+                  <a href="/settings/" className="underline hover:text-amber-900">Configuration</a>{" "}
                   to start collecting geographic data for future enrollments.
                 </div>
               </div>

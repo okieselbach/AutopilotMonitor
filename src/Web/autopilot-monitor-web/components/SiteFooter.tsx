@@ -11,14 +11,14 @@ const LINK_COLUMNS = [
       { label: "Capabilities", href: "/#features", track: "capabilities" },
       { label: "Compare", href: "/#comparison", track: "compare" },
       { label: "AI analysis", href: "/ai/", track: "ai" },
-      { label: "Plans", href: "/plans", track: "plans" },
+      { label: "Plans", href: "/plans/", track: "plans" },
     ],
   },
   {
     title: "Resources",
     links: [
       { label: "Documentation", href: DOCS_URL, external: true, track: "docs" },
-      { label: "Help & Support", href: "/help", track: "help" },
+      { label: "Help & Support", href: "/help/", track: "help" },
       { label: "Feedback", href: "https://github.com/okieselbach/AutopilotMonitor/issues", external: true, track: "feedback" },
       { label: "GitHub", href: GITHUB_REPO_URL, external: true, track: "github" },
     ],
@@ -26,15 +26,15 @@ const LINK_COLUMNS = [
   {
     title: "Company",
     links: [
-      { label: "About", href: "/about", track: "about" },
+      { label: "About", href: "/about/", track: "about" },
       { label: "glueckkanja AG", href: "https://www.glueckkanja.com", external: true, track: "glueckkanja" },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Privacy Policy", href: "/privacy", track: "privacy" },
-      { label: "Terms of Use", href: "/terms", track: "terms" },
+      { label: "Privacy Policy", href: "/privacy/", track: "privacy" },
+      { label: "Terms of Use", href: "/terms/", track: "terms" },
       { label: "Imprint", href: "https://www.glueckkanja.com/en/imprint", external: true, track: "imprint" },
     ],
   },

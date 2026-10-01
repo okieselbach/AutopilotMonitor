@@ -7,7 +7,7 @@ export function FinalCta() {
         </h2>
         <div className="shrink-0 lg:text-right">
           <a
-            href="/get-started"
+            href="/get-started/"
             data-track="final_get_started"
             className="inline-block px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
           >
@@ -18,7 +18,7 @@ export function FinalCta() {
             <span className="block mt-0.5">
               Need SLAs, support, or MSP delegation?{" "}
               <a
-                href="/plans"
+                href="/plans/"
                 data-track="final_pro_plan"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >

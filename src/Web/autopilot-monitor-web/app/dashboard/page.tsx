@@ -382,7 +382,7 @@ function HomeContent() {
                   </div>
                 </div>
                 <a
-                  href="/settings"
+                  href="/settings/"
                   className="shrink-0 inline-flex items-center gap-2 bg-white text-red-700 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

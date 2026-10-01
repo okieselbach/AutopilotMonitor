@@ -25,7 +25,7 @@ export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
         />
         <span>
           I agree to the{" "}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" data-track="signup_terms" className={LINK_CLASS}>
+          <a href="/terms/" target="_blank" rel="noopener noreferrer" data-track="signup_terms" className={LINK_CLASS}>
             Terms of Use
           </a>{" "}
           and the{" "}

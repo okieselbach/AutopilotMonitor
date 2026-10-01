@@ -20,7 +20,7 @@ const NAV_LINKS = [
   { href: "/#features", label: "Capabilities", track: "capabilities" },
   { href: "/#comparison", label: "Compare", track: "compare" },
   { href: "/ai/", label: "AI", track: "ai" },
-  { href: "/plans", label: "Plans", track: "plans" },
+  { href: "/plans/", label: "Plans", track: "plans" },
   { href: DOCS_URL, label: "Docs", track: "docs", external: true },
 ];
 
