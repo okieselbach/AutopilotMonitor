@@ -207,8 +207,8 @@ public class BuiltInRulesTests
     /// Sessions 81daa77f / 75d6ae8e (2026-08-25). IME writes this line and then returns before
     /// its "Completed user session" statement, so on a device with no user-targeted Win32 apps
     /// it is the ONLY evidence that user-phase enforcement finished. The exact wording is
-    /// pinned here against the real IME line (verified against decompiled IME 1.104.102.0,
-    /// ApplicationPoller and AppWorkloadAbstraction) because a silent drift would bring back
+    /// pinned here against the real IME line (verified against IME 1.104.102.0) because a
+    /// silent drift would bring back
     /// the 30-min esp_exit_without_completion_evidence false positive with no test failing.
     /// </summary>
     [Fact]

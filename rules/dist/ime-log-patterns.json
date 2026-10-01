@@ -203,7 +203,7 @@
       "category": "currentPhase",
       "pattern": "^\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
       "action": "updateDoTelemetry",
-      "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration. IME removed the [DO TEL] emitter in 1.104 (absent in 1.104.102.0 and 1.105.103.0 decompiles, present in 1.97.107.0); kept while 1.101/1.103 devices are in the fleet — retire once those versions are gone.",
+      "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration. IME removed the [DO TEL] emitter in 1.104 (absent from the 1.104.102.0 and 1.105.103.0 builds, present in 1.97.107.0); kept while 1.101/1.103 devices are in the fleet — retire once those versions are gone.",
       "enabled": true
     },
     {
@@ -584,7 +584,7 @@
       "category": "always",
       "pattern": "^Failed to get AAD token\\..*?errorCode = (?<errorCode>.*?)$",
       "action": "imeTokenFailure",
-      "description": "IME token acquisition failure ('Failed to get AAD token. len = N using client id ... and resource id ..., errorCode = N', IntuneTokenManager, IntuneManagementExtension.log). This line appears ROUTINELY during the device phase (no user token exists yet), so the agent holds the failure pending: any IME-TOKEN-SUCCESS match clears it, and the ime_token_failure Warning fires only when no success follows for the whole 30-min grace window (then deduped to one Warning per distinct errorCode). A genuine auth outage (WAM broken, conditional access, network) runs long enough to hit the window. Verified against IME 1.97 and 1.104 decompiled sources.",
+      "description": "IME token acquisition failure ('Failed to get AAD token. len = N using client id ... and resource id ..., errorCode = N', IntuneTokenManager, IntuneManagementExtension.log). This line appears ROUTINELY during the device phase (no user token exists yet), so the agent holds the failure pending: any IME-TOKEN-SUCCESS match clears it, and the ime_token_failure Warning fires only when no success follows for the whole 30-min grace window (then deduped to one Warning per distinct errorCode). A genuine auth outage (WAM broken, conditional access, network) runs long enough to hit the window. Verified against IME 1.97 and 1.104.",
       "enabled": true
     },
     {

@@ -61,7 +61,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
         // IME AppInstallStatus values (StatusServiceReports\..\Status), stable IME 1.50 .. 1.106.
         // 1001/1003 sit inside the 1000 band but are NOT terminal — IME maps every InProgress
-        // enforcement state to 1001 (verified in the decompiled 1.106 StatusServiceHelpers).
+        // enforcement state to 1001 (verified against IME 1.106).
         [Theory]
         [InlineData(1000, "installed")]
         [InlineData(1002, "installed")]

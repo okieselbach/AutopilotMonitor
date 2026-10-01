@@ -112,7 +112,7 @@ export function SectionImePatternHealth() {
           <h3 className="text-sm font-semibold text-gray-900">Open drift alerts</h3>
           <p className="text-xs text-gray-500 mb-3">
             One <span className="font-mono">ImePatternDriftSuspected</span> ops event per version × pattern. Next step: pull a diagnostics package of a session on that IME version,
-            validate the pattern against the real log, compare with the IME decompile, fix the pattern under{" "}
+            validate the pattern against the real log, fix the pattern under{" "}
             <Link href="/ime-log-patterns" className="text-green-700 hover:text-green-800">IME Log Patterns</Link>.
           </p>
           <ul className="divide-y divide-gray-100">

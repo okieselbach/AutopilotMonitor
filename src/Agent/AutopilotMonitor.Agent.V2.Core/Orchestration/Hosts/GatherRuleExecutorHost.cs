@@ -23,7 +23,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         // V1 fired these from MonitoringService on every emitted EnrollmentEvent; the first V2
         // wiring subscribed to SignalIngress.SignalPosted instead, which fires at enqueue time
         // with the RAW collector payload — before the reducer has applied gates like the
-        // RealmJoin completion gate. Consequence (session 32312a32, rsneuffen.de): a phase_change
+        // RealmJoin completion gate. Consequence (session 32312a32): a phase_change
         // rule on FinalizingSetup fired at the raw EspPhaseChanged(FinalizingSetup) signal (ESP
         // exit / Hello wizard), 7 minutes before the engine declared phase_transition(FinalizingSetup)
         // on the timeline — and before the RealmJoin package wrote the registry key the rule was

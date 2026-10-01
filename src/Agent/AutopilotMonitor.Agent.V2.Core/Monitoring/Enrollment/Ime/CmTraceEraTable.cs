@@ -58,8 +58,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     ///   (IME service family and AgentExecutor.log: eras are byte ranges).</description></item>
     /// <item><description><see cref="TryResolveByLocalTime"/> — transfer for files written by the
     ///   SAME process as the IME service log but without their own era marker (AppWorkload.log,
-    ///   AppActionProcessor.log: plugins hosted in IntuneManagementExtension.exe, verified in the
-    ///   decompiled build). Within one process every file shares the zone belief, so a local
+    ///   AppActionProcessor.log: plugins hosted in IntuneManagementExtension.exe, verified against
+    ///   the IME build). Within one process every file shares the zone belief, so a local
     ///   timestamp places the line in the service era whose local range contains it. Disabled
     ///   entirely when the service eras' local ranges are not monotonic (a westward zone change
     ///   between two service starts makes the ranges overlap) — ambiguity must never anchor.</description></item>

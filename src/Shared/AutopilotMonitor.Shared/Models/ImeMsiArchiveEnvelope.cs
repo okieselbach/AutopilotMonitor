@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <c>EventIngestProcessor</c> when an <c>ime_agent_version</c> event carries a version
     /// the platform has never seen before (RecordImeVersionAsync insert succeeded). The
     /// worker downloads the IME installer and archives it into the <c>ime-archive</c> blob
-    /// container so every fleet-observed IME build stays available for later decompilation
+    /// container so every fleet-observed IME build stays available for later analysis
     /// and build-to-build diffing, even after Microsoft's versionless CDN URL has moved on.
     /// </summary>
     public sealed class ImeMsiArchiveEnvelope

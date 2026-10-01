@@ -809,7 +809,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'are EXPECTED (>= expectedHitRate on the baseline); and the open drift alerts (an expected pattern that ' +
         'matched in none of >= minCandidateSessions sessions on a newer version — Microsoft probably changed the log ' +
         'wording). On an alert: search_sessions with imeAgentVersion=<version> -> get_session_diagnostics on a session ' +
-        'with a package -> validate the pattern against the real IME log -> compare with the IME decompile -> fix it ' +
+        'with a package -> validate the pattern against the real IME log -> fix it ' +
         'in rules/ime-log-patterns. Only sessions that reached a terminal run report a histogram (crashes/kills are ' +
         'excluded from the denominator). catalog says where the shipped-pattern list comes from (the last GitHub ' +
         'reseed or the deployed backend build) and when it was written.',

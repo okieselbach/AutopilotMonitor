@@ -337,7 +337,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 "Launch powershell executor in machine session",
                 new[] { "context=machine" }
             };
-            // Wording from the IME decompile (ContentDownloaderDeliveryOptimization, identical 1.97–1.105).
+            // IME wording, identical from 1.97 to 1.105.
             yield return new object[]
             {
                 "IME-DO-TIMEOUT-2",

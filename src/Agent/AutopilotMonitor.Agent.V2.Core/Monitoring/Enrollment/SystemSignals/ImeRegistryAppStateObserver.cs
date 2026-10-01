@@ -360,7 +360,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 : (DateTime?)null;
         }
 
-        /// <summary>StateMessageEnforcementState bands (verified against decompiled IME 1.97/1.104).</summary>
+        /// <summary>StateMessageEnforcementState bands (verified against IME 1.97/1.104).</summary>
         internal static string ClassifyEnforcementState(int state)
         {
             if (state >= 1000 && state < 2000) return "success";

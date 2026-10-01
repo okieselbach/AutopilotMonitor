@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
     /// <summary>
     /// GatherRuleExecutorHost feeds its phase_change / phase_exit / on_event triggers from the
     /// POST-REDUCE <see cref="TimelineEventStream"/> (emitted timeline events), not from raw
-    /// signals. Regression anchor: session 32312a32 (rsneuffen.de) — a phase_change rule on
+    /// signals. Regression anchor: session 32312a32 — a phase_change rule on
     /// FinalizingSetup fired at the raw EspPhaseChanged(FinalizingSetup) signal (ESP exit),
     /// 7 minutes before the engine's RealmJoin-gated phase_transition(FinalizingSetup), and read
     /// a registry key before the RealmJoin package wrote it. With the timeline feed the rule
