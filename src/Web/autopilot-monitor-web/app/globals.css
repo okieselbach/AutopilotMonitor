@@ -49,6 +49,8 @@ html {
   --lp-warn: #d97706;
   --lp-warn-soft: rgba(217, 119, 6, 0.1);
   --lp-danger: #dc2626;
+  /* GitHub star glyph only (GitHubStarLink) — never text or a fill */
+  --lp-star: #eab308;
   /* Terminal is dark in both themes */
   --lp-term-bg: #0d1424;
   --lp-term-line: #22304a;
@@ -73,6 +75,7 @@ html {
   --lp-warn: #f5a623;
   --lp-warn-soft: rgba(245, 166, 35, 0.12);
   --lp-danger: #f87171;
+  --lp-star: #facc15;
 }
 
 body {
@@ -762,6 +765,7 @@ html.auth-pending .landing-v2::after {
   --lp-warn: #d97706;
   --lp-warn-soft: rgba(217, 119, 6, 0.1);
   --lp-danger: #dc2626;
+  --lp-star: #eab308;
 }
 
 /* Neutralize the global .dark utility overrides inside the light-only

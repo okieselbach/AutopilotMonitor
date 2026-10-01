@@ -7,6 +7,7 @@ import { Story } from "../components/landing/Story";
 import { CapabilitiesStrip } from "../components/landing/CapabilitiesStrip";
 import { Comparison } from "../components/landing/Comparison";
 import { HowItWorks } from "../components/landing/HowItWorks";
+import { Testimonials } from "../components/landing/Testimonials";
 import { FinalCta } from "../components/landing/FinalCta";
 import { SiteFooter } from "../components/SiteFooter";
 
@@ -29,6 +30,7 @@ export default function LandingPage() {
       <CapabilitiesStrip />
       <Comparison />
       <HowItWorks />
+      <Testimonials />
       <FinalCta />
       <SiteFooter />
     </div>

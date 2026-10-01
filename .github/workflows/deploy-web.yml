@@ -78,6 +78,23 @@ jobs:
         working-directory: ${{ env.WEB_DIR }}
         run: npm ci
 
+      # Star counter for the GitHub star link (utils/githubStars.ts). Baked into the static HTML
+      # so visitors' browsers never call GitHub; stale until the next web deploy. The token stays
+      # in this step, never in the build. Fail-soft: without a number the link has no counter.
+      - name: Read GitHub star count (fail-soft)
+        id: stars
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          count=$(gh api "repos/$REPO" --jq .stargazers_count 2>/dev/null || true)
+          if [[ "$count" =~ ^[0-9]+$ ]]; then
+            echo "count=$count" >> "$GITHUB_OUTPUT"
+            echo "GitHub stars: $count"
+          else
+            echo "::warning::GitHub star count unavailable - the star link renders without a counter"
+          fi
+
       # next.config output:'export' -- `next build` writes the static site to out/
       # (prebuild: sync-error-codes, generate-lastmod, generate-version, whats-new).
       - name: Build
@@ -98,6 +115,8 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           # Docs checkout for public/whats-new.json; the prebuild fails in CI without it.
           WHATS_NEW_DOCS_DIR: ${{ github.workspace }}/whats-new-docs
+          # Star counter from the step above; empty when the lookup failed.
+          NEXT_PUBLIC_GITHUB_STARS: ${{ steps.stars.outputs.count }}
         run: |
           npm run build
           test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
