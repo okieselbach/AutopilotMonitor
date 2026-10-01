@@ -33,6 +33,7 @@ export const DOCS_PATHS = {
   analyzeRules: "/rules/analyze-rules",
   gatherRules: "/rules/gather-rules",
   contributeRule: "/rules/contribute-a-rule",
+  aiRuleAuthoring: "/rules/ai-assisted-rule-authoring",
   imeLogPatterns: "/rules/ime-log-patterns",
   // Portal pages (page-header "Docs" link)
   sessionDetails: "/portal-guide/session-details-and-diagnosis",

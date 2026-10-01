@@ -10,7 +10,7 @@ interface CommunityContributionBoxProps {
   adminOnly?: boolean;
 }
 
-/** The community call-to-action on the rule pages: contribute a rule here, report bugs on GitHub. */
+/** The community call-to-action on the rule pages: contribute a rule here, report bugs on GitHub, let AI author rules via MCP. */
 export function CommunityContributionBox({ onContribute, adminOnly }: CommunityContributionBoxProps) {
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -27,6 +27,10 @@ export function CommunityContributionBox({ onContribute, adminOnly }: CommunityC
           {adminOnly && (
             <span className="block mt-1 text-blue-700">Only tenant admins can contribute rules and follow the tenant&apos;s submissions — ask an admin of your tenant to submit it.</span>
           )}
+          <span className="block mt-1">
+            <span className="font-medium">Let AI write your rules:</span>{" "}
+            an assistant connected via MCP drafts, validates and tests a rule before anything goes live (<DocsLink path={DOCS_PATHS.aiRuleAuthoring} label="AI-assisted rule authoring" />).
+          </span>
         </p>
       </div>
       {onContribute && (
