@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -14,7 +15,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
     /// The agent runs as SYSTEM, so standard environment variables like %USERPROFILE% or
     /// %LOCALAPPDATA% resolve to the SYSTEM profile — not the logged-on user. This class
     /// detects the real user via explorer.exe ownership (WTS session query, WMI fallback —
-    /// see <see cref="Interop.ProcessOwnerLookup"/>) and caches the result for the agent's lifetime.
+    /// see <see cref="Interop.ProcessOwnerLookup"/>) and caches the first user it finds for the
+    /// agent's lifetime. "No user yet" is not cached: the agent usually starts before anyone has
+    /// signed in, so detection is retried — at most every <see cref="RetryInterval"/>.
     ///
     /// Usage in paths: %LOGGED_ON_USER_PROFILE%\AppData\Local\RealmJoin\Logs\*.log
     /// </summary>
@@ -23,9 +26,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         // Spelled once, in Shared: the built-in diagnostics catalog uses the same token.
         public const string Token = Shared.Models.DiagnosticsBuiltInSections.UserProfileToken;
 
+        /// <summary>Minimum time between two detections while no user has been found.</summary>
+        internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
+
         private static readonly object Lock = new object();
-        private static bool _resolved;
-        private static string _userProfilePath; // e.g. C:\Users\JohnDoe — null if no user detected
+        private static string _userProfilePath; // e.g. C:\Users\JohnDoe — null until a user is detected
+        private static DateTime _lastFailedDetectionUtc = DateTime.MinValue;
+
+        // Seams for tests; production uses the real detection and clock.
+        private static Func<string> _detector = DetectLoggedOnUserProfile;
+        private static Func<DateTime> _utcNow = () => DateTime.UtcNow;
 
         /// <summary>
         /// Returns the logged-on user's profile path (e.g. C:\Users\JohnDoe) or null
@@ -34,17 +44,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// </summary>
         public static string GetLoggedOnUserProfilePath()
         {
-            if (_resolved)
-                return _userProfilePath;
+            var cached = Volatile.Read(ref _userProfilePath);
+            if (cached != null)
+                return cached;
 
             lock (Lock)
             {
-                if (_resolved)
+                if (_userProfilePath != null)
                     return _userProfilePath;
 
-                _userProfilePath = DetectLoggedOnUserProfile();
-                _resolved = true;
-                return _userProfilePath;
+                // A clock that stepped backwards (common during OOBE) never delays the retry.
+                var now = _utcNow();
+                var sinceLastFailure = now - _lastFailedDetectionUtc;
+                if (_lastFailedDetectionUtc != DateTime.MinValue
+                    && sinceLastFailure >= TimeSpan.Zero && sinceLastFailure < RetryInterval)
+                    return null;
+
+                var detected = _detector();
+                if (detected != null)
+                    Volatile.Write(ref _userProfilePath, detected);
+                else
+                    _lastFailedDetectionUtc = now;
+                return detected;
             }
         }
 
@@ -53,18 +74,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// Environment.ExpandEnvironmentVariables for standard tokens.
         /// Returns null if the path contains the token but no user is logged on.
         /// </summary>
-        public static string ExpandCustomTokens(string rawPath)
+        public static string ExpandCustomTokens(string rawPath) =>
+            ExpandCustomTokens(rawPath, ContainsUserProfileToken(rawPath) ? GetLoggedOnUserProfilePath() : null);
+
+        /// <summary>
+        /// Same, with the profile path the caller already resolved for its guard. Callers that
+        /// guard the expanded path must use this overload: while detection is still retrying, a
+        /// second lookup can find the user the first one missed, and the guard would then judge a
+        /// C:\Users path without the profile that admits it.
+        /// </summary>
+        public static string ExpandCustomTokens(string rawPath, string userProfilePath)
         {
             if (string.IsNullOrEmpty(rawPath))
                 return rawPath;
 
             if (rawPath.IndexOf(Token, StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                var profilePath = GetLoggedOnUserProfilePath();
-                if (profilePath == null)
+                if (userProfilePath == null)
                     return null; // No user detected — caller should skip this path
 
-                rawPath = ReplaceCaseInsensitive(rawPath, Token, profilePath);
+                rawPath = ReplaceCaseInsensitive(rawPath, Token, userProfilePath);
             }
 
             return Environment.ExpandEnvironmentVariables(rawPath);
@@ -80,26 +109,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         }
 
         /// <summary>
-        /// Resets the cached state. Only used for testing.
+        /// Resets the cached state and the seams. Only used for testing.
         /// </summary>
         internal static void Reset()
         {
             lock (Lock)
             {
-                _resolved = false;
                 _userProfilePath = null;
+                _lastFailedDetectionUtc = DateTime.MinValue;
+                _detector = DetectLoggedOnUserProfile;
+                _utcNow = () => DateTime.UtcNow;
             }
         }
 
         /// <summary>
-        /// Allows tests to inject a specific profile path without WMI.
+        /// Allows tests to inject a specific profile path without WMI. Null pins "no user signed in"
+        /// — detection keeps answering null instead of finding the developer's own session.
         /// </summary>
         internal static void SetForTesting(string profilePath)
         {
+            SetDetectorForTesting(() => profilePath, () => DateTime.UtcNow);
+        }
+
+        /// <summary>Replaces detection and clock, clearing what was cached. Only used for testing.</summary>
+        internal static void SetDetectorForTesting(Func<string> detector, Func<DateTime> utcNow)
+        {
             lock (Lock)
             {
-                _userProfilePath = profilePath;
-                _resolved = true;
+                _userProfilePath = null;
+                _lastFailedDetectionUtc = DateTime.MinValue;
+                _detector = detector ?? throw new ArgumentNullException(nameof(detector));
+                _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
             }
         }
 

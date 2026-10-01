@@ -41,15 +41,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         }
 
         private GatherRuleContext Context(bool unrestricted = false, string? imeLogPathOverride = null)
-            => new GatherRuleContext(
-                new AgentLogger(_tmp.Path, AgentLogLevel.Info),
+        {
+            var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
+            return new GatherRuleContext(
+                logger,
                 "sess", "tenant",
                 evt => _events.Add(evt),
                 imeLogPathOverride,
-                new LogFilePositionTracker())
+                new GatherRuleSessionState("sess", null, logger))
             {
                 UnrestrictedMode = unrestricted
             };
+        }
 
         private static GatherRule Rule(string collectorType, string target,
             Dictionary<string, string>? parameters = null) => new GatherRule

@@ -19,6 +19,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
     /// completion markers (whiteglove.complete, clean-exit) — V1 sessions had only AgentLogs/
     /// and ImeLogs/, which left forensics blind to decision-engine state and pending uploads.
     /// </summary>
+    [Collection(UserProfileResolverCollection.Name)] // replaces UserProfileResolver's static state
     public sealed class DiagnosticsPackageServiceTests
     {
         private static AgentConfiguration Cfg(string sessionId = "S1") => new AgentConfiguration

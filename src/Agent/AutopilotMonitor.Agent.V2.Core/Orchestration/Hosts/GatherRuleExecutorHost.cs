@@ -47,7 +47,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string? imeLogPathOverride,
             bool unrestrictedMode = false,
             string? gatherDebugLogPath = null,
-            TimelineEventStream? timelineEvents = null)
+            TimelineEventStream? timelineEvents = null,
+            string? stateDirectory = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -66,7 +67,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             var post = new InformationalEventPost(ingress, clock, logger);
             _executor = new Monitoring.Telemetry.Gather.GatherRuleExecutor(
                 sessionId, tenantId, evt => post.Emit(evt), logger, imeLogPathOverride,
-                debugLogPath: gatherDebugLogPath);
+                debugLogPath: gatherDebugLogPath, stateDirectory: stateDirectory);
             _timelineEvents = timelineEvents;
         }
 

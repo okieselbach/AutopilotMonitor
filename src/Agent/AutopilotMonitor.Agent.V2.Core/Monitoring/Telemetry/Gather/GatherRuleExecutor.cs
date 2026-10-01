@@ -10,7 +10,6 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
-using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
@@ -38,6 +37,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         private readonly AgentLogger _logger;
         private readonly GatherRuleDebugLog _debug;   // null unless EnableGatherRuleDebugLog / --gather-debug-log
+        private readonly GatherRuleSessionState _state;
         private readonly GatherRuleContext _context;
         private readonly Dictionary<string, IGatherRuleCollector> _collectors;
 
@@ -50,12 +50,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         // Phase-scope + emit-mode state (ActivePhases / ActiveFromPhase / EmitMode on GatherRule).
         // Guarded by _scopeLock; collector work always runs outside the lock. The state deliberately
-        // survives UpdateRules config refreshes — an agent restart causes at most one re-emit per
-        // on_change rule (acceptable under the per-enrollment lifecycle).
+        // survives UpdateRules config refreshes. Across agent restarts only the last emitted hash
+        // survives: it is seeded from _state and committed there after each emit, so an unchanged
+        // on_change result stays silent after a reboot. Phase latches, dedup sets and the
+        // suppression streak are process-scoped.
         private readonly object _scopeLock = new object();
         private EnrollmentPhase _currentPhase = EnrollmentPhase.Unknown;
         private readonly HashSet<string> _fromPhaseLatched = new HashSet<string>();
         private readonly Dictionary<string, string> _lastEmittedHash = new Dictionary<string, string>();
+        private readonly HashSet<string> _hashFromPreviousRun = new HashSet<string>();
         private readonly Dictionary<string, (int Count, DateTime SinceUtc)> _suppressed =
             new Dictionary<string, (int Count, DateTime SinceUtc)>();
         private readonly HashSet<string> _scopeBypassLogged = new HashSet<string>();
@@ -77,9 +80,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             set { _context.UnrestrictedMode = value; }
         }
 
+        /// <param name="stateDirectory">
+        /// Where logparser positions and on_change values are kept across agent restarts. Null keeps
+        /// them in memory — required for <c>--run-gather-rules</c>, which runs beside the live agent
+        /// under a throwaway session id and must not overwrite the session's file.
+        /// </param>
         public GatherRuleExecutor(string sessionId, string tenantId, Action<EnrollmentEvent> onEventCollected,
             AgentLogger logger, string imeLogPathOverride = null, string debugLogPath = null,
-            Action<string> debugEcho = null)
+            Action<string> debugEcho = null, string stateDirectory = null)
         {
             if (sessionId == null) throw new ArgumentNullException(nameof(sessionId));
             if (tenantId == null) throw new ArgumentNullException(nameof(tenantId));
@@ -89,8 +97,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             _logger = logger;
             _debug = string.IsNullOrEmpty(debugLogPath) ? null : new GatherRuleDebugLog(debugLogPath, logger, debugEcho);
 
-            var filePositionTracker = new LogFilePositionTracker();
-            _context = new GatherRuleContext(logger, sessionId, tenantId, onEventCollected, imeLogPathOverride, filePositionTracker, _debug);
+            var persistence = string.IsNullOrEmpty(stateDirectory) ? null : new GatherRuleStatePersistence(stateDirectory, logger);
+            _state = new GatherRuleSessionState(sessionId, persistence, logger);
+            _context = new GatherRuleContext(logger, sessionId, tenantId, onEventCollected, imeLogPathOverride, _state, _debug);
+
+            foreach (var hash in _state.GetEmittedHashes())
+            {
+                _lastEmittedHash[hash.Key] = hash.Value;
+                _hashFromPreviousRun.Add(hash.Key);
+            }
+            _logger.Info($"GatherRuleExecutor: gather state {_state.RestoreSummary}");
+            DebugLog(null, GatherRuleDebugLog.StageConfig, $"gather state: {_state.RestoreSummary}");
+            foreach (var detail in _state.RestoredDetails)
+                DebugLog(detail.Key, GatherRuleDebugLog.StageConfig, detail.Value);
 
             // Register all collector strategies
             var collectorList = new IGatherRuleCollector[]
@@ -480,14 +499,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     // empty result never reaches this point, so an emitOnlyIfExists miss neither
                     // emits nor updates the hash — composing to "one event on appearance, then
                     // only on change".
+                    string emittedHash = null;
                     if (IsOnChangeMode(rule))
                     {
                         string hashPrefix;
                         int suppressedStreak;
-                        if (!ShouldEmitOnChange(rule, result, out hashPrefix, out suppressedStreak))
+                        bool comparedWithPreviousRun;
+                        if (!ShouldEmitOnChange(rule, result, out emittedHash, out hashPrefix, out suppressedStreak, out comparedWithPreviousRun))
                         {
                             DebugLog(rule.RuleId, GatherRuleDebugLog.StageSuppress,
-                                $"result unchanged (hash {hashPrefix}) — emit suppressed (on_change), suppressed streak={suppressedStreak}");
+                                $"result unchanged (hash {hashPrefix}) — emit suppressed (on_change), suppressed streak={suppressedStreak}" +
+                                (comparedWithPreviousRun ? "; compared with the value a previous agent run emitted" : ""));
                             return;
                         }
                         DebugLog(rule.RuleId, GatherRuleDebugLog.StageEmit,
@@ -524,6 +546,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         Message = $"Gather: {rule.Title}",
                         Data = result
                     });
+
+                    // Committed only after the event went out: a process that dies in between emits
+                    // the result once more after the restart instead of never.
+                    if (emittedHash != null)
+                        _state.CommitEmittedHash(rule.RuleId, emittedHash);
+
                     DebugLog(rule.RuleId, GatherRuleDebugLog.StageEmit,
                         $"emitted {eventType} (severity={severity}, {result.Count} fields)");
                 }
@@ -679,9 +707,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         internal bool ShouldEmitOnChange(GatherRule rule, Dictionary<string, object> result,
             out string hashPrefix, out int suppressedStreak)
         {
-            var hash = ComputeCanonicalHash(result);
+            string hash;
+            bool comparedWithPreviousRun;
+            return ShouldEmitOnChange(rule, result, out hash, out hashPrefix, out suppressedStreak, out comparedWithPreviousRun);
+        }
+
+        /// <summary>
+        /// Full form: <paramref name="hash"/> is the result's canonical hash, committed to the session
+        /// state once the event went out; <paramref name="comparedWithPreviousRun"/> says a suppression
+        /// compared against the value a previous agent run emitted.
+        /// </summary>
+        private bool ShouldEmitOnChange(GatherRule rule, Dictionary<string, object> result,
+            out string hash, out string hashPrefix, out int suppressedStreak, out bool comparedWithPreviousRun)
+        {
+            hash = ComputeCanonicalHash(result);
             hashPrefix = hash.Length > 8 ? hash.Substring(0, 8) : hash;
             suppressedStreak = 0;
+            comparedWithPreviousRun = false;
             bool emit;
             lock (_scopeLock)
             {
@@ -693,11 +735,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         ? (streak.Count + 1, streak.SinceUtc)
                         : (1, DateTime.UtcNow);
                     suppressedStreak = _suppressed[rule.RuleId].Count;
+                    comparedWithPreviousRun = _hashFromPreviousRun.Contains(rule.RuleId);
                     emit = false;
                 }
                 else
                 {
                     _lastEmittedHash[rule.RuleId] = hash;
+                    _hashFromPreviousRun.Remove(rule.RuleId);
                     (int Count, DateTime SinceUtc) streak;
                     if (_suppressed.TryGetValue(rule.RuleId, out streak) && streak.Count > 0)
                     {
@@ -820,6 +864,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             StopAllTimers();
             _startupRulesLatch?.Dispose();
             _startupRulesLatch = null;
+            // A rule still finishing on a pool thread keeps its in-memory state but no longer writes:
+            // the agent may be removing its own folder right now.
+            _state.Close();
         }
     }
 }

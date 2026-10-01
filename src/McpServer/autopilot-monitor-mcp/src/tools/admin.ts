@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
+import { getResourceContent, withEventTypeNote, RESOURCE_NAMES } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
@@ -1473,8 +1473,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'PartitionKey/RowKey/Timestamp. Deliberately unenriched: DataJson is the raw stored string (not parsed), ' +
         'Severity/Phase are raw ints, no decoded error meanings; for the enriched stream use get_session_events or ' +
         'search_events. Use it when search_events does not cover the time range or session scope, or for exact ' +
-        'event-type filtering across many sessions. eventType is validated against the event_types catalog (a typo ' +
-        'is rejected, not an empty result). With a filter the tool auto-scans past empty pages: "count": 0 without ' +
+        'event-type filtering across many sessions. eventType may also be a gather rule\'s own outputEventType; an empty ' +
+        'first-page result for a type outside the event_types catalog carries eventTypeNote with the closest built-in ' +
+        'types. With a filter the tool auto-scans past empty pages: "count": 0 without ' +
         'nextLink means no matches; "moreToScan": true means the per-call scan budget was hit — continue with nextLink. ' +
         'pageSize is the index-scan cadence (one indexed session can contribute several events, so a page may hold ' +
         'more than pageSize). A page that ends early carries "partial": true — nothing is missing up to its nextLink. ' +
@@ -1513,7 +1514,6 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // Default projection follows intent — see leanFieldSelection (DataJson is the raw payload column).
         const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, targeted, LEAN_RAW_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
-        if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
         const path = followNextLink(
           basePath,
@@ -1526,7 +1526,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // forward so the model isn't misled by an empty-but-continuable page. The server
         // bounds each page by its own scan budget; should a call still time out, retry once
         // with a halved pageSize on the same cursor instead of failing identically twice.
-        const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
+        const data = withEventTypeNote(
+          await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation)),
+          eventType,
+          !continuation && !severity && !source && !startedAfter && !startedBefore,
+        );
         // Announce the omission in-band so a reader of the result knows DataJson exists and how to get it.
         return toolResultText(leanDefaultApplied ? { ...data, ...LEAN_RAW_EVENT_OMISSION } : data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {

@@ -4,9 +4,9 @@ using System.Collections.Generic;
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 {
     /// <summary>
-    /// Tracks file read positions for incremental log file reading.
-    /// In-memory only - resets on agent restart, which is acceptable since
-    /// we start fresh per enrollment session.
+    /// Tracks the IME log tracker's file read positions for incremental log file reading.
+    /// The bookmarks survive agent restarts through the tracker's own state file
+    /// (<see cref="GetAllPositions"/> / <see cref="RestorePosition"/>); the freshness timestamps do not.
     /// </summary>
     public class LogFilePositionTracker
     {

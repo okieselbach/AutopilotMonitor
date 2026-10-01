@@ -736,7 +736,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     imeLogPathOverride: _agentConfig.ImeLogPathOverride,
                     unrestrictedMode: _agentConfig.UnrestrictedMode,
                     gatherDebugLogPath: _agentConfig.GatherRuleDebugLogPath,
-                    timelineEvents: timelineEvents));
+                    timelineEvents: timelineEvents,
+                    stateDirectory: _stateDirectory));
             }
             else if (!string.IsNullOrEmpty(_agentConfig.GatherRuleDebugLogPath))
             {

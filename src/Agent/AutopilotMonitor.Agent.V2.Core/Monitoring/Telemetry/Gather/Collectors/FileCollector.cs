@@ -23,7 +23,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             // Expand custom tokens (%LOGGED_ON_USER_PROFILE%) and standard environment variables
             var userProfilePath = UserProfileResolver.ContainsUserProfileToken(filePath)
                 ? UserProfileResolver.GetLoggedOnUserProfilePath() : null;
-            filePath = UserProfileResolver.ExpandCustomTokens(filePath);
+            filePath = UserProfileResolver.ExpandCustomTokens(filePath, userProfilePath);
             if (filePath == null)
                 return data; // Token present but no user logged on — skip silently
 

@@ -37,7 +37,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
                 logger, "sess", "tenant",
                 evt => _events.Add(evt),
                 null,
-                new LogFilePositionTracker(),
+                new GatherRuleSessionState("sess", null, logger),
                 new GatherRuleDebugLog(_debugLogPath, logger))
             {
                 UnrestrictedMode = true

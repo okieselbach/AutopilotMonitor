@@ -10,9 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { scanUntilMatch } from '../client.js';
 import {
   isKnownEventType,
-  isGatherOutputEventType,
-  isFilterableEventType,
-  assertKnownEventType,
+  withEventTypeNote,
   assertKnownDevicePropertyKeys,
   eventTypePrefixOf,
   ALL_DEVICE_PROPERTY_KEYS,
@@ -146,50 +144,59 @@ describe('scanUntilMatch', () => {
   });
 });
 
-describe('event-type validation', () => {
-  it('accepts known event types', () => {
+describe('event-type filter', () => {
+  it('keeps isKnownEventType strict: built-in types only', () => {
     expect(isKnownEventType('app_install_failed')).toBe(true);
-    expect(isKnownEventType('enrollment_failed')).toBe(true);
-    expect(() => assertKnownEventType('app_install_failed')).not.toThrow();
-  });
-
-  it('rejects an unknown event type with a helpful, suggestion-bearing error', () => {
-    expect(isKnownEventType('made_up_type')).toBe(false);
-    expect(() => assertKnownEventType('app_install_fialed')).toThrow(/event_types catalog/);
-    // "app_install_fialed" shares the "app" token → at least one suggestion surfaces.
-    expect(() => assertKnownEventType('app_install_fialed')).toThrow(/Did you mean/);
-  });
-
-  it('accepts the hybrid user-affinity types added to the catalog', () => {
+    expect(isKnownEventType('gather_result')).toBe(true);
     for (const t of ['desktop_real_user_detected', 'desktop_excluded_user', 'ime_user_token_acquired', 'entra_user_affinity_pending', 'device_registration_event']) {
       expect(isKnownEventType(t), t).toBe(true);
-      expect(() => assertKnownEventType(t)).not.toThrow();
     }
-  });
-
-  it('lets gather-rule output types through the filter gate without cataloguing them', () => {
-    // Built-in and tenant-authored outputEventType values are rule data, never catalogued.
-    for (const t of ['gather_dsregcmd_status', 'gather_custom_anything']) {
-      expect(isGatherOutputEventType(t), t).toBe(true);
-      expect(isFilterableEventType(t), t).toBe(true);
-      expect(() => assertKnownEventType(t)).not.toThrow();
-      // The strict predicate stays strict: rule-validation uses it as "is a built-in type".
+    // Gather-rule output types are rule data, never catalogued — rule-validation relies on this.
+    for (const t of ['gather_dsregcmd_status', 'HPiA-UpdateStatus', 'made_up_type']) {
       expect(isKnownEventType(t), t).toBe(false);
     }
-    // Catalogued code-emitted gather_* lifecycle types are known AND filterable.
-    expect(isKnownEventType('gather_result')).toBe(true);
-    expect(isFilterableEventType('gather_result')).toBe(true);
   });
 
-  it('requires a non-empty suffix after the gather_ prefix', () => {
-    expect(isGatherOutputEventType('gather_')).toBe(false);
-    expect(isFilterableEventType('gather_')).toBe(false);
-    expect(() => assertKnownEventType('gather_')).toThrow(/event_types catalog/);
+  it('passes a result for a built-in type through unchanged, even when empty', () => {
+    const empty = { success: true, count: 0, events: [] };
+    expect(withEventTypeNote(empty, 'app_install_failed', true)).toBe(empty);
   });
 
-  it('still rejects a typo that only resembles the gather_ prefix', () => {
-    expect(isFilterableEventType('gathre_dsregcmd_status')).toBe(false);
-    expect(() => assertKnownEventType('gathre_dsregcmd_status')).toThrow(/Unknown eventType "gathre_dsregcmd_status" — it is not in the event_types catalog/);
+  it('passes events of a gather rule\'s own type through unchanged, whatever its spelling', () => {
+    // Regression anchor: "HPiA-UpdateStatus" was rejected because it is neither catalogued nor gather_-prefixed.
+    for (const t of ['HPiA-UpdateStatus', 'CustomNetworkStatus', 'gather_dsregcmd_status']) {
+      const page = { success: true, count: 1, events: [{ eventType: t }] };
+      expect(withEventTypeNote(page, t, true), t).toBe(page);
+    }
+  });
+
+  it('marks an exhausted empty result for an uncatalogued type and names close built-in types', () => {
+    const res = withEventTypeNote({ success: true, count: 0, events: [] }, 'app_install_fialed', true);
+
+    expect(res.eventTypeNote).toMatch(/"app_install_fialed" is not a built-in event type and no event of it was found/);
+    // "app_install_fialed" shares the "app" token → at least one suggestion surfaces.
+    expect(res.eventTypeNote).toMatch(/Closest built-in types: .*app_/);
+  });
+
+  it('leaves a page alone that is not the final answer yet', () => {
+    expect(withEventTypeNote({ count: 0, events: [], nextLink: '/x?continuation=t' }, 'custom', true).eventTypeNote).toBeUndefined();
+    expect(withEventTypeNote({ count: 0, events: [], moreToScan: true }, 'custom', true).eventTypeNote).toBeUndefined();
+  });
+
+  it('stays silent when the type was not the only filter of a first call', () => {
+    // Another filter (severity, source, time) or an earlier page of the sweep may explain the
+    // emptiness — blaming the type would steer the reader towards a typo that is not there.
+    expect(withEventTypeNote({ count: 0, events: [] }, 'HPiA-UpdateStatus', false).eventTypeNote).toBeUndefined();
+  });
+
+  it('recognises the sessions[] shape of search_sessions_by_event', () => {
+    expect(withEventTypeNote({ success: true, count: 0, sessions: [] }, 'HPiA-UpdateStatus', true).eventTypeNote)
+      .toMatch(/not a built-in event type/);
+  });
+
+  it('does nothing without an eventType filter', () => {
+    const empty = { count: 0, events: [] };
+    expect(withEventTypeNote(empty, undefined, true)).toBe(empty);
   });
 });
 

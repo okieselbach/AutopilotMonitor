@@ -18,6 +18,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
     {
         public string CollectorType => "logparser";
 
+        /// <summary>A wildcard target reads at most this many files per run, the newest first.</summary>
+        internal const int MaxFilesPerRun = 20;
+
+        /// <summary>Lines one run reads from one file unless the rule sets <c>maxLines</c>.</summary>
+        internal const int DefaultMaxLines = 1000;
+
+        /// <summary>The IME tracker's line bound: a longer physical line is skipped, never matched.</summary>
+        internal const int MaxLineBytes = 32 * 1024 * 1024;
+
         /// <summary>
         /// Executes the log parser rule. Returns null because logparser emits events directly
         /// via context.OnEventCollected rather than returning a single result dictionary.
@@ -34,7 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             // Expand custom tokens (%LOGGED_ON_USER_PROFILE%) and standard environment variables
             var userProfilePath = UserProfileResolver.ContainsUserProfileToken(filePath)
                 ? UserProfileResolver.GetLoggedOnUserProfilePath() : null;
-            filePath = UserProfileResolver.ExpandCustomTokens(filePath);
+            filePath = UserProfileResolver.ExpandCustomTokens(filePath, userProfilePath);
             if (filePath == null)
             {
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
@@ -84,10 +93,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             if (rule.Parameters.TryGetValue("trackPosition", out trackPositionStr))
                 bool.TryParse(trackPositionStr, out trackPosition);
 
+            // A value that is no positive number keeps the default: a run capped at 0 lines would
+            // never advance its position, and the rule would read nothing for the whole session.
             string maxLinesStr;
-            int maxLines = 1000;
+            int maxLines = DefaultMaxLines;
             if (rule.Parameters.TryGetValue("maxLines", out maxLinesStr))
-                int.TryParse(maxLinesStr, out maxLines);
+            {
+                int parsedMaxLines;
+                if (int.TryParse(maxLinesStr, out parsedMaxLines) && parsedMaxLines > 0)
+                    maxLines = parsedMaxLines;
+                else
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"maxLines '{maxLinesStr}' is not a positive number — using {DefaultMaxLines}");
+            }
 
             // Determine format: "cmtrace" (default) or "text" for plain text logs
             string formatStr;
@@ -144,7 +162,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
         /// as the event data). Stops after <see cref="MaxTracedMatchesPerFile"/> matches.
         /// </summary>
         private static void TraceMatch(GatherRuleContext context, GatherRule rule, string fileName,
-            int lineNumber, Match match, Regex pattern, int matchNumber)
+            long lineNumber, Match match, Regex pattern, int matchNumber)
         {
             if (matchNumber > MaxTracedMatchesPerFile)
             {
@@ -195,14 +213,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
             try
             {
-                // Return matched files sorted by last write time (newest first), capped at 20
+                // Return matched files sorted by last write time (newest first), capped at MaxFilesPerRun
                 var allMatches = Directory.GetFiles(directory, fileNamePart);
-                if (allMatches.Length > 20)
+                if (allMatches.Length > MaxFilesPerRun)
                     context.DebugLog(ruleId, GatherRuleDebugLog.StageLogParser,
-                        $"wildcard matched {allMatches.Length} files — capped to the 20 newest");
+                        $"wildcard matched {allMatches.Length} files — capped to the {MaxFilesPerRun} newest");
                 return allMatches
                     .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
-                    .Take(20)
+                    .Take(MaxFilesPerRun)
                     .ToList();
             }
             catch (Exception ex)
@@ -216,183 +234,248 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
         private static void ProcessLogFile(string filePath, GatherRule rule, Regex pattern,
             bool trackPosition, int maxLines, bool isTextMode, GatherRuleContext context)
         {
+            var fileName = Path.GetFileName(filePath);
             try
             {
-                var fileInfo = new FileInfo(filePath);
-                long startPosition = trackPosition
-                    ? context.FilePositionTracker.GetSafePosition(filePath, fileInfo.Length)
-                    : 0;
+                var state = context.SessionState;
+                var known = trackPosition ? state.PeekLogPosition(rule.RuleId, filePath) : null;
 
-                // Nothing new to read
-                if (startPosition >= fileInfo.Length)
+                // Nothing new since the last run — decided from the length alone, without opening the file.
+                var length = new FileInfo(filePath).Length;
+                if (known != null && known.Position == length)
                 {
                     context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
-                        $"{Path.GetFileName(filePath)}: no new content (position {startPosition} >= length {fileInfo.Length}) — trackPosition=true, nothing re-read");
+                        $"{fileName}: no new content (position {known.Position} >= length {length}) — trackPosition=true, nothing re-read" +
+                        (known.FromPreviousRun ? "; position saved by a previous agent run" : ""));
                     return;
                 }
 
+                // A last line without a line end is usually one its writer is still in. An interval
+                // rule leaves it for its next run, once. A one-shot trigger may have no next run, so it
+                // reads the line now but saves the position before it: the next run reads it again,
+                // whole — at worst a match repeats, it is never split.
+                var isInterval = string.Equals(rule.Trigger, "interval", StringComparison.OrdinalIgnoreCase);
+                var mayHoldTail = trackPosition && isInterval;
+                var tailReadAgainNextRun = false;
+
                 int matchCount = 0;
                 int linesRead = 0;
+                int committedLines = 0;
                 int parseFailCount = 0;
                 int timeoutCount = 0;
-                long endPosition = startPosition;
+                int oversizedCount = 0;
+                long startPosition;
+                long endPosition;
+                long lineNumberBase;
+                long fileLength;
+                long heldTailStart = -1;
+                LogFileHead head;
+                LogTextEncoding encoding;
 
                 using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
+                    fileLength = stream.Length;
+                    head = LogFileHead.Read(stream);
+                    encoding = head.Encoding;
+
+                    LogReadStart start;
+                    startPosition = encoding.AlignDown(GatherRuleSessionState.ResolveStart(known, fileLength, head, out start));
+                    lineNumberBase = start == LogReadStart.Continue ? known.LineNumber : 0;
+                    TraceReadStart(context, rule, fileName, known, start, fileLength);
+
                     stream.Seek(startPosition, SeekOrigin.Begin);
+                    var reader = new LogLineReader(stream, encoding, MaxLineBytes);
+                    endPosition = startPosition;
 
-                    using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    while (linesRead < maxLines)
                     {
-                        string line;
-                        while ((line = reader.ReadLine()) != null && linesRead < maxLines)
+                        var line = reader.ReadLine();
+                        if (line == null)
                         {
-                            linesRead++;
-
-                            if (isTextMode)
-                            {
-                                // Text mode: match regex directly against the raw line
-                                Match match;
-                                try
-                                {
-                                    match = pattern.Match(line);
-                                }
-                                catch (RegexMatchTimeoutException)
-                                {
-                                    timeoutCount++;
-                                    continue;
-                                }
-                                if (!match.Success)
-                                    continue;
-
-                                var data = new Dictionary<string, object>();
-                                foreach (var groupName in pattern.GetGroupNames())
-                                {
-                                    if (groupName == "0") continue;
-                                    var group = match.Groups[groupName];
-                                    if (group.Success)
-                                        data[groupName] = group.Value;
-                                }
-
-                                data["logLine"] = TruncateMessage(line, 500);
-                                data["logLineNumber"] = linesRead;
-                                data["logFile"] = Path.GetFileName(filePath);
-                                data["ruleId"] = rule.RuleId;
-                                data["ruleTitle"] = rule.Title;
-                                GatherRuleExecutor.StampRuleMarkers(rule, data);
-
-                                var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
-                                    ? rule.OutputEventType
-                                    : "logparser_match";
-                                var severity = GatherRuleContext.ParseSeverity(rule.OutputSeverity);
-
-                                context.OnEventCollected(new EnrollmentEvent
-                                {
-                                    SessionId = context.SessionId,
-                                    TenantId = context.TenantId,
-                                    Timestamp = DateTime.UtcNow,
-                                    EventType = eventType,
-                                    Severity = severity,
-                                    Source = GatherRuleExecutor.SourceName,
-                                    Message = $"Gather: {rule.Title}",
-                                    Data = data
-                                });
-
-                                matchCount++;
-                                TraceMatch(context, rule, Path.GetFileName(filePath), linesRead, match, pattern, matchCount);
-                            }
-                            else
-                            {
-                                // CMTrace mode: parse line as CMTrace format, match regex against message
-                                CmTraceLogEntry entry;
-                                if (!CmTraceLogParser.TryParseLine(line, out entry))
-                                {
-                                    parseFailCount++;
-                                    continue;
-                                }
-
-                                Match match;
-                                try
-                                {
-                                    match = pattern.Match(entry.Message);
-                                }
-                                catch (RegexMatchTimeoutException)
-                                {
-                                    timeoutCount++;
-                                    continue;
-                                }
-                                if (!match.Success)
-                                    continue;
-
-                                var data = new Dictionary<string, object>();
-                                foreach (var groupName in pattern.GetGroupNames())
-                                {
-                                    if (groupName == "0") continue;
-                                    var group = match.Groups[groupName];
-                                    if (group.Success)
-                                        data[groupName] = group.Value;
-                                }
-
-                                // Gather-rule logs are arbitrary files this collector does not
-                                // tail, so no writer offset can be measured for them; the
-                                // reader-zone fallback carries its known defect (see
-                                // ResolveUtcAssumingReaderZone). Behaviour unchanged from before
-                                // the parser split.
-                                var entryUtc = entry.TimestampUtc
-                                    ?? (entry.HasTimestamp
-                                        ? CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp)
-                                        : DateTime.UtcNow);
-                                data["logTimestamp"] = entryUtc.ToString("o");
-                                data["logComponent"] = entry.Component;
-                                data["logType"] = entry.Type;
-                                data["logMessage"] = TruncateMessage(entry.Message, 500);
-                                data["logFile"] = Path.GetFileName(filePath);
-                                data["ruleId"] = rule.RuleId;
-                                data["ruleTitle"] = rule.Title;
-                                GatherRuleExecutor.StampRuleMarkers(rule, data);
-
-                                var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
-                                    ? rule.OutputEventType
-                                    : "logparser_match";
-                                var severity = MapCmTraceTypeToSeverity(entry.Type, rule.OutputSeverity);
-
-                                context.OnEventCollected(new EnrollmentEvent
-                                {
-                                    SessionId = context.SessionId,
-                                    TenantId = context.TenantId,
-                                    Timestamp = entryUtc,
-                                    EventType = eventType,
-                                    Severity = severity,
-                                    Source = GatherRuleExecutor.SourceName,
-                                    Message = $"Gather: {rule.Title}",
-                                    Data = data
-                                });
-
-                                matchCount++;
-                                TraceMatch(context, rule, Path.GetFileName(filePath), linesRead, match, pattern, matchCount);
-                            }
+                            // End of file. A "\n" the reader skipped behind the "\r" the previous run
+                            // ended on is consumed too — unless a kept tail must be read again.
+                            if (!tailReadAgainNextRun)
+                                endPosition = reader.Position;
+                            break;
                         }
 
-                        // Capture the final stream position after reading
-                        endPosition = stream.Position;
+                        var unfinished = !reader.LastLineTerminated;
+                        if (unfinished && mayHoldTail
+                            && (known == null || known.HeldTailStart != reader.LastLineStart))
+                        {
+                            heldTailStart = reader.LastLineStart;
+                            break;
+                        }
+
+                        linesRead++;
+                        var lineNumber = lineNumberBase + linesRead;
+                        if (unfinished && trackPosition && !isInterval)
+                        {
+                            tailReadAgainNextRun = true;
+                        }
+                        else
+                        {
+                            endPosition = reader.Position;
+                            committedLines = linesRead;
+                        }
+
+                        if (reader.LastLineTruncated)
+                        {
+                            oversizedCount++;
+                            continue;
+                        }
+
+                        if (isTextMode)
+                        {
+                            // Text mode: match regex directly against the raw line
+                            Match match;
+                            try
+                            {
+                                match = pattern.Match(line);
+                            }
+                            catch (RegexMatchTimeoutException)
+                            {
+                                timeoutCount++;
+                                continue;
+                            }
+                            if (!match.Success)
+                                continue;
+
+                            var data = new Dictionary<string, object>();
+                            foreach (var groupName in pattern.GetGroupNames())
+                            {
+                                if (groupName == "0") continue;
+                                var group = match.Groups[groupName];
+                                if (group.Success)
+                                    data[groupName] = group.Value;
+                            }
+
+                            data["logLine"] = TruncateMessage(line, 500);
+                            data["logLineNumber"] = lineNumber;
+                            data["logFile"] = fileName;
+                            data["ruleId"] = rule.RuleId;
+                            data["ruleTitle"] = rule.Title;
+                            GatherRuleExecutor.StampRuleMarkers(rule, data);
+
+                            var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
+                                ? rule.OutputEventType
+                                : "logparser_match";
+                            var severity = GatherRuleContext.ParseSeverity(rule.OutputSeverity);
+
+                            context.OnEventCollected(new EnrollmentEvent
+                            {
+                                SessionId = context.SessionId,
+                                TenantId = context.TenantId,
+                                Timestamp = DateTime.UtcNow,
+                                EventType = eventType,
+                                Severity = severity,
+                                Source = GatherRuleExecutor.SourceName,
+                                Message = $"Gather: {rule.Title}",
+                                Data = data
+                            });
+
+                            matchCount++;
+                            TraceMatch(context, rule, fileName, lineNumber, match, pattern, matchCount);
+                        }
+                        else
+                        {
+                            // CMTrace mode: parse line as CMTrace format, match regex against message
+                            CmTraceLogEntry entry;
+                            if (!CmTraceLogParser.TryParseLine(line, out entry))
+                            {
+                                parseFailCount++;
+                                continue;
+                            }
+
+                            Match match;
+                            try
+                            {
+                                match = pattern.Match(entry.Message);
+                            }
+                            catch (RegexMatchTimeoutException)
+                            {
+                                timeoutCount++;
+                                continue;
+                            }
+                            if (!match.Success)
+                                continue;
+
+                            var data = new Dictionary<string, object>();
+                            foreach (var groupName in pattern.GetGroupNames())
+                            {
+                                if (groupName == "0") continue;
+                                var group = match.Groups[groupName];
+                                if (group.Success)
+                                    data[groupName] = group.Value;
+                            }
+
+                            // Gather-rule logs are arbitrary files this collector does not
+                            // tail, so no writer offset can be measured for them; the
+                            // reader-zone fallback carries its known defect (see
+                            // ResolveUtcAssumingReaderZone). Behaviour unchanged from before
+                            // the parser split.
+                            var entryUtc = entry.TimestampUtc
+                                ?? (entry.HasTimestamp
+                                    ? CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp)
+                                    : DateTime.UtcNow);
+                            data["logTimestamp"] = entryUtc.ToString("o");
+                            data["logComponent"] = entry.Component;
+                            data["logType"] = entry.Type;
+                            data["logMessage"] = TruncateMessage(entry.Message, 500);
+                            data["logFile"] = fileName;
+                            data["ruleId"] = rule.RuleId;
+                            data["ruleTitle"] = rule.Title;
+                            GatherRuleExecutor.StampRuleMarkers(rule, data);
+
+                            var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
+                                ? rule.OutputEventType
+                                : "logparser_match";
+                            var severity = MapCmTraceTypeToSeverity(entry.Type, rule.OutputSeverity);
+
+                            context.OnEventCollected(new EnrollmentEvent
+                            {
+                                SessionId = context.SessionId,
+                                TenantId = context.TenantId,
+                                Timestamp = entryUtc,
+                                EventType = eventType,
+                                Severity = severity,
+                                Source = GatherRuleExecutor.SourceName,
+                                Message = $"Gather: {rule.Title}",
+                                Data = data
+                            });
+
+                            matchCount++;
+                            TraceMatch(context, rule, fileName, lineNumber, match, pattern, matchCount);
+                        }
                     }
                 }
 
+                // Saved only now, after every event of this file went out: a process that dies
+                // before this line repeats the file's new lines after the restart, never skips them.
                 if (trackPosition)
-                    context.FilePositionTracker.SetPosition(filePath, endPosition);
+                    state.CommitLogPosition(rule.RuleId, filePath, endPosition, lineNumberBase + committedLines, head, heldTailStart);
 
                 if (matchCount > 0)
-                    context.Logger.Debug($"LogParser rule {rule.RuleId}: {matchCount} matches from {linesRead} lines in {Path.GetFileName(filePath)}");
+                    context.Logger.Debug($"LogParser rule {rule.RuleId}: {matchCount} matches from {linesRead} lines in {fileName}");
 
                 // Per-file outcome — always written so a "matched 0" run is visible too.
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
-                    $"{Path.GetFileName(filePath)}: read {linesRead} lines from position {startPosition}->{endPosition}, " +
-                    $"matched {matchCount}, parseFailures={parseFailCount}, regexTimeouts={timeoutCount}, mode={(isTextMode ? "text" : "cmtrace")}");
+                    $"{fileName}: read {linesRead} lines from position {startPosition}->{endPosition}, " +
+                    $"matched {matchCount}, parseFailures={parseFailCount}, regexTimeouts={timeoutCount}, mode={(isTextMode ? "text" : "cmtrace")}, encoding={encoding.Name}" +
+                    (oversizedCount > 0 ? $", skipped {oversizedCount} line(s) over {MaxLineBytes / (1024 * 1024)} MB" : ""));
+
+                if (heldTailStart >= 0)
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"{fileName}: last line has no line end yet — left for the next run, read then even if still unfinished");
+                else if (tailReadAgainNextRun)
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"{fileName}: last line has no line end yet — read now and again by the next run, position kept before it");
 
                 if (!isTextMode && linesRead > 0 && parseFailCount == linesRead)
                     context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
                         "every line failed CMTrace parsing — if this is a plain-text log, set parameter format=text");
 
-                if (linesRead == maxLines)
+                if (linesRead == maxLines && endPosition < fileLength)
                     context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
                         $"stopped at maxLines={maxLines} — remaining content is deferred to the next run");
             }
@@ -400,6 +483,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             {
                 context.Logger.Warning($"LogParser rule {rule.RuleId} failed reading {filePath}: {ex.Message}");
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageError, $"failed reading {filePath}: {ex}");
+            }
+        }
+
+        private static void TraceReadStart(GatherRuleContext context, GatherRule rule, string fileName,
+            LogPositionSnapshot known, LogReadStart start, long fileLength)
+        {
+            if (start == LogReadStart.Shrunk)
+            {
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    $"{fileName}: file is shorter than the saved position (length {fileLength} < {known.Position}) — truncated or recreated, reading from the beginning");
+            }
+            else if (start == LogReadStart.Replaced)
+            {
+                context.Logger.Info($"LogParser rule {rule.RuleId}: {fileName} was replaced since the last read — reading it from the beginning");
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    $"{fileName}: file start changed since the last read (replaced or rewritten) — saved position {known.Position} discarded, reading from the beginning");
+            }
+            else if (start == LogReadStart.Continue && known.FromPreviousRun)
+            {
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    $"{fileName}: continuing at position {known.Position} (after line {known.LineNumber}) saved by a previous agent run");
             }
         }
 

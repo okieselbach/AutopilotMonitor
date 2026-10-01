@@ -35,7 +35,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
                 tenantId: "tenant",
                 onEventCollected: _ => { },
                 imeLogPathOverride: null,
-                filePositionTracker: new LogFilePositionTracker())
+                sessionState: new GatherRuleSessionState("sess", null, logger))
             {
                 // Bypass the registry allowlist guard for the synthetic test path.
                 UnrestrictedMode = true

@@ -4,6 +4,7 @@
  * (MCP-protocol resources) and the `get_resource` tool (workaround for
  * stateless-HTTP MCP clients whose resource discovery is broken).
  */
+import { extractItems } from './client.js';
 import { DIAG_ZIP_MAP } from './diag-zip-map.js';
 import { RULE_AUTHORING_GUIDE } from './rule-authoring-guide.js';
 import { GATHER_RULE_SCHEMA, ANALYZE_RULE_SCHEMA, RULE_GUARDRAILS } from './rule-authoring.generated.js';
@@ -19,7 +20,7 @@ import {
 // (all catalog values ∪ INTERNAL_EVENT_TYPES) === the C# const values. When the
 // agent adds a new event type to Constants.EventTypes, add it to a group here too.
 // Gather-rule output types ("gather_dsregcmd_status", ...) are rule data, not code-emitted
-// types, and stay OUT of the catalog on purpose — see isGatherOutputEventType below.
+// types, and stay OUT of the catalog on purpose — see withEventTypeNote below.
 export const EVENT_TYPES_CATALOG = {
   phase_events: [
     'phase_transition',
@@ -357,36 +358,18 @@ export const DEVICE_PROPERTIES_CATALOG = {
 //
 // Without these, an invalid eventType / deviceProperties key produces the SAME
 // `count: 0` as a genuine miss, so "bad filter" is indistinguishable from "no
-// matches". The search tools call these to reject a typo with a clear, correctable
-// error instead of a silent empty result.
+// matches". The tools reject a deviceProperties typo with a clear error and mark an
+// empty result for an uncatalogued eventType with a correctable note.
 
 /** Set form of ALL_EVENT_TYPES for O(1) membership checks. */
 const EVENT_TYPE_SET = new Set<string>(ALL_EVENT_TYPES);
 
-/** True if `s` is a known event type (public catalog ∪ internal). */
+/**
+ * True if `s` is a built-in event type (public catalog ∪ internal). Strict on purpose:
+ * rule-validation relies on it for its outputEventType collision check.
+ */
 export function isKnownEventType(s: string): boolean {
   return EVENT_TYPE_SET.has(s);
-}
-
-/**
- * Gather-rule output types (`outputEventType`, e.g. "gather_dsregcmd_status") are rule
- * DATA — built-in and tenant-authored — not code-emitted types, so they are deliberately
- * NOT catalogued: D-072 scopes the catalog to `Constants.EventTypes`, and the C# guard
- * test excludes gather outputs for the same reason. They are real events on the wire
- * nonetheless, so the filter gate lets any `gather_`-prefixed type (with a non-empty
- * suffix) through — the same "a valid prefix passes even when the full key is
- * uncatalogued" stance as assertKnownDevicePropertyKeys. Kept apart from
- * isKnownEventType, whose strict "is a built-in type" meaning rule-validation relies
- * on for its outputEventType collision check.
- */
-const GATHER_OUTPUT_PREFIX = 'gather_';
-export function isGatherOutputEventType(s: string): boolean {
-  return s.startsWith(GATHER_OUTPUT_PREFIX) && s.length > GATHER_OUTPUT_PREFIX.length;
-}
-
-/** True if `s` is accepted as an eventType filter: catalogued, internal, or a gather-rule output. */
-export function isFilterableEventType(s: string): boolean {
-  return isKnownEventType(s) || isGatherOutputEventType(s);
 }
 
 /**
@@ -415,19 +398,35 @@ function suggestEventTypes(input: string): string[] {
 }
 
 /**
- * Throws a descriptive Error if `eventType` is neither a known type nor a
- * gather-rule output (see isFilterableEventType). The thrown message routes
- * through the tools' `toolError` handler so the model gets an actionable
- * correction instead of a misleading empty result.
+ * eventType filters take ANY type and pass it on as given. Gather-rule output types
+ * (`outputEventType`, e.g. "gather_dsregcmd_status", "HPiA-UpdateStatus") are rule DATA — built-in
+ * and tenant-authored — so they are deliberately NOT catalogued (D-072), yet they are real events
+ * on the wire, and the portal suggests free names like "CustomNetworkStatus". A gate on the catalog
+ * (or on a naming prefix) locked those out. What the gate protected — a typo must not read as
+ * "nothing happened" — this note keeps: when the uncatalogued type was the only filter of a first
+ * call and the answer is an exhausted empty result, it says so and names the closest built-in
+ * types. With other filters or on a continued sweep the emptiness proves nothing about the type,
+ * and non-empty or still-continuable pages pass unchanged.
  */
-export function assertKnownEventType(eventType: string): void {
-  if (isFilterableEventType(eventType)) return;
+export function withEventTypeNote<T extends object>(
+  data: T,
+  eventType: string | undefined,
+  soleFilterOfFirstCall: boolean,
+): T & { eventTypeNote?: string } {
+  const page = data as Record<string, unknown>;
+  if (!eventType || !soleFilterOfFirstCall || isKnownEventType(eventType) || page.nextLink || page.moreToScan) return data;
+  const items = extractItems(page);
+  const empty = typeof page.count === 'number' ? page.count === 0 : items !== undefined && items.length === 0;
+  if (!empty) return data;
   const suggestions = suggestEventTypes(eventType);
-  const hint = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(', ')}?` : '';
-  throw new Error(
-    `Unknown eventType "${eventType}" — it is not in the event_types catalog.${hint} ` +
-    'Call get_resource(name="event_types") for the full list of valid event types.',
-  );
+  const hint = suggestions.length > 0 ? ` Closest built-in types: ${suggestions.join(', ')}.` : '';
+  return {
+    ...data,
+    eventTypeNote:
+      `"${eventType}" is not a built-in event type and no event of it was found here. Gather rules emit their own ` +
+      `output types (outputEventType) — check the spelling against the rule.${hint} ` +
+      'Built-in types: get_resource(name="event_types").',
+  };
 }
 
 /**

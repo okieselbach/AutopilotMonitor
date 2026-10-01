@@ -230,6 +230,9 @@ namespace AutopilotMonitor.Agent.V2
                     logger.Info($"--run-gather-rules: debug trace -> {gatherDebugLogPath}");
                     if (consoleMode) Console.WriteLine($"Debug trace: {gatherDebugLogPath}");
 
+                    // No stateDirectory on purpose: this mode runs beside the live agent under a
+                    // throwaway session id and must neither resume nor overwrite the session's
+                    // gather state (logparser positions, on_change values).
                     using (var executor = new GatherRuleExecutor(sessionId, tenantId, emitEvent, logger, config.ImeLogPathOverride,
                         debugLogPath: gatherDebugLogPath,
                         debugEcho: consoleMode ? (Action<string>)(line => Console.WriteLine($"  {line}")) : null))

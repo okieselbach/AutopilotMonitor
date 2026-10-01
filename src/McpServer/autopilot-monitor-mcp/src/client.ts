@@ -680,7 +680,7 @@ const defaultPageFetcher: PageFetcher = (path) => apiFetch<Record<string, unknow
 const ITEM_ARRAY_KEYS = ['events', 'sessions', 'items', 'results'] as const;
 
 /** Find the first array-valued envelope field — the page's item list. */
-function extractItems(page: Record<string, unknown>): unknown[] | undefined {
+export function extractItems(page: Record<string, unknown>): unknown[] | undefined {
   for (const key of ITEM_ARRAY_KEYS) {
     const v = page[key];
     if (Array.isArray(v)) return v;

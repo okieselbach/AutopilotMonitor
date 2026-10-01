@@ -4,7 +4,6 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
-using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
@@ -19,7 +18,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         public string TenantId { get; }
         public Action<EnrollmentEvent> OnEventCollected { get; }
         public string ImeLogPathOverride { get; }
-        public LogFilePositionTracker FilePositionTracker { get; }
+
+        /// <summary>Logparser positions per (rule, file) and on_change values; survives agent restarts when persisted.</summary>
+        public GatherRuleSessionState SessionState { get; }
+
         public bool UnrestrictedMode { get; set; }
 
         /// <summary>
@@ -34,7 +36,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             string tenantId,
             Action<EnrollmentEvent> onEventCollected,
             string imeLogPathOverride,
-            LogFilePositionTracker filePositionTracker,
+            GatherRuleSessionState sessionState,
             GatherRuleDebugLog debugLog = null)
         {
             Logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -42,7 +44,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             TenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             OnEventCollected = onEventCollected ?? throw new ArgumentNullException(nameof(onEventCollected));
             ImeLogPathOverride = imeLogPathOverride;
-            FilePositionTracker = filePositionTracker ?? throw new ArgumentNullException(nameof(filePositionTracker));
+            SessionState = sessionState ?? throw new ArgumentNullException(nameof(sessionState));
             DebugWriter = debugLog;
         }
 

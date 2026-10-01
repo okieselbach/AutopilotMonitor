@@ -5,7 +5,7 @@ import { withToolTelemetry } from '../telemetry.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
-import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
+import { withEventTypeNote, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 import { buildSessionCoverage } from '../session-coverage.js';
 import { API_BASE_URL } from '../config.js';
@@ -220,10 +220,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       title: 'Search Sessions by Event',
       description:
         'Find sessions that contain a given event type, read from the event-type index (e.g. every session with ' +
-        'app_install_failed or enrollment_failed). eventType is validated against the event_types catalog; an unknown ' +
-        'type is rejected, not an empty result.',
+        'app_install_failed or enrollment_failed). eventType may also be a gather rule\'s own outputEventType; an empty ' +
+        'first-page result for a type outside the event_types catalog carries eventTypeNote with the closest built-in types.',
       inputSchema: {
-        eventType: z.string().describe('Event type string from get_resource(name="event_types") (e.g. "app_install_failed", "enrollment_failed")'),
+        eventType: z.string().describe('Event type from get_resource(name="event_types") (e.g. "app_install_failed", "enrollment_failed"), or a gather rule\'s own outputEventType'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for full sweeps.')),
@@ -237,9 +237,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // eventType is the sole filter and is applied server-side (EventTypeIndex OData),
-        // so an empty page never carries a nextLink — no auto-exhaust needed. But validate
-        // the type so a typo is a clear error rather than a silent empty result.
-        assertKnownEventType(eventType);
+        // so an empty page never carries a nextLink — no auto-exhaust needed. An empty result
+        // for an uncatalogued type says so, so a typo does not read as "no such sessions".
         const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-event', '/api/search/sessions-by-event', tenantId);
         const path = followNextLink(
           basePath,
@@ -248,7 +247,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           { pageSize },
         );
         const data = await apiFetch<SessionListResponse>(path);
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.indexSessions);
+        return toolResultText(withEventTypeNote(data, eventType, !continuation), MAX_RESULT_SIZE_CHARS.indexSessions);
       } catch (error: unknown) {
         return toolError('search_sessions_by_event', args, error);
       }
@@ -393,8 +392,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       title: 'Get Session Events',
       description:
         'RAW EVENT RETRIEVAL (fallback when ranked search_events misses, or when every event of one session is needed ' +
-        'in chronological sequence). Filter by eventType (validated against the event_types catalog; an unknown type is ' +
-        'rejected, not an empty result), severity or source (app name). An unfiltered read omits the per-event "data" ' +
+        'in chronological sequence). Filter by eventType (built-in, or a gather rule\'s own outputEventType; an empty first-page ' +
+        'result for a type outside the event_types catalog carries eventTypeNote), severity or source (app name). An unfiltered read omits the per-event "data" ' +
         'payload by default and says so in omittedFields; a filtered read includes it (see fields). ' +
         'Filters are applied after the partition read, so the tool scans forward past empty pages: "count": 0 without ' +
         'nextLink means no matching events; "moreToScan": true means the per-call scan budget was hit — pass the ' +
@@ -402,7 +401,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
         tenantId: z.string().optional().describe(sessionTenantIdDescription),
-        eventType: z.string().optional().describe('Only events of this type; values from get_resource(name="event_types")'),
+        eventType: z.string().optional().describe('Only events of this type: a value from get_resource(name="event_types"), or a gather rule\'s own outputEventType'),
         severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
@@ -420,7 +419,6 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // Default projection follows intent — see leanFieldSelection.
         const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, Boolean(eventType || severity || source), LEAN_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
-        if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
         const path = followNextLink(
           basePath,
@@ -432,7 +430,11 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // event partition, so a page can be empty while matches sit on a later page.
         // Auto-exhaust forward so the model isn't misled by an empty-but-continuable page;
         // a timeout is retried once with a halved pageSize on the same cursor.
-        const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
+        const data = withEventTypeNote(
+          await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation)),
+          eventType,
+          !continuation && !severity && !source,
+        );
         // Announce the omission in-band so a reader of the result knows the payload exists and how to get it.
         return toolResultText(leanDefaultApplied ? { ...data, ...LEAN_EVENT_OMISSION } : data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {

@@ -472,7 +472,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
                         // Expand BEFORE the guard: the guard must judge the path that is read,
                         // and an unresolved token is not a path it can judge.
-                        var expandedPath = UserProfileResolver.ExpandCustomTokens(entry.Path);
+                        var expandedPath = UserProfileResolver.ExpandCustomTokens(entry.Path, userProfilePath);
                         if (expandedPath == null)
                         {
                             _logger.Warning($"Diagnostics path skipped (no user session for token): {entry.Path}");

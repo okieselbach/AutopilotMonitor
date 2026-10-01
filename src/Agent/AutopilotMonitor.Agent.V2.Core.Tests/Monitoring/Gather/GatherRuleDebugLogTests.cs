@@ -94,7 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         public void Context_DebugLog_is_noop_without_writer()
         {
             var context = new GatherRuleContext(
-                _logger, "sess", "tenant", _ => { }, null, new LogFilePositionTracker());
+                _logger, "sess", "tenant", _ => { }, null, new GatherRuleSessionState("sess", null, _logger));
 
             context.DebugLog("RULE-1", GatherRuleDebugLog.StageScope, "should not throw, should not write");
 
