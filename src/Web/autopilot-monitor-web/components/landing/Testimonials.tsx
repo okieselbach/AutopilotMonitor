@@ -8,7 +8,7 @@ import { Reveal } from "./Reveal";
  */
 export function Testimonials() {
   return (
-    <section className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)] bg-[var(--lp-surface)]">
+    <section data-track-section="testimonials" className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)] bg-[var(--lp-surface)]">
       <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-10 lg:gap-6">
         <Reveal className="lg:col-span-4">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--lp-accent-ink)]">From the field</p>
@@ -48,7 +48,7 @@ export function Testimonials() {
 
           <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
             <p className="text-[15px] text-[var(--lp-ink-soft)]">Seeing the same in your tenant? Leave a star.</p>
-            <GitHubStarLink label="Star on GitHub" />
+            <GitHubStarLink label="Star on GitHub" track="testimonials_star" />
           </div>
         </Reveal>
       </div>

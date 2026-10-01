@@ -8,6 +8,7 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { useCopy } from "@/hooks/useCopy";
 import { MCP_SERVER_URL } from "@/utils/config";
 import type {
   CreateMcpClientRegistrationRequest,
@@ -19,20 +20,6 @@ function formatDay(iso: string | undefined | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
-}
-
-function useCopy() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = useCallback(async (value: string, key: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(key);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      setCopied(null);
-    }
-  }, []);
-  return { copied, copy };
 }
 
 /**

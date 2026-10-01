@@ -82,7 +82,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "Can I ask an AI assistant about my enrollments?",
     answer:
-      "Yes. Autopilot Monitor exposes a Model Context Protocol (MCP) server. Connect Claude Desktop, VS Code with Claude, or any MCP client that supports Streamable HTTP with OAuth, and ask questions like \"show me all failed enrollments from the last 24 hours\" or \"why did this session fail?\". Access follows your portal role and is scoped to your tenant, with usage limits tied to the tenant's plan.",
+      "Yes. Autopilot Monitor exposes a Model Context Protocol (MCP) server. Connect Claude, ChatGPT, VS Code with GitHub Copilot, or a command-line client such as Claude Code, Codex or Gemini CLI, and ask questions like \"show me all failed enrollments from the last 24 hours\" or \"why did this session fail?\". An AI client your organization hosts itself is registered once by a Tenant Admin. Access follows your portal role, with usage limits tied to the tenant's plan.",
   },
   {
     question: "Who builds and operates Autopilot Monitor?",

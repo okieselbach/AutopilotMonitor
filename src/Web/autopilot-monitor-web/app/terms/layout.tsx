@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/utils/config";
+import { OPEN_GRAPH_BASE } from "@/lib/siteMetadata";
 
 export const metadata: Metadata = {
   title: "Terms of Use",
   description:
     "Terms of Use for Autopilot Monitor. Read the usage terms, conditions, and acceptable use policies for the Windows Autopilot monitoring and troubleshooting platform.",
   openGraph: {
+    ...OPEN_GRAPH_BASE,
     title: "Terms of Use | Autopilot Monitor",
     description: "Terms of Use for Autopilot Monitor. Read the usage terms, conditions, and acceptable use policies for the monitoring platform.",
     url: `${SITE_URL}/terms`,

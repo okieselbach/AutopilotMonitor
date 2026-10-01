@@ -9,6 +9,7 @@ export function LoginButton({
   children,
   signup = false,
   disabled = false,
+  track,
 }: {
   className?: string;
   children: React.ReactNode;
@@ -21,6 +22,8 @@ export function LoginButton({
    * (dual app-reg window; localStorage is per-origin, hence the ?authapp handover to portal).
    */
   signup?: boolean;
+  /** data-track id for the anonymous marketing click count (components/MarketingTracker.tsx). */
+  track?: string;
 }) {
   const { login } = useAuth();
 
@@ -46,7 +49,7 @@ export function LoginButton({
   };
 
   return (
-    <button type="button" onClick={handleClick} disabled={disabled} className={className}>
+    <button type="button" onClick={handleClick} disabled={disabled} data-track={track} className={className}>
       {children}
     </button>
   );

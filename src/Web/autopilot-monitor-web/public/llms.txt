@@ -8,6 +8,7 @@ Autopilot Monitor is for IT administrators, helpdesk engineers, and managed serv
 
 - [Home](https://www.autopilotmonitor.com/): product overview
 - [About](https://www.autopilotmonitor.com/about/): what it is, how it works, common questions
+- [AI analysis](https://www.autopilotmonitor.com/ai/): ask about your enrollments in your own AI assistant through the MCP server
 - [Get started](https://www.autopilotmonitor.com/get-started/): first steps for a new tenant
 - [Plans](https://www.autopilotmonitor.com/plans/): Community vs. Pro
 - [Get Pro](https://www.autopilotmonitor.com/buy/): purchase options and the free 30-day trial

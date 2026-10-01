@@ -5,7 +5,7 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/utils/config";
 
 // Public marketing / legal pages.
-const PUBLIC_PATHS = ["/", "/about", "/buy", "/get-started", "/help", "/plans", "/privacy", "/terms"];
+const PUBLIC_PATHS = ["/", "/about", "/ai", "/buy", "/get-started", "/help", "/plans", "/privacy", "/terms"];
 
 // Authenticated portal routes: nothing to index, and the static shell would
 // only ever render a sign-in redirect.

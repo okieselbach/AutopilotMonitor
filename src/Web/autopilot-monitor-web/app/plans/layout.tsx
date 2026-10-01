@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/utils/config";
+import { OPEN_GRAPH_BASE, TWITTER_BASE } from "@/lib/siteMetadata";
 
 export const metadata: Metadata = {
   title: "Plans – Community & Pro",
@@ -14,12 +15,14 @@ export const metadata: Metadata = {
     "Autopilot monitoring MSP",
   ],
   openGraph: {
+    ...OPEN_GRAPH_BASE,
     title: "Plans – Autopilot Monitor",
     description:
       "Community is the full product and free — and stays free. Pro adds extended retention, higher limits, MSP delegation, and priority support.",
     url: `${SITE_URL}/plans`,
   },
   twitter: {
+    ...TWITTER_BASE,
     title: "Plans – Autopilot Monitor",
     description:
       "Community is the full product and free — and stays free. Pro adds extended retention, higher limits, MSP delegation, and priority support.",

@@ -6,10 +6,21 @@ import { GitHubIcon } from "./GitHubIcon";
  * The counter segment only renders when the deploy baked a star count in (utils/githubStars.ts).
  * No hooks, so server components (Testimonials) and client components (LandingNavbar) share it.
  */
-export function GitHubStarLink({ label }: { label: string }) {
+export function GitHubStarLink({
+  label,
+  track,
+  labelClassName,
+}: {
+  label: string;
+  /** data-track id for the anonymous marketing click count (components/MarketingTracker.tsx). */
+  track?: string;
+  /** Lets a tight bar hide the word at some widths; the aria-label still names the link. */
+  labelClassName?: string;
+}) {
   return (
     <a
       href={GITHUB_REPO_URL}
+      data-track={track}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={
@@ -21,7 +32,7 @@ export function GitHubStarLink({ label }: { label: string }) {
     >
       <span className="inline-flex items-center gap-1.5 px-2.5">
         <GitHubIcon className="w-[15px] h-[15px]" />
-        {label}
+        <span className={labelClassName}>{label}</span>
       </span>
       {GITHUB_STARS !== null && (
         <span className="inline-flex items-center gap-1 px-2.5 border-l border-[var(--lp-line)] bg-[var(--lp-surface-2)] font-semibold text-[var(--lp-ink)]">

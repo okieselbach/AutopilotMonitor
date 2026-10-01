@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
@@ -12,14 +13,21 @@ import { GITHUB_REPO_URL } from "@/utils/githubStars";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 
 // Root-anchored (/#…) so the links also work from subpages
-// like /get-started, /about, /terms, /privacy.
+// like /get-started, /about, /terms, /privacy. `track` names the link in the
+// marketing click events: nav_<track> in the bar, menu_<track> in the burger menu.
 const NAV_LINKS = [
-  { href: "/#story", label: "Product" },
-  { href: "/#features", label: "Capabilities" },
-  { href: "/#comparison", label: "Compare" },
-  { href: "/plans", label: "Plans" },
-  { href: DOCS_URL, label: "Docs", external: true },
+  { href: "/#story", label: "Product", track: "product" },
+  { href: "/#features", label: "Capabilities", track: "capabilities" },
+  { href: "/#comparison", label: "Compare", track: "compare" },
+  { href: "/ai/", label: "AI", track: "ai" },
+  { href: "/plans", label: "Plans", track: "plans" },
+  { href: DOCS_URL, label: "Docs", track: "docs", external: true },
 ];
+
+/** With trailingSlash: true a page shows as /foo/ after client navigation and /foo on a hard load. */
+function withoutTrailingSlash(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
 
 function BellIcon({ className }: { className?: string }) {
   // Ringing bell: the public site announces "there is news" without claiming a count —
@@ -43,6 +51,10 @@ export function LandingNavbar() {
   const { login, isAuthenticated } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const whatsNew = useWhatsNew();
+  const pathname = withoutTrailingSlash(usePathname() ?? "");
+  // A route link (not an anchor, not external) whose page is the current one.
+  const isCurrent = (link: (typeof NAV_LINKS)[number]) =>
+    !link.external && !link.href.includes("#") && withoutTrailingSlash(link.href) === pathname;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -73,10 +85,12 @@ export function LandingNavbar() {
   // see components/NavLink.tsx.)
   return (
     <nav className="sticky top-0 z-40 bg-[var(--lp-nav)] backdrop-blur-xl border-b border-[var(--lp-line-soft)]">
-      {/* Measured widths: the full desktop bar (links, star link, bell, sign-in, CTA) needs
-          ~1000px, so it starts at lg; below that the burger menu carries links and sign-in. */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4 lg:gap-8">
-        <Link href="/" prefetch={false} className="flex items-center gap-2.5 shrink-0">
+      {/* Measured widths (2026-10-01, six links, four-digit star count): the full desktop bar
+          needs ~1070px at its xl spacing. It starts at lg, and between lg and xl it tightens the
+          gaps, the link padding and the star label so it still fits at 1024px; below lg the burger
+          menu carries links and sign-in. */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4 lg:gap-6 xl:gap-8">
+        <Link href="/" prefetch={false} data-track="nav_logo" className="flex items-center gap-2.5 shrink-0">
           <BrandMark className="w-6 h-6" />
           {/* Wordmark needs ~390px alongside GitHub mark + CTA + burger; mark alone below that */}
           <span className="hidden min-[390px]:block text-[15px] font-bold tracking-tight text-[var(--lp-ink)] whitespace-nowrap">
@@ -85,27 +99,25 @@ export function LandingNavbar() {
         </Link>
 
         <div className="hidden lg:flex items-center gap-1">
-          {NAV_LINKS.map(link =>
-            link.external ? (
+          {NAV_LINKS.map(link => {
+            const current = isCurrent(link);
+            return (
               <a
                 key={link.label}
                 href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-2 text-sm font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
+                {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                aria-current={current ? "page" : undefined}
+                data-track={`nav_${link.track}`}
+                className={`px-2.5 xl:px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  current
+                    ? "text-[var(--lp-ink)] bg-[var(--lp-surface-2)]"
+                    : "text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)]"
+                }`}
               >
                 {link.label}
               </a>
-            ) : (
-              <a
-                key={link.label}
-                href={link.href}
-                className="px-3 py-2 text-sm font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
-              >
-                {link.label}
-              </a>
-            )
-          )}
+            );
+          })}
         </div>
 
         <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
@@ -114,6 +126,7 @@ export function LandingNavbar() {
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
+            data-track="nav_github"
             className="sm:hidden p-1.5 rounded-lg text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
             title="GitHub"
             aria-label="GitHub"
@@ -121,7 +134,7 @@ export function LandingNavbar() {
             <GitHubIcon className="w-4 h-4" />
           </a>
           <div className="hidden sm:flex">
-            <GitHubStarLink label="Star" />
+            <GitHubStarLink label="Star" track="nav_star" labelClassName="lg:max-xl:hidden" />
           </div>
           <button
             type="button"
@@ -134,6 +147,7 @@ export function LandingNavbar() {
           </button>
           <button
             onClick={handleSignIn}
+            data-track="nav_sign_in"
             className="hidden lg:block px-3 py-2 text-sm font-semibold text-[var(--lp-ink)] hover:text-[var(--lp-accent-ink)] transition-colors"
           >
             Sign in
@@ -141,12 +155,14 @@ export function LandingNavbar() {
           <Link
             href="/get-started"
             prefetch={false}
+            data-track="nav_get_started"
             className="px-4 py-2 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-md text-white text-sm font-semibold shadow-sm transition-all whitespace-nowrap"
           >
             Get started
           </Link>
           <button
             onClick={() => setMenuOpen(open => !open)}
+            data-track={menuOpen ? "nav_menu_close" : "nav_menu_open"}
             className="lg:hidden p-2 -mr-2 rounded-lg text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
             aria-expanded={menuOpen}
             aria-controls="landing-mobile-menu"
@@ -179,22 +195,32 @@ export function LandingNavbar() {
             className="lg:hidden absolute top-full left-0 right-0 bg-[var(--lp-surface)] border-b border-[var(--lp-line-soft)] shadow-lg"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
-              {NAV_LINKS.map(link => (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  onClick={() => setMenuOpen(false)}
-                  className="px-3 py-2.5 text-[15px] font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
-                >
-                  {link.label}
-                </a>
-              ))}
+              {NAV_LINKS.map(link => {
+                const current = isCurrent(link);
+                return (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    onClick={() => setMenuOpen(false)}
+                    aria-current={current ? "page" : undefined}
+                    data-track={`menu_${link.track}`}
+                    className={`px-3 py-2.5 text-[15px] font-medium rounded-lg transition-colors ${
+                      current
+                        ? "text-[var(--lp-ink)] bg-[var(--lp-surface-2)]"
+                        : "text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)]"
+                    }`}
+                  >
+                    {link.label}
+                  </a>
+                );
+              })}
               <a
                 href={GITHUB_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setMenuOpen(false)}
+                data-track="menu_github"
                 className="flex items-center gap-2.5 px-3 py-2.5 text-[15px] font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
               >
                 <GitHubIcon className="w-4 h-4" />
@@ -211,6 +237,7 @@ export function LandingNavbar() {
               <div className="h-px bg-[var(--lp-line-soft)] my-2" />
               <button
                 onClick={handleSignIn}
+                data-track="menu_sign_in"
                 className="w-full px-4 py-2.5 rounded-lg border border-[var(--lp-line)] text-sm font-semibold text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
               >
                 Sign in

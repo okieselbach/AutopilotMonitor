@@ -67,7 +67,9 @@ describe("event follow-up pages", () => {
   it("mark every call to action for the click event", async () => {
     for (const event of FOLLOWUP_EVENTS) {
       const html = await renderEventPage(event.slug);
-      const ids = [...html.matchAll(/data-track="([^"]+)"/g)].map((m) => m[1]);
+      // SiteFooter carries the marketing ids of the shared footer (footer_*); it sits outside the
+      // event tracker, so those clicks never become event_followup_clicked.
+      const ids = [...html.matchAll(/data-track="([^"]+)"/g)].map((m) => m[1]).filter((id) => !id.startsWith("footer_"));
       expect(ids.sort()).toEqual(
         [
           "logo",

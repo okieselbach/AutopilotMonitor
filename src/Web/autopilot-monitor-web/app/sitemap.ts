@@ -34,6 +34,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.7,
     },
     {
+      url: sitePageUrl("/ai"),
+      lastModified: lastmod("/ai"),
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
+    {
       url: sitePageUrl("/get-started"),
       lastModified: lastmod("/get-started"),
       changeFrequency: "monthly",

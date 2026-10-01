@@ -15,7 +15,7 @@ export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
   const [accepted, setAccepted] = useState(false);
 
   return (
-    <div className="mt-14">
+    <div data-track-section="signup" className="mt-14">
       <label className="flex items-start gap-3 max-w-xl text-sm text-[var(--lp-ink-soft)] leading-relaxed cursor-pointer select-none">
         <input
           type="checkbox"
@@ -25,12 +25,13 @@ export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
         />
         <span>
           I agree to the{" "}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+          <a href="/terms" target="_blank" rel="noopener noreferrer" data-track="signup_terms" className={LINK_CLASS}>
             Terms of Use
           </a>{" "}
           and the{" "}
           <a
             href={`${DOCS_URL}/legal/data-privacy-agreement-dpa`}
+            data-track="signup_dpa"
             target="_blank"
             rel="noopener noreferrer"
             className={LINK_CLASS}
@@ -44,6 +45,7 @@ export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <LoginButton
           signup
+          track="signup_sign_in"
           disabled={!accepted}
           className="px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] text-white font-semibold shadow-md transition-all enabled:hover:brightness-110 enabled:hover:shadow-lg disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
         >

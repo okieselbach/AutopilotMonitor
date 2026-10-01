@@ -10,6 +10,7 @@ import { HowItWorks } from "../components/landing/HowItWorks";
 import { Testimonials } from "../components/landing/Testimonials";
 import { FinalCta } from "../components/landing/FinalCta";
 import { SiteFooter } from "../components/SiteFooter";
+import { MarketingTracker } from "../components/MarketingTracker";
 
 /**
  * Landing page v2 — a scroll story of one enrollment.
@@ -22,17 +23,19 @@ export default function LandingPage() {
     <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
       {/* Client component: handles auth redirect + loading overlay */}
       <AuthGate />
-      <LandingNavbar />
-      <Hero />
-      <StatsBand />
-      <JustAsk />
-      <Story />
-      <CapabilitiesStrip />
-      <Comparison />
-      <HowItWorks />
-      <Testimonials />
-      <FinalCta />
-      <SiteFooter />
+      <MarketingTracker page="landing">
+        <LandingNavbar />
+        <Hero />
+        <StatsBand />
+        <JustAsk />
+        <Story />
+        <CapabilitiesStrip />
+        <Comparison />
+        <HowItWorks />
+        <Testimonials />
+        <FinalCta />
+        <SiteFooter />
+      </MarketingTracker>
     </div>
   );
 }

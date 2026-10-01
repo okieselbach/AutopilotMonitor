@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/utils/config";
+import { OPEN_GRAPH_BASE, TWITTER_BASE } from "@/lib/siteMetadata";
 
 export const metadata: Metadata = {
   title: "Help & Support – How to Get Help",
@@ -14,12 +15,14 @@ export const metadata: Metadata = {
     "Oliver Kieselbach",
   ],
   openGraph: {
+    ...OPEN_GRAPH_BASE,
     title: "Help & Support – Autopilot Monitor",
     description:
       "How to get help with Autopilot Monitor: open a GitHub issue or reach out directly on LinkedIn.",
     url: `${SITE_URL}/help`,
   },
   twitter: {
+    ...TWITTER_BASE,
     title: "Help & Support – Autopilot Monitor",
     description:
       "How to get help with Autopilot Monitor: open a GitHub issue or reach out directly on LinkedIn.",

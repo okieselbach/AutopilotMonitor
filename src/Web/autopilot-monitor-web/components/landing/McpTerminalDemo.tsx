@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useInViewActive } from "@/hooks/useInViewActive";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 type Step =
@@ -17,7 +18,7 @@ type Step =
  */
 const SCRIPT: Step[] = [
   { kind: "user", text: "CONTOSO-3812 failed enrollment this morning — what happened?" },
-  { kind: "tool", text: 'search_sessions({ device: "CONTOSO-3812" })' },
+  { kind: "tool", text: 'search_sessions({ deviceName: "CONTOSO-3812" })' },
   { kind: "tool", text: 'get_session_summary({ sessionId: "e6a1…f43b" })' },
   { kind: "tool", text: 'get_session_summary({ sessionId: "98db…16af" })' },
   { kind: "gap" },
@@ -46,40 +47,16 @@ const START_THRESHOLD = 0.3;
 
 export function McpTerminalDemo() {
   const ref = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(false);
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const [stepIndex, setStepIndex] = useState(0);
-  const [charCount, setCharCount] = useState(0);
-  // Reduced motion shows the finished transcript immediately — derived, not seeded.
-  const effectiveStepIndex = reduced ? SCRIPT.length : stepIndex;
-
   // The typing chain below is a setTimeout loop (every 32 ms while typing) that
   // would otherwise run forever once started. It starts when 30% of the terminal
   // is in view and then runs only while the terminal is on screen in a visible
   // tab: scrolled away or tab hidden = no timers; back = resume at the current step.
-  useEffect(() => {
-    if (reduced) return;
-    const el = ref.current;
-    if (!el) return;
-    let started = false;
-    let inView = false;
-    const update = () => setActive(started && inView && !document.hidden);
-    const observer = new IntersectionObserver(
-      entries => {
-        const latest = entries[entries.length - 1];
-        inView = latest.isIntersecting;
-        if (latest.intersectionRatio >= START_THRESHOLD) started = true;
-        update();
-      },
-      { threshold: [0, START_THRESHOLD] }
-    );
-    observer.observe(el);
-    document.addEventListener("visibilitychange", update);
-    return () => {
-      observer.disconnect();
-      document.removeEventListener("visibilitychange", update);
-    };
-  }, [reduced]);
+  const active = useInViewActive(ref, { startThreshold: START_THRESHOLD, disabled: reduced });
+  const [stepIndex, setStepIndex] = useState(0);
+  const [charCount, setCharCount] = useState(0);
+  // Reduced motion shows the finished transcript immediately — derived, not seeded.
+  const effectiveStepIndex = reduced ? SCRIPT.length : stepIndex;
 
   useEffect(() => {
     if (!active || reduced) return;
@@ -135,11 +112,11 @@ export function McpTerminalDemo() {
       case "out": {
         const color =
           step.accent === "success"
-            ? "text-[#55c57f]"
+            ? "text-[var(--lp-term-ok)]"
             : step.accent === "warn"
-              ? "text-[#f5a623]"
+              ? "text-[var(--lp-term-warn)]"
               : step.accent === "high"
-                ? "text-[#ff9d66]"
+                ? "text-[var(--lp-term-high)]"
                 : step.accent === "dim"
                   ? "text-[var(--lp-term-faint)]"
                   : "text-[var(--lp-term-ink)]";

@@ -7,34 +7,35 @@ const LINK_COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "The Story", href: "/#story" },
-      { label: "Capabilities", href: "/#features" },
-      { label: "Compare", href: "/#comparison" },
-      { label: "Plans", href: "/plans" },
+      { label: "The Story", href: "/#story", track: "story" },
+      { label: "Capabilities", href: "/#features", track: "capabilities" },
+      { label: "Compare", href: "/#comparison", track: "compare" },
+      { label: "AI analysis", href: "/ai/", track: "ai" },
+      { label: "Plans", href: "/plans", track: "plans" },
     ],
   },
   {
     title: "Resources",
     links: [
-      { label: "Documentation", href: DOCS_URL, external: true },
-      { label: "Help & Support", href: "/help" },
-      { label: "Feedback", href: "https://github.com/okieselbach/AutopilotMonitor/issues", external: true },
-      { label: "GitHub", href: GITHUB_REPO_URL, external: true },
+      { label: "Documentation", href: DOCS_URL, external: true, track: "docs" },
+      { label: "Help & Support", href: "/help", track: "help" },
+      { label: "Feedback", href: "https://github.com/okieselbach/AutopilotMonitor/issues", external: true, track: "feedback" },
+      { label: "GitHub", href: GITHUB_REPO_URL, external: true, track: "github" },
     ],
   },
   {
     title: "Company",
     links: [
-      { label: "About", href: "/about" },
-      { label: "glueckkanja AG", href: "https://www.glueckkanja.com", external: true },
+      { label: "About", href: "/about", track: "about" },
+      { label: "glueckkanja AG", href: "https://www.glueckkanja.com", external: true, track: "glueckkanja" },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Privacy Policy", href: "/privacy" },
-      { label: "Terms of Use", href: "/terms" },
-      { label: "Imprint", href: "https://www.glueckkanja.com/en/imprint", external: true },
+      { label: "Privacy Policy", href: "/privacy", track: "privacy" },
+      { label: "Terms of Use", href: "/terms", track: "terms" },
+      { label: "Imprint", href: "https://www.glueckkanja.com/en/imprint", external: true, track: "imprint" },
     ],
   },
 ];
@@ -63,6 +64,7 @@ export function SiteFooter() {
             <div className="flex items-center gap-3">
               <a
                 href="https://www.linkedin.com/in/oliver-kieselbach/"
+                data-track="footer_linkedin"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--lp-ink-faint)] hover:text-[var(--lp-accent-ink)] transition-colors"
@@ -74,6 +76,7 @@ export function SiteFooter() {
               </a>
               <a
                 href={GITHUB_REPO_URL}
+                data-track="footer_github_icon"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] transition-colors"
@@ -97,6 +100,7 @@ export function SiteFooter() {
                       <a
                         href={link.href}
                         {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                        data-track={`footer_${link.track}`}
                         className="text-xs text-[var(--lp-ink-faint)] hover:text-[var(--lp-accent-ink)] transition-colors"
                       >
                         {link.label}

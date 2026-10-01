@@ -15,12 +15,13 @@ const DEVICE_ASSOCIATION_DOCS_URL = `${DOCS_URL}/getting-started/autopilot-devic
 
 export function Hero() {
   return (
-    <header className="pt-16 sm:pt-20 pb-0 px-6">
+    <header data-track-section="hero" className="pt-16 sm:pt-20 pb-0 px-6">
       <div className="max-w-7xl mx-auto">
         {/* Release-day banner: Microsoft shipped Autopilot device association on 2026-08-25;
             the validator is live in the same week — the pill exists to make that visible. */}
         <a
           href={DEVICE_ASSOCIATION_DOCS_URL}
+          data-track="hero_announcement"
           target="_blank"
           rel="noopener noreferrer"
           className="group inline-flex items-center gap-2.5 mb-6 pl-1.5 pr-3.5 py-1.5 rounded-full border border-[var(--lp-accent-line)] bg-[var(--lp-accent-soft)] text-[13px] text-[var(--lp-ink)] hover:border-[var(--lp-accent)] transition-colors"
@@ -55,12 +56,14 @@ export function Hero() {
             <div className="flex items-center gap-3">
               <a
                 href="/get-started"
+                data-track="hero_get_started"
                 className="px-6 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
               >
                 Get started
               </a>
               <a
                 href={DOCS_URL}
+                data-track="hero_docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-6 py-3 rounded-lg border border-[var(--lp-line)] bg-[var(--lp-surface)] text-[var(--lp-ink)] font-semibold hover:border-[var(--lp-ink-faint)] transition-colors"

@@ -1,6 +1,6 @@
 export function FinalCta() {
   return (
-    <section className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)]">
+    <section data-track-section="final_cta" className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)]">
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
         <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)] max-w-2xl text-balance">
           Your next enrollment doesn&apos;t have to be a black box.
@@ -8,6 +8,7 @@ export function FinalCta() {
         <div className="shrink-0 lg:text-right">
           <a
             href="/get-started"
+            data-track="final_get_started"
             className="inline-block px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
           >
             Start monitoring now
@@ -18,6 +19,7 @@ export function FinalCta() {
               Need SLAs, support, or MSP delegation?{" "}
               <a
                 href="/plans"
+                data-track="final_pro_plan"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >
                 There&apos;s a Pro plan

@@ -48,14 +48,20 @@ html {
   --lp-accent-line: rgba(51, 177, 97, 0.35);
   --lp-warn: #d97706;
   --lp-warn-soft: rgba(217, 119, 6, 0.1);
+  /* Warning text on light surfaces: --lp-warn is too light for body-size text (contrast) */
+  --lp-warn-ink: #b45309;
   --lp-danger: #dc2626;
   /* GitHub star glyph only (GitHubStarLink) — never text or a fill */
   --lp-star: #eab308;
   /* Terminal is dark in both themes */
   --lp-term-bg: #0d1424;
+  --lp-term-deep: #0a101d;
   --lp-term-line: #22304a;
   --lp-term-ink: #d6e1f0;
   --lp-term-faint: #7b8ba3;
+  --lp-term-ok: #55c57f;
+  --lp-term-warn: #f5a623;
+  --lp-term-high: #ff9d66;
 }
 
 .dark {
@@ -74,6 +80,7 @@ html {
   --lp-accent-line: rgba(59, 192, 108, 0.4);
   --lp-warn: #f5a623;
   --lp-warn-soft: rgba(245, 166, 35, 0.12);
+  --lp-warn-ink: #f5a623;
   --lp-danger: #f87171;
   --lp-star: #facc15;
 }
@@ -764,6 +771,7 @@ html.auth-pending .landing-v2::after {
   --lp-accent-line: rgba(51, 177, 97, 0.35);
   --lp-warn: #d97706;
   --lp-warn-soft: rgba(217, 119, 6, 0.1);
+  --lp-warn-ink: #b45309;
   --lp-danger: #dc2626;
   --lp-star: #eab308;
 }
@@ -889,6 +897,72 @@ html.auth-pending .landing-v2::after {
   }
   .lp-live-dot {
     animation: none;
+  }
+}
+
+/* ===== AI page data-path diagram (components/ai/DataPath.tsx) =====
+   The nodes stack on phones and sit in one row from lg, so every link turns with them. The
+   conversation link draws its dashes with a gradient: a thin dashed border with a radius renders as
+   a solid line, and the link must keep the data links' box or the dots have no track to run on. */
+.ai-flow-line {
+  position: relative;
+  flex-shrink: 0;
+  width: 2px;
+  height: 56px;
+  border-radius: 2px;
+  background: var(--lp-accent);
+}
+.ai-flow-line--talk {
+  border-radius: 0;
+  background: repeating-linear-gradient(to bottom, var(--lp-ink-faint) 0 4px, transparent 4px 8px);
+}
+.ai-flow-dot {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--lp-accent);
+  box-shadow: 0 0 0 3px rgba(51, 177, 97, 0.18);
+  animation: aiFlowDown 2.4s linear infinite;
+}
+.ai-flow-dot--back {
+  animation-name: aiFlowUp;
+  animation-delay: -1.2s;
+  background: var(--lp-accent-ink);
+}
+.ai-flow-line--talk .ai-flow-dot {
+  background: var(--lp-ink-faint);
+  box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.2);
+}
+@keyframes aiFlowDown { from { top: -4px; } to { top: calc(100% - 4px); } }
+@keyframes aiFlowUp { from { top: calc(100% - 4px); } to { top: -4px; } }
+@keyframes aiFlowRight { from { left: -4px; } to { left: calc(100% - 4px); } }
+@keyframes aiFlowLeft { from { left: calc(100% - 4px); } to { left: -4px; } }
+@media (min-width: 1024px) {
+  .ai-flow-line {
+    width: 100%;
+    height: 2px;
+  }
+  .ai-flow-line--talk {
+    background: repeating-linear-gradient(to right, var(--lp-ink-faint) 0 6px, transparent 6px 12px);
+  }
+  .ai-flow-dot {
+    top: -3px;
+    left: 0;
+    animation-name: aiFlowRight;
+  }
+  .ai-flow-dot--back {
+    animation-name: aiFlowLeft;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-flow-dot {
+    animation: none;
+  }
+  .ai-flow-dot--back {
+    display: none;
   }
 }
 

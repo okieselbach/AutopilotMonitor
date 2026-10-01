@@ -145,7 +145,7 @@ export function StatsBand() {
   }
 
   return (
-    <section className="border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
+    <section data-track-section="stats" className="border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
       <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-y-6 py-8 lg:divide-x lg:divide-[var(--lp-line)]">
         {(stats ?? Array.from({ length: 5 }, () => null)).map((item, i) =>
           item ? (

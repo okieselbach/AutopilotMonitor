@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/utils/config";
+import { OPEN_GRAPH_BASE, TWITTER_BASE } from "@/lib/siteMetadata";
 
 export const metadata: Metadata = {
   title: "About – Real-Time Windows Autopilot Monitoring",
@@ -26,12 +27,14 @@ export const metadata: Metadata = {
     "Autopilot Monitor overview",
   ],
   openGraph: {
+    ...OPEN_GRAPH_BASE,
     title: "About Autopilot Monitor – Real-Time Windows Autopilot Monitoring",
     description:
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster — built by Oliver Kieselbach.",
     url: `${SITE_URL}/about`,
   },
   twitter: {
+    ...TWITTER_BASE,
     title: "About Autopilot Monitor – Real-Time Windows Autopilot Monitoring",
     description:
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster.",
