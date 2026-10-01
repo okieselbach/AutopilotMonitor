@@ -100,6 +100,15 @@ describe("hostRouting public/portal guard", () => {
         ).toBe(false);
         continue;
       }
+      // A prefix without a page of its own (/events) must have unprotected pages beneath it.
+      const nested = pages.filter((p) => p.route.startsWith(prefix + "/"));
+      if (nested.length > 0) {
+        expect(
+          nested.filter((p) => p.isProtected).map((p) => p.route),
+          `${prefix} is in PUBLIC_PATH_PREFIXES but pages beneath it render ProtectedRoute`,
+        ).toEqual([]);
+        continue;
+      }
       // Not an app page: must be app-root metadata (robots.ts, icon.svg,
       // opengraph-image.png, …), a public/ asset, or a SWA redirect/rewrite.
       const base = prefix.slice(1);
@@ -131,6 +140,7 @@ describe("hostRouting public/portal guard", () => {
     expect(isPublicPath("/plans")).toBe(true);
     expect(isPublicPath("/buy")).toBe(true);
     expect(isPublicPath("/docs/setup")).toBe(true);
+    expect(isPublicPath("/events/wpns-2026/")).toBe(true);
     expect(isPublicPath("/icon-192.png")).toBe(true);
     expect(isPublicPath("/opengraph-image.png")).toBe(true);
     // …but sibling names that merely share a prefix string do not.

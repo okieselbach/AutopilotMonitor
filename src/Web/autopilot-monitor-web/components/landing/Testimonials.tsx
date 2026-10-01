@@ -1,4 +1,5 @@
 import { GitHubStarLink } from "../GitHubStarLink";
+import { CUSTOMER_QUOTE } from "./customerQuote";
 import { Reveal } from "./Reveal";
 
 /**
@@ -23,7 +24,7 @@ export function Testimonials() {
                 &ldquo;
               </span>
               <blockquote className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight leading-snug text-[var(--lp-ink)] text-balance">
-                Wow — for the first time I can actually see all of our enrollments running out there.
+                {CUSTOMER_QUOTE.text}
               </blockquote>
               {/* Speech-bubble tail: the upper half of the rotated square covers the bubble border */}
               <span
@@ -41,7 +42,7 @@ export function Testimonials() {
                   <circle cx="12" cy="7" r="4" />
                 </svg>
               </span>
-              <span className="text-[15px] font-semibold text-[var(--lp-ink)]">Head of Endpoint Management</span>
+              <span className="text-[15px] font-semibold text-[var(--lp-ink)]">{CUSTOMER_QUOTE.attribution}</span>
             </figcaption>
           </figure>
 

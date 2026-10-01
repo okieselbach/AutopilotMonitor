@@ -25,6 +25,8 @@ export const PUBLIC_PATH_PREFIXES = [
   "/buy",
   "/changelog",
   "/docs",
+  // Unlisted event follow-up pages (/events/<slug>/), linked only from emails.
+  "/events",
   "/get-started",
   "/help",
   "/plans",
