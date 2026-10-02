@@ -15,8 +15,10 @@ interface AddMemberFormProps {
   /** Read-only caller: the form stays visible but cannot submit. */
   disabled?: boolean;
   /**
-   * The input always takes a line of its own. For narrow hosts such as the GA tenant editor modal,
-   * where the viewport breakpoint says "wide" but the type switch, role and button leave the input no room.
+   * The input always takes a line of its own (the GA tenant editor modal). Without it the input keeps a
+   * minimum width and wraps to the next line when the row has no room; the layout follows the space the
+   * host gives it, never a viewport breakpoint, because the same viewport can mean a wide page or a narrow
+   * column next to the sidebar.
    */
   stacked?: boolean;
 }
@@ -73,7 +75,7 @@ export function AddMemberForm({
           placeholder={addingApplication ? "Application (client) ID, e.g. 00000000-0000-0000-0000-000000000000" : "user@tenant.com"}
           aria-label={addingApplication ? "Application (client) ID" : "User email (UPN)"}
           autoComplete="off"
-          className={`${stacked ? "w-full" : "w-full sm:w-auto sm:flex-1"} min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors`}
+          className={`${stacked ? "basis-full" : "grow basis-72"} min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors`}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -81,40 +83,42 @@ export function AddMemberForm({
             }
           }}
         />
-        <select
-          value={addingApplication ? "Viewer" : role}
-          onChange={(e) => onRoleChange(e.target.value)}
-          disabled={addingApplication}
-          aria-label="Role"
-          title={addingApplication ? "A service principal is always read-only (Viewer)" : undefined}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
-        >
-          {MEMBER_ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={!canSubmit}
-          className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          {adding ? (
-            <>
-              <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" aria-hidden="true" />
-              Adding...
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add
-            </>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <select
+            value={addingApplication ? "Viewer" : role}
+            onChange={(e) => onRoleChange(e.target.value)}
+            disabled={addingApplication}
+            aria-label="Role"
+            title={addingApplication ? "A service principal is always read-only (Viewer)" : undefined}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
+          >
+            {MEMBER_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={onAdd}
+            disabled={!canSubmit}
+            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {adding ? (
+              <>
+                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" aria-hidden="true" />
+                Adding...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

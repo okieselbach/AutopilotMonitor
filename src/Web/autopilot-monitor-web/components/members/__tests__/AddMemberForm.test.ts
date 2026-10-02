@@ -5,8 +5,8 @@ import { AddMemberForm } from "../AddMemberForm";
 
 const noop = () => {};
 
-function inputClass(stacked?: boolean): string {
-  const html = renderToStaticMarkup(
+function render(stacked?: boolean): string {
+  return renderToStaticMarkup(
     createElement(AddMemberForm, {
       value: "",
       onValueChange: noop,
@@ -19,19 +19,29 @@ function inputClass(stacked?: boolean): string {
       stacked,
     }),
   );
+}
+
+function inputClasses(html: string): string[] {
   const input = html.match(/<input [^>]*name="new-member"[^>]*>/)?.[0] ?? "";
-  return input.match(/class="([^"]*)"/)?.[1] ?? "";
+  return (input.match(/class="([^"]*)"/)?.[1] ?? "").split(" ");
 }
 
 describe("AddMemberForm", () => {
-  it("shares a row with the type switch, role and button from the sm breakpoint by default", () => {
-    expect(inputClass().split(" ")).toEqual(expect.arrayContaining(["w-full", "sm:w-auto", "sm:flex-1"]));
+  it("keeps a minimum width for the input and wraps instead of squeezing it, whatever the viewport", () => {
+    const classes = inputClasses(render());
+    expect(classes).toEqual(expect.arrayContaining(["grow", "basis-72", "min-w-0"]));
+    // No viewport breakpoint decides the layout: a wide window can still host a narrow column.
+    expect(classes.filter((c) => /^(sm|md|lg|xl):/.test(c))).toEqual([]);
   });
 
-  it("gives the input a line of its own when stacked (narrow hosts like the GA tenant editor)", () => {
-    const classes = inputClass(true).split(" ");
-    expect(classes).toContain("w-full");
-    expect(classes).not.toContain("sm:w-auto");
-    expect(classes).not.toContain("sm:flex-1");
+  it("gives the input a line of its own when stacked (the GA tenant editor modal)", () => {
+    const classes = inputClasses(render(true));
+    expect(classes).toContain("basis-full");
+    expect(classes).not.toContain("basis-72");
+  });
+
+  it("keeps role and Add together, so they wrap as one unit", () => {
+    const html = render();
+    expect(html).toMatch(/<div class="flex gap-2"><select [^>]*aria-label="Role"[\s\S]*?<\/select><button [^>]*>[\s\S]*?Add<\/button><\/div>/);
   });
 });
