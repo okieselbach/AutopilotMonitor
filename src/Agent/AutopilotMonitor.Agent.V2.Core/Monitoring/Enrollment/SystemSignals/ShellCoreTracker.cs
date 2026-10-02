@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -62,17 +63,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             @"OOBE_ESP.*Exiting", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Manifest templates: 62404 "... started. CXID: '%1'.", 62405 "... stopped. Result: '%1'.",
-        // 62406 "... Event 1. Name: '%1'.", 62407 "... Event 2. Name: '%1', Value: '%2'.". A 62407
-        // value can carry URLs with tenant ids — a value leaves the tracker only in a form that
-        // cannot (SafeValuePattern: a boolean, an integer, an HRESULT).
+        // 62406 "... Event 1. Name: '%1'.", 62407 "... Event 2. Name: '%1', Value: '%2'.". The
+        // fields are read from the event PROPERTIES (%1/%2): the formatted message is localized
+        // ("Ergebnis: '…'", "Nom : « … »"), so these patterns are only the fallback for a record
+        // without properties and accept « » and a space before the colon. A 62407 value can carry
+        // URLs with tenant ids — a value leaves the tracker only in a form that cannot
+        // (SafeValuePattern: a boolean, an integer, an HRESULT).
         private static readonly Regex CxidPattern = new Regex(
-            @"CXID:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            @"CXID\s*:\s*['\u00AB]\s*([^'\u00BB]*?)\s*['\u00BB]", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
         private static readonly Regex ResultPattern = new Regex(
-            @"Result:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            @"Result\s*:\s*['\u00AB]\s*([^'\u00BB]*?)\s*['\u00BB]", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
         private static readonly Regex NamePattern = new Regex(
-            @"Name:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            @"Name\s*:\s*['\u00AB]\s*([^'\u00BB]*?)\s*['\u00BB]", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
         private static readonly Regex ValuePattern = new Regex(
-            @"Value:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            @"Value\s*:\s*['\u00AB]\s*([^'\u00BB]*?)\s*['\u00BB]", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
         private static readonly Regex SafeValuePattern = new Regex(
             @"^(?:true|false|-?[0-9]{1,10}|0x[0-9a-f]{1,8})$",
             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
@@ -84,6 +88,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly InformationalEventPost _post;
         private readonly HelloTracker _helloTracker;
         private readonly OobeUpdateTelemetry _oobeUpdate;
+        // Shell-Core RecordIds of the update-page records already reported: the restart backfill
+        // must not report a record an earlier run already sent (D-310 field data: the same 20
+        // records came twice after a restart).
+        private readonly EventRecordWatermark _pageWatermark;
+        internal const string PageWatermarkStateFileName = "shellcore-page-watermark.json";
 
         private EventLogWatcher _watcher;
         private int _started;
@@ -131,7 +140,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             InformationalEventPost post,
             AgentLogger logger,
             HelloTracker helloTracker,
-            Func<IReadOnlyList<OobeUpdateRegistrySnapshot.KeyState>> oobeUpdateRegistryReader = null)
+            Func<IReadOnlyList<OobeUpdateRegistrySnapshot.KeyState>> oobeUpdateRegistryReader = null,
+            string stateDirectory = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -141,17 +151,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // Test seam: a fake registry reader; production reads the real registry.
             _oobeUpdate = new OobeUpdateTelemetry(sessionId, tenantId, post, logger,
                 oobeUpdateRegistryReader ?? OobeUpdateRegistrySnapshot.Read);
+            _pageWatermark = new EventRecordWatermark(stateDirectory, PageWatermarkStateFileName, logger, "Shell-Core update page");
         }
 
         internal bool IsEspExitedForTest { get { lock (_stateLock) { return _espExitDetected; } } }
         internal bool IsWhiteGloveDetectedForTest { get { lock (_stateLock) { return _whiteGloveDetected; } } }
+
+        /// <summary>Loads the update-page watermark as <see cref="Start"/> does, without arming the watcher.</summary>
+        internal void LoadPageWatermark() => _pageWatermark.Load();
 
         public void Start()
         {
             // The OOBE update registry state at every agent start — so also right after the
             // update's restart (D-310).
             if (Interlocked.Exchange(ref _started, 1) == 0)
+            {
                 _oobeUpdate.ReportState(OobeUpdateTelemetry.Moments.AgentStart);
+                _pageWatermark.Load();
+            }
 
             try
             {
@@ -185,7 +202,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             // Stop runs again from Dispose — one snapshot, and only for a tracker that started.
             if (Volatile.Read(ref _started) == 1 && Interlocked.Exchange(ref _stopReported, 1) == 0)
+            {
                 _oobeUpdate.ReportState(OobeUpdateTelemetry.Moments.AgentStop);
+            }
 
             if (_watcher == null) return;
             try
@@ -216,7 +235,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var description = record.FormatDescription() ?? $"Event ID {record.Id}";
                 var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
 
-                ProcessEvent(record.Id, description, timestamp, record.ProviderName ?? "", isBackfill: false);
+                ProcessEvent(record.Id, description, timestamp, record.ProviderName ?? "", isBackfill: false,
+                    recordId: record.RecordId ?? -1, properties: ReadProperties(record));
             }
             catch (Exception ex)
             {
@@ -228,9 +248,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// Core event-processing logic. Exposed as internal so tests can drive it without
         /// needing to synthesize an <see cref="EventRecord"/> (abstract + Windows-only).
         /// </summary>
-        internal void ProcessEvent(int eventId, string description, DateTime timestamp, string providerName, bool isBackfill)
+        internal void ProcessEvent(
+            int eventId,
+            string description,
+            DateTime timestamp,
+            string providerName,
+            bool isBackfill,
+            long recordId = -1,
+            IReadOnlyList<string> properties = null)
         {
-            ObserveCxhRecord(eventId, description, timestamp, isBackfill);
+            var fields = ReadCxhFields(eventId, description, properties);
+            ObserveCxhRecord(eventId, fields, timestamp, isBackfill, recordId);
             if (eventId == EventId_ShellCore_WebAppStopped || eventId == EventId_ShellCore_WebAppEventName) return;
 
             string eventType;
@@ -244,7 +272,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             switch (eventId)
             {
                 case EventId_ShellCore_WebAppStarted: // 62404
-                    if (description.Contains("AADHello") || description.Contains("'NGC'"))
+                    if (IsHelloWizardStart(fields.Primary, description))
                     {
                         eventType = Constants.EventTypes.HelloWizardStarted;
                         message = "Windows Hello wizard started (CloudExperienceHost)";
@@ -437,7 +465,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     PathType.LogName,
                     $"*[System[{WatchedEventIdsXPath} and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
 
-                var records = new List<(int Id, string Description, DateTime OccurredAtUtc)>();
+                var records = new List<ShellCoreRecord>();
                 using (var reader = new EventLogReader(query))
                 {
                     for (EventRecord record = reader.ReadEvent(); record != null; record = reader.ReadEvent())
@@ -449,7 +477,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             // (EspAndHelloTrackerAdapter) can stamp signals with the source time
                             // rather than collapsing to wall-clock-now.
                             var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
-                            records.Add((record.Id, description, timestamp));
+                            records.Add(new ShellCoreRecord(record.Id, description, timestamp,
+                                record.RecordId ?? -1, ReadProperties(record)));
                         }
                     }
                 }
@@ -503,6 +532,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void ReplayBackfillRecords(
             IReadOnlyList<(int Id, string Description, DateTime OccurredAtUtc)> records)
         {
+            if (records == null) return;
+            var converted = new List<ShellCoreRecord>(records.Count);
+            foreach (var r in records) converted.Add(new ShellCoreRecord(r.Id, r.Description, r.OccurredAtUtc));
+            ReplayBackfillRecords(converted);
+        }
+
+        internal void ReplayBackfillRecords(IReadOnlyList<ShellCoreRecord> records)
+        {
             if (records == null || records.Count == 0) return;
 
             var skippedExits = 0;
@@ -513,11 +550,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             foreach (var record in records)
             {
                 var description = record.Description ?? string.Empty;
-                ObserveCxhRecord(record.Id, description, record.OccurredAtUtc, isBackfill: true);
+                var fields = ReadCxhFields(record.Id, description, record.Properties);
+                ObserveCxhRecord(record.Id, fields, record.OccurredAtUtc, isBackfill: true, recordId: record.RecordId);
 
                 if (record.Id == EventId_ShellCore_WebAppStarted)
                 {
-                    HandleBackfillRecord(record.Id, description, record.OccurredAtUtc);
+                    HandleBackfillRecord(record.Id, description, record.OccurredAtUtc, fields.Primary);
                     continue;
                 }
 
@@ -586,7 +624,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// (<c>record.TimeCreated</c>); subscribers read it via
         /// <see cref="LastEventOccurredAtUtc"/> during their synchronous event handler.
         /// </summary>
-        internal void HandleBackfillRecord(int eventId, string description, DateTime occurredAtUtc)
+        internal void HandleBackfillRecord(int eventId, string description, DateTime occurredAtUtc, string cxid = null)
         {
             if (eventId == EventId_ShellCore_WebAppStarted)
             {
@@ -594,7 +632,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // are unrelated. Fire-once so a replayed log tail cannot re-raise (downstream is
                 // idempotent anyway: HelloTracker once-guard, adapter dedup flag, engine
                 // set-once fact — this guard just keeps the noise down).
-                if (!description.Contains("AADHello") && !description.Contains("'NGC'")) return;
+                if (!IsHelloWizardStart(cxid ?? ReadCxhFields(eventId, description, null).Primary, description)) return;
 
                 bool shouldRaiseWizard;
                 lock (_stateLock)
@@ -628,28 +666,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// Writes one agent.log line per CloudExperienceHost page start/stop and per update-page
         /// event name, so a diagnostics package shows the OOBE navigation. Records of the update
         /// page itself (<c>OobeNDUP</c>, <c>RebootNDUP</c> and its <c>ExpeditedUpdate_*</c> names)
-        /// are also reported as <c>oobe_update_page</c>, and at the page's live start and stop the
-        /// registry state behind it as <c>oobe_update_state</c>. No decision.
+        /// are also reported as <c>oobe_update_page</c> — once across agent runs, by RecordId — and
+        /// at the page's live start and stop the registry state behind it as
+        /// <c>oobe_update_state</c>. No decision.
         /// </summary>
-        private void ObserveCxhRecord(int eventId, string description, DateTime occurredAtUtc, bool isBackfill)
+        private void ObserveCxhRecord(int eventId, CxhFields fields, DateTime occurredAtUtc, bool isBackfill, long recordId)
         {
             try
             {
                 string page;
                 lock (_stateLock)
                 {
-                    if (eventId == EventId_ShellCore_WebAppStarted)
-                        _lastCxhPage = ExtractToken(CxidPattern, description) ?? _lastCxhPage;
+                    if (eventId == EventId_ShellCore_WebAppStarted && fields.Primary != null)
+                        _lastCxhPage = fields.Primary;
                     page = _lastCxhPage;
                 }
 
-                var crumb = FormatCxhBreadcrumb(eventId, description, page);
+                var crumb = FormatCxhBreadcrumb(eventId, fields, page);
                 if (crumb == null) return;
                 _logger.Info(isBackfill ? $"{crumb} (backfill, at {occurredAtUtc:o})" : crumb);
 
-                var record = ParseUpdatePageRecord(eventId, description, page);
+                var record = ParseUpdatePageRecord(eventId, fields, page);
                 if (record == null) return;
-                _oobeUpdate.ReportPage(record, occurredAtUtc, isBackfill);
+                // A record an earlier run (or this one) already reported — the restart backfill
+                // re-reads the minutes before the restart.
+                if (!_pageWatermark.TryClaim(recordId)) return;
+
+                // Only a reported record moves the state file — at most the run budget plus the
+                // page boundaries; one over the budget stays claimed for this run only.
+                if (_oobeUpdate.ReportPage(record, occurredAtUtc, isBackfill))
+                    _pageWatermark.MarkEmitted(recordId);
 
                 // The registry is read now — only a live page boundary is the page's moment.
                 if (!isBackfill && record.CxhEvent != OobeUpdatePageRecord.EventName)
@@ -667,32 +713,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        /// <summary>The own fields of a CloudExperienceHost record: CXID, result or name (%1) and the 62407 value (%2).</summary>
+        internal readonly struct CxhFields
+        {
+            public CxhFields(string primary, string value)
+            {
+                Primary = primary;
+                Value = value;
+            }
+
+            /// <summary>62404: CXID; 62405: result; 62406/62407: event name. Null when not readable.</summary>
+            public string Primary { get; }
+
+            /// <summary>62407: the raw value (never logged or sent unless it is of a safe form).</summary>
+            public string Value { get; }
+        }
+
+        /// <summary>
+        /// The record's fields from its event properties, which carry them verbatim in every
+        /// display language. Without properties (a test, a record that failed to render them) the
+        /// formatted message is parsed — English punctuation and « » only, so a localized label
+        /// ("Ergebnis", "Nom") yields null there.
+        /// </summary>
+        internal static CxhFields ReadCxhFields(int eventId, string description, IReadOnlyList<string> properties)
+        {
+            if (properties != null && properties.Count > 0)
+            {
+                return new CxhFields(
+                    Bound(properties[0]),
+                    eventId == EventId_ShellCore_WebAppEvent && properties.Count > 1 ? Bound(properties[1]) : null);
+            }
+
+            switch (eventId)
+            {
+                case EventId_ShellCore_WebAppStarted:
+                    return new CxhFields(ExtractToken(CxidPattern, description), null);
+                case EventId_ShellCore_WebAppStopped:
+                    return new CxhFields(ExtractToken(ResultPattern, description), null);
+                case EventId_ShellCore_WebAppEventName:
+                    return new CxhFields(ExtractToken(NamePattern, description), null);
+                case EventId_ShellCore_WebAppEvent:
+                    return new CxhFields(ExtractToken(NamePattern, description), ExtractToken(ValuePattern, description));
+                default:
+                    return default;
+            }
+        }
+
         /// <summary>
         /// The breadcrumb for one Shell-Core record, or null when it is not one: a page start
         /// (62404, its CXID), a page stop (62405, its result, attributed to the last started
         /// page), or an update-page event name (62406/62407 — a 62407 value only in a safe form).
         /// </summary>
-        internal static string FormatCxhBreadcrumb(int eventId, string description, string lastPage)
+        internal static string FormatCxhBreadcrumb(int eventId, string description, string lastPage) =>
+            FormatCxhBreadcrumb(eventId, ReadCxhFields(eventId, description, null), lastPage);
+
+        internal static string FormatCxhBreadcrumb(int eventId, CxhFields fields, string lastPage)
         {
             switch (eventId)
             {
                 case EventId_ShellCore_WebAppStarted:
-                {
-                    var cxid = ExtractToken(CxidPattern, description);
-                    return cxid == null ? null : $"CXH page started: {cxid}";
-                }
+                    return fields.Primary == null ? null : $"CXH page started: {fields.Primary}";
                 case EventId_ShellCore_WebAppStopped:
-                {
-                    var result = ExtractToken(ResultPattern, description) ?? "?";
-                    return $"CXH page stopped: {lastPage ?? "?"} (result={result})";
-                }
+                    return $"CXH page stopped: {lastPage ?? "?"} (result={fields.Primary ?? "?"})";
                 case EventId_ShellCore_WebAppEventName:
                 case EventId_ShellCore_WebAppEvent:
                 {
-                    var name = ExtractToken(NamePattern, description);
-                    if (!IsUpdatePageToken(name)) return null;
-                    var value = eventId == EventId_ShellCore_WebAppEvent ? ExtractSafeValue(description) : null;
-                    return value == null ? $"CXH event: {name}" : $"CXH event: {name} (value={value})";
+                    if (!IsUpdatePageToken(fields.Primary)) return null;
+                    var value = eventId == EventId_ShellCore_WebAppEvent ? SafeValue(fields.Value) : null;
+                    return value == null ? $"CXH event: {fields.Primary}" : $"CXH event: {fields.Primary} (value={value})";
                 }
                 default:
                     return null;
@@ -704,29 +792,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// the start of a page whose CXID names NDUP, the stop of such a page (62405, attributed
         /// to the last started page), or an update-page event name from 62406/62407.
         /// </summary>
-        internal static OobeUpdatePageRecord ParseUpdatePageRecord(int eventId, string description, string lastPage)
+        internal static OobeUpdatePageRecord ParseUpdatePageRecord(int eventId, string description, string lastPage) =>
+            ParseUpdatePageRecord(eventId, ReadCxhFields(eventId, description, null), lastPage);
+
+        internal static OobeUpdatePageRecord ParseUpdatePageRecord(int eventId, CxhFields fields, string lastPage)
         {
             switch (eventId)
             {
                 case EventId_ShellCore_WebAppStarted:
-                {
-                    var cxid = ExtractToken(CxidPattern, description);
-                    return IsUpdatePageToken(cxid)
-                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, eventId, page: cxid)
+                    return IsUpdatePageToken(fields.Primary)
+                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, eventId, page: fields.Primary)
                         : null;
-                }
                 case EventId_ShellCore_WebAppStopped:
                     return IsUpdatePageToken(lastPage)
                         ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, eventId,
-                            page: lastPage, result: ExtractToken(ResultPattern, description) ?? "?")
+                            page: lastPage, result: fields.Primary ?? "?")
                         : null;
                 case EventId_ShellCore_WebAppEventName:
                 case EventId_ShellCore_WebAppEvent:
                 {
-                    var name = ExtractToken(NamePattern, description);
-                    if (!IsUpdatePageToken(name)) return null;
-                    var value = eventId == EventId_ShellCore_WebAppEvent ? ExtractSafeValue(description) : null;
-                    return new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, eventId, name: name, value: value);
+                    if (!IsUpdatePageToken(fields.Primary)) return null;
+                    var value = eventId == EventId_ShellCore_WebAppEvent ? SafeValue(fields.Value) : null;
+                    return new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, eventId, name: fields.Primary, value: value);
                 }
                 default:
                     return null;
@@ -739,13 +826,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 || token.IndexOf("ExpeditedUpdate", StringComparison.OrdinalIgnoreCase) >= 0);
 
         /// <summary>
+        /// The Hello wizard's CloudExperienceHost start: CXID <c>AADHello</c> or <c>NGC</c>. With
+        /// no readable CXID the formatted message decides, as before (an English or German
+        /// message quotes the CXID as <c>'NGC'</c>).
+        /// </summary>
+        internal static bool IsHelloWizardStart(string cxid, string description) =>
+            cxid != null
+                ? cxid.Contains("AADHello") || string.Equals(cxid, "NGC", StringComparison.Ordinal)
+                : description != null && (description.Contains("AADHello") || description.Contains("'NGC'"));
+
+        /// <summary>
         /// The 62407 value when it is a boolean, an integer of up to ten digits or an HRESULT —
         /// forms that cannot carry a URL or a tenant id (the CSP gate, error codes). Null for
         /// anything else.
         /// </summary>
-        internal static string ExtractSafeValue(string description)
+        internal static string ExtractSafeValue(string description) =>
+            SafeValue(ReadCxhFields(EventId_ShellCore_WebAppEvent, description, null).Value);
+
+        internal static string SafeValue(string value)
         {
-            var value = ExtractToken(ValuePattern, description);
             if (string.IsNullOrEmpty(value)) return null;
             try
             {
@@ -763,11 +862,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             try
             {
                 var match = pattern.Match(description);
-                if (!match.Success) return null;
-                var token = match.Groups[1].Value;
-                return token.Length > MaxBreadcrumbTokenLength ? token.Substring(0, MaxBreadcrumbTokenLength) + "…" : token;
+                return match.Success ? Bound(match.Groups[1].Value) : null;
             }
             catch (RegexMatchTimeoutException)
+            {
+                return null;
+            }
+        }
+
+        private static string Bound(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return null;
+            return token.Length > MaxBreadcrumbTokenLength ? token.Substring(0, MaxBreadcrumbTokenLength) + "…" : token;
+        }
+
+        /// <summary>The event's property values as strings (the manifest's %1, %2, …); null when unreadable.</summary>
+        private static IReadOnlyList<string> ReadProperties(EventRecord record)
+        {
+            try
+            {
+                var properties = record.Properties;
+                if (properties == null || properties.Count == 0) return null;
+                var values = new string[properties.Count];
+                for (var i = 0; i < properties.Count; i++)
+                    values[i] = Convert.ToString(properties[i]?.Value, CultureInfo.InvariantCulture);
+                return values;
+            }
+            catch (Exception)
             {
                 return null;
             }
@@ -811,5 +932,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             return "Unknown_ESP_Failure";
         }
+    }
+
+    /// <summary>One Shell-Core record read by the restart backfill.</summary>
+    internal readonly struct ShellCoreRecord
+    {
+        public ShellCoreRecord(int id, string description, DateTime occurredAtUtc, long recordId = -1, IReadOnlyList<string> properties = null)
+        {
+            Id = id;
+            Description = description;
+            OccurredAtUtc = occurredAtUtc;
+            RecordId = recordId;
+            Properties = properties;
+        }
+
+        public int Id { get; }
+        public string Description { get; }
+        public DateTime OccurredAtUtc { get; }
+
+        /// <summary>The channel's RecordId; -1 when unknown (no cross-run dedup).</summary>
+        public long RecordId { get; }
+
+        /// <summary>The event's property values (%1, %2, …); null when unknown.</summary>
+        public IReadOnlyList<string> Properties { get; }
     }
 }

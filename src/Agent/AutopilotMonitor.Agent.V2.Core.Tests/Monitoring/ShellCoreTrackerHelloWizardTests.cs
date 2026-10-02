@@ -85,6 +85,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         [Fact]
+        public void ProcessEvent_62404_NGC_in_a_localized_message_is_read_from_the_cxid_property()
+        {
+            // A French Windows quotes the CXID in guillemets — the "'NGC'" substring never matched.
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+            var raised = 0;
+            tracker.HelloWizardStarted += (_, _) => raised++;
+
+            tracker.ProcessEvent(
+                eventId: ShellCoreTracker.EventId_ShellCore_WebAppStarted,
+                description: "Activité d’application web CloudExperienceHost démarrée. CXID : « NGC ».",
+                timestamp: ClockNow,
+                providerName: "Microsoft-Windows-Shell-Core",
+                isBackfill: false,
+                properties: new[] { "NGC" });
+
+            Assert.Equal(1, raised);
+        }
+
+        [Theory]
+        [InlineData("AADHello", true)]
+        [InlineData("NGC", true)]
+        [InlineData("NGCPin", false)]
+        [InlineData("OobeNDUP", false)]
+        public void HelloWizardStart_is_decided_by_the_cxid(string cxid, bool expected)
+        {
+            Assert.Equal(expected, ShellCoreTracker.IsHelloWizardStart(cxid, description: "CXID: 'AADHello'"));
+        }
+
+        [Fact]
+        public void Backfill_62404_reads_the_cxid_property()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+            var captured = new List<HelloWizardStartedEventArgs>();
+            tracker.HelloWizardStarted += (_, args) => captured.Add(args);
+
+            var historical = ClockNow.AddMinutes(-3);
+            tracker.ReplayBackfillRecords(new[]
+            {
+                new ShellCoreRecord(ShellCoreTracker.EventId_ShellCore_WebAppStarted,
+                    "Activité d’application web CloudExperienceHost démarrée. CXID : « NGC ».", historical,
+                    recordId: 42, properties: new[] { "NGC" }),
+            });
+
+            Assert.Equal(historical, Assert.Single(captured).OccurredAtUtc);
+        }
+
+        [Fact]
         public void Backfill_62404_raises_once_with_historical_timestamp()
         {
             // Agent restart while the user sits inside the wizard: the backfill must replay

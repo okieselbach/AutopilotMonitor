@@ -413,7 +413,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _tenantId,
                 _post,
                 _logger,
-                _helloTracker);
+                _helloTracker,
+                stateDirectory: _stateDirectory);
             _shellCoreTracker.FinalizingSetupPhaseTriggered += OnFinalizingSetupPhaseTriggered;
             _shellCoreTracker.WhiteGloveCompleted += OnWhiteGloveCompleted;
             _shellCoreTracker.EspFailureDetected += OnShellCoreEspFailureDetected;

@@ -112,6 +112,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerRun, ByType(Constants.EventTypes.OobeUpdatePage).Count);
         }
 
+        [Fact]
+        public void PageStartAndStop_AreReported_AfterTheNameBudgetIsSpent()
+        {
+            // The time attribution reads the update's span from the page start and stop.
+            var telemetry = Build();
+            for (var i = 0; i < OobeUpdateTelemetry.MaxPageEventsPerRun; i++)
+            {
+                Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: $"ExpeditedUpdate_step{i}"), At, isBackfill: false));
+            }
+
+            Assert.False(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: "ExpeditedUpdate_late"), At, isBackfill: false));
+            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, 62404, page: "RebootNDUP"), At.AddMinutes(1), isBackfill: false));
+            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, 62405, page: "RebootNDUP", result: "success"), At.AddMinutes(2), isBackfill: false));
+
+            var pages = ByType(Constants.EventTypes.OobeUpdatePage);
+            Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerRun + 2, pages.Count);
+            Assert.Equal(new object[] { "page_started", "page_stopped" },
+                pages.Skip(OobeUpdateTelemetry.MaxPageEventsPerRun).Select(p => Data(p)["cxhEvent"]).ToArray());
+        }
+
+        [Fact]
+        public void SamePageStart_IsReportedAtMostThreeTimes()
+        {
+            // Outside the run budget, but a page that restarts in a loop still cannot flood.
+            var telemetry = Build();
+            var reported = Enumerable.Range(0, 10)
+                .Count(i => telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, 62404, page: "OobeNDUP"), At.AddMinutes(i), isBackfill: false));
+
+            Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerKey, reported);
+        }
+
         // ------------------------------------------------------------ oobe_update_state ----
 
         [Fact]

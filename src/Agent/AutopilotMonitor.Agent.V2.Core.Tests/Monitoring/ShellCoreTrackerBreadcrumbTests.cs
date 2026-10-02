@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -10,6 +11,7 @@ using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
@@ -36,18 +38,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         private const string CspGateTrue =
             "CloudExperienceHost Web App Event 2. Name: 'ExpeditedUpdate_isNDUPAllowedByCSPSucceeded', Value: 'true'.";
 
+        // A French Windows labels the same fields "Résultat", "Nom" and "valeur" and quotes them
+        // in guillemets; the event properties carry the values unchanged in every language.
+        private const string FrenchNdupStarted = "Activité d’application web CloudExperienceHost démarrée. CXID : « OobeNDUP ».";
+        private const string FrenchPageStopped = "Activité d’application web CloudExperienceHost arrêtée. Résultat : « success ».";
+        private const string FrenchCspGate =
+            "Événement d’application web CloudExperienceHost 2. Nom : « ExpeditedUpdate_isNDUPAllowedByCSPSucceeded », valeur : « true ».";
+
         private readonly TempDirectory _tmp = new TempDirectory();
         private readonly FakeSignalIngressSink _sink = new FakeSignalIngressSink();
         private IReadOnlyList<OobeUpdateRegistrySnapshot.KeyState> _registry = Array.Empty<OobeUpdateRegistrySnapshot.KeyState>();
 
         public void Dispose() => _tmp.Dispose();
 
-        private ShellCoreTracker Build() =>
+        private ShellCoreTracker Build(string? stateDirectory = null) =>
             new ShellCoreTracker("S1", "T1",
                 new InformationalEventPost(_sink, new VirtualClock(At)),
                 new AgentLogger(_tmp.Path, AgentLogLevel.Info),
                 helloTracker: null,
-                oobeUpdateRegistryReader: () => _registry);
+                oobeUpdateRegistryReader: () => _registry,
+                stateDirectory: stateDirectory);
+
+        private string StateDirectory => Path.Combine(_tmp.Path, "state");
+
+        private static void Live(ShellCoreTracker tracker, int eventId, string description, DateTime at, long recordId) =>
+            tracker.ProcessEvent(eventId, description, at, "Microsoft-Windows-Shell-Core", isBackfill: false, recordId: recordId);
 
         private IReadOnlyList<FakeSignalIngressSink.PostedSignal> ByType(string eventType) =>
             _sink.Posted.Where(p =>
@@ -272,6 +287,132 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             Assert.Equal(0, reads);
             // Nothing else: no ESP exit or failure was in the window, so no skipped-records trace.
             Assert.Equal(3, _sink.Posted.Count);
+        }
+
+        // ------------------------------------------------------------ localization ----
+
+        [Fact]
+        public void LocalizedRecords_AreReadFromTheirProperties()
+        {
+            using var tracker = Build();
+
+            tracker.ProcessEvent(ShellCoreTracker.EventId_ShellCore_WebAppStarted, FrenchNdupStarted, At, "Microsoft-Windows-Shell-Core",
+                isBackfill: false, properties: new[] { "OobeNDUP" });
+            tracker.ProcessEvent(ShellCoreTracker.EventId_ShellCore_WebAppEvent, FrenchCspGate, At.AddSeconds(5), "Microsoft-Windows-Shell-Core",
+                isBackfill: false, properties: new[] { "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", "true" });
+            tracker.ProcessEvent(ShellCoreTracker.EventId_ShellCore_WebAppStopped, FrenchPageStopped, At.AddMinutes(1), "Microsoft-Windows-Shell-Core",
+                isBackfill: false, properties: new[] { "success" });
+
+            var pages = ByType(Constants.EventTypes.OobeUpdatePage).Select(Data).ToList();
+            Assert.Equal(new object[] { "page_started", "event_name", "page_stopped" }, pages.Select(d => d["cxhEvent"]).ToArray());
+            Assert.Equal("OobeNDUP", pages[0]["page"]);
+            Assert.Equal("ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", pages[1]["name"]);
+            Assert.Equal("true", pages[1]["value"]);
+            Assert.Equal("OobeNDUP", pages[2]["page"]);
+            Assert.Equal("success", pages[2]["result"]);
+        }
+
+        [Fact]
+        public void LocalizedMessage_WithoutProperties_DoesNotYieldItsLabelledFields()
+        {
+            // Why the properties are read: the French labels are not the manifest's.
+            Assert.Null(ShellCoreTracker.ReadCxhFields(ShellCoreTracker.EventId_ShellCore_WebAppStopped, FrenchPageStopped, properties: null).Primary);
+            Assert.Null(ShellCoreTracker.ReadCxhFields(ShellCoreTracker.EventId_ShellCore_WebAppEvent, FrenchCspGate, properties: null).Primary);
+
+            Assert.Equal("success",
+                ShellCoreTracker.ReadCxhFields(ShellCoreTracker.EventId_ShellCore_WebAppStopped, FrenchPageStopped, new[] { "success" }).Primary);
+        }
+
+        [Theory]
+        [InlineData("CloudExperienceHost Web App Event 2. Name: 'ExpeditedUpdate_x', Value: 'true'.")]
+        [InlineData("CloudExperienceHost Web App Event 2. Name : « ExpeditedUpdate_x », Value : « true ».")]
+        [InlineData("CloudExperienceHost Web App Event 2. Name\u00A0: «\u202FExpeditedUpdate_x\u202F», Value\u00A0: «\u00A0true\u00A0».")]
+        public void MessageFallback_AcceptsQuotesAndGuillemets(string description)
+        {
+            var fields = ShellCoreTracker.ReadCxhFields(ShellCoreTracker.EventId_ShellCore_WebAppEvent, description, properties: null);
+
+            Assert.Equal("ExpeditedUpdate_x", fields.Primary);
+            Assert.Equal("true", fields.Value);
+        }
+
+        [Fact]
+        public void PropertyValue_LeavesTheTrackerOnlyInASafeForm()
+        {
+            var fields = ShellCoreTracker.ReadCxhFields(ShellCoreTracker.EventId_ShellCore_WebAppEvent, "",
+                new[] { "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded", "{\"url\":\"https://login.microsoftonline.com/x\"}" });
+
+            var record = ShellCoreTracker.ParseUpdatePageRecord(ShellCoreTracker.EventId_ShellCore_WebAppEvent, fields, lastPage: null);
+            Assert.Equal("ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded", record!.Name);
+            Assert.Null(record.Value);
+            Assert.DoesNotContain("microsoftonline",
+                ShellCoreTracker.FormatCxhBreadcrumb(ShellCoreTracker.EventId_ShellCore_WebAppEvent, fields, lastPage: null));
+        }
+
+        // ------------------------------------------------------- restart watermark ----
+
+        [Fact]
+        public void RestartBackfill_SkipsUpdatePageRecords_AnEarlierRunReported()
+        {
+            using (var first = Build(StateDirectory))
+            {
+                Live(first, ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At, recordId: 500);
+                Live(first, ShellCoreTracker.EventId_ShellCore_WebAppEventName, ScanStartedName, At.AddMinutes(1), recordId: 501);
+            }
+
+            // The restart reads the minutes before it again — plus the stop the first run missed.
+            using var second = Build(StateDirectory);
+            second.LoadPageWatermark();
+            second.ReplayBackfillRecords(new[]
+            {
+                new ShellCoreRecord(ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At, recordId: 500),
+                new ShellCoreRecord(ShellCoreTracker.EventId_ShellCore_WebAppEventName, ScanStartedName, At.AddMinutes(1), recordId: 501),
+                new ShellCoreRecord(ShellCoreTracker.EventId_ShellCore_WebAppStopped, PageStopped, At.AddMinutes(2), recordId: 502),
+            });
+
+            var pages = ByType(Constants.EventTypes.OobeUpdatePage).Select(Data).ToList();
+            Assert.Equal(new object[] { "page_started", "event_name", "page_stopped" }, pages.Select(d => d["cxhEvent"]).ToArray());
+            Assert.Equal(new object[] { false, false, true }, pages.Select(d => d["backfill"]).ToArray());
+            // The skipped start still names the page the stop belongs to.
+            Assert.Equal("OobeNDUP", pages[2]["page"]);
+        }
+
+        [Fact]
+        public void SameRecord_FromTheLiveWatcherAndTheBackfill_IsReportedOnce()
+        {
+            // The live watcher is armed before the backfill runs, so both can deliver a record.
+            using var tracker = Build(StateDirectory);
+            Live(tracker, ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At, recordId: 700);
+            tracker.ReplayBackfillRecords(new[]
+            {
+                new ShellCoreRecord(ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At, recordId: 700),
+            });
+
+            Assert.Single(ByType(Constants.EventTypes.OobeUpdatePage));
+        }
+
+        [Fact]
+        public void Watermark_FollowsReportedRecordsOnly()
+        {
+            using var tracker = Build(StateDirectory);
+            for (var i = 0; i <= OobeUpdateTelemetry.MaxPageEventsPerKey; i++)
+                Live(tracker, ShellCoreTracker.EventId_ShellCore_WebAppEventName, ScanStartedName, At.AddSeconds(i), recordId: 800 + i);
+
+            // The repeat over the per-name cap is claimed for this run, not written down.
+            Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerKey, ByType(Constants.EventTypes.OobeUpdatePage).Count);
+            var state = JsonConvert.DeserializeObject<EventRecordWatermark.WatermarkState>(
+                File.ReadAllText(Path.Combine(StateDirectory, ShellCoreTracker.PageWatermarkStateFileName)));
+            Assert.Equal(800 + OobeUpdateTelemetry.MaxPageEventsPerKey - 1, state!.LastRecordId);
+        }
+
+        [Fact]
+        public void RecordsWithoutARecordId_AreNotDeduplicated()
+        {
+            using var tracker = Build(StateDirectory);
+            Live(tracker, ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At, recordId: -1);
+            Live(tracker, ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, At.AddMinutes(5), recordId: -1);
+
+            Assert.Equal(2, ByType(Constants.EventTypes.OobeUpdatePage).Count);
+            Assert.False(File.Exists(Path.Combine(StateDirectory, ShellCoreTracker.PageWatermarkStateFileName)));
         }
 
         [Fact]

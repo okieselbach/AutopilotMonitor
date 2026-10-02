@@ -53,7 +53,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// </summary>
     internal sealed class OobeUpdateTelemetry
     {
-        internal const int MaxPageEventsPerRun = 50;
+        internal const int MaxPageEventsPerRun = 150;
         internal const int MaxPageEventsPerKey = 3;
         internal const int MaxStateEventsPerRun = 6;
         internal const int MaxStateLineLength = 1000;
@@ -98,31 +98,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// One <c>oobe_update_page</c> per update-page record, at most
-        /// <see cref="MaxPageEventsPerKey"/> per page/name and <see cref="MaxPageEventsPerRun"/>
-        /// per run — a page that logs the same name in a loop cannot flood the session.
+        /// <see cref="MaxPageEventsPerKey"/> per page/name — a page that logs the same name in a
+        /// loop cannot flood the session. Event names also share <see cref="MaxPageEventsPerRun"/>
+        /// per run; a page start or stop is outside that budget, because the time attribution
+        /// reads the update's span from them. True when the record was reported.
         /// </summary>
-        public void ReportPage(OobeUpdatePageRecord record, DateTime occurredAtUtc, bool isBackfill)
+        public bool ReportPage(OobeUpdatePageRecord record, DateTime occurredAtUtc, bool isBackfill)
         {
-            if (record == null) return;
+            if (record == null) return false;
 
+            var isEventName = record.CxhEvent == OobeUpdatePageRecord.EventName;
             var key = $"{record.CxhEvent}:{record.Page ?? record.Name}";
             int occurrence;
             lock (_lock)
             {
-                if (_pageEvents >= MaxPageEventsPerRun)
+                if (isEventName && _pageEvents >= MaxPageEventsPerRun)
                 {
                     if (!_pageCapLogged)
                     {
                         _pageCapLogged = true;
-                        _logger.Info($"OOBE update page telemetry: {MaxPageEventsPerRun} events reached, the rest of this run stays in agent.log");
+                        _logger.Info($"OOBE update page telemetry: {MaxPageEventsPerRun} event names reached, the rest of this run stays in agent.log");
                     }
-                    return;
+                    return false;
                 }
                 _pageEventsPerKey.TryGetValue(key, out occurrence);
-                if (occurrence >= MaxPageEventsPerKey) return;
+                if (occurrence >= MaxPageEventsPerKey) return false;
                 occurrence++;
                 _pageEventsPerKey[key] = occurrence;
-                _pageEvents++;
+                if (isEventName) _pageEvents++;
             }
 
             var data = new Dictionary<string, object>
@@ -153,10 +156,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     Data = data,
                     ImmediateUpload = false,
                 });
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.Debug($"OOBE update page telemetry failed: {ex.Message}");
+                return false;
             }
         }
 
