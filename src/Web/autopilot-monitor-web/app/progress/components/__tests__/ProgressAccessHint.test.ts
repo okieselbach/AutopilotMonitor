@@ -35,10 +35,13 @@ describe("ProgressAccessHint", () => {
   it("links both variants to the troubleshooting article, after a space", () => {
     // GitBook publishes troubleshooting/ under its group slug; the folder URL of a new page is a 404.
     expect(ACCESS_HINT_DOCS_URL).toBe(`${DOCS_URL}/troubleshooting-and-support/progress-portal-only`);
+    // Plain substring match: a URL interpolated into a RegExp needs every dot escaped.
+    const link = `. <a href="${ACCESS_HINT_DOCS_URL}" target="_blank" rel="noopener noreferrer"`;
     for (const hint of [{ kind: "member" as const }, { kind: "unused" as const, signedUpOn: null }]) {
-      expect(render(hint)).toMatch(
-        new RegExp(`[.] <a href="${ACCESS_HINT_DOCS_URL.replace(/[.]/g, "[.]")}" target="_blank" rel="noopener noreferrer"[^>]*>Learn more</a>`),
-      );
+      const html = render(hint);
+      const start = html.indexOf(link);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(html.slice(start, html.indexOf("</a>", start))).toMatch(/>Learn more$/);
     }
   });
 });
