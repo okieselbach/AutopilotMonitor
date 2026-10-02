@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProgressAccessHint } from "../ProgressAccessHint";
+import { ACCESS_HINT_DOCS_URL, ProgressAccessHint } from "../ProgressAccessHint";
 import { SUPPORT_EMAIL } from "@/lib/supportContact";
+import { DOCS_URL } from "@/utils/config";
 
 const render = (hint: Parameters<typeof ProgressAccessHint>[0]["hint"]) =>
   renderToStaticMarkup(createElement(ProgressAccessHint, { hint }));
@@ -29,5 +30,15 @@ describe("ProgressAccessHint", () => {
     const html = render({ kind: "unused", signedUpOn: null });
 
     expect(html).toContain("signed up for Autopilot Monitor, but no device");
+  });
+
+  it("links both variants to the troubleshooting article, after a space", () => {
+    // The article's path is in the docs navigation; renaming it there breaks this link.
+    expect(ACCESS_HINT_DOCS_URL).toBe(`${DOCS_URL}/troubleshooting/progress-portal-only`);
+    for (const hint of [{ kind: "member" as const }, { kind: "unused" as const, signedUpOn: null }]) {
+      expect(render(hint)).toMatch(
+        new RegExp(`[.] <a href="${ACCESS_HINT_DOCS_URL.replace(/[.]/g, "[.]")}" target="_blank" rel="noopener noreferrer"[^>]*>Learn more</a>`),
+      );
+    }
   });
 });
