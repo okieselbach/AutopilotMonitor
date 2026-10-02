@@ -284,6 +284,18 @@ public class VerdictCalibrationRadarTests
     }
 
     [Fact]
+    public void StoppedWaiting_counts_as_a_classifier_verdict_but_never_as_silence()
+    {
+        // D-310: the engine deliberately stopped waiting for the user — not an agent that went
+        // quiet, so the agent-liveness share must not see it.
+        var rows = Horizon(w => new[] { ("sweep:r6", "Incomplete", 2), ("stopwait:r5_incomplete", "Incomplete", 1), ("agent:complete", "Succeeded", 17) });
+        var silence = VerdictCalibrationRadar.CurrentSums(new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.SilenceShareRegression }, rows, Target);
+        Assert.Equal((14, 140, 56, 560), silence);
+        var gap = VerdictCalibrationRadar.CurrentSums(new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.EvidenceGap }, rows, Target);
+        Assert.Equal((14, 21, 56, 84), gap);
+    }
+
+    [Fact]
     public void Rows_outside_the_horizon_are_ignored()
     {
         var rows = Horizon(w => new[] { ("agent:complete", "Succeeded", 20) });

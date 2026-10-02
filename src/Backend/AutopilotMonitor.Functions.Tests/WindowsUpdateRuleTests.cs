@@ -9,7 +9,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Windows Update during OOBE — pins the firing behaviour of the built-in analyze rules
 /// that surface update activity captured by the agent's WindowsUpdateTracker:
-///   - ANALYZE-DEV-004 (high): a quality/cumulative update FAILED during enrollment.
+///   - ANALYZE-DEV-004 (high): a quality/cumulative update FAILED to install or download during
+///     enrollment (wuPhase install/download — never an update-scan failure).
 ///   - ANALYZE-DEV-005 (info): a quality/cumulative update INSTALLED during enrollment.
 ///   - ANALYZE-DEV-006 (info): the OS build changed across a mid-enrollment reboot —
 ///     deterministic corroboration that works even when the WU channel showed nothing
@@ -49,6 +50,62 @@ public class WindowsUpdateRuleTests
 
         var symbol = AsDict(result.MatchedConditions["wu_hresult_symbol"]);
         Assert.Equal("WU_E_ALL_UPDATES_FAILED", AsString(symbol["value"]));
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_004_fires_on_a_failed_download()
+    {
+        // EventID 31 from the Operational channel (D-310): the update never finished downloading.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-004");
+
+        var events = new List<EnrollmentEvent>
+        {
+            WindowsUpdateFailed("2026-09 Cumulative Update for Windows 11 (KB5099999)", "0x80248007", "WU_E_DS_NODATA",
+                wuEventId: 31, wuPhase: "download"),
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        var result = Assert.Single(outcome.Results);
+        Assert.Equal("0x80248007", AsString(AsDict(result.MatchedConditions["wu_hresult"])["value"]));
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_004_does_not_fire_on_an_update_scan_failure()
+    {
+        // EventID 25 names no update: a failed scan (often a transient network or proxy error) is
+        // not a failed update and must not raise a high-severity finding.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-004");
+
+        var events = new List<EnrollmentEvent>
+        {
+            WindowsUpdateScanFailed("0x8024401C", "WU_E_PT_HTTP_STATUS_REQUEST_TIMEOUT"),
+        };
+
+        var outcome = await RunAsync(rule, events);
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_004_takes_its_evidence_from_the_install_failure_not_the_scan_failure()
+    {
+        // The phase filter applies to every evidence condition: the explanation must name the
+        // failed update and its error, never the error of an earlier scan.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-004");
+
+        var events = new List<EnrollmentEvent>
+        {
+            WindowsUpdateScanFailed("0x8024401C", "WU_E_PT_HTTP_STATUS_REQUEST_TIMEOUT"),
+            WindowsUpdateFailed("2026-09 Cumulative Update for Windows 11 (KB5099999)", "0x800F0922", "CBS_E_INSTALLERS_FAILED"),
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        var result = Assert.Single(outcome.Results);
+        Assert.Equal("0x800F0922", AsString(AsDict(result.MatchedConditions["wu_hresult"])["value"]));
+        Assert.Equal("CBS_E_INSTALLERS_FAILED", AsString(AsDict(result.MatchedConditions["wu_hresult_symbol"])["value"]));
+        Assert.Equal("2026-09 Cumulative Update for Windows 11 (KB5099999)",
+            AsString(AsDict(result.MatchedConditions["wu_update_title"])["value"]));
     }
 
     [Fact]
@@ -217,11 +274,12 @@ public class WindowsUpdateRuleTests
             ["wuClientCensus"] = "21=1,25=3",
             ["updateOrchestratorCensus"] = "200=2",
             ["lookbackMinutes"] = 60,
-            ["targetedEventIds"] = "19,20,43,44",
+            ["targetedEventIds"] = "19,20,25,26,31,41,43,44",
         }
     };
 
-    private static EnrollmentEvent WindowsUpdateFailed(string title, string hresult, string hresultSymbol) => new()
+    private static EnrollmentEvent WindowsUpdateFailed(
+        string title, string hresult, string hresultSymbol, int wuEventId = 20, string wuPhase = "install") => new()
     {
         EventId = Guid.NewGuid().ToString(),
         TenantId = TenantId,
@@ -231,9 +289,31 @@ public class WindowsUpdateRuleTests
         Sequence = 42,
         Data = new Dictionary<string, object>
         {
-            ["wuEventId"] = 20,
+            ["wuEventId"] = wuEventId,
+            ["wuChannel"] = wuEventId == 20 ? "system" : "operational",
+            ["wuPhase"] = wuPhase,
+            ["updateClass"] = "os",
             ["updateTitle"] = title,
             ["updateGuid"] = "{8b1c8726-1111-2222-3333-444455556666}",
+            ["hresult"] = hresult,
+            ["hresultSymbol"] = hresultSymbol,
+            ["backfilled"] = false,
+        }
+    };
+
+    private static EnrollmentEvent WindowsUpdateScanFailed(string hresult, string hresultSymbol) => new()
+    {
+        EventId = Guid.NewGuid().ToString(),
+        TenantId = TenantId,
+        SessionId = SessionId,
+        EventType = "windows_update_failed",
+        Timestamp = DateTime.UtcNow,
+        Sequence = 41,
+        Data = new Dictionary<string, object>
+        {
+            ["wuEventId"] = 25,
+            ["wuChannel"] = "operational",
+            ["wuPhase"] = "scan",
             ["hresult"] = hresult,
             ["hresultSymbol"] = hresultSymbol,
             ["backfilled"] = false,
@@ -251,6 +331,9 @@ public class WindowsUpdateRuleTests
         Data = new Dictionary<string, object>
         {
             ["wuEventId"] = 19,
+            ["wuChannel"] = "system",
+            ["wuPhase"] = "installed",
+            ["updateClass"] = "os",
             ["updateTitle"] = title,
             ["updateGuid"] = "{8b1c8726-1111-2222-3333-444455556666}",
             ["backfilled"] = false,

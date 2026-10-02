@@ -53,6 +53,8 @@ namespace AutopilotMonitor.DecisionCore.State
             HelloWizardStartedUtc = source.HelloWizardStartedUtc;
             EspAdvisoryFailureResolvedUtc = source.EspAdvisoryFailureResolvedUtc;
             EspAdvisoryFailureCategory = source.EspAdvisoryFailureCategory;
+            OsUpdateFacts = source.OsUpdateFacts;
+            StoppedWaitingReason = source.StoppedWaitingReason;
         }
 
         public string SessionId { get; set; }
@@ -88,6 +90,8 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<DateTime>? HelloWizardStartedUtc { get; set; }
         public SignalFact<DateTime>? EspAdvisoryFailureResolvedUtc { get; set; }
         public SignalFact<string>? EspAdvisoryFailureCategory { get; set; }
+        public OsUpdateFacts OsUpdateFacts { get; set; } = OsUpdateFacts.Empty;
+        public SignalFact<string>? StoppedWaitingReason { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -140,6 +144,12 @@ namespace AutopilotMonitor.DecisionCore.State
         public DecisionStateBuilder WithRealmJoinFacts(RealmJoinFacts facts)
         {
             RealmJoinFacts = facts ?? throw new ArgumentNullException(nameof(facts));
+            return this;
+        }
+
+        public DecisionStateBuilder WithOsUpdateFacts(OsUpdateFacts facts)
+        {
+            OsUpdateFacts = facts ?? throw new ArgumentNullException(nameof(facts));
             return this;
         }
 
@@ -258,6 +268,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 completionWaitingFingerprint: CompletionWaitingFingerprint,
                 helloWizardStartedUtc: HelloWizardStartedUtc,
                 espAdvisoryFailureResolvedUtc: EspAdvisoryFailureResolvedUtc,
-                espAdvisoryFailureCategory: EspAdvisoryFailureCategory);
+                espAdvisoryFailureCategory: EspAdvisoryFailureCategory,
+                osUpdateFacts: OsUpdateFacts,
+                stoppedWaitingReason: StoppedWaitingReason);
     }
 }

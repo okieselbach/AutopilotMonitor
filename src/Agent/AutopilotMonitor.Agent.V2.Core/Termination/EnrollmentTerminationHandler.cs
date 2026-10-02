@@ -1227,10 +1227,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 case EnrollmentTerminationReason.MaxLifetimeExceeded:
                     reasonTag = "max_lifetime";
                     break;
+                case EnrollmentTerminationReason.StoppedWaiting:
+                    // The backend classifies this shutdown honestly, exactly like max_lifetime.
+                    reasonTag = "stopped_waiting";
+                    break;
                 default:
                     reasonTag = args.Reason.ToString();
                     break;
             }
+
+            var data = new Dictionary<string, object>
+            {
+                { "reason", reasonTag },
+                { "outcome", args.Outcome.ToString() },
+                { "stage", args.StageName ?? string.Empty },
+                { "uptimeMinutes", uptimeMinutes },
+                { "agentVersion", _agentVersion },
+            };
+            if (!string.IsNullOrEmpty(args.StopReason)) data["stopReason"] = args.StopReason;
 
             EmitEventSafe(new EnrollmentEvent
             {
@@ -1240,15 +1254,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 Severity = EventSeverity.Info,
                 Source = "EnrollmentTerminationHandler",
                 Phase = EnrollmentPhase.Unknown,
-                Message = $"Agent shutting down (reason={reasonTag}, outcome={args.Outcome}).",
-                Data = new Dictionary<string, object>
-                {
-                    { "reason", reasonTag },
-                    { "outcome", args.Outcome.ToString() },
-                    { "stage", args.StageName ?? string.Empty },
-                    { "uptimeMinutes", uptimeMinutes },
-                    { "agentVersion", _agentVersion },
-                },
+                Message = args.Reason == EnrollmentTerminationReason.StoppedWaiting && !string.IsNullOrEmpty(args.Details)
+                    ? $"Agent shutting down (reason={reasonTag}, outcome={args.Outcome}): {args.Details}"
+                    : $"Agent shutting down (reason={reasonTag}, outcome={args.Outcome}).",
+                Data = data,
                 ImmediateUpload = true,
             });
         }

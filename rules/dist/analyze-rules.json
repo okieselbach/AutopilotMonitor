@@ -1385,10 +1385,10 @@
     {
       "ruleId": "ANALYZE-DEV-004",
       "title": "Windows Update Failed During Enrollment",
-      "description": "Detects a Windows quality/cumulative update that FAILED to install during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 20). A cumulative update failing mid-OOBE is a known cause of enrollment errors and is otherwise invisible in the Intune console.",
+      "description": "Detects a Windows quality/cumulative update that FAILED to install or download during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 20 from the System log, 31 from the Operational channel). A cumulative update failing mid-OOBE is a known cause of enrollment errors and is otherwise invisible in the Intune console.",
       "severity": "high",
       "category": "device",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
@@ -1401,10 +1401,14 @@
       "conditions": [
         {
           "signal": "wu_install_failed",
-          "source": "event_type",
+          "source": "event_data",
           "eventType": "windows_update_failed",
+          "dataField": "wuEventId",
           "operator": "exists",
           "value": "",
+          "filterField": "wuPhase",
+          "filterOperator": "in",
+          "filterValue": "install,download",
           "required": true
         },
         {
@@ -1414,6 +1418,9 @@
           "dataField": "updateTitle",
           "operator": "exists",
           "value": "",
+          "filterField": "wuPhase",
+          "filterOperator": "in",
+          "filterValue": "install,download",
           "required": false
         },
         {
@@ -1423,6 +1430,9 @@
           "dataField": "hresult",
           "operator": "exists",
           "value": "",
+          "filterField": "wuPhase",
+          "filterOperator": "in",
+          "filterValue": "install,download",
           "required": false
         },
         {
@@ -1432,6 +1442,9 @@
           "dataField": "hresultSymbol",
           "operator": "exists",
           "value": "",
+          "filterField": "wuPhase",
+          "filterOperator": "in",
+          "filterValue": "install,download",
           "required": false
         },
         {

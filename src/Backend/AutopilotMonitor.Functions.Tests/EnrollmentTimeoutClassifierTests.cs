@@ -422,6 +422,31 @@ public class EnrollmentTimeoutClassifierTests
         Assert.Equal(ClassifierRules.R1bWhiteGloveAwaiting, wgRule);
     }
 
+    [Fact]
+    public void Classify_engine_stopped_waiting_after_the_oobe_update_is_never_failed()
+    {
+        // D-310: nobody signed in within the sign-in window after the OOBE update, the engine
+        // stopped waiting and the agent ended the session. Same honest classification as the
+        // watchdog — user-driven terminalizes as Incomplete without naming the watchdog, a
+        // WhiteGlove Part 2 stays AwaitingUser.
+        var stopped = Evt("agent_shutting_down", data: new Dictionary<string, object>
+        {
+            ["reason"] = "stopped_waiting",
+            ["stopReason"] = "oobe_update_no_sign_in",
+        });
+
+        var (status, reason) = Classify(new[] { Esp(DeviceSetup44), stopped }, hoursSinceStart: 2);
+        Assert.Equal(SessionStatus.Incomplete, status);
+        Assert.Contains("stopped waiting for the user", reason);
+        Assert.DoesNotContain("max-lifetime", reason);
+
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Esp(DeviceSetup44), stopped });
+        var (wgStatus, _, wgRule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, Start.AddHours(2), 72, isPreProvisioned: true, resumedAt: Start.AddHours(1));
+        Assert.Equal(SessionStatus.AwaitingUser, wgStatus);
+        Assert.Equal(ClassifierRules.R1bWhiteGloveAwaiting, wgRule);
+    }
+
     // -------- Rule 5a: completed (assumed) — calibration read 2026-08-27 --------
 
     [Fact]
@@ -429,12 +454,21 @@ public class EnrollmentTimeoutClassifierTests
     {
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("app_install_failed") }).HasAppInstallFailure);
         var timeout = Evt("enrollment_failed", data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
-        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { timeout }).HasAgentMaxLifetimeTimeout);
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { timeout }).AgentStoppedForGood);
         var shutdown = Evt("agent_shutting_down", data: new Dictionary<string, object> { ["reason"] = "max_lifetime" });
-        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { shutdown }).HasAgentMaxLifetimeTimeout);
-        // Other shutdown reasons say nothing about max lifetime.
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { shutdown }).AgentStoppedForGood);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { shutdown }).AgentStoppedWaiting);
+        // D-310: the engine's bounded wait expired — the agent is gone just the same.
+        var stopped = Evt("agent_shutting_down", data: new Dictionary<string, object>
+        {
+            ["reason"] = "stopped_waiting",
+            ["stopReason"] = "oobe_update_no_sign_in",
+        });
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { stopped }).AgentStoppedForGood);
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { stopped }).AgentStoppedWaiting);
+        // Other shutdown reasons say nothing about the agent being gone for good.
         var ctrlC = Evt("agent_shutting_down", data: new Dictionary<string, object> { ["reason"] = "ctrl_c" });
-        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { ctrlC }).HasAgentMaxLifetimeTimeout);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { ctrlC }).AgentStoppedForGood);
         // A real failure event does not raise the app flag.
         Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("enrollment_failed") }).HasAppInstallFailure);
     }

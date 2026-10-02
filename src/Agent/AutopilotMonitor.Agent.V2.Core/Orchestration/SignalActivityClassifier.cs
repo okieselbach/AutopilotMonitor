@@ -92,6 +92,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             SharedConstants.EventTypes.ImePatternHits,
             // Bookkeeping of runs that were deliberately not reported as activity.
             SharedConstants.EventTypes.ScriptRecurrenceSummary,
+            // Same for the update watchers' tally of Store/Defender/other update events (D-310):
+            // emitted on stop, never progress. Windows/.NET update steps stay activity.
+            SharedConstants.EventTypes.WindowsUpdateActivitySummary,
+            // The OOBE update registry snapshot (D-310) is observation at agent start/stop and at
+            // the update page — the page's own records (oobe_update_page) stay activity.
+            SharedConstants.EventTypes.OobeUpdateState,
         };
 
         /// <summary>

@@ -547,9 +547,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 stateDirectory: _stateDirectory);
             hosts.Add(osBuildChangeHost);
 
-            // Windows Update during OOBE watcher — subscribes to WindowsUpdateClient/Operational and
-            // backfills recent events (OOBE quality updates run before the agent starts). Surfaces
-            // quality/cumulative updates installing/failing DURING enrollment — otherwise invisible.
+            // OS update watchers (D-310) — the Windows Update client on the System log (install
+            // events) and its Operational channel (scan/download), plus the CBS servicing steps on
+            // the Setup log; each backfills recent events because updates can start before the
+            // agent does. Surfaces Windows/.NET updates installing/failing DURING enrollment and,
+            // unless OobeUpdatePhaseMode is Off, feeds them into the engine's OOBE update phase.
             if (collectors.WindowsUpdateWatcherEnabled)
             {
                 hosts.Add(new WindowsUpdateWatcherHost(
@@ -562,7 +564,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     backfillLookbackMinutes: collectors.WindowsUpdateBackfillLookbackMinutes,
                     stateDirectory: _stateDirectory,
                     channelCensusEnabled: collectors.WindowsUpdateChannelCensusEnabled,
-                    osBuildChangedProvider: () => osBuildChangeHost.BuildChanged));
+                    osBuildChangedProvider: () => osBuildChangeHost.BuildChanged,
+                    operationalEventIds: collectors.WindowsUpdateOperationalEventIds,
+                    servicingWatcherEnabled: collectors.ServicingWatcherEnabled,
+                    osUpdateSignalsEnabled: DecisionCore.State.OobeUpdatePhaseModes.PostsSignals(collectors.OobeUpdatePhaseMode)));
             }
 
             // MDM reboot-policy watcher — subscribes to DeviceManagement-Enterprise-Diagnostics-

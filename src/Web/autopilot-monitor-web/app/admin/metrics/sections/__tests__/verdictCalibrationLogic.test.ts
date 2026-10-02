@@ -50,7 +50,7 @@ describe("groupPathsByOrigin", () => {
   });
 
   it("has a label for every origin in the order list", () => {
-    for (const origin of ["agent", "ingest", "sweep", "maxlife", "late", "retro", "register", "rule", "manual", "legacy"]) {
+    for (const origin of ["agent", "ingest", "sweep", "maxlife", "stopwait", "late", "retro", "register", "rule", "manual", "legacy"]) {
       expect(VERDICT_PATH_ORIGIN_LABELS[origin]).toBeTruthy();
     }
   });

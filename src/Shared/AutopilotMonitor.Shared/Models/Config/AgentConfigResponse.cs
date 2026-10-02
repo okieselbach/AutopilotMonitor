@@ -485,14 +485,43 @@ namespace AutopilotMonitor.Shared.Models
         public bool WindowsUpdateWatcherEnabled { get; set; } = true;
 
         /// <summary>
-        /// WindowsUpdateClient/Operational EventIDs to capture. Kept configurable so additional
-        /// IDs can be enabled after real-device validation WITHOUT an agent redeploy. Verified set:
-        /// 19=install success, 20=install failure (carries HRESULT), 43=install started, 44=download
-        /// started. IDs whose semantics are still unverified (25/26/31, restart-required 21 vs 41)
-        /// are intentionally excluded until confirmed on a device trace.
+        /// WindowsUpdateClient EventIDs the install watcher captures: 19=install success,
+        /// 20=install failure (carries HRESULT), 43=install started, 44=download started. The
+        /// provider manifest writes these to the System log, so the agent routes every ID to the
+        /// channel the manifest assigns it (System: 16–24, 27, 28, 32, 33, 43, 44, 212–218;
+        /// Operational: all others).
         /// Default: [19, 20, 43, 44].
         /// </summary>
         public int[] WindowsUpdateTargetedEventIds { get; set; } = new[] { 19, 20, 43, 44 };
+
+        /// <summary>
+        /// WindowsUpdateClient/Operational EventIDs the scan/download watcher captures: 25=scan
+        /// failed, 26=scan found N updates, 31=download failed, 41=update downloaded. Separate from
+        /// <see cref="WindowsUpdateTargetedEventIds"/> on purpose: agents that predate the update
+        /// classification ignore this field, so they never receive the high-volume Store/Defender
+        /// download events unthrottled.
+        /// Default: [25, 26, 31, 41].
+        /// </summary>
+        public int[] WindowsUpdateOperationalEventIds { get; set; } = new[] { 25, 26, 31, 41 };
+
+        /// <summary>
+        /// Master switch for the servicing watcher on the Setup log (Microsoft-Windows-Servicing
+        /// EventIDs 1/2/3/4/6): the CBS package steps of an OS update — staged, installed,
+        /// reboot required, failed. Default: true.
+        /// </summary>
+        public bool ServicingWatcherEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Mode of the OOBE update phase: "Off", "Shadow" or "Active".
+        /// Off: Windows/.NET update activity is only shown on the timeline.
+        /// Shadow: the update watchers also feed it into the decision engine, which records the
+        /// phase and reports at the post-ESP-exit completion window what the phase would decide;
+        /// today's rule still decides.
+        /// Active: the phase holds that window while Windows installs an update in OOBE and waits
+        /// a bounded time for the sign-in after the update restart instead of failing the session.
+        /// Any other value counts as Shadow. Default: "Shadow".
+        /// </summary>
+        public string OobeUpdatePhaseMode { get; set; } = "Shadow";
 
         /// <summary>
         /// Lookback window in minutes for the Windows Update backfill scan on startup. OOBE quality

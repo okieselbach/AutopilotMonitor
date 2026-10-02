@@ -150,6 +150,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 // Note: RealmJoinTimeout is a deadline-only kind (no direct adapter signal) —
                 // dispatched via DeadlineFiredV1 switch in DecisionEngine.Shared.cs.
 
+                // ----- OOBE update phase (DecisionEngine.OsUpdate.cs) — D-310 -----
+                (DecisionSignalKind.OsUpdateActivity, 1)                   => HandleOsUpdateActivityV1(state, signal),
+
                 // ----- Fall-through: unknown (kind, schemaVersion) pair → dead-end journal entry -----
                 _ => HandleUnhandledSignal(state, signal),
             };

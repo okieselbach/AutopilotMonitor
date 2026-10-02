@@ -1033,7 +1033,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Verdict Calibration (classifier thermometer)',
       description:
         'Answer "which code path produced our session verdicts, and does any of them look wrong?". Per verdict ' +
-        'path (agent:complete, agent:failed, sweep:r5_incomplete, maxlife:r6, late:r4, retro:r6, rule:<id>, ' +
+        'path (agent:complete, agent:failed, sweep:r5_incomplete, maxlife:r6, stopwait:r5_incomplete, late:r4, retro:r6, rule:<id>, ' +
         'manual:failed, register:superseded, legacy:* for pre-instrumentation rows derived read-side): session ' +
         'count and share in the window, derivedCount (attributed by derivation — weaker evidence), the 7-day ' +
         're-enrollment proxy (eligible7d = terminal sessions old enough to judge, reEnrolled7d = the same device ' +

@@ -131,6 +131,25 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 timestamps["helloWizardStarted"] = FormatUtc(state.HelloWizardStartedUtc.Value);
                 evidence["helloWizardStarted"] = TimestampedEvidence(state.HelloWizardStartedUtc);
             }
+            // D-310 — OOBE update phase: Windows/.NET update activity after the ESP exit while no
+            // real user had signed in. Surfaced so terminal audit trails show that a long silence
+            // after the exit was Windows installing the OOBE quality update, not a hang — and in
+            // which mode the phase ran (only Active acts; Shadow only reports).
+            if (state.OsUpdateFacts.PostExitActivityUtc != null)
+            {
+                seen.Add("oobe_update_phase");
+                timestamps["oobeUpdatePhase"] = FormatUtc(state.OsUpdateFacts.PostExitActivityUtc.Value);
+                var phaseEvidence = TimestampedEvidence(state.OsUpdateFacts.PostExitActivityUtc);
+                phaseEvidence["mode"] = OobeUpdatePhaseModes.Normalize(state.ScenarioObservations.OobeUpdatePhaseMode?.Value);
+                evidence["oobeUpdatePhase"] = phaseEvidence;
+            }
+            // D-310 — the engine stopped waiting for the user without a verdict (bounded wait
+            // expired). Surfaced so final-status.json says why the agent ended the session.
+            if (state.StoppedWaitingReason != null)
+            {
+                seen.Add("stopped_waiting");
+                evidence["stoppedWaiting"] = TimestampedEvidence(state.StoppedWaitingReason);
+            }
 
             // WhiteGlove Part-1 sealing observations — engine-internal, no UTC fact.
             var obs = state.ScenarioObservations;

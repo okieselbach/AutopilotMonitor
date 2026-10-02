@@ -526,7 +526,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         // analytics. WhiteGlove Part-2 resume runs as a fresh Classic
                         // enrollment after PR-A's archive-and-reset, so the engine state is
                         // empty and needs the facts re-seeded — same as a first boot.
-                        LifecycleEmitters.PostEnrollmentFactsObserved(orchestrator.IngressSink, agentConfig.HelloWaitTimeoutSeconds, logger);
+                        LifecycleEmitters.PostEnrollmentFactsObserved(
+                            orchestrator.IngressSink,
+                            agentConfig.HelloWaitTimeoutSeconds,
+                            logger,
+                            remoteConfig.Collectors?.OobeUpdatePhaseMode);
 
                         // V2 parity — post SessionStarted so the reducer establishes the session
                         // anchor (HandleSessionStartedV1 in DecisionEngine.Shared.cs). Skipped only

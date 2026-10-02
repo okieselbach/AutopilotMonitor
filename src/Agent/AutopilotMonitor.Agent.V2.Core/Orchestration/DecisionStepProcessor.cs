@@ -132,11 +132,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _informationalEvents = informationalEvents;
             _parkedTripwireDwell = parkedTripwireDwell ?? DefaultParkedTripwireDwell;
 
-            // If recovery loaded a state that already sits on a terminal stage (e.g. a crash
-            // after a success-path step but before Stop()), treat it as already-notified so we
-            // do not re-fire the hook.
-            _terminalNotified = initialState.Stage.IsTerminal();
+            // If recovery loaded a state that already ends the session (e.g. a crash after a
+            // success-path step but before Stop()), treat it as already-notified so we do not
+            // re-fire the hook — the orchestrator handles that state at start.
+            _terminalNotified = EndsSession(initialState);
         }
+
+        /// <summary>
+        /// True when the state ends this agent's session: a terminal stage, or the engine stopped
+        /// waiting for the user without a verdict (<see cref="DecisionState.StoppedWaitingReason"/>,
+        /// D-310) — the stage stays non-terminal there, and the agent ends the session like its
+        /// max-lifetime watchdog.
+        /// </summary>
+        internal static bool EndsSession(DecisionState state) =>
+            state.Stage.IsTerminal() || state.StoppedWaitingReason != null;
 
         public DecisionState CurrentState => _currentState;
 
@@ -284,7 +293,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             //    orchestrator turns this into the public EnrollmentTerminated event so peripheral
             //    consumers (CleanupService, SummaryDialog, DiagnosticsPackageService) can react
             //    without touching the kernel state machine.
-            if (!_terminalNotified && _currentState.Stage.IsTerminal())
+            if (!_terminalNotified && EndsSession(_currentState))
             {
                 _terminalNotified = true;
                 try { _onTerminalStageReached?.Invoke(_currentState); }
@@ -405,7 +414,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         private static bool IsParkedWithoutDeadline(DecisionState state)
         {
-            if (state.Stage.IsTerminal()) return false;
+            if (EndsSession(state)) return false;
             if (state.Stage == SessionStage.Unknown || state.Stage == SessionStage.SessionStarted) return false;
 
             // WDP (afee7ae0): Device Preparation has no ESP, so neither the AccountSetup

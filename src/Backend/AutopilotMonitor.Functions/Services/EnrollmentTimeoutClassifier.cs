@@ -101,7 +101,10 @@ namespace AutopilotMonitor.Functions.Services
             bool RealmJoinDetected,
             bool RealmJoinResolved,
             bool HasAppInstallFailure,
-            bool HasAgentMaxLifetimeTimeout);
+            // The agent is gone for good: its max-lifetime watchdog fired, or its decision engine
+            // stopped waiting for the user (D-310, AgentStoppedWaiting).
+            bool AgentStoppedForGood,
+            bool AgentStoppedWaiting = false);
 
         /// <summary>
         /// Walk a session's events and distill the ESP rollup. Tolerant of missing/empty input
@@ -117,7 +120,7 @@ namespace AutopilotMonitor.Functions.Services
             int acctBestN = 0, acctBestM = 0;
             bool acctFallbackAll = false;
             bool hasFailure = false, hasComplete = false, hasEnrollmentComplete = false, hasEmergencyBreak = false;
-            bool hasAppInstallFailure = false, hasMaxLifetimeTimeout = false;
+            bool hasAppInstallFailure = false, agentStoppedForGood = false, agentStoppedWaiting = false;
             bool desktopArrived = false, helloResolved = false;
             bool realmJoinDetected = false, realmJoinResolved = false;
             bool sawHelloPolicyEnabled = false, sawHelloPolicyDisabled = false;
@@ -138,15 +141,19 @@ namespace AutopilotMonitor.Functions.Services
                     if (!Eq(TryGetDataString(evt, "failureType") ?? string.Empty, "agent_timeout"))
                         hasFailure = true;
                     else
-                        hasMaxLifetimeTimeout = true;
+                        agentStoppedForGood = true;
                 }
                 // The V2 watchdog shape of the same fact: the agent shut itself down at its
-                // max-lifetime cap. Either shape proves the agent is gone for good — rule 5 uses
-                // that to skip the AwaitingUser grace (a wait nothing can ever end).
+                // max-lifetime cap — or its decision engine stopped waiting for the user (D-310).
+                // Every shape proves the agent is gone for good — rule 5 uses that to skip the
+                // AwaitingUser grace (a wait nothing can ever end).
                 else if (Eq(type, "agent_shutting_down"))
                 {
-                    if (Eq(TryGetDataString(evt, "reason") ?? string.Empty, "max_lifetime"))
-                        hasMaxLifetimeTimeout = true;
+                    var reason = TryGetDataString(evt, "reason") ?? string.Empty;
+                    if (Eq(reason, "max_lifetime"))
+                        agentStoppedForGood = true;
+                    else if (Eq(reason, "stopped_waiting"))
+                        agentStoppedForGood = agentStoppedWaiting = true;
                 }
                 else if (Eq(type, "app_install_failed"))
                     hasAppInstallFailure = true;
@@ -247,7 +254,8 @@ namespace AutopilotMonitor.Functions.Services
                 RealmJoinDetected: realmJoinDetected,
                 RealmJoinResolved: realmJoinResolved,
                 HasAppInstallFailure: hasAppInstallFailure,
-                HasAgentMaxLifetimeTimeout: hasMaxLifetimeTimeout);
+                AgentStoppedForGood: agentStoppedForGood,
+                AgentStoppedWaiting: agentStoppedWaiting);
         }
 
         /// <summary>
@@ -436,12 +444,13 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var elapsedHours = (nowUtc - startedAtUtc).TotalHours;
                 // The grace only buys time for a LIVE agent to come back with real evidence. Once
-                // the agent's own max-lifetime watchdog has fired it has cleaned up and exited —
+                // the agent stopped for good (its max-lifetime watchdog, or its engine stopped
+                // waiting for the user — D-310) it has cleaned up and exited —
                 // parking such a session AwaitingUser is a countdown, not a wait (all 5 observed
                 // maxlife:r5_awaiting episodes expired unhealed; calibration read 2026-08-27), so
                 // it skips straight to the terminal fork. Nothing is lost by deciding now: late
                 // straggler telemetry still heals a terminal verdict (TryLateTelemetryReconcileAsync).
-                if (elapsedHours < graceHours && !rollup.HasAgentMaxLifetimeTimeout)
+                if (elapsedHours < graceHours && !rollup.AgentStoppedForGood)
                 {
                     var acct = rollup.AccountSetupTotal > 0
                         ? $" (Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})"
@@ -471,11 +480,14 @@ namespace AutopilotMonitor.Functions.Services
                 var acctDetail = rollup.AccountSetupTotal > 0
                     ? $"last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal}"
                     : "Account Setup progress never observed";
-                // Inside the grace the only way here is the max-lifetime short-circuit — the
-                // "within {grace}h" wording would be false, so name the watchdog instead.
+                // Inside the grace the only way here is the agent-gone short-circuit — the
+                // "within {grace}h" wording would be false, so name what stopped the agent instead.
+                // The engine's own stop (D-310) states its reason in the verdict suffix.
                 if (elapsedHours < graceHours)
                     return (SessionStatus.Incomplete,
-                        $"Agent max-lifetime watchdog fired — agent gone without completion after Device Setup completed ({acctDetail})",
+                        rollup.AgentStoppedWaiting
+                            ? $"Device Setup completed ({acctDetail}); the agent stopped waiting for the user."
+                            : $"Agent max-lifetime watchdog fired — agent gone without completion after Device Setup completed ({acctDetail})",
                         ClassifierRules.R5DeviceSetupIncomplete);
                 return (SessionStatus.Incomplete,
                     $"No completion signal within {graceHours}h grace after Device Setup completed ({acctDetail})",

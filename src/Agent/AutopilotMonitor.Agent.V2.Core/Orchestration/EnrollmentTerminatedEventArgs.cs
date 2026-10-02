@@ -16,6 +16,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// longer than the configured cap without reaching a terminal stage.
         /// </summary>
         MaxLifetimeExceeded,
+
+        /// <summary>
+        /// The DecisionEngine stopped waiting for the user without a verdict — a bounded wait
+        /// expired (<c>DecisionState.StoppedWaitingReason</c>, D-310). Ends the session like
+        /// <see cref="MaxLifetimeExceeded"/> (outcome TimedOut), with the engine's reason.
+        /// </summary>
+        StoppedWaiting,
     }
 
     /// <summary>
@@ -60,18 +67,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public DateTime TerminatedAtUtc { get; }
         public string? Details { get; }
 
+        /// <summary>
+        /// The engine's reason code for <see cref="EnrollmentTerminationReason.StoppedWaiting"/>
+        /// (e.g. <c>oobe_update_no_sign_in</c>); null for every other reason.
+        /// </summary>
+        public string? StopReason { get; }
+
         public EnrollmentTerminatedEventArgs(
             EnrollmentTerminationReason reason,
             EnrollmentTerminationOutcome outcome,
             string? stageName,
             DateTime terminatedAtUtc,
-            string? details = null)
+            string? details = null,
+            string? stopReason = null)
         {
             Reason = reason;
             Outcome = outcome;
             StageName = stageName;
             TerminatedAtUtc = terminatedAtUtc;
             Details = details;
+            StopReason = stopReason;
         }
     }
 }

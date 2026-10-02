@@ -934,6 +934,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
+        public void Handle_propagates_stopped_waiting_reason_and_cause_in_agent_shutting_down_data()
+        {
+            // D-310: the engine stopped waiting for the user (no sign-in after the OOBE update).
+            // The backend classifies this shutdown honestly — it keys on the reason tag.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.EspAccountSetup }.Build();
+
+            rig.Build().Handle(sender: null!, new EnrollmentTerminatedEventArgs(
+                EnrollmentTerminationReason.StoppedWaiting,
+                EnrollmentTerminationOutcome.TimedOut,
+                SessionStage.EspAccountSetup.ToString(),
+                EndUtc,
+                details: StoppedWaitingReasons.Describe(StoppedWaitingReasons.OobeUpdateNoSignIn),
+                stopReason: StoppedWaitingReasons.OobeUpdateNoSignIn));
+
+            var data = rig.DataOf(Constants.EventTypes.AgentShuttingDown);
+            Assert.NotNull(data);
+            Assert.Equal("stopped_waiting", (string)data!["reason"]);
+            Assert.Equal(StoppedWaitingReasons.OobeUpdateNoSignIn, (string)data["stopReason"]);
+            Assert.Equal(EnrollmentTerminationOutcome.TimedOut.ToString(), (string)data["outcome"]);
+        }
+
+        [Fact]
+        public void Handle_omits_stop_reason_for_other_shutdowns()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.AwaitingHello }.Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.MaxLifetimeExceeded, EnrollmentTerminationOutcome.TimedOut, SessionStage.AwaitingHello));
+
+            var data = rig.DataOf(Constants.EventTypes.AgentShuttingDown);
+            Assert.NotNull(data);
+            Assert.False(data!.ContainsKey("stopReason"));
+        }
+
+        [Fact]
         public void Handle_includes_uptime_and_agent_version_in_agent_shutting_down()
         {
             using var rig = new Rig();

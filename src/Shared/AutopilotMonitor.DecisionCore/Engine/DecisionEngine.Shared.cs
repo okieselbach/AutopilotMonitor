@@ -602,6 +602,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 helloSafetyExtendEffect = ExtendArmedHelloSafetyToTenantWindow(state, builder, signal);
             }
 
+            // OOBE update phase mode (D-310, remote config) — only Active lets the phase act; the
+            // observation can take Active away at a later agent start, never grant it.
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.OobeUpdatePhaseMode, out var rawOobeUpdatePhaseMode))
+            {
+                builder.ScenarioObservations = builder.ScenarioObservations
+                    .WithOobeUpdatePhaseMode(rawOobeUpdatePhaseMode, signal.SessionSignalOrdinal);
+            }
+
             var newState = builder.Build();
             var transition = BuildTakenTransition(
                 before: state,

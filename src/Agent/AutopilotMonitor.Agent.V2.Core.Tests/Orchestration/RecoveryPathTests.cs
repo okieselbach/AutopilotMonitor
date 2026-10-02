@@ -174,6 +174,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.Stop();
         }
 
+        [Fact]
+        public void Recovered_stopped_waiting_state_ends_the_session_at_start()
+        {
+            // D-310: a crash between "the engine stopped waiting" and the termination must not
+            // leave the session running — the restart ends it the same way, with the engine's reason.
+            using var rig = new Rig();
+            Directory.CreateDirectory(rig.StateDir);
+
+            var stoppedState = DecisionState.CreateInitial("S1", "T1")
+                .ToBuilder()
+                .WithStage(SessionStage.EspAccountSetup)
+                .WithStepIndex(9)
+                .Build()
+                .ToBuilder();
+            stoppedState.StoppedWaitingReason = new SignalFact<string>(StoppedWaitingReasons.OobeUpdateNoSignIn, 42);
+            new SnapshotPersistence(Path.Combine(rig.StateDir, "snapshot.json")).Save(stoppedState.Build());
+
+            var sut = rig.Build();
+            using var fired = new ManualResetEventSlim(false);
+            EnrollmentTerminatedEventArgs? captured = null;
+            sut.Terminated += (_, e) => { captured = e; fired.Set(); };
+
+            sut.Start();
+            Assert.True(fired.Wait(5000), "Terminated did not fire for the recovered stopped-waiting state.");
+
+            Assert.Equal(EnrollmentTerminationReason.StoppedWaiting, captured!.Reason);
+            Assert.Equal(EnrollmentTerminationOutcome.TimedOut, captured.Outcome);
+            Assert.Equal(StoppedWaitingReasons.OobeUpdateNoSignIn, captured.StopReason);
+            Assert.Equal(SessionStage.EspAccountSetup.ToString(), captured.StageName);
+            Assert.Contains("60 minutes", captured.Details);
+
+            sut.Stop();
+        }
+
         // ================================================================= Sonderfall 2: Segment-Quarantine
 
         [Fact]

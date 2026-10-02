@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.Text.RegularExpressions;
+using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
@@ -31,8 +32,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     {
         internal const string ShellCoreEventLogChannel = "Microsoft-Windows-Shell-Core/Operational";
         internal const int EventId_ShellCore_WebAppStarted = 62404;
+        internal const int EventId_ShellCore_WebAppStopped = 62405;
+        internal const int EventId_ShellCore_WebAppEventName = 62406;
         internal const int EventId_ShellCore_WebAppEvent = 62407;
         internal const int BackfillLookbackMinutes = 5;
+
+        // 62405 (page stopped) and 62406 (event with a name only) feed the CloudExperienceHost
+        // navigation breadcrumbs in agent.log and the OOBE update page telemetry (D-310), nothing else.
+        private const string WatchedEventIdsXPath =
+            "(EventID=62404 or EventID=62405 or EventID=62406 or EventID=62407)";
 
         /// <summary>
         /// Upper bound for the caller-supplied backfill lookback. Matches the agent's max
@@ -45,22 +53,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private static readonly HashSet<int> TrackedShellCoreEventIds = new HashSet<int>
         {
             EventId_ShellCore_WebAppStarted,
+            EventId_ShellCore_WebAppStopped,
+            EventId_ShellCore_WebAppEventName,
             EventId_ShellCore_WebAppEvent
         };
 
         private static readonly Regex EspExitingPattern = new Regex(
             @"OOBE_ESP.*Exiting", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // Manifest templates: 62404 "... started. CXID: '%1'.", 62405 "... stopped. Result: '%1'.",
+        // 62406 "... Event 1. Name: '%1'.", 62407 "... Event 2. Name: '%1', Value: '%2'.". A 62407
+        // value can carry URLs with tenant ids — a value leaves the tracker only in a form that
+        // cannot (SafeValuePattern: a boolean, an integer, an HRESULT).
+        private static readonly Regex CxidPattern = new Regex(
+            @"CXID:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        private static readonly Regex ResultPattern = new Regex(
+            @"Result:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        private static readonly Regex NamePattern = new Regex(
+            @"Name:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        private static readonly Regex ValuePattern = new Regex(
+            @"Value:\s*'([^']*)'", RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        private static readonly Regex SafeValuePattern = new Regex(
+            @"^(?:true|false|-?[0-9]{1,10}|0x[0-9a-f]{1,8})$",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        private const int MaxBreadcrumbTokenLength = 128;
+
         private readonly AgentLogger _logger;
         private readonly string _sessionId;
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
         private readonly HelloTracker _helloTracker;
+        private readonly OobeUpdateTelemetry _oobeUpdate;
 
         private EventLogWatcher _watcher;
+        private int _started;
+        private int _stopReported;
         private bool _espExitDetected;
         private bool _whiteGloveDetected;
         private bool _helloWizardStartDetected;
+        private string _lastCxhPage; // 62405 names no page, it ends the last one started
         private readonly object _stateLock = new object();
 
         /// <summary>
@@ -99,13 +130,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string tenantId,
             InformationalEventPost post,
             AgentLogger logger,
-            HelloTracker helloTracker)
+            HelloTracker helloTracker,
+            Func<IReadOnlyList<OobeUpdateRegistrySnapshot.KeyState>> oobeUpdateRegistryReader = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _helloTracker = helloTracker; // nullable — HelloTracker may be unavailable in some test setups
+            // Test seam: a fake registry reader; production reads the real registry.
+            _oobeUpdate = new OobeUpdateTelemetry(sessionId, tenantId, post, logger,
+                oobeUpdateRegistryReader ?? OobeUpdateRegistrySnapshot.Read);
         }
 
         internal bool IsEspExitedForTest { get { lock (_stateLock) { return _espExitDetected; } } }
@@ -113,12 +148,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         public void Start()
         {
+            // The OOBE update registry state at every agent start — so also right after the
+            // update's restart (D-310).
+            if (Interlocked.Exchange(ref _started, 1) == 0)
+                _oobeUpdate.ReportState(OobeUpdateTelemetry.Moments.AgentStart);
+
             try
             {
                 var query = new EventLogQuery(
                     ShellCoreEventLogChannel,
                     PathType.LogName,
-                    "*[System[(EventID=62404 or EventID=62407)]]");
+                    $"*[System[{WatchedEventIdsXPath}]]");
 
                 _watcher = new EventLogWatcher(query);
                 _watcher.EventRecordWritten += OnEventRecordWritten;
@@ -143,6 +183,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         public void Stop()
         {
+            // Stop runs again from Dispose — one snapshot, and only for a tracker that started.
+            if (Volatile.Read(ref _started) == 1 && Interlocked.Exchange(ref _stopReported, 1) == 0)
+                _oobeUpdate.ReportState(OobeUpdateTelemetry.Moments.AgentStop);
+
             if (_watcher == null) return;
             try
             {
@@ -186,6 +230,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// </summary>
         internal void ProcessEvent(int eventId, string description, DateTime timestamp, string providerName, bool isBackfill)
         {
+            ObserveCxhRecord(eventId, description, timestamp, isBackfill);
+            if (eventId == EventId_ShellCore_WebAppStopped || eventId == EventId_ShellCore_WebAppEventName) return;
+
             string eventType;
             EventSeverity severity = EventSeverity.Info;
             string message;
@@ -388,7 +435,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var query = new EventLogQuery(
                     ShellCoreEventLogChannel,
                     PathType.LogName,
-                    $"*[System[(EventID=62404 or EventID=62407) and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
+                    $"*[System[{WatchedEventIdsXPath} and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
 
                 var records = new List<(int Id, string Description, DateTime OccurredAtUtc)>();
                 using (var reader = new EventLogReader(query))
@@ -466,12 +513,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             foreach (var record in records)
             {
                 var description = record.Description ?? string.Empty;
+                ObserveCxhRecord(record.Id, description, record.OccurredAtUtc, isBackfill: true);
 
                 if (record.Id == EventId_ShellCore_WebAppStarted)
                 {
                     HandleBackfillRecord(record.Id, description, record.OccurredAtUtc);
                     continue;
                 }
+
+                // 62405/62406 only feed the breadcrumbs and the update page telemetry above.
+                if (record.Id != EventId_ShellCore_WebAppEvent) continue;
 
                 var isFailure = HasEspFailurePattern(description);
                 var isExit = !isFailure && EspExitingPattern.IsMatch(description);
@@ -567,6 +618,159 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
+        }
+
+        // =====================================================================
+        // CloudExperienceHost navigation: breadcrumbs and OOBE update page telemetry (D-310)
+        // =====================================================================
+
+        /// <summary>
+        /// Writes one agent.log line per CloudExperienceHost page start/stop and per update-page
+        /// event name, so a diagnostics package shows the OOBE navigation. Records of the update
+        /// page itself (<c>OobeNDUP</c>, <c>RebootNDUP</c> and its <c>ExpeditedUpdate_*</c> names)
+        /// are also reported as <c>oobe_update_page</c>, and at the page's live start and stop the
+        /// registry state behind it as <c>oobe_update_state</c>. No decision.
+        /// </summary>
+        private void ObserveCxhRecord(int eventId, string description, DateTime occurredAtUtc, bool isBackfill)
+        {
+            try
+            {
+                string page;
+                lock (_stateLock)
+                {
+                    if (eventId == EventId_ShellCore_WebAppStarted)
+                        _lastCxhPage = ExtractToken(CxidPattern, description) ?? _lastCxhPage;
+                    page = _lastCxhPage;
+                }
+
+                var crumb = FormatCxhBreadcrumb(eventId, description, page);
+                if (crumb == null) return;
+                _logger.Info(isBackfill ? $"{crumb} (backfill, at {occurredAtUtc:o})" : crumb);
+
+                var record = ParseUpdatePageRecord(eventId, description, page);
+                if (record == null) return;
+                _oobeUpdate.ReportPage(record, occurredAtUtc, isBackfill);
+
+                // The registry is read now — only a live page boundary is the page's moment.
+                if (!isBackfill && record.CxhEvent != OobeUpdatePageRecord.EventName)
+                {
+                    _oobeUpdate.ReportState(
+                        record.CxhEvent == OobeUpdatePageRecord.PageStarted
+                            ? OobeUpdateTelemetry.Moments.UpdatePageStarted
+                            : OobeUpdateTelemetry.Moments.UpdatePageStopped,
+                        record.Page);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"ShellCoreTracker: CXH record observation failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// The breadcrumb for one Shell-Core record, or null when it is not one: a page start
+        /// (62404, its CXID), a page stop (62405, its result, attributed to the last started
+        /// page), or an update-page event name (62406/62407 — a 62407 value only in a safe form).
+        /// </summary>
+        internal static string FormatCxhBreadcrumb(int eventId, string description, string lastPage)
+        {
+            switch (eventId)
+            {
+                case EventId_ShellCore_WebAppStarted:
+                {
+                    var cxid = ExtractToken(CxidPattern, description);
+                    return cxid == null ? null : $"CXH page started: {cxid}";
+                }
+                case EventId_ShellCore_WebAppStopped:
+                {
+                    var result = ExtractToken(ResultPattern, description) ?? "?";
+                    return $"CXH page stopped: {lastPage ?? "?"} (result={result})";
+                }
+                case EventId_ShellCore_WebAppEventName:
+                case EventId_ShellCore_WebAppEvent:
+                {
+                    var name = ExtractToken(NamePattern, description);
+                    if (!IsUpdatePageToken(name)) return null;
+                    var value = eventId == EventId_ShellCore_WebAppEvent ? ExtractSafeValue(description) : null;
+                    return value == null ? $"CXH event: {name}" : $"CXH event: {name} (value={value})";
+                }
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// The record of the OOBE update page, or null for any other CloudExperienceHost record:
+        /// the start of a page whose CXID names NDUP, the stop of such a page (62405, attributed
+        /// to the last started page), or an update-page event name from 62406/62407.
+        /// </summary>
+        internal static OobeUpdatePageRecord ParseUpdatePageRecord(int eventId, string description, string lastPage)
+        {
+            switch (eventId)
+            {
+                case EventId_ShellCore_WebAppStarted:
+                {
+                    var cxid = ExtractToken(CxidPattern, description);
+                    return IsUpdatePageToken(cxid)
+                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, eventId, page: cxid)
+                        : null;
+                }
+                case EventId_ShellCore_WebAppStopped:
+                    return IsUpdatePageToken(lastPage)
+                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, eventId,
+                            page: lastPage, result: ExtractToken(ResultPattern, description) ?? "?")
+                        : null;
+                case EventId_ShellCore_WebAppEventName:
+                case EventId_ShellCore_WebAppEvent:
+                {
+                    var name = ExtractToken(NamePattern, description);
+                    if (!IsUpdatePageToken(name)) return null;
+                    var value = eventId == EventId_ShellCore_WebAppEvent ? ExtractSafeValue(description) : null;
+                    return new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, eventId, name: name, value: value);
+                }
+                default:
+                    return null;
+            }
+        }
+
+        internal static bool IsUpdatePageToken(string token) =>
+            token != null
+            && (token.IndexOf("NDUP", StringComparison.OrdinalIgnoreCase) >= 0
+                || token.IndexOf("ExpeditedUpdate", StringComparison.OrdinalIgnoreCase) >= 0);
+
+        /// <summary>
+        /// The 62407 value when it is a boolean, an integer of up to ten digits or an HRESULT —
+        /// forms that cannot carry a URL or a tenant id (the CSP gate, error codes). Null for
+        /// anything else.
+        /// </summary>
+        internal static string ExtractSafeValue(string description)
+        {
+            var value = ExtractToken(ValuePattern, description);
+            if (string.IsNullOrEmpty(value)) return null;
+            try
+            {
+                return SafeValuePattern.IsMatch(value) ? value : null;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return null;
+            }
+        }
+
+        private static string ExtractToken(Regex pattern, string description)
+        {
+            if (string.IsNullOrEmpty(description)) return null;
+            try
+            {
+                var match = pattern.Match(description);
+                if (!match.Success) return null;
+                var token = match.Groups[1].Value;
+                return token.Length > MaxBreadcrumbTokenLength ? token.Substring(0, MaxBreadcrumbTokenLength) + "…" : token;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return null;
+            }
         }
 
         // =====================================================================

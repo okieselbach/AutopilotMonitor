@@ -154,6 +154,62 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
+        public void Stopped_waiting_fires_callback_once_with_the_stage_still_non_terminal()
+        {
+            // D-310: the engine stopped waiting for the user without a verdict. The stage stays
+            // non-terminal, yet the agent must end the session — the callback carries the state.
+            using var rig = new Rig();
+            DecisionState? captured = null;
+            var callCount = 0;
+            var sut = rig.Build(DecisionState.CreateInitial("S1", "T1"),
+                onTerminal: state =>
+                {
+                    Interlocked.Increment(ref callCount);
+                    captured = state;
+                });
+
+            var builder = new DecisionStateBuilder(sut.CurrentState)
+            {
+                Stage = SessionStage.EspAccountSetup,
+                StepIndex = sut.CurrentState.StepIndex + 1,
+                StoppedWaitingReason = new SignalFact<string>(StoppedWaitingReasons.OobeUpdateNoSignIn, 1),
+            };
+            var stopped = builder.Build();
+            var step = new DecisionStep(stopped, new DecisionTransition(
+                stepIndex: stopped.StepIndex, sessionTraceOrdinal: 1, signalOrdinalRef: 1, occurredAtUtc: At,
+                trigger: "DeadlineFired:advisory_completion:OobeUpdateSignInWaitExpired",
+                fromStage: SessionStage.SessionStarted, toStage: SessionStage.EspAccountSetup,
+                taken: true, deadEndReason: null, reducerVersion: "2.0.0.0"), Array.Empty<DecisionEffect>());
+            sut.ApplyStep(step, Sig(1, At));
+
+            // A follow-up step must not fire it again.
+            sut.ApplyStep(StepToStage(sut.CurrentState, SessionStage.EspAccountSetup, signalOrdinal: 2, at: At.AddSeconds(1)),
+                Sig(2, At.AddSeconds(1)));
+
+            Assert.Equal(1, callCount);
+            Assert.Equal(SessionStage.EspAccountSetup, captured!.Stage);
+            Assert.Equal(StoppedWaitingReasons.OobeUpdateNoSignIn, captured.StoppedWaitingReason!.Value);
+        }
+
+        [Fact]
+        public void Stopped_waiting_on_load_does_not_refire_the_callback()
+        {
+            // The orchestrator ends a recovered stopped-waiting session itself at start.
+            using var rig = new Rig();
+            var callCount = 0;
+            var recovered = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+            {
+                Stage = SessionStage.EspAccountSetup,
+                StoppedWaitingReason = new SignalFact<string>(StoppedWaitingReasons.OobeUpdateNoSignIn, 7),
+            }.Build();
+
+            var sut = rig.Build(recovered, onTerminal: _ => Interlocked.Increment(ref callCount));
+            sut.ApplyStep(StepToStage(sut.CurrentState, SessionStage.EspAccountSetup, signalOrdinal: 8, at: At), Sig(8, At));
+
+            Assert.Equal(0, callCount);
+        }
+
+        [Fact]
         public void Terminal_callback_null_is_supported()
         {
             using var rig = new Rig();

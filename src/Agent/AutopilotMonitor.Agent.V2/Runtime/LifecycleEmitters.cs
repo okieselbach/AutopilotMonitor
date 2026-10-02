@@ -315,7 +315,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// registry-derived enrollment facts (<c>enrollmentType</c> + <c>isHybridJoin</c>)
         /// so the reducer can seed <see cref="State.EnrollmentScenarioProfile"/> via the
         /// stage-agnostic <c>HandleEnrollmentFactsObservedV1</c> handler — plus the tenant's
-        /// Hello wait when it extends the engine's built-in hello_safety window.
+        /// Hello wait when it extends the engine's built-in hello_safety window, and the mode of
+        /// the OOBE update phase (D-310).
         /// <para>
         /// Posted immediately before <see cref="PostSessionStarted"/> so the Inspector
         /// timeline reads naturally (facts → anchor) — but the reducer correctness does
@@ -331,7 +332,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         public static void PostEnrollmentFactsObserved(
             ISignalIngressSink ingressSink,
             int helloWaitTimeoutSeconds,
-            AgentLogger logger)
+            AgentLogger logger,
+            string oobeUpdatePhaseMode = null)
         {
             try
             {
@@ -364,6 +366,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         helloWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
 
+                // OOBE update phase mode (remote config) — stamped at every start, the same value
+                // the update watchers were wired with: the engine lets the phase act only while
+                // every start of the session said Active, so Off or Shadow is a kill switch.
+                var phaseMode = OobeUpdatePhaseModes.Normalize(oobeUpdatePhaseMode);
+                payload[SignalPayloadKeys.OobeUpdatePhaseMode] = phaseMode;
+
                 var evidence = new Evidence(
                     kind: EvidenceKind.Synthetic,
                     identifier: "enrollment_registry_facts_read",
@@ -376,7 +384,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     evidence: evidence,
                     payload: payload);
 
-                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}, isSelfDeployingProfile={isSelfDeploying}, isCloudPc={isCloudPc}, helloWaitSeconds={helloWaitSeconds}).");
+                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}, isSelfDeployingProfile={isSelfDeploying}, isCloudPc={isCloudPc}, helloWaitSeconds={helloWaitSeconds}, oobeUpdatePhaseMode={phaseMode}).");
             }
             catch (Exception ex)
             {

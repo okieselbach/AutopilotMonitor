@@ -123,6 +123,15 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </summary>
         public SignalFact<int>? HelloWaitTimeoutSeconds { get; init; }
 
+        /// <summary>
+        /// Tenant-config fact from <see cref="Signals.DecisionSignalKind.EnrollmentFactsObserved"/>
+        /// (payload <c>oobeUpdatePhaseMode</c>, stamped by the agent at every start): the mode of
+        /// the OOBE update phase, normalized to <see cref="OobeUpdatePhaseModes"/> (D-310).
+        /// <c>null</c> = never stamped (an older agent), treated as <c>Shadow</c>. Not set-once:
+        /// see <see cref="WithOobeUpdatePhaseMode"/>.
+        /// </summary>
+        public SignalFact<string>? OobeUpdatePhaseMode { get; init; }
+
         public EnrollmentScenarioObservations WithShellCoreWhiteGloveSuccessSeen(long sourceSignalOrdinal) =>
             ShellCoreWhiteGloveSuccessSeen != null
                 ? this
@@ -182,5 +191,21 @@ namespace AutopilotMonitor.DecisionCore.State
             HelloWaitTimeoutSeconds != null
                 ? this
                 : this with { HelloWaitTimeoutSeconds = new SignalFact<int>(value, sourceSignalOrdinal) };
+
+        /// <summary>
+        /// Records the stamped mode. The first stamp sets it; afterwards a stamp can only take
+        /// <c>Active</c> away, never grant it: switching the phase on mid-session applies from
+        /// the next session, switching it off applies at the next agent start (kill switch).
+        /// </summary>
+        public EnrollmentScenarioObservations WithOobeUpdatePhaseMode(string? value, long sourceSignalOrdinal)
+        {
+            var mode = OobeUpdatePhaseModes.Normalize(value);
+            if (OobeUpdatePhaseMode == null
+                || (OobeUpdatePhaseMode.Value == OobeUpdatePhaseModes.Active && mode != OobeUpdatePhaseModes.Active))
+            {
+                return this with { OobeUpdatePhaseMode = new SignalFact<string>(mode, sourceSignalOrdinal) };
+            }
+            return this;
+        }
     }
 }

@@ -117,7 +117,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // Session 4910a5a5 (2026-07-23) added `espAdvisoryFailureResolvedUtc` (the failed
             // category recovered — lifts the advisory's re-arm/rebase guard exemption) and
             // `espAdvisoryFailureCategory` (which category the advisory was for) → 20.
-            Assert.Equal(20, facts.Count);
+            // D-310 (2026-10-02) added `stoppedWaitingReason` — the engine stopped waiting for
+            // the user without a verdict (no sign-in after the OOBE update) → 21.
+            Assert.Equal(21, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -242,9 +244,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // that vetoes/retracts the policy-disabled Hello skip → 18. Session 4910a5a5
             // (2026-07-23) added `espAdvisoryFailureResolvedUtc` + `espAdvisoryFailureCategory`
             // — advisory-recovery facts that lift the AdvisoryCompletion guard exemption → 20.
+            // D-310 (2026-10-02) added `stoppedWaitingReason` — the engine stopped waiting for
+            // the user without a verdict → 21.
             // If this number ever changes, both the count expectation AND the actual snapshot
             // output need to evolve in lockstep.
-            Assert.Equal(20, expectedFactKeys.Count);
+            Assert.Equal(21, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;

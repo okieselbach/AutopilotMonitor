@@ -1,3 +1,4 @@
+using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
@@ -92,11 +93,12 @@ namespace AutopilotMonitor.Functions.Services
                         classification.HasCompletionEvidenceCandidate = true;
                         break;
                     case "agent_shutting_down":
-                        // Every shutdown ends this agent run's observation; the max-lifetime
-                        // flavour additionally carries the verdict mapping below.
+                        // Every shutdown ends this agent run's observation; the gave-up flavours
+                        // (max-lifetime watchdog, engine stopped waiting) additionally carry the
+                        // verdict mapping below.
                         classification.AgentShutdownEvent = evt;
-                        if (IsMaxLifetimeAgentShutdown(evt))
-                            classification.AgentMaxLifetimeShutdownEvent = evt;
+                        if (IsAgentGaveUpShutdown(evt))
+                            classification.AgentGaveUpShutdownEvent = evt;
                         break;
                     case "system_reboot_detected":
                         // Per-batch incremental reboot count (live value during enrollment).
@@ -177,14 +179,30 @@ namespace AutopilotMonitor.Functions.Services
             return null;
         }
 
-        internal static bool IsMaxLifetimeAgentShutdown(EnrollmentEvent? evt)
+        internal static bool IsMaxLifetimeAgentShutdown(EnrollmentEvent? evt) =>
+            string.Equals(AgentShutdownReason(evt), "max_lifetime", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True for an <c>agent_shutting_down</c> event whose <c>Data.reason</c> is
+        /// <c>stopped_waiting</c>: the agent's decision engine stopped waiting for the user — a
+        /// bounded wait expired (D-310, <c>Data.stopReason</c> names it, e.g. no sign-in after the
+        /// OOBE update). Same contract as <see cref="IsMaxLifetimeAgentShutdown"/>: the last event
+        /// of the session, no enrollment verdict — the backend classifies it honestly.
+        /// </summary>
+        internal static bool IsStoppedWaitingAgentShutdown(EnrollmentEvent? evt) =>
+            string.Equals(AgentShutdownReason(evt), "stopped_waiting", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The agent gave up waiting for good — either shutdown shape above.</summary>
+        internal static bool IsAgentGaveUpShutdown(EnrollmentEvent? evt) =>
+            IsMaxLifetimeAgentShutdown(evt) || IsStoppedWaitingAgentShutdown(evt);
+
+        private static string? AgentShutdownReason(EnrollmentEvent? evt)
         {
             if (evt == null || !string.Equals(evt.EventType, "agent_shutting_down", StringComparison.Ordinal))
-                return false;
-            var reason = evt.Data != null && evt.Data.ContainsKey("reason")
+                return null;
+            return evt.Data != null && evt.Data.ContainsKey("reason")
                 ? evt.Data["reason"]?.ToString()
                 : null;
-            return string.Equals(reason, "max_lifetime", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -227,20 +245,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Shared verdict path for both max-lifetime shapes (enrollment_failed/agent_timeout and
-        /// agent_shutting_down/max_lifetime): classify the session honestly via
-        /// <see cref="EnrollmentTimeoutClassifier"/> instead of hard-failing it. The watchdog
-        /// firing only proves the agent stopped waiting — the enrollment itself may be fully
+        /// Shared verdict path for every "the agent gave up waiting" shape — the max-lifetime
+        /// watchdog (enrollment_failed/agent_timeout, agent_shutting_down/max_lifetime) and the
+        /// engine's bounded wait (agent_shutting_down/stopped_waiting, D-310): classify the session
+        /// honestly via <see cref="EnrollmentTimeoutClassifier"/> instead of hard-failing it. The
+        /// agent stopping only proves it stopped waiting — the enrollment itself may be fully
         /// provisioned with the user simply absent (AwaitingUser), silently dead (Incomplete),
         /// or even provably finished (Succeeded reconcile). Mirrors the maintenance sweep's
         /// stage-2 classification (misclassification audit 2026-07-16).
         /// Returns (transitioned, failureReason) where failureReason is only set for the
         /// terminal non-success outcomes so downstream failure notifications stay accurate.
         /// </summary>
-        private async Task<(bool transitioned, string? failureReason)> ApplyMaxLifetimeVerdictAsync(
+        private async Task<(bool transitioned, string? failureReason)> ApplyAgentGaveUpVerdictAsync(
             IngestEventsRequest request, string sessionPrefix, EventClassification c,
             EnrollmentEvent triggerEvent, SessionStatus? preFetchedStatus)
         {
+            var stoppedWaiting = IsStoppedWaitingAgentShutdown(triggerEvent);
+            var trigger = stoppedWaiting ? "stopped_waiting" : "max_lifetime";
+
             var session = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
             var currentStatus = session?.Status ?? preFetchedStatus;
 
@@ -249,7 +271,7 @@ namespace AutopilotMonitor.Functions.Services
             if (currentStatus == SessionStatus.Pending)
             {
                 _logger.LogInformation(
-                    "{SessionPrefix} max_lifetime verdict skipped — session is Pending (WhiteGlove)", sessionPrefix);
+                    "{SessionPrefix} {Trigger} verdict skipped — session is Pending (WhiteGlove)", sessionPrefix, trigger);
                 return (false, null);
             }
 
@@ -266,7 +288,7 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception readEx)
             {
                 _logger.LogWarning(readEx,
-                    "{SessionPrefix} failed to read events for max_lifetime classification; proceeding with batch only", sessionPrefix);
+                    "{SessionPrefix} failed to read events for {Trigger} classification; proceeding with batch only", sessionPrefix, trigger);
                 sessionEvents = new List<EnrollmentEvent>();
             }
 
@@ -279,7 +301,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception cfgEx)
             {
-                _logger.LogWarning(cfgEx, "{SessionPrefix} failed to read tenant config for max_lifetime classification; using defaults", sessionPrefix);
+                _logger.LogWarning(cfgEx, "{SessionPrefix} failed to read tenant config for {Trigger} classification; using defaults", sessionPrefix, trigger);
             }
             var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(tenantGraceHours, absoluteMaxHours);
 
@@ -289,7 +311,7 @@ namespace AutopilotMonitor.Functions.Services
             var effectiveStart = session?.ResumedAt ?? session?.StartedAt ?? triggerEvent.Timestamp;
 
             // The trigger event itself may not be persisted yet when this read runs — append it so
-            // the rollup always carries the max-lifetime fact (rule 5 skips the AwaitingUser grace
+            // the rollup always carries the agent-gone fact (rule 5 skips the AwaitingUser grace
             // on it: the agent is provably gone). The rollup folds booleans, so a stored duplicate
             // is harmless.
             sessionEvents.Add(triggerEvent);
@@ -300,14 +322,20 @@ namespace AutopilotMonitor.Functions.Services
                 isPreProvisioned: session?.IsPreProvisioned == true, resumedAt: session?.ResumedAt,
                 isSelfDeployingProfile: session?.IsSelfDeployingProfile == true);
 
-            // Keep the max-lifetime trigger visible: the Succeeded reasons already carry their own
-            // silence-transparency clause, everything else gets the watchdog context appended.
+            // Keep the trigger visible: the Succeeded reasons already carry their own
+            // silence-transparency clause, everything else names what stopped the agent.
             if (targetStatus != SessionStatus.Succeeded)
-                reason += " Verdict triggered by the agent's max-lifetime watchdog shutdown.";
+            {
+                reason += stoppedWaiting
+                    ? " " + StoppedWaitingReasons.Describe(triggerEvent.Data != null && triggerEvent.Data.ContainsKey("stopReason")
+                        ? triggerEvent.Data["stopReason"]?.ToString()
+                        : null)
+                    : " Verdict triggered by the agent's max-lifetime watchdog shutdown.";
+            }
 
             if (targetStatus == currentStatus)
             {
-                _logger.LogInformation("{SessionPrefix} max_lifetime verdict {Status} equals current status — no transition", sessionPrefix, targetStatus);
+                _logger.LogInformation("{SessionPrefix} {Trigger} verdict {Status} equals current status — no transition", sessionPrefix, trigger, targetStatus);
                 return (false, null);
             }
 
@@ -319,20 +347,21 @@ namespace AutopilotMonitor.Functions.Services
                 try { snapshotJson = FailureSnapshotBuilder.Build(sessionEvents, now); }
                 catch (Exception snapEx)
                 {
-                    _logger.LogWarning(snapEx, "{SessionPrefix} failed to build failure snapshot for max_lifetime verdict", sessionPrefix);
+                    _logger.LogWarning(snapEx, "{SessionPrefix} failed to build failure snapshot for {Trigger} verdict", sessionPrefix, trigger);
                 }
             }
 
+            var origin = stoppedWaiting ? VerdictPaths.OriginStoppedWaiting : VerdictPaths.OriginMaxLifetime;
             var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                request.TenantId, request.SessionId, targetStatus, VerdictPaths.Compose(VerdictPaths.OriginMaxLifetime, rule),
+                request.TenantId, request.SessionId, targetStatus, VerdictPaths.Compose(origin, rule),
                 triggerEvent.Phase, reason,
                 completedAt: isTerminalNonSuccess ? triggerEvent.Timestamp : (DateTime?)null,
                 earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
-                failureSource: isTerminalNonSuccess ? "max_lifetime_watchdog" : null,
+                failureSource: isTerminalNonSuccess ? (stoppedWaiting ? "stopped_waiting" : "max_lifetime_watchdog") : null,
                 failureSnapshotJson: snapshotJson);
 
-            _logger.LogWarning("{SessionPrefix} Status: {Status} via max_lifetime honest classification - {Reason} (transitioned={Transitioned})",
-                sessionPrefix, targetStatus, reason, transitioned);
+            _logger.LogWarning("{SessionPrefix} Status: {Status} via {Trigger} honest classification - {Reason} (transitioned={Transitioned})",
+                sessionPrefix, targetStatus, trigger, reason, transitioned);
 
             return (transitioned, isTerminalNonSuccess ? reason : null);
         }
@@ -495,7 +524,7 @@ namespace AutopilotMonitor.Functions.Services
                     // in (misclassification audit 2026-07-16, tenant a53e67ec: honest verdict
                     // AwaitingUser). Route through the same honest classification the maintenance
                     // sweep uses instead.
-                    (statusTransitioned, failureReason) = await ApplyMaxLifetimeVerdictAsync(
+                    (statusTransitioned, failureReason) = await ApplyAgentGaveUpVerdictAsync(
                         request, sessionPrefix, c, c.FailureEvent, preFetchedStatus);
                 }
                 else
@@ -608,10 +637,11 @@ namespace AutopilotMonitor.Functions.Services
                     _logger.LogInformation("{SessionPrefix} WhiteGlove resumed skipped, session already {Status}", sessionPrefix, currentSession?.Status);
                 }
             }
-            else if (c.AgentMaxLifetimeShutdownEvent != null)
+            else if (c.AgentGaveUpShutdownEvent != null)
             {
                 // Lowest-priority status writer (session 8bc1180f): the V2 max-lifetime
-                // watchdog stops the agent permanently without a session verdict — this
+                // watchdog — or the engine's bounded wait for the user (D-310, stopped_waiting) —
+                // stops the agent permanently without a session verdict — this
                 // shutdown event is the last one the session ever sends, so without this
                 // mapping the session stays InProgress forever. Any genuine terminal event
                 // in the same batch wins via the else-if chain above; an already-terminal
@@ -621,8 +651,8 @@ namespace AutopilotMonitor.Functions.Services
                 // verdict (misclassification audit 2026-07-16). Pending (WhiteGlove) sessions
                 // are skipped inside the helper — they are deliberately long-lived and resume
                 // via re-registration.
-                (statusTransitioned, failureReason) = await ApplyMaxLifetimeVerdictAsync(
-                    request, sessionPrefix, c, c.AgentMaxLifetimeShutdownEvent, preFetchedStatus);
+                (statusTransitioned, failureReason) = await ApplyAgentGaveUpVerdictAsync(
+                    request, sessionPrefix, c, c.AgentGaveUpShutdownEvent, preFetchedStatus);
             }
 
             if (c.WhiteGloveStartedEvent != null)
@@ -660,7 +690,7 @@ namespace AutopilotMonitor.Functions.Services
                 var batchWroteStatus = c.CompletionEvent != null || c.FailureEvent != null
                     || c.EspFailureEvent != null || c.GatherCompletionEvent != null
                     || c.WhiteGloveEvent != null || c.WhiteGloveResumedEvent != null
-                    || c.AgentMaxLifetimeShutdownEvent != null;
+                    || c.AgentGaveUpShutdownEvent != null;
                 var currentStatus = !batchWroteStatus && preFetchedStatus.HasValue
                     ? preFetchedStatus
                     : (await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId))?.Status;
@@ -717,12 +747,12 @@ namespace AutopilotMonitor.Functions.Services
         public EnrollmentEvent? AgentShutdownEvent { get; set; }
 
         /// <summary>
-        /// <c>agent_shutting_down</c> with <c>Data.reason == "max_lifetime"</c> — the V2
-        /// watchdog shutdown that deliberately carries no enrollment verdict. Mapped to a
-        /// terminal Failed status as the lowest-priority status writer so the session does
-        /// not stay InProgress forever (session 8bc1180f).
+        /// <c>agent_shutting_down</c> with <c>Data.reason</c> <c>max_lifetime</c> (the V2
+        /// watchdog, session 8bc1180f) or <c>stopped_waiting</c> (the engine's bounded wait,
+        /// D-310) — shutdowns that deliberately carry no enrollment verdict. Classified honestly
+        /// as the lowest-priority status writer so the session does not stay InProgress forever.
         /// </summary>
-        public EnrollmentEvent? AgentMaxLifetimeShutdownEvent { get; set; }
+        public EnrollmentEvent? AgentGaveUpShutdownEvent { get; set; }
         public bool HasNonPeriodicRealEvent { get; set; }
         public EnrollmentEvent? DeviceLocationEvent { get; set; }
         public DateTime? EarliestEventTimestamp { get; set; }

@@ -420,6 +420,14 @@
         43,
         44
       ],
+      "windowsUpdateOperationalEventIds": [
+        25,
+        26,
+        31,
+        41
+      ],
+      "servicingWatcherEnabled": true,
+      "oobeUpdatePhaseMode": "Shadow",
       "windowsUpdateBackfillLookbackMinutes": 60,
       "windowsUpdateChannelCensusEnabled": true,
       "mdmRebootPolicyWatcherEnabled": true,
@@ -757,6 +765,7 @@
     "cert_validation",
     "collector_degraded",
     "completion_check",
+    "completion_wait_expired",
     "completion_waiting",
     "configmgr_client_detected",
     "console_prefetch_detected",
@@ -852,6 +861,9 @@
     "office_preinstalled_detected",
     "oobe_console_spawned",
     "oobe_state_completed",
+    "oobe_update_page",
+    "oobe_update_phase_shadow",
+    "oobe_update_state",
     "os_build_changed",
     "os_info",
     "outbound_ip",
@@ -912,10 +924,12 @@
     "whiteglove_resumed",
     "whiteglove_started",
     "wifi_signal_info",
+    "windows_update_activity_summary",
     "windows_update_channel_census",
     "windows_update_failed",
     "windows_update_history",
     "windows_update_reboot_pending",
+    "windows_update_servicing",
     "windows_update_started",
     "windows_update_succeeded"
   ],
@@ -5644,7 +5658,34 @@
               "name": "number"
             }
           },
-          "doc": "WindowsUpdateClient/Operational EventIDs to capture. Kept configurable so additional IDs can be enabled after real-device validation WITHOUT an agent redeploy. Verified set: 19=install success, 20=install failure (carries HRESULT), 43=install started, 44=download started. IDs whose semantics are still unverified (25/26/31, restart-required 21 vs 41) are intentionally excluded until confirmed on a device trace. Default: [19, 20, 43, 44]."
+          "doc": "WindowsUpdateClient EventIDs the install watcher captures: 19=install success, 20=install failure (carries HRESULT), 43=install started, 44=download started. The provider manifest writes these to the System log, so the agent routes every ID to the channel the manifest assigns it (System: 16–24, 27, 28, 32, 33, 43, 44, 212–218; Operational: all others). Default: [19, 20, 43, 44]."
+        },
+        {
+          "name": "windowsUpdateOperationalEventIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "WindowsUpdateClient/Operational EventIDs the scan/download watcher captures: 25=scan failed, 26=scan found N updates, 31=download failed, 41=update downloaded. Separate from WindowsUpdateTargetedEventIds on purpose: agents that predate the update classification ignore this field, so they never receive the high-volume Store/Defender download events unthrottled. Default: [25, 26, 31, 41]."
+        },
+        {
+          "name": "servicingWatcherEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the servicing watcher on the Setup log (Microsoft-Windows-Servicing EventIDs 1/2/3/4/6): the CBS package steps of an OS update — staged, installed, reboot required, failed. Default: true."
+        },
+        {
+          "name": "oobeUpdatePhaseMode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Mode of the OOBE update phase: \"Off\", \"Shadow\" or \"Active\". Off: Windows/.NET update activity is only shown on the timeline. Shadow: the update watchers also feed it into the decision engine, which records the phase and reports at the post-ESP-exit completion window what the phase would decide; today's rule still decides. Active: the phase holds that window while Windows installs an update in OOBE and waits a bounded time for the sign-in after the update restart instead of failing the session. Any other value counts as Shadow. Default: \"Shadow\"."
         },
         {
           "name": "windowsUpdateBackfillLookbackMinutes",

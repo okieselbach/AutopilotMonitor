@@ -90,6 +90,11 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
                     lastClassifierVerdictId: "verdict-" + seed));
             }
             if (type == typeof(RealmJoinFacts)) return RealmJoinFacts.Empty.WithDetected(BaseUtc.AddMinutes(seed), ordinal);
+            if (type == typeof(OsUpdateFacts))
+            {
+                return OsUpdateFacts.Empty.WithActivity(
+                    BaseUtc.AddMinutes(seed), ordinal, OsUpdateSteps.RebootRequired, "KB-" + seed, isPostExit: true);
+            }
 
             throw new Xunit.Sdk.XunitException(
                 $"No value factory for builder property type {type}. A new DecisionState field " +

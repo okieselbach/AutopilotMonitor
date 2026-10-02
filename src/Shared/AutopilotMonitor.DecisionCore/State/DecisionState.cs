@@ -66,7 +66,9 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<string>? completionWaitingFingerprint = null,
             SignalFact<DateTime>? helloWizardStartedUtc = null,
             SignalFact<DateTime>? espAdvisoryFailureResolvedUtc = null,
-            SignalFact<string>? espAdvisoryFailureCategory = null)
+            SignalFact<string>? espAdvisoryFailureCategory = null,
+            OsUpdateFacts? osUpdateFacts = null,
+            SignalFact<string>? stoppedWaitingReason = null)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -112,6 +114,8 @@ namespace AutopilotMonitor.DecisionCore.State
             HelloWizardStartedUtc = helloWizardStartedUtc;
             EspAdvisoryFailureResolvedUtc = espAdvisoryFailureResolvedUtc;
             EspAdvisoryFailureCategory = espAdvisoryFailureCategory;
+            OsUpdateFacts = osUpdateFacts ?? OsUpdateFacts.Empty;
+            StoppedWaitingReason = stoppedWaitingReason;
         }
 
         public string SessionId { get; }
@@ -353,6 +357,24 @@ namespace AutopilotMonitor.DecisionCore.State
         /// unchanged. Additive-nullable, no snapshot-schema bump.
         /// </summary>
         public SignalFact<string>? EspAdvisoryFailureCategory { get; }
+
+        /// <summary>
+        /// Windows/.NET update activity (D-310). Never null; defaults to
+        /// <see cref="State.OsUpdateFacts.Empty"/>. Its <see cref="State.OsUpdateFacts.PostExitActivityUtc"/>
+        /// anchors the bounded OOBE update phase that holds the <c>AdvisoryCompletion</c> window.
+        /// Additive, no snapshot-schema bump.
+        /// </summary>
+        public OsUpdateFacts OsUpdateFacts { get; }
+
+        /// <summary>
+        /// Set when the engine stopped waiting for the user without a verdict — a bounded wait
+        /// expired (D-310: nobody signed in within the sign-in window after the OOBE update).
+        /// The value is the reason code (<see cref="StoppedWaitingReasons"/>). The stage stays
+        /// non-terminal: the agent ends the session like its max-lifetime watchdog (outcome
+        /// TimedOut) and the backend classifies it honestly — never Failed. Set-once.
+        /// Additive-nullable, no snapshot-schema bump.
+        /// </summary>
+        public SignalFact<string>? StoppedWaitingReason { get; }
 
         public string SchemaVersion { get; }
 

@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "25 September 2026";
+const LAST_UPDATED = "1 October 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -70,7 +70,7 @@ export default function PrivacyPage() {
           <h3 className="text-lg font-medium text-gray-800 mt-4">From enrolling devices</h3>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Device identity</strong> — serial number, device name, manufacturer, model, and the Entra ID tenant the device enrolls into</li>
-            <li><strong>Enrollment progress</strong> — phases, ESP stages, application and script results, policy activity, reboots, timings, and failure codes</li>
+            <li><strong>Enrollment progress</strong> — phases, ESP stages, application and script results, policy activity, Windows updates installed during the enrollment, reboots, timings, and failure codes</li>
             <li><strong>Device context</strong> — OS build, hardware characteristics, disk and network state, plus whatever your own gather rules request</li>
             <li><strong>Approximate location</strong> — country, region, city, and approximate coordinates, if geolocation is enabled for your tenant</li>
           </ul>

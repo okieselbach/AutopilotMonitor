@@ -108,6 +108,7 @@ export const VERDICT_PATH_ORIGIN_LABELS: Record<string, string> = {
   ingest: "Ingest mapping",
   sweep: "Maintenance sweep (silence classifier)",
   maxlife: "Agent max-lifetime shutdown (silence classifier)",
+  stopwait: "Agent stopped waiting for the user (silence classifier)",
   late: "Late telemetry reconcile (silence classifier)",
   retro: "Retro reclassification",
   register: "Session registration",

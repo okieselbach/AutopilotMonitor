@@ -62,6 +62,8 @@ public class VerdictPathTests
         Assert.True(VerdictPaths.IsClassifierPath(path));
         Assert.True(VerdictPaths.IsClassifierPath("sweep:r5_assumed"));
         Assert.True(VerdictPaths.IsClassifierPath("maxlife:r1"));
+        Assert.True(VerdictPaths.IsClassifierPath("stopwait:r5_incomplete"));
+        Assert.True(VerdictPaths.IsClassifierPath("stopwait:r1b_awaiting"));
         Assert.True(VerdictPaths.IsClassifierPath("late:r4"));
         Assert.True(VerdictPaths.IsClassifierPath("retro:r6"));
         Assert.False(VerdictPaths.IsClassifierPath(VerdictPaths.AgentComplete));

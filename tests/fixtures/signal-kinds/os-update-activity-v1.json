@@ -1,0 +1,15 @@
+# OsUpdateActivity v1 — OOBE update phase (D-310, report 3a2207978e4c, 2026-10-01).
+# Posted by WindowsUpdateWatcherHost (CollectorConfiguration.OobeUpdatePhaseMode Shadow or Active)
+# for every step of a Windows/.NET update: the Windows Update client on the System/Operational
+# logs (source "wu": download_started, downloaded, install_started, installed, failed) and the
+# CBS servicing steps on the Setup log (source "servicing": staging_started, staged,
+# install_started, reboot_required, installed, failed). Store, Defender and other updates never
+# post it. Payload: step (mandatory), source, update (title or KB).
+# Reducer: HandleOsUpdateActivityV1 → records DecisionState.OsUpdateFacts (event-time ordered);
+# the earliest activity after the ESP exit while no real user signed in anchors the OOBE update
+# phase (PostExitActivityUtc). The phase holds the AdvisoryCompletion deadline within its own
+# bounds: 3 h while the update runs (then Failed oobe_update_not_finished), 60 min for the
+# sign-in after it ended (then the engine stops waiting — StoppedWaitingReason, no verdict).
+# No stage change, no deadline. A signal without a step is a dead end.
+{"SessionSignalOrdinal":1,"SessionTraceOrdinal":1,"Kind":"OsUpdateActivity","KindSchemaVersion":1,"OccurredAtUtc":"2026-10-01T11:41:12.0000000Z","SourceOrigin":"WindowsUpdateWatcher","Evidence":{"Kind":"Raw","Identifier":"os-update-activity:wu","Summary":"install_started: 2026-09 Cumulative Update for Windows 11, version 25H2 for x64-based Systems (KB5099999)"},"Payload":{"step":"install_started","source":"wu","update":"2026-09 Cumulative Update for Windows 11, version 25H2 for x64-based Systems (KB5099999)"}}
+{"SessionSignalOrdinal":2,"SessionTraceOrdinal":2,"Kind":"OsUpdateActivity","KindSchemaVersion":1,"OccurredAtUtc":"2026-10-01T12:06:40.0000000Z","SourceOrigin":"ServicingWatcher","Evidence":{"Kind":"Raw","Identifier":"os-update-activity:servicing","Summary":"reboot_required: KB5099999"},"Payload":{"step":"reboot_required","source":"servicing","update":"KB5099999"}}

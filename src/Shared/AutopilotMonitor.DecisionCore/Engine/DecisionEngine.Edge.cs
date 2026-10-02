@@ -34,6 +34,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
 
+            RecordOobeUpdateRestart(state, builder, signal);
             var rebaseEffects = RebaseEspExitVariantAdvisoryWindowOnReboot(state, builder, signal);
 
             var newState = builder.Build();
@@ -961,6 +962,79 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 return new DecisionStep(gateRearmedState, gateRearmedTransition, gateRearmedEffects);
             }
 
+            // OOBE update phase (D-310, report 3a2207978e4c). The arming exit was the Device-ESP
+            // handoff and Windows has been installing its OOBE quality update since — 20–40 min
+            // plus a restart to the lock screen, where the device then waits for the user. No
+            // real user has signed in yet, so "the page closed and nothing happens" is not
+            // the shape this window resolves. The phase holds the window, each state bounded on
+            // its own (see DecisionEngine.OsUpdate.cs): while the update runs up to its cap, after
+            // it for the sign-in window, and for one window after the sign-in so the user's own
+            // setup (User ESP, Hello wizard) is not failed by a window re-armed against the
+            // update. Each re-arm is clamped to the state's bound, so its expiry is decided on
+            // time. Expired: a still-running update fails as oobe_update_not_finished below; an
+            // ended update without a sign-in stops waiting — no verdict, the backend classifies.
+            // The advisory variant is exempt for the same reason as above, unless the failure
+            // recovered or this is the Continue-Anyway observation (the user must still continue
+            // past the update page).
+            //
+            // Measurement before enforcement: only the Active mode lets the phase act. In Shadow
+            // mode the evaluation is reported next to today's verdict below; Off ignores it.
+            var oobePhaseMode = OobeUpdatePhaseModes.Normalize(state.ScenarioObservations.OobeUpdatePhaseMode?.Value);
+            var evaluatedOobePhase = (!hasAdvisoryAnchor || advisoryResolved || isObservationAdvisory)
+                    && oobePhaseMode != OobeUpdatePhaseModes.Off
+                ? EvaluateOobeUpdatePhase(state, EffectiveDeadlineBase(state, signal))
+                : new OobeUpdatePhaseStatus(OobeUpdatePhaseKind.None);
+            var oobePhase = oobePhaseMode == OobeUpdatePhaseModes.Active
+                ? evaluatedOobePhase
+                : new OobeUpdatePhaseStatus(OobeUpdatePhaseKind.None);
+            if (oobePhase.Holds)
+            {
+                var untilBound = oobePhase.BoundUtc!.Value - EffectiveDeadlineBase(state, signal);
+                var phaseRearmedDeadline = BuildAdvisoryCompletionDeadline(state, signal,
+                    untilBound < s_advisoryCompletionWindow ? untilBound : s_advisoryCompletionWindow);
+                builder.AddDeadline(phaseRearmedDeadline);
+
+                var (triggerSuffix, message) = DescribeOobeUpdateHold(oobePhase.Kind);
+                var phaseTrigger = $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}:{triggerSuffix}";
+                var phaseRearmedState = builder.Build();
+                var phaseRearmedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: state.Stage,
+                    nextStepIndex: nextStep,
+                    trigger: phaseTrigger);
+
+                var phaseParameters = new Dictionary<string, string>
+                {
+                    ["eventType"] = SharedConstants.EventTypes.CompletionWaiting,
+                    ["source"] = "DecisionEngine",
+                    ["severity"] = "Info",
+                    ["immediateUpload"] = "false",
+                    ["message"] = message,
+                    ["missingPrerequisites"] = string.Join(",", BuildMissingCompletionPrerequisites(state)),
+                    ["trigger"] = phaseTrigger,
+                    ["stage"] = state.Stage.ToString(),
+                    ["resolutionDeadlineDueAtUtc"] = phaseRearmedDeadline.DueAtUtc.ToString("o"),
+                    ["oobeUpdateHoldsUntilUtc"] = oobePhase.BoundUtc.Value.ToString("o"),
+                };
+                AddOobeUpdateContext(phaseParameters, state, oobePhase.UpdateEndedUtc);
+
+                // Same deliberate dedupe bypass as the re-arm sites above — bounded to one event
+                // per window; the phase's own bounds cap the count.
+                var phaseRearmedEffects = new[]
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: phaseRearmedDeadline),
+                    new DecisionEffect(DecisionEffectKind.EmitEventTimelineEntry, parameters: phaseParameters),
+                };
+
+                return new DecisionStep(phaseRearmedState, phaseRearmedTransition, phaseRearmedEffects);
+            }
+
+            if (oobePhase.Kind == OobeUpdatePhaseKind.SignInWaitExpired)
+            {
+                return BuildOobeUpdateStopWaitingStep(state, builder, signal, nextStep, oobePhase);
+            }
+
             // Conjunction not met — the session is failed. The two arming variants carry
             // distinct context (see method doc): the advisory variant un-defangs the original
             // ESP failure; the esp-exit variant never had an ESP failure, so it gets its own
@@ -968,7 +1042,18 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // stays the deadline, not EspTerminalFailure).
             string reason;
             Dictionary<string, string> parameters;
-            if (hasAdvisoryAnchor && advisoryResolved)
+            var failTrigger = $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}";
+            if (oobePhase.Kind == OobeUpdatePhaseKind.UpdateNotFinished)
+            {
+                // D-310: the OOBE update still ran when its cap passed — a hanging update, not a
+                // device that went quiet after the ESP page. Its own reason, so the failure names
+                // the update instead of the generic window expiry.
+                reason = "oobe_update_not_finished";
+                parameters = BuildOobeUpdateNotFinishedParameters(state);
+                failTrigger += ":OobeUpdateNotFinished";
+                builder.WithLastFailureTrigger(nameof(DecisionSignalKind.DeadlineFired), signal.SessionSignalOrdinal);
+            }
+            else if (hasAdvisoryAnchor && advisoryResolved)
             {
                 // Session 4910a5a5: the original ESP failure demonstrably recovered (failed
                 // category resolved to success after the advisory), so claiming
@@ -1038,22 +1123,25 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 signal: signal,
                 toStage: SessionStage.Failed,
                 nextStepIndex: nextStep,
-                trigger: $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}");
+                trigger: failTrigger);
 
-            var failedEffects = new[]
+            var failedEffects = new List<DecisionEffect>(2);
+            // Shadow mode: what the OOBE update phase would have decided, ahead of today's verdict.
+            if (evaluatedOobePhase.Kind != OobeUpdatePhaseKind.None && oobePhaseMode == OobeUpdatePhaseModes.Shadow)
             {
-                new DecisionEffect(
-                    DecisionEffectKind.EmitEventTimelineEntry,
-                    parameters: parameters,
-                    typedPayload: BuildEspFailureAuditTrail(
-                        postState: failedState,
-                        decidedStage: SessionStage.Failed,
-                        trigger: $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}",
-                        failureReason: reason,
-                        parameters: parameters)),
-            };
+                failedEffects.Add(BuildOobeUpdateShadowEffect(state, evaluatedOobePhase, reason));
+            }
+            failedEffects.Add(new DecisionEffect(
+                DecisionEffectKind.EmitEventTimelineEntry,
+                parameters: parameters,
+                typedPayload: BuildEspFailureAuditTrail(
+                    postState: failedState,
+                    decidedStage: SessionStage.Failed,
+                    trigger: failTrigger,
+                    failureReason: reason,
+                    parameters: parameters)));
 
-            return new DecisionStep(failedState, failedTransition, failedEffects);
+            return new DecisionStep(failedState, failedTransition, failedEffects.ToArray());
         }
 
         private DecisionStep BuildFailedStep(
@@ -1226,6 +1314,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
 
+            RecordOobeUpdateRestart(state, builder, signal);
             var rebaseEffects = RebaseEspExitVariantAdvisoryWindowOnReboot(state, builder, signal);
 
             var newState = builder.Build();

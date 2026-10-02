@@ -131,5 +131,17 @@ namespace AutopilotMonitor.DecisionCore.Signals
         // RealmJoinFacts.ProductVersion/ReleaseChannel so the persisted facts match what
         // actually ran the deployment. Never touches the gate or the timeout deadline.
         RealmJoinAutoUpdateDetected,
+
+        // --- OS update in OOBE (D-310) ---
+        // One step of a Windows/.NET update observed by the Windows Update client watchers
+        // (System + Operational channel) or the CBS servicing watcher (Setup log). Payload:
+        // { "step": download_started|downloaded|install_started|staging_started|staged|
+        //   reboot_required|installed|failed, "source": wu|servicing, "update": title or KB }.
+        // Posted unless CollectorConfiguration.OobeUpdatePhaseMode is Off. The reducer records
+        // OsUpdateFacts; activity after the ESP exit without real-user evidence starts the OOBE
+        // update phase (Windows installs the OOBE quality update between the Device-ESP exit and
+        // the user's sign-in — report 3a2207978e4c), which holds the AdvisoryCompletion window in
+        // the Active mode and is only reported in the Shadow mode.
+        OsUpdateActivity,
     }
 }

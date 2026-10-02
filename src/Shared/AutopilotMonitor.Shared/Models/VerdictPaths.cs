@@ -44,6 +44,13 @@ namespace AutopilotMonitor.Shared.Models
 
         // ── Origins whose detail is a classifier rule id (see <see cref="ClassifierRules"/>) ──
         public const string OriginMaxLifetime = "maxlife";
+        /// <summary>
+        /// The agent's decision engine stopped waiting for the user — a bounded wait expired
+        /// (D-310: no sign-in within the window after the OOBE update) — and the session was
+        /// classified like a max-lifetime shutdown. A deliberate decision, not a silent agent:
+        /// counted as a classifier verdict, never in the silence share.
+        /// </summary>
+        public const string OriginStoppedWaiting = "stopwait";
         public const string OriginLateReconcile = "late";
         public const string OriginSweep = "sweep";
         public const string OriginRetro = "retro";
@@ -75,7 +82,8 @@ namespace AutopilotMonitor.Shared.Models
         {
             if (string.IsNullOrEmpty(path)) return false;
             var origin = Origin(path);
-            if (origin != OriginSweep && origin != OriginMaxLifetime && origin != OriginLateReconcile && origin != OriginRetro)
+            if (origin != OriginSweep && origin != OriginMaxLifetime && origin != OriginStoppedWaiting
+                && origin != OriginLateReconcile && origin != OriginRetro)
                 return false;
             var detail = path.Length > origin.Length + 1 ? path.Substring(origin.Length + 1) : string.Empty;
             return detail.Length >= 2 && detail[0] == 'r' && char.IsDigit(detail[1]);

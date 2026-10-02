@@ -79,6 +79,37 @@ public class IngestMaxLifetimeShutdownTests
         Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(null));
     }
 
+    // -------- stopped_waiting (D-310) --------
+    // The engine stopped waiting for the user (no sign-in after the OOBE update) and the agent
+    // ended the session like its watchdog: same contract, classified through the same path.
+
+    [Fact]
+    public void StoppedWaitingReason_IsDetected_AsGaveUp_ButNotAsMaxLifetime()
+    {
+        var stopped = Shutdown("stopped_waiting");
+
+        Assert.True(EventIngestProcessor.IsStoppedWaitingAgentShutdown(stopped));
+        Assert.True(EventIngestProcessor.IsAgentGaveUpShutdown(stopped));
+        Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(stopped));
+    }
+
+    [Fact]
+    public void MaxLifetimeReason_IsAlsoGaveUp()
+    {
+        Assert.True(EventIngestProcessor.IsAgentGaveUpShutdown(Shutdown("max_lifetime")));
+        Assert.False(EventIngestProcessor.IsStoppedWaitingAgentShutdown(Shutdown("max_lifetime")));
+    }
+
+    [Theory]
+    [InlineData("decision_terminal")]
+    [InlineData("ctrl_c")]
+    [InlineData(null)]
+    public void OtherShutdowns_AreNotGaveUp(string? reason)
+    {
+        Assert.False(EventIngestProcessor.IsAgentGaveUpShutdown(Shutdown(reason)));
+        Assert.False(EventIngestProcessor.IsAgentGaveUpShutdown(null));
+    }
+
     // -------- IsAgentTimeoutFailure (misclassification audit 2026-07-16) --------
     // The V1-parity companion: enrollment_failed(failureType=agent_timeout) emitted by
     // LifecycleEmitters.CreateMaxLifetimeEmitter. Same semantics as the shutdown shape —

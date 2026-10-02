@@ -520,6 +520,14 @@ namespace AutopilotMonitor.Shared
             // the engine is still waiting on (account_setup_provisioning_complete,
             // hello_resolution, desktop_arrival, realmjoin_resolution).
             public const string CompletionWaiting   = "completion_waiting";
+            // D-310 — the DecisionEngine stopped waiting for the user without a verdict: a bounded
+            // wait expired (Data.reason, e.g. oobe_update_no_sign_in). The agent then ends the
+            // session like its max-lifetime watchdog; the backend classifies it, never Failed.
+            public const string CompletionWaitExpired = "completion_wait_expired";
+            // D-310 shadow mode — at the post-ESP-exit completion window the DecisionEngine reports
+            // what the OOBE update phase would decide (Data.phaseState, wouldDecide, phaseBoundUtc)
+            // right before today's verdict (Data.decidedReason). Debug; at most once per session.
+            public const string OobeUpdatePhaseShadow = "oobe_update_phase_shadow";
             public const string ScriptStarted       = "script_started";
             public const string ScriptCompleted     = "script_completed";
             public const string ScriptFailed        = "script_failed";
@@ -626,15 +634,25 @@ namespace AutopilotMonitor.Shared
             public const string ModernDeploymentWarning   = "modern_deployment_warning";  // Level 3 (Warning)
             public const string ModernDeploymentError     = "modern_deployment_error";    // Level 1-2 (Critical/Error)
 
-            // Windows Update during OOBE (WindowsUpdateTracker — Microsoft-Windows-WindowsUpdateClient/
-            // Operational live watcher + startup backfill). Surfaces quality/cumulative updates that
-            // install DURING enrollment — a blind spot no other tool (Intune console included) covers.
-            // A cumulative update installing mid-OOBE can break the enrollment (r/Intune KB5095189) and
-            // is becoming more common with the ESP "Install Windows quality updates during OOBE" feature.
-            // WU Client EventIDs: 19=success, 20=failure (carries HRESULT), 43=install started, 44=download started.
+            // Windows Update during OOBE (WindowsUpdateTracker — Microsoft-Windows-WindowsUpdateClient
+            // live watchers + startup backfill). Surfaces quality/cumulative updates that install DURING
+            // enrollment — a blind spot no other tool (Intune console included) covers. The provider
+            // manifest splits the IDs across two channels: 19=success, 20=failure (HRESULT), 43=install
+            // started, 44=download started live in the System log; 25=scan failed, 26=scan found N,
+            // 31=download failed, 41=downloaded live in the Operational channel. Only Windows/.NET
+            // updates (Data.updateClass: os) are emitted one by one; Store/Defender/other activity is
+            // counted into windows_update_activity_summary (D-310).
             public const string WindowsUpdateSucceeded    = "windows_update_succeeded";      // WU Client EventID 19
-            public const string WindowsUpdateFailed       = "windows_update_failed";         // WU Client EventID 20 — Data.hresult(hex)+hresultSymbol(decoded)+updateTitle+updateGuid
-            public const string WindowsUpdateStarted      = "windows_update_started";        // WU Client EventID 43 (install) / 44 (download) — Debug context
+            public const string WindowsUpdateFailed       = "windows_update_failed";         // WU Client EventID 20 (install) / 31 (download) / 25 (scan) — Data.hresult(hex)+hresultSymbol(decoded)+wuPhase+updateTitle+updateGuid
+            public const string WindowsUpdateStarted      = "windows_update_started";        // WU Client EventID 44 (download started) / 41 (downloaded) / 43 (install started) / 26 (scan found N) — Data.wuPhase
+            public const string WindowsUpdateServicing    = "windows_update_servicing";      // CBS servicing step of an OS update (Setup log, Microsoft-Windows-Servicing 1/2/3/4/6) — Data.step+package+targetState+client
+            public const string WindowsUpdateActivitySummary = "windows_update_activity_summary"; // Counted non-OS update activity (Store/Defender/other) + suppressed repeats, emitted when the watchers stop
+            // OOBE update page measurement (D-310, ShellCoreTracker, Debug). The CloudExperienceHost
+            // update page (CXID OobeNDUP / RebootNDUP) and its ExpeditedUpdate_* event names, plus the
+            // registry state behind it (NDUP keys and both ESP "Install Windows quality updates"
+            // policy paths). Bounded per agent run.
+            public const string OobeUpdatePage            = "oobe_update_page";              // Shell-Core 62404/62405 of an NDUP page, 62406/62407 update-page names — Data.cxhEvent+page+result+name(+value: boolean/integer/HRESULT only)
+            public const string OobeUpdateState           = "oobe_update_state";             // NDUP + ESP-policy registry values at agent start/stop and at the update page — Data.moment + one entry per key alias; only when values exist and changed
             // Corroboration snapshots (gather rules, config-delivered). Secondary evidence that an
             // update landed during enrollment even when the watcher's backfill window missed it.
             public const string WindowsUpdateRebootPending = "windows_update_reboot_pending"; // CBS / WU Auto-Update pending-reboot regkey snapshot

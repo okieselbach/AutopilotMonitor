@@ -64,7 +64,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// 2026-07-10: a pre-sign-in IME AccountSetup line let a Device→Account handoff exit
         /// arm the window, which then failed a live enrollment mid-install): a reboot while
         /// armed cancels the window, and enforcement progress since arming re-arms it instead
-        /// of failing.
+        /// of failing. During the OOBE update phase (Windows/.NET update activity after the ESP
+        /// exit, no real user yet — D-310) the window re-arms within the phase's own bounds: the
+        /// update cap, the sign-in window after the update, one window after the sign-in.
         /// </summary>
         public const string AdvisoryCompletion = "advisory_completion";
 
@@ -200,6 +202,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// window; missing → the built-in window.
         /// </summary>
         public const string HelloWaitTimeoutSeconds = "helloWaitTimeoutSeconds";
+
+        /// <summary>
+        /// On <c>EnrollmentFactsObserved</c>: the mode of the OOBE update phase (remote config
+        /// <c>OobeUpdatePhaseMode</c>, stamped by the agent at every start — <c>Off</c>,
+        /// <c>Shadow</c> or <c>Active</c>, see <see cref="State.OobeUpdatePhaseModes"/>). Missing →
+        /// the engine treats the phase as <c>Shadow</c>.
+        /// </summary>
+        public const string OobeUpdatePhaseMode = "oobeUpdatePhaseMode";
 
         // --- InformationalEvent payload (plan §1.3, single-rail refactor) ------------
         // Mirrors the EnrollmentEvent fields the reducer must reconstruct for the

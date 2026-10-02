@@ -102,6 +102,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal(expected, sink.Posted[0].Payload![SignalPayloadKeys.HelloWaitTimeoutSeconds]);
         }
 
+        [Theory]
+        [InlineData(null, "Shadow")]     // no config value — the default mode
+        [InlineData("Shadow", "Shadow")]
+        [InlineData("active", "Active")] // case-insensitive
+        [InlineData("Off", "Off")]
+        [InlineData("Enforce", "Shadow")] // unknown — changes no decision, still measures
+        public void Oobe_update_phase_mode_is_stamped_at_every_start_normalized(string? configured, string expected)
+        {
+            // D-310: stamped every time, so a later Off/Shadow can take Active away mid-session.
+            using var tmp = new TempDirectory();
+            var sink = new FakeSignalIngressSink();
+
+            AutopilotMonitor.Agent.V2.Runtime.LifecycleEmitters.PostEnrollmentFactsObserved(
+                sink, HelloWaitTimeout.DefaultSeconds, NewLogger(tmp.Path), configured);
+
+            Assert.Equal(expected, sink.Posted[0].Payload![SignalPayloadKeys.OobeUpdatePhaseMode]);
+        }
+
         [Fact]
         public void Swallows_sink_exceptions()
         {

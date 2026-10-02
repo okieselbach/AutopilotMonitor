@@ -740,7 +740,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             //     itself is constructed inside the onIngressReady hook (step 13b), which has
             //     already fired by this point — so when our recovery-fire propagates through
             //     Task.Run, the handler is fully wired.
-            if (initialState.Stage == SessionStage.Completed || initialState.Stage == SessionStage.Failed)
+            //     The same applies to a state in which the engine stopped waiting (D-310): a
+            //     crash between that step and the termination must not leave the session running.
+            if (initialState.Stage == SessionStage.Completed || initialState.Stage == SessionStage.Failed
+                || initialState.StoppedWaitingReason != null)
             {
                 _logger.Warning(
                     $"EnrollmentOrchestrator: post-recovery initialState already terminal " +
@@ -869,25 +872,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // Stop the max-lifetime watchdog — the real terminal arrived before it could trip.
             try { _maxLifetimeTimer?.Dispose(); _maxLifetimeTimer = null; } catch { }
 
-            var outcome = terminalState.Stage switch
-            {
-                SessionStage.Completed or SessionStage.WhiteGloveSealed
-                    => EnrollmentTerminationOutcome.Succeeded,
-                SessionStage.Failed => EnrollmentTerminationOutcome.Failed,
-                _ => EnrollmentTerminationOutcome.TimedOut,
-            };
+            // D-310: the engine stopped waiting for the user without a verdict. The stage stays
+            // non-terminal; the session ends like the max-lifetime watchdog ends it (TimedOut), so
+            // the backend classifies it honestly — never as a failure.
+            var stoppedWaiting = !terminalState.Stage.IsTerminal() && terminalState.StoppedWaitingReason != null;
+
+            var outcome = stoppedWaiting
+                ? EnrollmentTerminationOutcome.TimedOut
+                : terminalState.Stage switch
+                {
+                    SessionStage.Completed or SessionStage.WhiteGloveSealed
+                        => EnrollmentTerminationOutcome.Succeeded,
+                    SessionStage.Failed => EnrollmentTerminationOutcome.Failed,
+                    _ => EnrollmentTerminationOutcome.TimedOut,
+                };
+            var reason = stoppedWaiting
+                ? EnrollmentTerminationReason.StoppedWaiting
+                : EnrollmentTerminationReason.DecisionTerminalStage;
 
             _logger.Info(
-                $"EnrollmentOrchestrator: decision terminal stage reached (stage={terminalState.Stage}, outcome={outcome}) — dispatching Terminated(DecisionTerminalStage) off worker.");
+                $"EnrollmentOrchestrator: decision ended the session (stage={terminalState.Stage}, outcome={outcome}, reason={reason}) — dispatching Terminated off worker.");
+
+            string? details = null;
+            if (stoppedWaiting)
+                details = StoppedWaitingReasons.Describe(terminalState.StoppedWaitingReason!.Value);
+            else if (terminalState.Stage.IsPauseBeforePart2())
+                details = "WhiteGlove Part 1 sealed — session will resume on Part 2 post-reboot; self-destruct suppressed.";
 
             var terminatedArgs = new EnrollmentTerminatedEventArgs(
-                reason: EnrollmentTerminationReason.DecisionTerminalStage,
+                reason: reason,
                 outcome: outcome,
                 stageName: terminalState.Stage.ToString(),
                 terminatedAtUtc: _clock.UtcNow,
-                details: terminalState.Stage.IsPauseBeforePart2()
-                    ? "WhiteGlove Part 1 sealed — session will resume on Part 2 post-reboot; self-destruct suppressed."
-                    : null);
+                details: details,
+                stopReason: stoppedWaiting ? terminalState.StoppedWaitingReason!.Value : null);
 
             // Codex Finding 2 — off-worker dispatch. Task.Run unblocks the ingress worker
             // immediately; the worker keeps draining the channel (including events the
