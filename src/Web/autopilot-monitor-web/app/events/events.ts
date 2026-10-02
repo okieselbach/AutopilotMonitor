@@ -4,6 +4,8 @@
  * and are marked noindex (events.guard.test.ts pins all four).
  */
 
+import { SUPPORT_EMAIL } from "@/lib/supportContact";
+
 export interface EventArt {
   src: string;
   width: number;
@@ -21,7 +23,7 @@ export interface FollowupEvent {
   art?: { hero: EventArt; starPointer: EventArt };
 }
 
-export const WALKTHROUGH_EMAIL = "support@autopilotmonitor.com";
+export const WALKTHROUGH_EMAIL = SUPPORT_EMAIL;
 
 /** Robots metadata of every event page. Not a robots.txt disallow: crawlers would then never see it. */
 export const EVENT_PAGE_ROBOTS = {

@@ -4,9 +4,8 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { Route } from "next";
-import { trustedRoute } from "../../lib/routes";
+import { landingTarget } from "../../lib/landingTarget";
 import { consumePostLoginReturnUrl, peekPostLoginReturnUrl } from "../../lib/postLoginReturn";
-import { hasOwnTenantOrPlatformRole, hasTenantReadScope } from "../../lib/tenantScope";
 import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
 import { activeAuthApp } from "../../lib/msalConfig";
@@ -39,22 +38,9 @@ export function AuthGate() {
       // follows, and leaving it in place beats re-saving it.
       // While activation is pending the link is only PEEKED as well: an invited customer admin whose
       // tenant is still being activated must land on the invitation once activation completes, not on
-      // /dashboard — the link survives the /activation detour for the AuthGate pass that follows.
+      // /dashboard — the link survives the /activation detour, and the activation page consumes it.
       const returnUrl = rehomeNow || isActivationPending ? peekPostLoginReturnUrl() : consumePostLoginReturnUrl();
-      let target: Route;
-      if (isActivationPending) {
-        target = "/activation";
-      } else if (returnUrl) {
-        // Restore the deep link the user originally opened before re-auth.
-        target = trustedRoute(returnUrl);
-      } else if (user.isDelegated && !hasOwnTenantOrPlatformRole(user)) {
-        // A delegated ("MSP") admin with no own-tenant/platform role manages a fleet → land on /fleet.
-        target = "/fleet";
-      } else if (hasTenantReadScope(user)) {
-        target = "/dashboard";
-      } else {
-        target = "/progress";
-      }
+      const target: Route = isActivationPending ? "/activation" : landingTarget(user, returnUrl);
       // On the public host, hand over to the portal origin in ONE full-page
       // navigation instead of router.push + HostRoutingGuard bounce. Auth state
       // is per-origin — the portal side runs its own (silent) MSAL sign-in, on

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
+import { landingTarget } from "@/lib/landingTarget";
+import { consumePostLoginReturnUrl } from "@/lib/postLoginReturn";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
 import type { SaveNotificationEmailRequest } from "@/utils/wire-types.generated";
@@ -62,6 +64,7 @@ export default function ActivationPage() {
   // are asked for an address; an already-activated tenant opening /activation later is passed
   // straight through, exactly as before.
   const arrivedPendingRef = useRef<boolean | null>(null);
+  const leftRef = useRef(false);
 
   // Redirect out of the activation page — but not while the address question is still open.
   useEffect(() => {
@@ -85,7 +88,11 @@ export default function ActivationPage() {
     // which is why almost no tenant ever got a welcome mail. Hold until the user has answered.
     if (arrivedPendingRef.current && !addressDecided) return;
 
-    router.push(user.isTenantAdmin || user.isGlobalAdmin ? "/dashboard" : "/progress");
+    // Leave once: the deep link is consumed here, so a re-run before unmount must not route again
+    // without it. The landing gate kept it during activation for exactly this hand-off.
+    if (leftRef.current) return;
+    leftRef.current = true;
+    router.push(landingTarget(user, consumePostLoginReturnUrl()));
   }, [demo, isAuthenticated, isLoading, user, isActivationPending, addressDecided, router]);
 
   // Poll while activation is pending: the auto-approve worker activates the tenant

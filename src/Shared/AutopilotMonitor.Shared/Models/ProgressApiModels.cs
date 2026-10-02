@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace AutopilotMonitor.Shared.Models
@@ -29,5 +30,21 @@ namespace AutopilotMonitor.Shared.Models
         public string SessionId { get; set; } = default!;
         public int Count { get; set; }
         public IReadOnlyList<EnrollmentEvent> Events { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Response of GET /api/progress/tenant-status — whether the caller's own organization looks
+    /// unused, so the Progress Portal can tell a member without a role whom to ask for access.
+    /// </summary>
+    // Declaration order == wire order.
+    public class ProgressTenantStatusResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+
+        /// <summary>True when the organization holds no session and signed up more than 14 days ago.</summary>
+        public bool Unused { get; set; }
+
+        /// <summary>When the organization signed up; null (key omitted on the wire) when unknown.</summary>
+        public DateTime? SignedUpAt { get; set; }
     }
 }

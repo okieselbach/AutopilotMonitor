@@ -1145,6 +1145,31 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Key-only existence probe: the tenant's SessionsIndex partition first, then the primary
+        /// table (the page read's pre-migration fallback). No catch — a failed read must never
+        /// answer "no sessions".
+        /// </summary>
+        public async Task<bool> HasAnySessionStrictAsync(string tenantId)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            var filter = $"PartitionKey eq '{tenantId}'";
+            var keysOnly = new[] { "PartitionKey", "RowKey" };
+            foreach (var table in new[] { Constants.TableNames.SessionsIndex, Constants.TableNames.Sessions })
+            {
+                var rows = _tableServiceClient.GetTableClient(table)
+                    .QueryAsync<TableEntity>(filter: filter, maxPerPage: 1, select: keysOnly)
+                    .GetAsyncEnumerator();
+                await using (rows)
+                {
+                    if (await rows.MoveNextAsync())
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Cross-tenant paged variant of <see cref="GetAllSessionsAsync"/>.
         /// <paramref name="tenantIdFilter"/> optionally restricts to one tenant.
         /// </summary>

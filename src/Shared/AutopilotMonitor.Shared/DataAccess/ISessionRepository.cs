@@ -55,6 +55,13 @@ namespace AutopilotMonitor.Shared.DataAccess
             string tenantId, int? days, int pageSize, string? continuation);
 
         /// <summary>
+        /// True when <paramref name="tenantId"/> holds at least one session (SessionsIndex, with the
+        /// same primary-table fallback as <see cref="GetSessionsPageAsync"/>). Strict: storage failures
+        /// PROPAGATE — the page read answers an empty list on failure, which would read as "no sessions".
+        /// </summary>
+        Task<bool> HasAnySessionStrictAsync(string tenantId);
+
+        /// <summary>
         /// Cross-tenant variant of <see cref="GetSessionsPageAsync"/> (Global Admin).
         /// <paramref name="tenantIdFilter"/> optionally restricts to a single tenant.
         /// <paramref name="allowedTenantIds"/> (when non-null) bounds the cross-tenant fan-out to that

@@ -137,4 +137,27 @@ public class ProgressWireParityTests
                 Events = events
             });
     }
+
+    // GET /api/progress/tenant-status — typed from the start; the anonymous side is the literal the
+    // portal reads.
+    [Fact]
+    public void ProgressTenantStatus_unused_with_signup_date()
+    {
+        var signedUpAt = new DateTime(2026, 3, 12, 8, 30, 0, DateTimeKind.Utc);
+
+        ApiResponseWireParityTests.AssertWireIdentical(
+            new { success = true, unused = true, signedUpAt = signedUpAt },
+            new ProgressTenantStatusResponse { Success = true, Unused = true, SignedUpAt = signedUpAt });
+    }
+
+    // An unknown signup date drops the key on both sides (WhenWritingNull).
+    [Fact]
+    public void ProgressTenantStatus_without_signup_date_omits_the_key()
+    {
+        DateTime? signedUpAt = null;
+
+        ApiResponseWireParityTests.AssertWireIdentical(
+            new { success = true, unused = false, signedUpAt = signedUpAt },
+            new ProgressTenantStatusResponse { Success = true, Unused = false, SignedUpAt = signedUpAt });
+    }
 }

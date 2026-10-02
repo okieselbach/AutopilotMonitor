@@ -431,6 +431,8 @@ export const api = {
       `${API_BASE_URL}/api/progress/sessions/lookup${qs({ tenantId, search })}`,
     sessionEvents: (sessionId: string, tenantId: string, serial: string) =>
       `${API_BASE_URL}/api/progress/sessions/${encodeURIComponent(sessionId)}/events${qs({ tenantId, serial })}`,
+    /** GET — whether the caller's own organization looks unused (JWT-scoped, no session data). */
+    tenantStatus: () => `${API_BASE_URL}/api/progress/tenant-status`,
   },
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────

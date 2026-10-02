@@ -10,8 +10,12 @@ import { useProgressEvents } from "./hooks/useProgressEvents";
 import { useProgressSignalR } from "./hooks/useProgressSignalR";
 import { useProgressDerivedData } from "./hooks/useProgressDerivedData";
 import { DeviceStatusChips } from "./components/DeviceStatusChips";
+import { ProgressAccessHint } from "./components/ProgressAccessHint";
 import type { PresentationKind } from "./hooks/progressLayout";
+import { progressAccessHint } from "./hooks/progressAccessHint";
+import { useProgressTenantStatus } from "./hooks/useProgressTenantStatus";
 import { useNotifications } from "../../contexts/NotificationContext";
+import { hasTenantReadScope } from "../../lib/tenantScope";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -49,9 +53,13 @@ function stepState(index: number, activeStepIndex: number, kind: PresentationKin
 
 export default function ProgressPortalPage() {
   const { tenantId } = useTenant();
-  const { getAccessToken } = useAuth();
+  const { user, getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   const signalR = useSignalR();
+
+  // Members without a role only ever see this page; tell them the full portal exists.
+  const showAccessHint = !!user && !hasTenantReadScope(user);
+  const tenantStatus = useProgressTenantStatus(showAccessHint, getAccessToken);
 
   const search = useProgressSearch({
     tenantId,
@@ -506,6 +514,9 @@ export default function ProgressPortalPage() {
               </div>
             </div>
           )}
+
+          {/* Search view only: someone following their device never sees it under the progress. */}
+          {showAccessHint && !session && <ProgressAccessHint hint={progressAccessHint(tenantStatus)} />}
         </div>
       </div>
     </ProtectedRoute>

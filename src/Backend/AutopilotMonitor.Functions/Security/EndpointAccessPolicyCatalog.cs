@@ -256,6 +256,9 @@ public static class EndpointAccessPolicyCatalog
         // ProgressPortalFunction; regression history c4dabeee).
         new("GET",    "progress/sessions/lookup",  EndpointPolicy.AuthenticatedUserWithRole, TenantScoping.QueryParam),
         new("GET",    "progress/sessions/{sessionId}/events", EndpointPolicy.AuthenticatedUser, TenantScoping.QueryParam),
+        // The caller's own (JWT) tenant only, and no session data: a "looks unused" flag plus the signup
+        // date, so the portal can tell a member without a role whom to ask for access.
+        new("GET",    "progress/tenant-status",    EndpointPolicy.AuthenticatedUser, TenantScoping.Jwt),
         // AuthenticatedUserWithRole (not plain AuthenticatedUser): the activating user is still
         // roleless during first-touch signup, so the tier must admit non-members — but the address is
         // tenant-shared state feeding the welcome/farewell mails, so the function re-gates on the

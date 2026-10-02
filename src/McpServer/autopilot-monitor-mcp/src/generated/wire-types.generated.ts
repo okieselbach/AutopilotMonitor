@@ -3231,6 +3231,15 @@ export interface ProgressLookupSessionResponse {
   session?: SessionSummary;
 }
 
+/** Response of GET /api/progress/tenant-status — whether the caller's own organization looks unused, so the Progress Portal can tell a member without a role whom to ask for access. */
+export interface ProgressTenantStatusResponse {
+  success: boolean;
+  /** True when the organization holds no session and signed up more than 14 days ago. */
+  unused: boolean;
+  /** When the organization signed up; null (key omitted on the wire) when unknown. */
+  signedUpAt?: string;
+}
+
 /** Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query. */
 export interface QueryBackendLogsErrorResponse {
   error: string;
