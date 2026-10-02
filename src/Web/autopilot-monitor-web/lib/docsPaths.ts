@@ -57,6 +57,8 @@ export const DOCS_PATHS = {
   appRegistrationMigrationAfter: "/troubleshooting-and-support/app-registration-migration#after-the-migration",
   appRegistrationMigrationAddOns: "/troubleshooting-and-support/app-registration-migration#optional-graph-add-on-permissions",
   optionalGraphPermissions: "/reference/optional-graph-permissions",
+  // Progress Portal access hint (members without a role)
+  progressPortalOnly: "/troubleshooting-and-support/progress-portal-only",
 } as const;
 
 /** Top-level URL segments GitBook publishes for docs.autopilotmonitor.com (SUMMARY.md groups + root pages). */

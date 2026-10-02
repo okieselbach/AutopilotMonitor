@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadDocsCorpus, parseFrontmatter, docUrl, slugify, docSections } from '../docs-corpus.js';
+import { loadDocsCorpus, parseFrontmatter, docUrl, slugify, docSections, summaryFolderSlugs } from '../docs-corpus.js';
 
 async function withBundle<T>(
   files: Record<string, string>,
@@ -60,9 +60,50 @@ describe('parseFrontmatter', () => {
   });
 });
 
+const SUMMARY = [
+  '# Table of contents',
+  '',
+  '* [Introduction](README.md)',
+  '',
+  '## Concepts',
+  '',
+  '* [Roles & Permissions](concepts/roles-and-permissions.md)',
+  '',
+  '## Trust & Security',
+  '',
+  '* [Security & Privacy FAQ](trust/security-faq.md)',
+  '',
+  '## Troubleshooting & Support',
+  '',
+  '* [FAQ](troubleshooting/faq.md)',
+  '* [How to Purchase](troubleshooting-and-support/how-to-purchase/README.md)',
+  '  * [Cleverbridge](troubleshooting-and-support/how-to-purchase/cleverbridge.md)',
+].join('\r\n');
+
+describe('summaryFolderSlugs', () => {
+  it('maps only the folders GitBook publishes under a different group slug', () => {
+    expect(summaryFolderSlugs(SUMMARY)).toEqual(
+      new Map([
+        ['trust', 'trust-and-security'],
+        ['troubleshooting', 'troubleshooting-and-support'],
+      ]),
+    );
+  });
+});
+
 describe('docUrl', () => {
   it('maps a page path to its published URL', () => {
-    expect(docUrl('trust/security-faq.md')).toBe('https://docs.autopilotmonitor.com/trust/security-faq');
+    expect(docUrl('concepts/roles-and-permissions.md')).toBe('https://docs.autopilotmonitor.com/concepts/roles-and-permissions');
+  });
+
+  it('publishes a page under its SUMMARY group slug, not its folder', () => {
+    // The folder URL of a page created after the group rename is a 404 (measured 2026-10-02).
+    const slugs = summaryFolderSlugs(SUMMARY);
+    expect(docUrl('troubleshooting/faq.md', slugs)).toBe('https://docs.autopilotmonitor.com/troubleshooting-and-support/faq');
+    expect(docUrl('trust/security-faq.md', slugs)).toBe('https://docs.autopilotmonitor.com/trust-and-security/security-faq');
+    expect(docUrl('troubleshooting-and-support/how-to-purchase/README.md', slugs)).toBe(
+      'https://docs.autopilotmonitor.com/troubleshooting-and-support/how-to-purchase',
+    );
   });
 
   it('collapses README.md to its folder', () => {
@@ -83,6 +124,22 @@ describe('slugify', () => {
 
 describe('loadDocsCorpus', () => {
   const page = (fm: string, body: string) => `---\n${fm}\n---\n\n${body}`;
+
+  it('cites the URL GitBook publishes, read from SUMMARY.md', async () => {
+    const chunks = await withBundle(
+      {
+        'SUMMARY.md': SUMMARY,
+        'troubleshooting/faq.md': page('type: Troubleshooting', ['# FAQ', '', '## Who is my admin?', '', 'Ask the team that runs Intune or device enrollment in your organization.'].join('\n')),
+      },
+      (root) => loadDocsCorpus(root),
+    );
+
+    expect(chunks.map((c) => c.metadata.url)).toContain(
+      'https://docs.autopilotmonitor.com/troubleshooting-and-support/faq#who-is-my-admin',
+    );
+    // The section filter keeps the folder taxonomy.
+    expect(chunks[0].metadata.section).toBe('troubleshooting');
+  });
 
   it('splits on h2/h3 headings and carries a breadcrumb', async () => {
     const chunks = await withBundle(

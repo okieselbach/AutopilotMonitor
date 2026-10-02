@@ -189,20 +189,48 @@ export function slugify(text: string): string {
 }
 
 /**
+ * Top-level folder → URL segment, read from SUMMARY.md. GitBook publishes a page under
+ * the slug of the `## Group` heading that lists it, not under its folder:
+ * `troubleshooting/faq.md` below "Troubleshooting & Support" is
+ * `/troubleshooting-and-support/faq`. The folder URL of a page that predates a group
+ * rename still redirects; for a newer page it is a 404. Only folders whose slug differs
+ * are returned.
+ */
+export function summaryFolderSlugs(summary: string): Map<string, string> {
+  const slugs = new Map<string, string>();
+  let group: string | undefined;
+  for (const line of normalizeNewlines(summary).split('\n')) {
+    const heading = /^##\s+(.+)$/.exec(line.trim());
+    if (heading) {
+      group = heading[1].toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      continue;
+    }
+    const link = /\]\(([^)#\s]+\.md)\)/.exec(line);
+    if (!group || !link || !link[1].includes('/')) continue;
+    const folder = link[1].split('/')[0];
+    if (folder !== group) slugs.set(folder, group);
+  }
+  return slugs;
+}
+
+/**
  * Public GitBook URL for a bundle-relative path, or undefined when the file is
- * not published as a page.
+ * not published as a page. `folderSlugs` (from {@link summaryFolderSlugs}) maps a
+ * top-level folder to the segment GitBook publishes it under.
  *
  * `index.md` is an OKF reserved file that the bundle deliberately keeps out of
  * SUMMARY.md, so GitBook never renders it — emitting a link would hand callers a
  * 404. Its content is still indexed (it is the documentation map); it just has no
  * citable URL.
  */
-export function docUrl(relPath: string): string | undefined {
+export function docUrl(relPath: string, folderSlugs: ReadonlyMap<string, string> = new Map()): string | undefined {
   const posix = relPath.split(sep).join('/');
   if (posix === 'index.md') return undefined;
   const withoutExt = posix.replace(/\.md$/, '');
   const path = withoutExt === 'README' ? '' : withoutExt.replace(/\/README$/, '');
-  return path ? `${DOCS_BASE_URL}/${path}` : DOCS_BASE_URL;
+  const [folder, ...rest] = path.split('/');
+  const published = rest.length > 0 && folderSlugs.has(folder) ? [folderSlugs.get(folder), ...rest].join('/') : path;
+  return published ? `${DOCS_BASE_URL}/${published}` : DOCS_BASE_URL;
 }
 
 // ── Sectioning ───────────────────────────────────────────────
@@ -407,6 +435,8 @@ export async function loadDocsCorpus(docsRoot: string): Promise<SearchDocument[]
   const files = (await walkMarkdown(docsRoot)).sort();
   const docs: SearchDocument[] = [];
   const usedIds = new Set<string>();
+  // No SUMMARY.md (a partial local bundle): folder URLs, as GitBook would serve an unrenamed group.
+  const folderSlugs = summaryFolderSlugs(await readFile(join(docsRoot, 'SUMMARY.md'), 'utf-8').catch(() => ''));
 
   for (const relPath of files) {
     let raw: string;
@@ -430,7 +460,7 @@ export async function loadDocsCorpus(docsRoot: string): Promise<SearchDocument[]
     // Top-level directory doubles as the bundle's section taxonomy
     // (getting-started, concepts, portal-guide, …). Root files are 'general'.
     const section = posixPath.includes('/') ? posixPath.split('/')[0] : 'general';
-    const url = docUrl(relPath);
+    const url = docUrl(relPath, folderSlugs);
 
     // Drop the h1 line itself — it is carried in every chunk's header instead.
     const withoutH1 = body.replace(/^#\s+.+$/m, '');
