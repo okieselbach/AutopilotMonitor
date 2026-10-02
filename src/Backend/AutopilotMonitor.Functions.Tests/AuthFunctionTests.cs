@@ -456,6 +456,25 @@ public class AuthFunctionTests
     }
 
     [Fact]
+    public void AutoAdmin_NotTriggered_ForClaimDerivedViewer_WhenNoTableMembers()
+    {
+        // Same guard for the read-only claim role: an Entra app-role Viewer in a claim-only tenant
+        // stays a Viewer and is never written into the table as Admin.
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: ViewerRole(), // came from the "roles" claim
+            mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Equal(Constants.TenantRoles.Viewer, (string)body.role);
+    }
+
+    [Fact]
     public void AutoAdmin_NotTriggered_WhenUserAlreadyAdmin()
     {
         var result = AuthFunction.BuildAuthResult(

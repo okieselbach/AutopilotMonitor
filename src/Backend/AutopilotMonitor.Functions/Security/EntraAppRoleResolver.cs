@@ -36,16 +36,16 @@ public enum TableMemberState
 /// <see cref="MemberRoleInfo.CanManageBootstrapTokens"/>, or to revoke access) by adding an
 /// explicit table row for that user.
 ///
-/// Only Admin and Operator are mappable from claims; Viewer and the platform-wide GlobalAdmin
-/// role are intentionally never derived from claims.
+/// The tenant roles Admin, Operator and Viewer are mappable from claims; the platform-wide
+/// GlobalAdmin role is intentionally never derived from claims.
 /// </summary>
 public static class EntraAppRoleResolver
 {
     /// <summary>
-    /// Maps raw Entra app-role values to a <see cref="MemberRoleInfo"/>. Admin outranks Operator
-    /// when both are present. Returns null when no mappable role exists.
+    /// Maps raw Entra app-role values to a <see cref="MemberRoleInfo"/>. The highest role wins when
+    /// several are present: Admin, then Operator, then Viewer. Returns null when no mappable role exists.
     /// A claim-derived Admin implicitly gets <see cref="MemberRoleInfo.CanManageBootstrapTokens"/>;
-    /// a claim Operator does not (granular bootstrap permission is a table-only override).
+    /// a claim Operator or Viewer does not (granular bootstrap permission is a table-only override).
     /// </summary>
     public static MemberRoleInfo? MapClaimRole(IEnumerable<string>? appRoles)
     {
@@ -62,6 +62,9 @@ public static class EntraAppRoleResolver
 
         if (roles.Any(r => string.Equals(r, Constants.TenantRoles.Operator, StringComparison.OrdinalIgnoreCase)))
             return new MemberRoleInfo { Role = Constants.TenantRoles.Operator, CanManageBootstrapTokens = false };
+
+        if (roles.Any(r => string.Equals(r, Constants.TenantRoles.Viewer, StringComparison.OrdinalIgnoreCase)))
+            return new MemberRoleInfo { Role = Constants.TenantRoles.Viewer, CanManageBootstrapTokens = false };
 
         return null;
     }

@@ -87,4 +87,15 @@ public class TenantMemberRoleResolverTests
 
         Assert.Equal(Constants.TenantRoles.Operator, role?.Role);
     }
+
+    [Fact]
+    public async Task NoRow_ViewerClaim_IsAReadOnlyMember_WhenTheTenantOptedIn()
+    {
+        AppRolesEnabled();
+
+        var role = await _sut.ResolveAsync(Tenant, Upn, new[] { Constants.TenantRoles.Viewer });
+
+        Assert.Equal(Constants.TenantRoles.Viewer, role?.Role);
+        Assert.False(role!.CanManageBootstrapTokens);
+    }
 }

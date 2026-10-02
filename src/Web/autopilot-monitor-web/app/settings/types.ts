@@ -141,6 +141,8 @@ export interface TenantConfiguration {
   // Unrestricted mode
   unrestrictedModeEnabled?: boolean;
   unrestrictedMode?: boolean;
+  /** Roles may also come from Entra app-role assignments. GA-only, read-only here (Access Management hint). */
+  entraAppRolesEnabled?: boolean;
   // Plan / edition (read-only here — mutated only via the dedicated plan/trial endpoints)
   planTier?: string;
   trialExpiresUtc?: string | null;

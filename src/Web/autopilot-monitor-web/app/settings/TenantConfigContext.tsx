@@ -320,10 +320,6 @@ interface TenantConfigContextValue {
   addingAdmin: boolean;
   removingAdmin: string | null;
   togglingAdmin: string | null;
-  adminSearchQuery: string;
-  setAdminSearchQuery: (v: string) => void;
-  currentAdminPage: number;
-  setCurrentAdminPage: (v: SetStateAction<number>) => void;
   handleAddAdmin: () => Promise<void>;
   handleRemoveAdmin: (adminUpn: string) => Promise<void>;
   handleToggleTenantAdmin: (adminUpn: string, isEnabled: boolean) => Promise<void>;
@@ -401,8 +397,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [addingAdmin, setAddingAdmin] = useState(false);
   const [removingAdmin, setRemovingAdmin] = useState<string | null>(null);
   const [togglingAdmin, setTogglingAdmin] = useState<string | null>(null);
-  const [adminSearchQuery, setAdminSearchQuery] = useState("");
-  const [currentAdminPage, setCurrentAdminPage] = useState(0);
 
   // Offboard
   const [showOffboardDialog, setShowOffboardDialog] = useState(false);
@@ -1382,7 +1376,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
   const handleRemoveAdmin = useCallback(async (adminUpn: string) => {
     if (!tenantId) return;
-    if (!confirm(`Are you sure you want to remove ${adminUpn} as an admin?`)) return;
 
     try {
       setRemovingAdmin(adminUpn);
@@ -1677,8 +1670,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       newMemberRole, setNewMemberRole,
       newMemberKind, setNewMemberKind,
       addingAdmin, removingAdmin, togglingAdmin,
-      adminSearchQuery, setAdminSearchQuery,
-      currentAdminPage, setCurrentAdminPage,
       handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
 
       // Bootstrap sessions
@@ -1730,7 +1721,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     tenantDiagPaths, newDiagPath, newDiagDesc,
     handleSaveDiagnostics, handleResetDiagnostics,
     admins, loadingAdmins, newAdminEmail, newMemberRole, newMemberKind, addingAdmin, removingAdmin, togglingAdmin,
-    adminSearchQuery, currentAdminPage,
     handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
     bootstrapSessions, bootstrapLoading, fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
     dataRetentionDays, sessionTimeoutHours, handleSaveDataManagement, handleResetDataManagement,

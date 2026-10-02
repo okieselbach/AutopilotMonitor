@@ -25,7 +25,37 @@ public class EntraAppRoleResolverTests
     [Fact]
     public void MapClaimRole_UnknownRole_ReturnsNull()
     {
-        Assert.Null(EntraAppRoleResolver.MapClaimRole(new[] { "Viewer", "SomethingElse" }));
+        // Neither a foreign value nor an application permission ever becomes a member role.
+        Assert.Null(EntraAppRoleResolver.MapClaimRole(new[] { "SomethingElse", "access_as_application", "GlobalAdmin" }));
+    }
+
+    [Fact]
+    public void MapClaimRole_Viewer_IsReadOnlyWithoutBootstrapPermission()
+    {
+        var role = EntraAppRoleResolver.MapClaimRole(new[] { "SomethingElse", Constants.TenantRoles.Viewer });
+
+        Assert.NotNull(role);
+        Assert.Equal(Constants.TenantRoles.Viewer, role!.Role);
+        Assert.False(role.CanManageBootstrapTokens);
+    }
+
+    [Fact]
+    public void MapClaimRole_OperatorOutranksViewer_WhenBothPresent()
+    {
+        var role = EntraAppRoleResolver.MapClaimRole(
+            new[] { Constants.TenantRoles.Viewer, Constants.TenantRoles.Operator });
+
+        Assert.Equal(Constants.TenantRoles.Operator, role!.Role);
+    }
+
+    [Fact]
+    public void MapClaimRole_AdminOutranksViewer_WhenBothPresent()
+    {
+        var role = EntraAppRoleResolver.MapClaimRole(
+            new[] { Constants.TenantRoles.Viewer, Constants.TenantRoles.Admin });
+
+        Assert.Equal(Constants.TenantRoles.Admin, role!.Role);
+        Assert.True(role.CanManageBootstrapTokens);
     }
 
     [Fact]
@@ -63,6 +93,7 @@ public class EntraAppRoleResolverTests
         var role = EntraAppRoleResolver.MapClaimRole(new[] { "admin" });
 
         Assert.Equal(Constants.TenantRoles.Admin, role!.Role);
+        Assert.Equal(Constants.TenantRoles.Viewer, EntraAppRoleResolver.MapClaimRole(new[] { " viewer " })!.Role);
     }
 
     // -------------------------------------------------------------------------
@@ -106,12 +137,41 @@ public class EntraAppRoleResolverTests
     }
 
     [Fact]
-    public void Resolve_NoTableRow_IgnoresClaim_WhenTenantFlagDisabled()
+    public void Resolve_NoTableRow_FallsBackToViewerClaim_WhenEnabled()
     {
         var result = EntraAppRoleResolver.Resolve(
-            TableMemberState.NotPresent, null, new[] { Constants.TenantRoles.Admin }, appRolesEnabled: false);
+            TableMemberState.NotPresent, null, new[] { Constants.TenantRoles.Viewer }, appRolesEnabled: true);
+
+        Assert.Equal(Constants.TenantRoles.Viewer, result!.Role);
+    }
+
+    [Fact]
+    public void Resolve_DisabledTableRow_IgnoresViewerClaim()
+    {
+        var result = EntraAppRoleResolver.Resolve(
+            TableMemberState.Disabled, null, new[] { Constants.TenantRoles.Viewer }, appRolesEnabled: true);
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void Resolve_EnabledTableViewer_WinsOverHigherClaim()
+    {
+        var tableRole = new MemberRoleInfo { Role = Constants.TenantRoles.Viewer };
+
+        var result = EntraAppRoleResolver.Resolve(
+            TableMemberState.Enabled, tableRole, new[] { Constants.TenantRoles.Admin }, appRolesEnabled: true);
+
+        Assert.Equal(Constants.TenantRoles.Viewer, result!.Role);
+    }
+
+    [Fact]
+    public void Resolve_NoTableRow_IgnoresClaim_WhenTenantFlagDisabled()
+    {
+        Assert.Null(EntraAppRoleResolver.Resolve(
+            TableMemberState.NotPresent, null, new[] { Constants.TenantRoles.Admin }, appRolesEnabled: false));
+        Assert.Null(EntraAppRoleResolver.Resolve(
+            TableMemberState.NotPresent, null, new[] { Constants.TenantRoles.Viewer }, appRolesEnabled: false));
     }
 
     [Fact]

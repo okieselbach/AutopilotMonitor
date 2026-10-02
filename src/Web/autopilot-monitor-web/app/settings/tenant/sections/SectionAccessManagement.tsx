@@ -7,13 +7,12 @@ import AdminManagementSection from "../../components/AdminManagementSection";
 export function SectionAccessManagement() {
   const {
     canEditConfig,
+    config,
     admins, loadingAdmins,
     newAdminEmail, setNewAdminEmail,
     newMemberRole, setNewMemberRole,
     newMemberKind, setNewMemberKind,
     addingAdmin, removingAdmin, togglingAdmin,
-    adminSearchQuery, setAdminSearchQuery,
-    currentAdminPage, setCurrentAdminPage,
     user,
     handleAddAdmin, handleRemoveAdmin,
     handleToggleTenantAdmin, handleUpdatePermissions,
@@ -45,11 +44,8 @@ export function SectionAccessManagement() {
         addingAdmin={addingAdmin}
         removingAdmin={removingAdmin}
         togglingAdmin={togglingAdmin}
-        adminSearchQuery={adminSearchQuery}
-        setAdminSearchQuery={setAdminSearchQuery}
-        currentAdminPage={currentAdminPage}
-        setCurrentAdminPage={setCurrentAdminPage}
         user={user}
+        entraAppRolesEnabled={config?.entraAppRolesEnabled === true}
         onAddAdmin={handleAddAdmin}
         onRemoveAdmin={handleRemoveAdmin}
         onToggleAdmin={handleToggleTenantAdmin}

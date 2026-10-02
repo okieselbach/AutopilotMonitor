@@ -1255,7 +1255,7 @@ function TenantManagementSectionInner({
                     <span className="text-sm font-medium text-gray-700">Enable Entra App Roles</span>
                   </label>
                   <p className="text-xs text-gray-400 mt-1 ml-6">
-                    Allow Admin/Operator roles to be granted via Entra app-role assignments on the Enterprise App (the token&apos;s roles claim), in addition to the member table. The member table always wins.
+                    Allow Admin/Operator/Viewer roles to be granted via Entra app-role assignments on the Enterprise App (the token&apos;s roles claim), in addition to the member table. The member table always wins.
                   </p>
                 </div>
 
