@@ -3054,6 +3054,18 @@ export interface OpsEventListResponse {
   nextLink?: string;
 }
 
+/** One OOBE quality update behind an OsUpdate span (D-310) — the interval and what the evidence names. Annotation like RebootSpan; the partition itself is in Segments. */
+export interface OsUpdateSpan {
+  startUtc: string;
+  endUtc: string;
+  /** In-window seconds of the interval. */
+  seconds: number;
+  /** KB numbers of the packages Windows serviced in the interval ("KB5129195"), in order of first appearance; empty when no package named one. */
+  kbs: string[];
+  /** Restarts that began inside the interval. */
+  rebootCount: number;
+}
+
 /** Body of PATCH global/config: { "fields": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type. */
 export interface PatchAdminConfigurationRequest {
   fields?: Record<string, unknown>;
@@ -4343,6 +4355,8 @@ export interface SessionTimeBreakdown {
   /** Total observed in-window sleep seconds. Cross-cutting annotation like RebootSeconds — the wall clock keeps the pause; this discloses it. */
   sleepSeconds: number;
   sleepSpans: SleepSpan[];
+  /** The OOBE quality updates behind the OsUpdate spans (at most one per observation window). */
+  osUpdates: OsUpdateSpan[];
   /** Install intervals of ESP-blocking apps (positive-evidence join against the latest esp_config_detected lists), top 20 by duration. BlockingAppCount carries the uncapped count of matched blocking apps (including those without a measurable interval, e.g. unobserved start). */
   blockingApps: BlockingAppInterval[];
   /** Uncapped count of apps matched against the blocking set (see BlockingApps). */

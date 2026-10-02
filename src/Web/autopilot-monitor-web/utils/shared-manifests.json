@@ -14369,6 +14369,53 @@
         }
       ]
     },
+    "OsUpdateSpan": {
+      "kind": "object",
+      "doc": "One OOBE quality update behind an OsUpdate span (D-310) — the interval and what the evidence names. Annotation like RebootSpan; the partition itself is in Segments.",
+      "fields": [
+        {
+          "name": "startUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "endUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "seconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "In-window seconds of the interval."
+        },
+        {
+          "name": "kbs",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "KB numbers of the packages Windows serviced in the interval (\"KB5129195\"), in order of first appearance; empty when no package named one."
+        },
+        {
+          "name": "rebootCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Restarts that began inside the interval."
+        }
+      ]
+    },
     "PatchAdminConfigurationRequest": {
       "kind": "object",
       "doc": "Body of PATCH global/config: { \"fields\": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type.",
@@ -20027,6 +20074,17 @@
               "name": "SleepSpan"
             }
           }
+        },
+        {
+          "name": "osUpdates",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "OsUpdateSpan"
+            }
+          },
+          "doc": "The OOBE quality updates behind the OsUpdate spans (at most one per observation window)."
         },
         {
           "name": "blockingApps",

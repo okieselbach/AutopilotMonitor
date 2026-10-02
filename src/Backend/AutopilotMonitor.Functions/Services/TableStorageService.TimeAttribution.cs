@@ -123,6 +123,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["SegmentsJson"] = JsonSerializer.Serialize(b.Segments),
                 ["RebootSpansJson"] = JsonSerializer.Serialize(b.RebootSpans),
                 ["SleepSpansJson"] = JsonSerializer.Serialize(b.SleepSpans),
+                ["OsUpdatesJson"] = JsonSerializer.Serialize(b.OsUpdates),
                 ["BlockingAppsJson"] = JsonSerializer.Serialize(b.BlockingApps),
                 ["ComputedAt"] = DateTime.UtcNow,
             };
@@ -151,6 +152,7 @@ namespace AutopilotMonitor.Functions.Services
                 Segments = DeserializeJsonColumn<TimeAttributionSpan>(entity.GetString("SegmentsJson")),
                 RebootSpans = DeserializeJsonColumn<RebootSpan>(entity.GetString("RebootSpansJson")),
                 SleepSpans = DeserializeJsonColumn<SleepSpan>(entity.GetString("SleepSpansJson")),
+                OsUpdates = DeserializeJsonColumn<OsUpdateSpan>(entity.GetString("OsUpdatesJson")),
                 BlockingApps = DeserializeJsonColumn<BlockingAppInterval>(entity.GetString("BlockingAppsJson")),
             };
         }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
@@ -65,6 +66,11 @@ public sealed class TimeAttributionInput
 /// <item><b>Reboot spans from event gaps</b> around the <c>lastBootUtc</c> payload — the
 /// <c>system_reboot_detected</c> event is detection-time-stamped by the next run and never used
 /// as the reboot moment (audit Q7). Reboots are a cross-cutting annotation, not a segment.</item>
+/// <item><b>The OOBE quality update takes its time from the phase segments</b> (v4, D-314):
+/// <c>os_update</c> from the start of the update page that installed an update to the last
+/// update evidence before the user is back, then — after a restart — <c>awaiting_sign_in</c>
+/// until the first evidence of the user. Without update evidence (the page cancelled or found
+/// nothing) the partition is the phase partition unchanged.</item>
 /// </list>
 /// </summary>
 public static class TimeAttributionCalculator
@@ -74,7 +80,9 @@ public static class TimeAttributionCalculator
     // pre-enrollment state on disk are now flagged and excluded from fleet segment stats.
     // v3: SleepSpans — completed sleep/standby episodes (system_sleep_episode) as cross-cutting
     // annotations mirroring RebootSpans; the maintenance sweep recomputes older rows.
-    public const int CurrentVersion = 3;
+    // v4: os_update + awaiting_sign_in — the OOBE quality update and the wait for the user after
+    // its restart, cut out of the phase segment they overlap (D-314), with OsUpdates naming the KBs.
+    public const int CurrentVersion = 4;
 
     /// <summary>
     /// Enrollment class for fleet aggregation — classes are NEVER mixed in one aggregate (a
@@ -142,6 +150,12 @@ public static class TimeAttributionCalculator
         var anchors = BuildAnchors(events, ref flags);
         var spans = BuildSegmentSpans(windows, anchors);
 
+        // D-310: the OOBE quality update and the wait for the user after its restart take their
+        // time from the phase segment they overlap — the ESP is over, the device is updating.
+        var rebootGaps = FindRebootGaps(events);
+        var osUpdates = BuildOsUpdates(events, windows, anchors, rebootGaps);
+        spans = ApplyOsUpdates(spans, windows, osUpdates);
+
         var attributedSeconds = spans.Sum(s => s.Seconds);
         var unattributed = wallClock - attributedSeconds;
 
@@ -169,7 +183,7 @@ public static class TimeAttributionCalculator
             occupancy = ComputeOccupancySeconds(blockingAppSegments, espAppsSpans);
         }
 
-        var rebootSpans = BuildRebootSpans(events, windows, spans);
+        var rebootSpans = BuildRebootSpans(rebootGaps, windows, spans);
         var sleepSpans = BuildSleepSpans(events, windows, spans);
 
         if (events.Any(e => e.EventType == Constants.EventTypes.AgentLateStart))
@@ -196,6 +210,16 @@ public static class TimeAttributionCalculator
             RebootSpans = rebootSpans,
             SleepSeconds = sleepSpans.Sum(s => s.Seconds),
             SleepSpans = sleepSpans,
+            OsUpdates = osUpdates
+                .Select(u => new OsUpdateSpan
+                {
+                    StartUtc = u.Start,
+                    EndUtc = u.End,
+                    Seconds = ClampToWindows(u.Start, u.End, windows)?.Seconds ?? 0,
+                    Kbs = u.Kbs,
+                    RebootCount = u.RebootCount,
+                })
+                .ToList(),
             BlockingApps = blockingApps
                 .OrderByDescending(a => a.Seconds)
                 .ThenBy(a => a.AppName, StringComparer.OrdinalIgnoreCase)
@@ -642,16 +666,17 @@ public static class TimeAttributionCalculator
     // ── reboot spans ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// One span per distinct observed boot: the event-stream gap bracketing <c>lastBootUtc</c>
+    /// One gap per distinct observed boot: the event-stream gap bracketing <c>lastBootUtc</c>
     /// (last event before the boot → first event at/after it). Fallback without a usable
     /// payload: previous event → the detection event itself (which is genuinely post-boot —
-    /// usable as an observation bound, never as the boot moment). Spans are clipped to the
-    /// observation hull, so a WhiteGlove-pause reboot contributes nothing.
+    /// usable as an observation bound, never as the boot moment). Unclipped; the update interval
+    /// and <see cref="BuildRebootSpans"/> read the same gaps. A <c>system_clock_changed</c> row is
+    /// no bound (v4): the hardware clock sync at boot is logged a fraction of a second before
+    /// <c>lastBootUtc</c> and shrank the outage to seconds (field: 4–10 s for restarts of a minute).
     /// </summary>
-    private static List<RebootSpan> BuildRebootSpans(
-        List<EnrollmentEvent> events, List<Window> windows, List<TimeAttributionSpan> spans)
+    private static List<(DateTime Start, DateTime End)> FindRebootGaps(List<EnrollmentEvent> events)
     {
-        var result = new List<RebootSpan>();
+        var result = new List<(DateTime Start, DateTime End)>();
         var seenBoots = new HashSet<DateTime>();
 
         for (var i = 0; i < events.Count; i++)
@@ -677,6 +702,7 @@ public static class TimeAttributionCalculator
                 if (!seenBoots.Add(lastBoot.Value)) continue; // duplicate detection of the same boot
                 foreach (var e in events)
                 {
+                    if (e.EventType == Constants.EventTypes.SystemClockChanged) continue;
                     if (e.Timestamp < lastBoot.Value)
                     {
                         if (!gapStart.HasValue || e.Timestamp > gapStart.Value) gapStart = e.Timestamp;
@@ -694,8 +720,23 @@ public static class TimeAttributionCalculator
             }
 
             if (!gapStart.HasValue || !gapEnd.HasValue || gapEnd.Value <= gapStart.Value) continue;
+            result.Add((gapStart.Value, gapEnd.Value));
+        }
 
-            var clamped = ClampToWindows(gapStart.Value, gapEnd.Value, windows);
+        return result;
+    }
+
+    /// <summary>
+    /// One span per reboot gap, clipped to the observation hull, so a WhiteGlove-pause reboot
+    /// contributes nothing.
+    /// </summary>
+    private static List<RebootSpan> BuildRebootSpans(
+        List<(DateTime Start, DateTime End)> gaps, List<Window> windows, List<TimeAttributionSpan> spans)
+    {
+        var result = new List<RebootSpan>();
+        foreach (var gap in gaps)
+        {
+            var clamped = ClampToWindows(gap.Start, gap.End, windows);
             if (!clamped.HasValue) continue;
             // In-window seconds — a reboot gap bracketing the WhiteGlove pause contributes
             // only its in-window flanks, never the pause itself.
@@ -712,6 +753,296 @@ public static class TimeAttributionCalculator
         }
 
         return result;
+    }
+
+    // ── OOBE quality update (D-310) ─────────────────────────────────────────
+
+    /// <summary>CXID of the OOBE update page; <see cref="UpdateRestartPage"/> follows it and restarts for the update.</summary>
+    internal const string UpdatePage = "OobeNDUP";
+    internal const string UpdateRestartPage = "RebootNDUP";
+
+    // "Package_for_KB5129195~31bf…": the KB follows an underscore, so no \b before it.
+    private static readonly Regex KbPattern = new(
+        @"(?<![A-Za-z0-9])KB(\d{6,8})(?![0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+    private sealed class OsUpdate
+    {
+        public DateTime Start;
+        public DateTime End;
+
+        /// <summary>End of the wait for the user after the update's restart; null without a restart.</summary>
+        public DateTime? AwaitingSignInEnd;
+
+        public List<string> Kbs = new();
+        public int RebootCount;
+    }
+
+    private readonly struct PageRecord
+    {
+        public PageRecord(DateTime at, string cxhEvent, string? page, string? name)
+        {
+            At = at;
+            CxhEvent = cxhEvent;
+            Page = page;
+            Name = name;
+        }
+
+        public DateTime At { get; }
+        public string CxhEvent { get; }
+        public string? Page { get; }
+        public string? Name { get; }
+
+        public bool IsStartOf(string page) => CxhEvent == "page_started" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
+        public bool IsStopOf(string page) => CxhEvent == "page_stopped" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Page names that only an update in progress writes (field data 2026-10-02). Every visit
+    /// logs init names such as <c>initialize_NDUPInstallCanceledInOptOut</c> and
+    /// <c>initialize_NDUPDownloadInstallPreviousFailureCount</c>, a scan that found nothing
+    /// included, and <c>installSucceededNoReboot</c> follows the language check of visits whose
+    /// update came later — so "Download"/"Install" in a name proves nothing.
+    /// </summary>
+    private static readonly string[] UpdateActivityMarkers =
+    {
+        "commitExpeditionDownloadInstall", // the page commits the download and install
+        "downloadSucceeded",
+        "installSucceededRebootRequired",
+        "DownloadPhase",                   // the progress bars of the download …
+        "installPhase",                    // … and of the install
+        "downloadInstallFailureHelper",    // a download or install failed
+        "rebootCountdown",                 // the page restarts for the update
+    };
+
+    /// <summary>
+    /// The update page's own record of a download or an install — evidence of an update next to
+    /// the servicing steps (an agent caps the page names per run, so this is the weaker of the two).
+    /// </summary>
+    internal static bool IsUpdateActivityName(string? name) =>
+        name != null &&
+        UpdateActivityMarkers.Any(marker => name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+
+    /// <summary>
+    /// At most one update per observation window. <b>Begin:</b> the start of the update page
+    /// (<see cref="UpdatePage"/>) whose visit holds update evidence — a servicing step or an
+    /// update-activity name before the visit ends (its stop, the <see cref="UpdateRestartPage"/>
+    /// start or the next visit). Only when no page start was observed in the window: the first
+    /// servicing step after the device-ESP exit. Never after the user is back. <b>Bound:</b> the first evidence of the
+    /// user (user ESP apps, desktop, Hello wizard, a Complete declaration), the end of
+    /// attribution (Failed) or the window end. <b>End:</b> the latest update evidence before the
+    /// bound — page record, servicing step, or the end of a restart that began in the interval.
+    /// With a restart in the interval the user is signed out: <c>awaiting_sign_in</c> runs from
+    /// the end to the bound.
+    /// </summary>
+    private static List<OsUpdate> BuildOsUpdates(
+        List<EnrollmentEvent> events, List<Window> windows, List<Anchor> anchors,
+        List<(DateTime Start, DateTime End)> rebootGaps)
+    {
+        var result = new List<OsUpdate>();
+
+        var pages = new List<PageRecord>();
+        var servicing = new List<(DateTime At, string? Package)>();
+        foreach (var evt in events)
+        {
+            if (evt.EventType == Constants.EventTypes.OobeUpdatePage && evt.Data != null)
+            {
+                pages.Add(new PageRecord(evt.Timestamp,
+                    DataString(evt.Data, "cxhEvent") ?? string.Empty,
+                    DataString(evt.Data, "page"),
+                    DataString(evt.Data, "name")));
+            }
+            else if (evt.EventType == Constants.EventTypes.WindowsUpdateServicing)
+            {
+                servicing.Add((evt.Timestamp, evt.Data != null ? DataString(evt.Data, "package") : null));
+            }
+        }
+        if (servicing.Count == 0 && !pages.Any(p => IsUpdateActivityName(p.Name))) return result;
+
+        pages = pages.OrderBy(p => p.At).ToList();
+        servicing = servicing.OrderBy(c => c.At).ToList();
+        var evidence = servicing.Select(c => c.At)
+            .Concat(pages.Where(p => IsUpdateActivityName(p.Name)).Select(p => p.At))
+            .OrderBy(t => t)
+            .ToList();
+
+        // The user is back (or the enrollment declared itself complete): from here on the time
+        // is not the update's. A Failed declaration ends attribution altogether.
+        var userBack = anchors
+            .Where(a => a.Bucket == TimeAttributionSegments.UserEsp || a.Bucket == TimeAttributionSegments.DesktopHandoff)
+            .Select(a => a.Ts)
+            .Concat(events.Where(e => e.EventType == Constants.EventTypes.HelloWizardStarted).Select(e => e.Timestamp))
+            .OrderBy(t => t)
+            .ToList();
+        var attributionEnd = anchors.FirstOrDefault(a => a.Bucket == null)?.Ts;
+        var deviceEspExit = events.FirstOrDefault(e => e.EventType == Constants.EventTypes.EspExiting)?.Timestamp;
+
+        foreach (var window in windows)
+        {
+            var begin = FindUpdateBegin(window, pages, evidence, servicing, deviceEspExit, userBack);
+            if (!begin.HasValue) continue;
+
+            var bound = window.End;
+            if (attributionEnd.HasValue && attributionEnd.Value < bound) bound = attributionEnd.Value;
+            foreach (var t in userBack)
+            {
+                if (t <= begin.Value) continue;
+                if (t < bound) bound = t;
+                break;
+            }
+            if (bound <= begin.Value) continue;
+
+            var update = new OsUpdate { Start = begin.Value, End = begin.Value };
+            foreach (var page in pages)
+            {
+                if (page.At > update.End && page.At < bound) update.End = page.At;
+            }
+            foreach (var (at, package) in servicing)
+            {
+                if (at < begin.Value || at >= bound) continue;
+                if (at > update.End) update.End = at;
+                var kb = ExtractKb(package);
+                if (kb != null && !update.Kbs.Contains(kb)) update.Kbs.Add(kb);
+            }
+            foreach (var (gapStart, gapEnd) in rebootGaps)
+            {
+                if (gapStart < begin.Value || gapStart >= bound) continue;
+                update.RebootCount++;
+                var restartEnd = gapEnd < bound ? gapEnd : bound;
+                if (restartEnd > update.End) update.End = restartEnd;
+            }
+
+            // The update's restart signed the user out; until the user is back the time is
+            // waiting, not updating.
+            if (update.RebootCount > 0 && bound > update.End)
+                update.AwaitingSignInEnd = bound;
+
+            result.Add(update);
+        }
+
+        return result;
+    }
+
+    private static DateTime? FindUpdateBegin(
+        Window window, List<PageRecord> pages, List<DateTime> evidence,
+        List<(DateTime At, string? Package)> servicing, DateTime? deviceEspExit, List<DateTime> userBack)
+    {
+        // An update after the user is back runs beside the enrollment, not instead of it.
+        bool UserBackBy(DateTime t) => userBack.Any(u => u > window.Start && u <= t);
+
+        var pageStartSeen = false;
+        for (var i = 0; i < pages.Count; i++)
+        {
+            var start = pages[i];
+            if (!start.IsStartOf(UpdatePage) || start.At < window.Start || start.At >= window.End) continue;
+            pageStartSeen = true;
+            if (UserBackBy(start.At)) continue;
+
+            // The visit ends with its stop, the restart page or the next visit — whichever comes
+            // first; an update page that restarts the device writes no stop of its own.
+            var visitEnd = window.End;
+            for (var j = i + 1; j < pages.Count; j++)
+            {
+                var next = pages[j];
+                if (next.IsStopOf(UpdatePage) || next.IsStartOf(UpdateRestartPage) || next.IsStartOf(UpdatePage))
+                {
+                    visitEnd = next.At;
+                    break;
+                }
+            }
+            foreach (var t in userBack)
+            {
+                if (t <= start.At) continue;
+                if (t < visitEnd) visitEnd = t;
+                break;
+            }
+
+            if (evidence.Any(t => t >= start.At && t <= visitEnd)) return start.At;
+        }
+
+        // A page that was seen and did not update (it cancelled, or found nothing) is the answer;
+        // a servicing step beside it is some other update.
+        if (pageStartSeen) return null;
+
+        // Fallback: the page start was not observed (the agent started after it). The first
+        // servicing step after the device-ESP exit — without the download before it.
+        if (!deviceEspExit.HasValue) return null;
+        foreach (var (at, _) in servicing)
+        {
+            if (at < deviceEspExit.Value || at < window.Start || at >= window.End) continue;
+            return UserBackBy(at) ? null : at;
+        }
+        return null;
+    }
+
+    private static string? ExtractKb(string? package)
+    {
+        if (string.IsNullOrEmpty(package)) return null;
+        try
+        {
+            var match = KbPattern.Match(package);
+            return match.Success ? "KB" + match.Groups[1].Value : null;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return null;
+        }
+    }
+
+    private static string? DataString(Dictionary<string, object> data, string key) =>
+        data.TryGetValue(key, out var value) ? value?.ToString() : null;
+
+    /// <summary>
+    /// Cuts the update and the wait for the user out of the phase spans and adds them as their
+    /// own spans, clipped to the windows — a hole inside the interval is filled, the WhiteGlove
+    /// pause never. Sessions without an update keep their phase partition unchanged.
+    /// </summary>
+    private static List<TimeAttributionSpan> ApplyOsUpdates(
+        List<TimeAttributionSpan> spans, List<Window> windows, List<OsUpdate> updates)
+    {
+        if (updates.Count == 0) return spans;
+
+        var overrides = new List<(DateTime Start, DateTime End, string Key)>();
+        foreach (var update in updates)
+        {
+            overrides.Add((update.Start, update.End, TimeAttributionSegments.OsUpdate));
+            if (update.AwaitingSignInEnd.HasValue)
+                overrides.Add((update.End, update.AwaitingSignInEnd.Value, TimeAttributionSegments.AwaitingSignIn));
+        }
+
+        var result = new List<TimeAttributionSpan>();
+        foreach (var span in spans)
+        {
+            var pieces = new List<(DateTime Start, DateTime End)> { (span.StartUtc, span.EndUtc) };
+            foreach (var cut in overrides)
+            {
+                var next = new List<(DateTime Start, DateTime End)>();
+                foreach (var (start, end) in pieces)
+                {
+                    if (cut.End <= start || cut.Start >= end)
+                    {
+                        next.Add((start, end));
+                        continue;
+                    }
+                    if (cut.Start > start) next.Add((start, cut.Start));
+                    if (cut.End < end) next.Add((cut.End, end));
+                }
+                pieces = next;
+            }
+            foreach (var (start, end) in pieces)
+                AddSpan(result, span.SegmentKey, start, end);
+        }
+
+        foreach (var (start, end, key) in overrides)
+        {
+            foreach (var window in windows)
+            {
+                var clippedStart = start > window.Start ? start : window.Start;
+                var clippedEnd = end < window.End ? end : window.End;
+                AddSpan(result, key, clippedStart, clippedEnd);
+            }
+        }
+
+        return result.OrderBy(sp => sp.StartUtc).ToList();
     }
 
     // ── sleep spans ─────────────────────────────────────────────────────────

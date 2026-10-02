@@ -405,7 +405,7 @@ namespace AutopilotMonitor.Functions.Services
         /// contributes no per-app intervals); excluded and missing ones are counted, never
         /// silently dropped (rule 7).
         /// Rows are written even below the ≥20 UI gate — the UI needs the n (rule 4). Segment
-        /// stats always carry the five canonical segments + unattributed (a session without a
+        /// stats always carry the seven canonical segments + unattributed (a session without a
         /// span of a segment contributes 0 — the honest "per enrollment of this class" answer).
         /// Per-app rows gate at ≥5 sessions, order by median interval, cap 20.
         /// </summary>
@@ -468,6 +468,8 @@ namespace AutopilotMonitor.Functions.Services
             {
                 TimeAttributionSegments.DevicePrep,
                 TimeAttributionSegments.EspApps,
+                TimeAttributionSegments.OsUpdate,
+                TimeAttributionSegments.AwaitingSignIn,
                 TimeAttributionSegments.IdentityHello,
                 TimeAttributionSegments.UserEsp,
                 TimeAttributionSegments.DesktopHandoff,

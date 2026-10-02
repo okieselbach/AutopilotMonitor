@@ -51,6 +51,10 @@ public class TimeAttributionPersistenceAndAggregationTests
             {
                 new() { StartUtc = T0.AddMinutes(20), EndUtc = T0.AddMinutes(26), Seconds = 360, SegmentKey = TimeAttributionSegments.EspApps, Kind = "modern_standby" },
             },
+            OsUpdates = new List<OsUpdateSpan>
+            {
+                new() { StartUtc = T0.AddMinutes(9), EndUtc = T0.AddMinutes(19), Seconds = 600, Kbs = new List<string> { "KB5129195", "KB5054156" }, RebootCount = 2 },
+            },
             BlockingApps = new List<BlockingAppInterval>
             {
                 new() { AppId = AppX, AppName = "App X", StartUtc = T0.AddMinutes(6), EndUtc = T0.AddMinutes(16), Seconds = 600 },
@@ -89,10 +93,28 @@ public class TimeAttributionPersistenceAndAggregationTests
         Assert.Equal(T0.AddMinutes(20), sleep.StartUtc);
         Assert.Equal(360, sleep.Seconds);
 
+        var update = Assert.Single(mapped.OsUpdates);
+        Assert.Equal(T0.AddMinutes(9), update.StartUtc);
+        Assert.Equal(T0.AddMinutes(19), update.EndUtc);
+        Assert.Equal(600, update.Seconds);
+        Assert.Equal(new[] { "KB5129195", "KB5054156" }, update.Kbs);
+        Assert.Equal(2, update.RebootCount);
+
         var app = Assert.Single(mapped.BlockingApps);
         Assert.Equal(AppX, app.AppId);
         Assert.Equal("App X", app.AppName);
         Assert.Equal(600, app.Seconds);
+    }
+
+    [Fact]
+    public void BreakdownEntity_WrittenBeforeOsUpdates_MapsToAnEmptyList()
+    {
+        // v3 rows have no OsUpdatesJson column; the sweep recomputes them, reads must not fail.
+        var entity = TableStorageService.BuildSessionTimeBreakdownEntity(
+            new SessionTimeBreakdown { TenantId = TenantA, SessionId = "s-1", WallClockSeconds = 600 });
+        entity.Remove("OsUpdatesJson");
+
+        Assert.Empty(TableStorageService.MapToSessionTimeBreakdown(entity).OsUpdates);
     }
 
     [Fact]
@@ -376,9 +398,12 @@ public class TimeAttributionPersistenceAndAggregationTests
                 pairs, Array.Empty<SessionSummary>(), T0)
             .Single(a => a.TenantId == TenantA);
 
-        Assert.Equal(6, aggregate.SegmentStats.Count); // 5 canonical + unattributed — the full stack
+        Assert.Equal(8, aggregate.SegmentStats.Count); // 7 canonical + unattributed — the full stack
         // The fixture has no user_esp span → honest 0, not absent.
         Assert.Equal(0, aggregate.SegmentStats.Single(s => s.SegmentKey == TimeAttributionSegments.UserEsp).MedianSeconds);
+        // A session without an OOBE update contributes 0 to the update and the wait.
+        Assert.Equal(0, aggregate.SegmentStats.Single(s => s.SegmentKey == TimeAttributionSegments.OsUpdate).MedianSeconds);
+        Assert.Equal(0, aggregate.SegmentStats.Single(s => s.SegmentKey == TimeAttributionSegments.AwaitingSignIn).MedianSeconds);
         Assert.Equal(42, aggregate.SegmentStats.Single(s => s.SegmentKey == TimeAttributionSegments.Unattributed).MedianSeconds);
     }
 

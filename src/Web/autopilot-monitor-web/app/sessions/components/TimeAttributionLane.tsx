@@ -49,6 +49,8 @@ export type SessionTimeBreakdownDto = SessionTimeBreakdown;
 const SEGMENT_META: { key: string; label: string; color: string }[] = [
   { key: "device_prep", label: "Device preparation", color: "bg-slate-400" },
   { key: "esp_apps", label: "Apps (ESP)", color: "bg-blue-500" },
+  { key: "os_update", label: "Windows Update", color: "bg-cyan-500" },
+  { key: "awaiting_sign_in", label: "Waiting for sign-in", color: "bg-sky-200" },
   { key: "identity_hello", label: "Identity & Hello", color: "bg-violet-500" },
   { key: "user_esp", label: "User ESP", color: "bg-indigo-400" },
   { key: "desktop_handoff", label: "Desktop handoff", color: "bg-emerald-500" },
@@ -83,8 +85,22 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
   }
   totals.set("unattributed", breakdown.unattributedSeconds);
 
+  // What the OOBE quality update installed and how often it restarted — named on the
+  // Windows Update slice (the server computed it; the client only joins the lists).
+  const osUpdates = breakdown.osUpdates ?? [];
+  const updateKbs = Array.from(new Set(osUpdates.flatMap(u => u.kbs ?? [])));
+  const updateRestarts = osUpdates.reduce((sum, u) => sum + (u.rebootCount ?? 0), 0);
+  const updateDetail = [
+    updateKbs.join(", "),
+    updateRestarts > 0 ? `${updateRestarts} restart${updateRestarts !== 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+
   const parts = SEGMENT_META
-    .map(meta => ({ ...meta, seconds: totals.get(meta.key) ?? 0 }))
+    .map(meta => ({
+      ...meta,
+      seconds: totals.get(meta.key) ?? 0,
+      detail: meta.key === "os_update" ? updateDetail : "",
+    }))
     .filter(p => p.seconds > 0);
 
   const flags = breakdown.qualityFlags
@@ -132,7 +148,7 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
             key={p.key}
             className={`${p.color} h-full`}
             style={{ width: `${(p.seconds / wallClock) * 100}%` }}
-            title={`${p.label}: ${formatDuration(p.seconds)}`}
+            title={`${p.label}: ${formatDuration(p.seconds)}${p.detail ? ` · ${p.detail}` : ""}`}
           />
         ))}
       </div>
@@ -143,7 +159,7 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
           <span key={p.key} className="inline-flex items-center text-xs text-gray-600">
             <span className={`w-2.5 h-2.5 rounded-sm mr-1.5 ${p.color}`} />
             {p.label}
-            <span className="ml-1 text-gray-400">{formatDuration(p.seconds)}</span>
+            <span className="ml-1 text-gray-400">{p.detail ? `${formatDuration(p.seconds)} · ${p.detail}` : formatDuration(p.seconds)}</span>
           </span>
         ))}
       </div>

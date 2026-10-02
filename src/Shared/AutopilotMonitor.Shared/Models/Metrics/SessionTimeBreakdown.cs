@@ -17,6 +17,21 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Device-scope ESP apps phase (EnrollmentPhase.AppsDevice spans).</summary>
         public const string EspApps = "esp_apps";
 
+        /// <summary>
+        /// The OOBE quality update (D-310): from the start of the update page that installed an
+        /// update to the last update evidence before the user is back — download, install, the
+        /// restarts and the servicing after them. Takes the time from the phase segment it
+        /// overlaps; one <see cref="OsUpdateSpan"/> per interval names the packages.
+        /// </summary>
+        public const string OsUpdate = "os_update";
+
+        /// <summary>
+        /// After an OOBE update that restarted the device: from the update's end to the first
+        /// evidence of the user (desktop, Hello wizard, user ESP apps) — the restart signed the
+        /// user out, so this is the time until someone signs in again.
+        /// </summary>
+        public const string AwaitingSignIn = "awaiting_sign_in";
+
         /// <summary>Identity / sign-in / Windows Hello (AccountSetup + FinalizingSetup spans).</summary>
         public const string IdentityHello = "identity_hello";
 
@@ -169,6 +184,26 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// One OOBE quality update behind an <see cref="TimeAttributionSegments.OsUpdate"/> span
+    /// (D-310) — the interval and what the evidence names. Annotation like
+    /// <see cref="RebootSpan"/>; the partition itself is in <see cref="SessionTimeBreakdown.Segments"/>.
+    /// </summary>
+    public class OsUpdateSpan
+    {
+        public DateTime StartUtc { get; set; }
+        public DateTime EndUtc { get; set; }
+
+        /// <summary>In-window seconds of the interval.</summary>
+        public int Seconds { get; set; }
+
+        /// <summary>KB numbers of the packages Windows serviced in the interval ("KB5129195"), in order of first appearance; empty when no package named one.</summary>
+        public List<string> Kbs { get; set; } = new List<string>();
+
+        /// <summary>Restarts that began inside the interval.</summary>
+        public int RebootCount { get; set; }
+    }
+
+    /// <summary>
     /// Per-session enrollment time attribution (F1, insights spec) — an exact partition of the
     /// session's authoritative wall clock into named segments plus an explicit unattributed
     /// remainder. Invariant (unit-enforced): sum of all span seconds + <see cref="UnattributedSeconds"/>
@@ -212,6 +247,9 @@ namespace AutopilotMonitor.Shared.Models
         public int SleepSeconds { get; set; }
 
         public List<SleepSpan> SleepSpans { get; set; } = new List<SleepSpan>();
+
+        /// <summary>The OOBE quality updates behind the <see cref="TimeAttributionSegments.OsUpdate"/> spans (at most one per observation window).</summary>
+        public List<OsUpdateSpan> OsUpdates { get; set; } = new List<OsUpdateSpan>();
 
         /// <summary>
         /// Install intervals of ESP-blocking apps (positive-evidence join against the latest
