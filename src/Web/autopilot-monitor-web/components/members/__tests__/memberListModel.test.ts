@@ -8,6 +8,7 @@ import {
   matchesMemberSearch,
   memberCounts,
   memberPage,
+  permissionChange,
   sortMembers,
   visibleMemberFilters,
 } from "../memberListModel";
@@ -105,6 +106,26 @@ describe("sortMembers", () => {
     const sorted = sortMembers(input).map((m) => m.upn);
     expect(sorted).toEqual(["Anna@tenant.example", "bert@tenant.example", "zoe@tenant.example", `app:${APP_ID}`]);
     expect(input[0].upn).toBe(`app:${APP_ID}`);
+  });
+});
+
+describe("permissionChange", () => {
+  const operator = row("op@tenant.example", { role: "Operator", canManageBootstrapTokens: true });
+
+  it("has nothing to save while the draft equals the stored row", () => {
+    expect(permissionChange(operator, "Operator", true)).toEqual({ dirty: false, canManageBootstrapTokens: true });
+    expect(permissionChange(row("legacy@tenant.example", { role: undefined }), "Admin", false).dirty).toBe(false);
+  });
+
+  it("saves a role change and keeps the stored bootstrap flag for a non-Operator role", () => {
+    expect(permissionChange(operator, "Viewer", false)).toEqual({ dirty: true, canManageBootstrapTokens: true });
+  });
+
+  it("saves the bootstrap draft only for an Operator", () => {
+    expect(permissionChange(operator, "Operator", false)).toEqual({ dirty: true, canManageBootstrapTokens: false });
+    const viewer = row("v@tenant.example", { role: "Viewer", canManageBootstrapTokens: false });
+    expect(permissionChange(viewer, "Viewer", true)).toEqual({ dirty: false, canManageBootstrapTokens: false });
+    expect(permissionChange(viewer, "Operator", true)).toEqual({ dirty: true, canManageBootstrapTokens: true });
   });
 });
 

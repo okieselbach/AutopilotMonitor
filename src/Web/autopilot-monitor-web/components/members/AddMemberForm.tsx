@@ -14,6 +14,11 @@ interface AddMemberFormProps {
   onAdd: () => void;
   /** Read-only caller: the form stays visible but cannot submit. */
   disabled?: boolean;
+  /**
+   * The input always takes a line of its own. For narrow hosts such as the GA tenant editor modal,
+   * where the viewport breakpoint says "wide" but the type switch, role and button leave the input no room.
+   */
+  stacked?: boolean;
 }
 
 const KINDS = [["user", "User"], ["application", "Service principal"]] as const;
@@ -33,6 +38,7 @@ export function AddMemberForm({
   adding,
   onAdd,
   disabled = false,
+  stacked = false,
 }: AddMemberFormProps) {
   const addingApplication = kind === "application";
   const valid = addingApplication ? looksLikeGuid(value) : value.trim().length > 0;
@@ -67,7 +73,7 @@ export function AddMemberForm({
           placeholder={addingApplication ? "Application (client) ID, e.g. 00000000-0000-0000-0000-000000000000" : "user@tenant.com"}
           aria-label={addingApplication ? "Application (client) ID" : "User email (UPN)"}
           autoComplete="off"
-          className="w-full sm:w-auto sm:flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+          className={`${stacked ? "w-full" : "w-full sm:w-auto sm:flex-1"} min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors`}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();

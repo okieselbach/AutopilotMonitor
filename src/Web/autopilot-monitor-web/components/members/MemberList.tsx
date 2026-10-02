@@ -11,6 +11,7 @@ import {
   matchesMemberSearch,
   memberCounts,
   memberPage,
+  permissionChange,
   sortMembers,
   visibleMemberFilters,
   type MemberFilter,
@@ -179,8 +180,7 @@ export function MemberList({
               onCancelRemove={() => setConfirmRemoveUpn(null)}
               onConfirmRemove={() => void confirmRemove(m.upn)}
               onToggleEnabled={() => onToggleEnabled(m.upn, m.isEnabled)}
-              onChangeRole={(role) => onUpdatePermissions(m.upn, role, m.canManageBootstrapTokens)}
-              onChangeBootstrap={(value) => onUpdatePermissions(m.upn, "Operator", value)}
+              onSavePermissions={(role, canManageBootstrapTokens) => onUpdatePermissions(m.upn, role, canManageBootstrapTokens)}
             />
           ))}
         </ul>
@@ -226,31 +226,14 @@ interface MemberRowProps {
   onCancelRemove: () => void;
   onConfirmRemove: () => void;
   onToggleEnabled: () => void;
-  onChangeRole: (role: string) => void;
-  onChangeBootstrap: (value: boolean) => void;
+  onSavePermissions: (role: string, canManageBootstrapTokens: boolean) => void;
 }
 
-function MemberRow({
-  member,
-  open,
-  confirmingRemove,
-  isCurrentUser,
-  canMutate,
-  removing,
-  updating,
-  onToggleOpen,
-  onAskRemove,
-  onCancelRemove,
-  onConfirmRemove,
-  onToggleEnabled,
-  onChangeRole,
-  onChangeBootstrap,
-}: MemberRowProps) {
+function MemberRow({ member, open, onToggleOpen, ...details }: MemberRowProps) {
   const isApplication = isApplicationKey(member.upn);
   const role = effectiveMemberRole(member);
   const label = principalLabel(member.upn);
   const added = new Date(member.addedDate).toLocaleDateString();
-  const busy = removing || updating;
 
   return (
     <li className={open ? "bg-gray-50" : undefined}>
@@ -268,7 +251,7 @@ function MemberRow({
             {label}
           </span>
           <span className="flex flex-shrink-0 flex-wrap items-center gap-1.5">
-            {isCurrentUser && <span className={CONTEXT_PILL}>You</span>}
+            {details.isCurrentUser && <span className={CONTEXT_PILL}>You</span>}
             {isApplication && (
               <span className={`${PILL} bg-gray-100 text-gray-700`} title={APPLICATION_TITLE}>
                 App
@@ -295,89 +278,150 @@ function MemberRow({
         </svg>
       </button>
 
-      {open && (
-        <div className="space-y-2 px-3 pb-3 text-sm">
-          <p className="text-xs text-gray-500">{`Added ${added} by ${member.addedBy}`}</p>
-          {isCurrentUser ? (
-            <p className="text-xs text-gray-500">This is your own entry. Only another admin can change its role or access.</p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <label className="flex items-center gap-2 text-gray-700">
-                Role
-                <select
-                  value={role}
-                  onChange={(e) => onChangeRole(e.target.value)}
-                  disabled={!canMutate || isApplication || busy}
-                  title={isApplication ? "A service principal is always read-only (Viewer)" : undefined}
-                  className="px-2 py-1 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
-                >
-                  {MEMBER_ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {role === "Operator" && (
-                <label className="flex items-center gap-2 text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={member.canManageBootstrapTokens}
-                    onChange={(e) => onChangeBootstrap(e.target.checked)}
-                    disabled={!canMutate || busy}
-                    className="h-4 w-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 disabled:opacity-50"
-                  />
-                  Can manage bootstrap tokens
-                </label>
-              )}
-              <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                {confirmingRemove ? (
-                  <>
-                    <span className="text-xs text-gray-600">{`Remove ${label}?`}</span>
-                    <button
-                      type="button"
-                      onClick={onConfirmRemove}
-                      disabled={!canMutate || busy}
-                      className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {removing ? "Removing..." : "Remove"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onCancelRemove}
-                      disabled={removing}
-                      className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={onToggleEnabled}
-                      disabled={!canMutate || busy}
-                      className={`px-3 py-1 text-sm text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                        member.isEnabled ? "bg-yellow-600 hover:bg-yellow-700" : "bg-green-600 hover:bg-green-700"
-                      }`}
-                    >
-                      {updating ? "..." : member.isEnabled ? "Disable" : "Enable"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onAskRemove}
-                      disabled={!canMutate || busy}
-                      className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </>
-                )}
-              </span>
-            </div>
+      {open && <MemberDetails member={member} label={label} added={added} {...details} />}
+    </li>
+  );
+}
+
+interface MemberDetailsProps extends Omit<MemberRowProps, "open" | "onToggleOpen"> {
+  label: string;
+  added: string;
+}
+
+/**
+ * The open part of a row. Role and bootstrap permission stay drafts until Save, so a stray select change
+ * never alters anyone's access; the part unmounts with the closed row, which discards an unsaved draft.
+ */
+function MemberDetails({
+  member,
+  label,
+  added,
+  confirmingRemove,
+  isCurrentUser,
+  canMutate,
+  removing,
+  updating,
+  onAskRemove,
+  onCancelRemove,
+  onConfirmRemove,
+  onToggleEnabled,
+  onSavePermissions,
+}: MemberDetailsProps) {
+  const isApplication = isApplicationKey(member.upn);
+  const role = effectiveMemberRole(member);
+  const [draftRole, setDraftRole] = useState(role);
+  const [draftBootstrap, setDraftBootstrap] = useState(member.canManageBootstrapTokens);
+  const change = permissionChange(member, draftRole, draftBootstrap);
+  const busy = removing || updating;
+
+  const discard = () => {
+    setDraftRole(role);
+    setDraftBootstrap(member.canManageBootstrapTokens);
+  };
+
+  return (
+    <div className="space-y-2 px-3 pb-3 text-sm">
+      <p className="text-xs text-gray-500">{`Added ${added} by ${member.addedBy}`}</p>
+      {isCurrentUser ? (
+        <p className="text-xs text-gray-500">This is your own entry. Only another admin can change its role or access.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex items-center gap-2 text-gray-700">
+            Role
+            <select
+              value={draftRole}
+              onChange={(e) => setDraftRole(e.target.value)}
+              disabled={!canMutate || isApplication || busy}
+              title={isApplication ? "A service principal is always read-only (Viewer)" : undefined}
+              className="px-2 py-1 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
+            >
+              {MEMBER_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draftRole === "Operator" && (
+            <label className="flex items-center gap-2 text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draftBootstrap}
+                onChange={(e) => setDraftBootstrap(e.target.checked)}
+                disabled={!canMutate || busy}
+                className="h-4 w-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 disabled:opacity-50"
+              />
+              Can manage bootstrap tokens
+            </label>
           )}
+          {!isApplication && (
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onSavePermissions(draftRole, change.canManageBootstrapTokens)}
+                disabled={!canMutate || busy || !change.dirty}
+                className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Save
+              </button>
+              {change.dirty && (
+                <button
+                  type="button"
+                  onClick={discard}
+                  disabled={busy}
+                  className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                >
+                  Discard
+                </button>
+              )}
+            </span>
+          )}
+          <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            {confirmingRemove ? (
+              <>
+                <span className="text-xs text-gray-600">{`Remove ${label}?`}</span>
+                <button
+                  type="button"
+                  onClick={onConfirmRemove}
+                  disabled={!canMutate || busy}
+                  className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {removing ? "Removing..." : "Remove"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancelRemove}
+                  disabled={removing}
+                  className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onToggleEnabled}
+                  disabled={!canMutate || busy}
+                  className={`px-3 py-1 text-sm text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    member.isEnabled ? "bg-yellow-600 hover:bg-yellow-700" : "bg-green-600 hover:bg-green-700"
+                  }`}
+                >
+                  {updating ? "..." : member.isEnabled ? "Disable" : "Enable"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onAskRemove}
+                  disabled={!canMutate || busy}
+                  className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Remove
+                </button>
+              </>
+            )}
+          </span>
         </div>
       )}
-    </li>
+    </div>
   );
 }

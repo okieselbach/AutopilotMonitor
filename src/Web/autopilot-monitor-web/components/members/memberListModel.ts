@@ -71,6 +71,29 @@ export function sortMembers<T extends Pick<TenantAdminRow, "upn">>(rows: readonl
   });
 }
 
+export interface PermissionChange {
+  /** Something differs from the stored row, so Save has work to do. */
+  dirty: boolean;
+  /** The bootstrap flag Save writes: the draft for an Operator, otherwise the stored value unchanged. */
+  canManageBootstrapTokens: boolean;
+}
+
+/**
+ * The write behind an open row's Save button. Role and bootstrap permission are drafts until Save, so a
+ * stray select change never alters anyone's access on its own.
+ */
+export function permissionChange(
+  row: Pick<TenantAdminRow, "upn" | "role" | "canManageBootstrapTokens">,
+  draftRole: string,
+  draftBootstrap: boolean,
+): PermissionChange {
+  const canManageBootstrapTokens = draftRole === "Operator" ? draftBootstrap : row.canManageBootstrapTokens;
+  return {
+    dirty: draftRole !== effectiveMemberRole(row) || canManageBootstrapTokens !== row.canManageBootstrapTokens,
+    canManageBootstrapTokens,
+  };
+}
+
 export interface MemberPage<T> {
   rows: T[];
   /** The page actually shown — clamped, so a list that shrank never shows an empty page. */

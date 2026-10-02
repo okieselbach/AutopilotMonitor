@@ -191,6 +191,7 @@ export function TenantAdminSection({
             adding={addingAdmin}
             onAdd={handleAddTenantAdmin}
             disabled={!canMutate}
+            stacked
           />
 
           {/* key: a tenant switch starts on page 1 with no filter, search or open row. */}
