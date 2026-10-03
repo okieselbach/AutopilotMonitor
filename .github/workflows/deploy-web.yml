@@ -108,6 +108,8 @@ jobs:
           NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_REDIRECT_URI }}
           NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI }}
           NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          # Browsers load the live stats through it, and the build reads it once to bake the
+          # numbers of this moment into the landing page's static HTML (lib/platformStats.ts).
           NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL: ${{ vars.NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL }}
           NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING }}
           # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
@@ -121,6 +123,9 @@ jobs:
           npm run build
           test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
           test -f out/whats-new.json || { echo "out/whats-new.json missing - whats-new prebuild did not run"; exit 1; }
+          # Fail-soft like the star count: browsers still load the stats live; only crawlers and
+          # LLM fetchers, which run no JS, see no numbers until the next deploy.
+          grep -q 'data-stats-snapshot=' out/index.html || echo "::warning::Platform stats were not baked into the landing page (reason in the build log) - crawlers and LLM fetchers see no numbers until the next deploy"
 
       # One archive of the exact bytes that get uploaded, so the attestation has a single subject.
       - name: Package export

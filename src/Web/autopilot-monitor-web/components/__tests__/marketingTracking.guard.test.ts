@@ -11,7 +11,7 @@ vi.mock("@/contexts/AuthContext", () => ({
 // AuthGate only redirects signed-in visitors (it needs the app router) and renders no links.
 vi.mock("@/components/landing/AuthGate", () => ({ AuthGate: () => null }));
 
-import LandingPage from "@/app/page";
+import { LandingPage } from "@/components/landing/LandingPage";
 import GetStartedPage from "@/app/get-started/page";
 import AiPage from "@/app/ai/page";
 import robots from "@/app/robots";
@@ -27,6 +27,8 @@ import { sitePageUrl } from "@/utils/config";
  */
 
 const render = (Page: ComponentType) => renderToStaticMarkup(createElement(Page));
+// app/page.tsx only awaits the build-time stats and renders this body; the sync renderer cannot await.
+const Landing = () => createElement(LandingPage, { statsSnapshot: null });
 const trackIds = (html: string) => [...html.matchAll(/data-track="([^"]+)"/g)].map(m => m[1]);
 const sectionIds = (html: string) => [...html.matchAll(/data-track-section="([^"]+)"/g)].map(m => m[1]);
 const untracked = (html: string) =>
@@ -37,7 +39,7 @@ const untracked = (html: string) =>
 const PAGES: { name: string; Page: ComponentType; sections: string[] }[] = [
   {
     name: "landing",
-    Page: LandingPage,
+    Page: Landing,
     sections: ["hero", "stats", "just_ask", "story", "capabilities", "comparison", "how_it_works", "testimonials", "final_cta"],
   },
   { name: "get-started", Page: GetStartedPage, sections: ["steps", "signup"] },
@@ -60,7 +62,7 @@ describe("marketing page tracking", () => {
   }
 
   it("the landing links to the AI page from the navbar, Then just ask and the footer", () => {
-    const ids = trackIds(render(LandingPage));
+    const ids = trackIds(render(Landing));
     expect(ids).toEqual(expect.arrayContaining(["nav_ai", "just_ask_ai", "footer_ai"]));
   });
 

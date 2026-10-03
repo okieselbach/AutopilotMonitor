@@ -1,61 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-interface PlatformStatsManifest {
-  latest: string;
-  generatedAtUtc: string;
-}
-
-interface PlatformStatsPayload {
-  totalEnrollments?: number;
-  totalUsers?: number;
-  totalTenants?: number;
-  totalSignedUpTenants?: number;
-  uniqueDeviceModels?: number;
-  totalEventsProcessed?: number;
-  successfulEnrollments?: number;
-  issuesDetected?: number;
-  lastFullCompute?: string;
-  lastUpdated?: string;
-}
-
-function resolvePlatformStatsManifestUrl(rawUrl?: string): string {
-  const trimmed = rawUrl?.trim();
-  if (!trimmed) {
-    return "/platform-stats.json";
-  }
-
-  const hashIndex = trimmed.indexOf("#");
-  const withoutHash = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
-  const hash = hashIndex >= 0 ? trimmed.slice(hashIndex) : "";
-
-  const queryIndex = withoutHash.indexOf("?");
-  const basePath = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
-  const query = queryIndex >= 0 ? withoutHash.slice(queryIndex) : "";
-
-  if (/\.json$/i.test(basePath)) {
-    return trimmed;
-  }
-
-  const normalizedBasePath = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
-  const manifestPath = `${normalizedBasePath}/platform-stats.json`;
-  return `${manifestPath}${query}${hash}`;
-}
-
-const PLATFORM_STATS_MANIFEST_URL =
-  resolvePlatformStatsManifestUrl(process.env.NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL);
-
-interface StatItem {
-  label: string;
-  value: string;
-}
-
-/** 8,341,206 → "8.3M"; smaller values keep their grouped form. */
-function compact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  return n.toLocaleString("en-US");
-}
+import {
+  fetchLivePlatformStats,
+  toStatItems,
+  type PlatformStatsSnapshot,
+  type StatItem,
+} from "@/lib/platformStats";
 
 /**
  * Sample values for local development only, where no stats blob is
@@ -71,81 +22,51 @@ const DEV_SAMPLE_STATS: StatItem[] = [
 ];
 
 /**
- * Full-bleed platform stats band under the hero shot. Skeleton while
- * loading; on fetch failure it shows dev sample data locally and
- * disappears entirely in production (never an endless skeleton, never
- * fake numbers).
+ * Full-bleed platform stats band under the hero shot. Starts with the
+ * numbers the build baked in (`snapshot`, lib/platformStats.ts), so the
+ * static HTML carries them for crawlers and LLM fetchers, then swaps in the
+ * live numbers. A failed live read keeps the baked numbers; without either,
+ * it shows dev sample data locally and disappears entirely in production
+ * (never an endless skeleton, never fake numbers). The skeleton only shows
+ * while a page built without a snapshot loads.
  */
-export function StatsBand() {
-  const [stats, setStats] = useState<StatItem[] | null>(null);
+export function StatsBand({ snapshot }: { snapshot: PlatformStatsSnapshot | null }) {
+  const [live, setLive] = useState<StatItem[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    const fail = () => {
+    const loadLiveStats = async () => {
+      const payload = await fetchLivePlatformStats();
       if (cancelled) return;
-      if (process.env.NODE_ENV === "development") {
-        setStats(DEV_SAMPLE_STATS);
+      const items = payload ? toStatItems(payload) : [];
+      if (items.length > 0) {
+        setLive(items);
       } else {
         setFailed(true);
       }
     };
 
-    const loadPlatformStats = async () => {
-      try {
-        const manifestResponse = await fetch(PLATFORM_STATS_MANIFEST_URL, { cache: "no-store" });
-        if (!manifestResponse.ok) return fail();
-
-        const manifest = (await manifestResponse.json()) as PlatformStatsManifest;
-        if (!manifest?.latest) return fail();
-
-        const versionedUrl = new URL(manifest.latest, manifestResponse.url).toString();
-        const statsResponse = await fetch(versionedUrl, { cache: "force-cache" });
-        if (!statsResponse.ok) return fail();
-
-        const payload = (await statsResponse.json()) as PlatformStatsPayload;
-        if (cancelled) return;
-
-        const items: StatItem[] = [];
-        if (payload.totalEnrollments) {
-          items.push({ label: "enrollments monitored", value: payload.totalEnrollments.toLocaleString("en-US") });
-        }
-        if (payload.issuesDetected) {
-          items.push({ label: "issues detected", value: payload.issuesDetected.toLocaleString("en-US") });
-        }
-        if (payload.totalSignedUpTenants) {
-          items.push({ label: "organisations", value: payload.totalSignedUpTenants.toLocaleString("en-US") });
-        }
-        if (payload.uniqueDeviceModels) {
-          items.push({ label: "device models", value: payload.uniqueDeviceModels.toLocaleString("en-US") });
-        }
-        if (payload.totalEventsProcessed) {
-          items.push({ label: "events processed", value: compact(payload.totalEventsProcessed) });
-        }
-        if (items.length > 0) {
-          setStats(items);
-        } else {
-          fail();
-        }
-      } catch {
-        // The band is decorative and must never break the page.
-        fail();
-      }
-    };
-
-    loadPlatformStats();
+    loadLiveStats();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (failed) {
+  const devFallback = failed && process.env.NODE_ENV === "development" ? DEV_SAMPLE_STATS : null;
+  const stats = live ?? snapshot?.items ?? devFallback;
+  if (!stats && failed) {
     return null;
   }
 
   return (
-    <section data-track-section="stats" className="border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
+    <section
+      data-track-section="stats"
+      // Which build snapshot the static HTML carries; deploy-web.yml warns when it is missing.
+      data-stats-snapshot={snapshot ? (snapshot.asOf ?? "") : undefined}
+      className="border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]"
+    >
       <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-y-6 py-8 lg:divide-x lg:divide-[var(--lp-line)]">
         {(stats ?? Array.from({ length: 5 }, () => null)).map((item, i) =>
           item ? (

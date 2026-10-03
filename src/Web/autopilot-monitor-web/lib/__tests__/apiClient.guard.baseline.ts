@@ -6,7 +6,6 @@
 /** Files that keep a raw site for a stated reason; they never leave the baseline. */
 export const PERMANENT: Record<string, string> = {
   "contexts/AuthContext.tsx": "auth/me bootstrap runs before the auth context exists: raw fetch by design",
-  "components/landing/StatsBand.tsx": "unauthenticated public blob manifest, not the API",
   "app/health-check/page.tsx": "/version.json of the SWA itself, not the API",
   "app/dashboard/hooks/deleteSessionResponse.ts": "safeJson on the 202 Response of the delete-cascade classifier (refusals arrive as ApiError)",
   "app/settings/TenantConfigContext.tsx": "consent return path routes on TokenExpiredError (router.replace); the access check rethrows it as a non-outcome",
@@ -33,7 +32,6 @@ export const DEDUPEDAUTHFETCH_BASELINE: Record<string, number> = {
 export const JSONPARSE_BASELINE: Record<string, number> = {
   "app/dashboard/hooks/deleteSessionResponse.ts": 1,
   "app/health-check/page.tsx": 1,
-  "components/landing/StatsBand.tsx": 2,
   "contexts/AuthContext.tsx": 2,
 };
 

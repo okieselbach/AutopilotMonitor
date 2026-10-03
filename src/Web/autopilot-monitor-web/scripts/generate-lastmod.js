@@ -18,7 +18,7 @@ const OUTPUT_FILE = path.join(WEB_ROOT, "utils/page-lastmod.generated.ts");
 // fails the build for any URL missing here. Documentation and the changelog
 // live on docs.autopilotmonitor.com (GitBook) and are not part of this site.
 const PAGE_MAP = {
-  "/": ["app/page.tsx"],
+  "/": ["app/page.tsx", "components/landing/LandingPage.tsx"],
   "/about": ["app/about/page.tsx", "app/about/faq.ts"],
   "/ai": ["app/ai/page.tsx", "components/ai/questions.ts"],
   "/get-started": ["app/get-started/page.tsx"],

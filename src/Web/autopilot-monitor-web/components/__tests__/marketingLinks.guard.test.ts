@@ -9,7 +9,7 @@ vi.mock("@/contexts/AuthContext", () => ({
 // AuthGate only redirects signed-in visitors (it needs the app router) and renders no links.
 vi.mock("@/components/landing/AuthGate", () => ({ AuthGate: () => null }));
 
-import LandingPage from "@/app/page";
+import { LandingPage } from "@/components/landing/LandingPage";
 import GetStartedPage from "@/app/get-started/page";
 import AiPage from "@/app/ai/page";
 import AboutPage from "@/app/about/page";
@@ -25,7 +25,8 @@ import TermsPage from "@/app/terms/page";
  */
 
 const PAGES: Record<string, ComponentType> = {
-  landing: LandingPage,
+  // app/page.tsx only awaits the build-time stats and renders this body; the sync renderer cannot await.
+  landing: () => createElement(LandingPage, { statsSnapshot: null }),
   "get-started": GetStartedPage,
   ai: AiPage,
   about: AboutPage,
