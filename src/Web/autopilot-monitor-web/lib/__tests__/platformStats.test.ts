@@ -8,10 +8,10 @@ import {
 
 const CONTAINER = "https://stats.example.test/publicstats";
 const MANIFEST_URL = `${CONTAINER}/platform-stats.json`;
-const PAYLOAD_URL = `${CONTAINER}/platform-stats.2026-10-02.json`;
+const PAYLOAD_URL = `${CONTAINER}/platform-stats.2026-10-02T140005Z.json`;
 
 /** What the backend publishes (MaintenanceService.TryPublishPlatformStatsJsonAsync). */
-const MANIFEST = { latest: "platform-stats.2026-10-02.json", generatedAtUtc: "2026-10-02T14:00:05.1234567Z" };
+const MANIFEST = { latest: "platform-stats.2026-10-02T140005Z.json", generatedAtUtc: "2026-10-02T14:00:05.1234567Z" };
 const PAYLOAD = {
   totalEnrollments: 12481,
   totalUsers: 310,
@@ -91,13 +91,13 @@ describe("toStatItems", () => {
 });
 
 describe("fetchLivePlatformStats", () => {
-  it("reads the manifest, then the file it names, revalidating both with the blob", async () => {
+  it("revalidates the manifest and takes the immutable file it names from the browser cache", async () => {
     const fetchMock = serve(BOTH_FILES);
 
     expect(await fetchLivePlatformStats(MANIFEST_URL)).toEqual(PAYLOAD);
     expect(fetchMock.mock.calls).toEqual([
       [MANIFEST_URL, { cache: "no-cache" }],
-      [PAYLOAD_URL, { cache: "no-cache" }],
+      [PAYLOAD_URL, { cache: "default" }],
     ]);
   });
 
@@ -106,7 +106,7 @@ describe("fetchLivePlatformStats", () => {
     Object.defineProperty(redirected, "url", { value: "https://stats.example.test/v2/platform-stats.json" });
     const fetchMock = serve({
       [MANIFEST_URL]: () => redirected,
-      "https://stats.example.test/v2/platform-stats.2026-10-02.json": () => json(PAYLOAD),
+      "https://stats.example.test/v2/platform-stats.2026-10-02T140005Z.json": () => json(PAYLOAD),
     });
 
     expect(await fetchLivePlatformStats(MANIFEST_URL)).toEqual(PAYLOAD);
@@ -161,7 +161,7 @@ describe("loadPlatformStatsSnapshot", () => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
     expect(inits[0]?.signal).toBe(inits[1]?.signal);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining(PAYLOAD.lastUpdated));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`from ${MANIFEST.latest} (as of ${PAYLOAD.lastUpdated})`));
   });
 
   it("fails soft with the reason in the build log when the blob does not answer", async () => {

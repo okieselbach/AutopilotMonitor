@@ -95,9 +95,23 @@ export function toStatItems(payload: PlatformStatsPayload): StatItem[] {
   });
 }
 
-/** Manifest, then the file it names. Throws with the reason; the callers decide what to report. */
-async function readPlatformStats(manifestUrl: string, init: RequestInit): Promise<PlatformStatsPayload> {
-  const manifestResponse = await fetch(manifestUrl, init);
+/** One read: the numbers and the versioned file they came from (named in the build log). */
+interface PlatformStatsRead {
+  payload: PlatformStatsPayload;
+  file: string;
+}
+
+/**
+ * Manifest, then the file it names. Throws with the reason; the callers decide what to report.
+ * Each hop takes its own request options: the manifest changes with every publish, a versioned
+ * file never does.
+ */
+async function readPlatformStats(
+  manifestUrl: string,
+  manifestInit: RequestInit,
+  payloadInit: RequestInit = manifestInit,
+): Promise<PlatformStatsRead> {
+  const manifestResponse = await fetch(manifestUrl, manifestInit);
   if (!manifestResponse.ok) throw new Error(`${manifestUrl} answered HTTP ${manifestResponse.status}`);
   const manifest = (await manifestResponse.json()) as Partial<PlatformStatsManifest> | null;
   if (typeof manifest?.latest !== "string" || !manifest.latest) {
@@ -111,23 +125,23 @@ async function readPlatformStats(manifestUrl: string, init: RequestInit): Promis
     throw new Error(`${manifestUrl} names a file on another origin`);
   }
 
-  const payloadResponse = await fetch(payloadUrl.toString(), init);
+  const payloadResponse = await fetch(payloadUrl.toString(), payloadInit);
   if (!payloadResponse.ok) throw new Error(`${payloadUrl} answered HTTP ${payloadResponse.status}`);
   const payload: unknown = await payloadResponse.json();
   if (typeof payload !== "object" || payload === null) throw new Error(`${payloadUrl} holds no stats object`);
-  return payload as PlatformStatsPayload;
+  return { payload: payload as PlatformStatsPayload, file: manifest.latest };
 }
 
 /**
- * The browser's read. `no-cache` revalidates both files with the blob: the versioned file is
- * named per day but rewritten every 2 hours under `Cache-Control: immutable`, so a copy cached
- * earlier that day would replace the newer baked numbers with older ones.
+ * The browser's read. The manifest is revalidated on every load; the versioned file it names
+ * comes from the browser cache once fetched: the backend writes a new name per publish and serves
+ * it immutable (MaintenanceService.PlatformStatsVersionedFileName).
  */
 export async function fetchLivePlatformStats(
   manifestUrl: string = PLATFORM_STATS_MANIFEST_URL,
 ): Promise<PlatformStatsPayload | null> {
   try {
-    return await readPlatformStats(manifestUrl, { cache: "no-cache" });
+    return (await readPlatformStats(manifestUrl, { cache: "no-cache" }, { cache: "default" })).payload;
   } catch {
     // The band is decorative: a failed read only means no live numbers.
     return null;
@@ -147,14 +161,14 @@ export async function loadPlatformStatsSnapshot(
 ): Promise<PlatformStatsSnapshot | null> {
   if (!/^https?:\/\//i.test(manifestUrl)) return null;
   try {
-    const payload = await readPlatformStats(manifestUrl, {
+    const { payload, file } = await readPlatformStats(manifestUrl, {
       cache: "no-store",
       signal: AbortSignal.timeout(BUILD_FETCH_TIMEOUT_MS),
     });
     const items = toStatItems(payload);
-    if (items.length === 0) throw new Error("the stats file holds no positive figure");
+    if (items.length === 0) throw new Error(`${file} holds no positive figure`);
     const asOf = typeof payload.lastUpdated === "string" ? payload.lastUpdated : null;
-    console.log(`Platform stats baked into the landing page (as of ${asOf ?? "unknown"}).`);
+    console.log(`Platform stats baked into the landing page from ${file} (as of ${asOf ?? "unknown"}).`);
     return { items, asOf };
   } catch (err) {
     // Node's fetch reports every network failure as "fetch failed" and keeps the reason in `cause`.
