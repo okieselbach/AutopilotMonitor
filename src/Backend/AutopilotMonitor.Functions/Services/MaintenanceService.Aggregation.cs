@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -795,7 +796,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var containerClient = new BlobContainerClient(new Uri(containerSasUrl));
                 var generatedAtUtc = DateTime.UtcNow;
-                var versionedFileName = $"platform-stats.{generatedAtUtc:yyyy-MM-dd}.json";
+                var versionedFileName = PlatformStatsVersionedFileName(generatedAtUtc);
 
                 var versionedPayload = new
                 {
@@ -831,19 +832,34 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Name of the versioned stats file of one publish. The file is served immutable for a year
+        /// (<see cref="PlatformStatsVersionedCacheControl"/>), so a name must never be written twice:
+        /// maintenance publishes every 2 hours, and the per-day name of the once-a-night schedule was
+        /// rewritten up to 12 times a day under that header — caches kept the first copy of the day.
+        /// Browsers revalidate only the manifest, which names the current file.
+        /// </summary>
+        internal static string PlatformStatsVersionedFileName(DateTime generatedAtUtc) =>
+            $"platform-stats.{generatedAtUtc.ToString("yyyy-MM-dd'T'HHmmss'Z'", CultureInfo.InvariantCulture)}.json";
+
         private async Task UploadJsonBlobAsync(BlobContainerClient containerClient, string blobName, object payload, string cacheControl)
         {
             var blobClient = containerClient.GetBlobClient(blobName);
             var json = JsonConvert.SerializeObject(payload);
             await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
-            await blobClient.UploadAsync(stream, overwrite: true);
-            await blobClient.SetHttpHeadersAsync(new BlobHttpHeaders
+            // Headers and tier travel with the upload, which still overwrites (the manifest relies on
+            // it). Set in follow-up calls, the blob was briefly served without Cache-Control and
+            // content type, and stayed that way when a follow-up call failed.
+            await blobClient.UploadAsync(stream, new BlobUploadOptions
             {
-                ContentType = "application/json; charset=utf-8",
-                CacheControl = cacheControl
+                HttpHeaders = new BlobHttpHeaders
+                {
+                    ContentType = "application/json; charset=utf-8",
+                    CacheControl = cacheControl
+                },
+                AccessTier = AccessTier.Hot
             });
-            await blobClient.SetAccessTierAsync(AccessTier.Hot);
         }
 
         /// <summary>

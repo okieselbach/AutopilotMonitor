@@ -60,6 +60,7 @@ namespace AutopilotMonitor.Functions.Services
 
         private const string PlatformStatsAliasFileName = "platform-stats.json";
         private const string PlatformStatsAliasCacheControl = "public, max-age=300, stale-while-revalidate=86400";
+        // Holds only because every publish writes a new name (PlatformStatsVersionedFileName).
         private const string PlatformStatsVersionedCacheControl = "public, max-age=31536000, immutable";
 
         public MaintenanceService(
