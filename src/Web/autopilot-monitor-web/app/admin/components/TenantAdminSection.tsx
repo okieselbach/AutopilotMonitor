@@ -170,44 +170,37 @@ export function TenantAdminSection({
   };
 
   return (
-    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-      <div className="flex items-start space-x-3">
-        <svg className="w-5 h-5 text-purple-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-        <div className="flex-1 min-w-0 space-y-4">
-          <p className="font-semibold text-purple-900">
-            Members
-            {loadingAdmins && <span className="ml-2 text-sm font-normal text-purple-700">(Loading...)</span>}
-          </p>
+    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-4">
+      <h3 className="font-semibold text-purple-900">
+        Members
+        {loadingAdmins && <span className="ml-2 text-sm font-normal text-purple-700">(Loading...)</span>}
+      </h3>
 
-          <AddMemberForm
-            value={newAdminEmail}
-            onValueChange={setNewAdminEmail}
-            role={newMemberRole}
-            onRoleChange={setNewMemberRole}
-            kind={newMemberKind}
-            onKindChange={setNewMemberKind}
-            adding={addingAdmin}
-            onAdd={handleAddTenantAdmin}
-            disabled={!canMutate}
-            stacked
-          />
+      <AddMemberForm
+        value={newAdminEmail}
+        onValueChange={setNewAdminEmail}
+        role={newMemberRole}
+        onRoleChange={setNewMemberRole}
+        kind={newMemberKind}
+        onKindChange={setNewMemberKind}
+        adding={addingAdmin}
+        onAdd={handleAddTenantAdmin}
+        disabled={!canMutate}
+        stacked
+      />
 
-          {/* key: a tenant switch starts on page 1 with no filter, search or open row. */}
-          <MemberList
-            key={tenantId}
-            members={tenantAdmins}
-            loading={loadingAdmins}
-            canMutate={canMutate}
-            removingUpn={removingAdmin}
-            updatingUpn={togglingAdmin}
-            onRemove={handleRemoveTenantAdmin}
-            onToggleEnabled={handleToggleTenantAdmin}
-            onUpdatePermissions={handleUpdatePermissions}
-          />
-        </div>
-      </div>
+      {/* key: a tenant switch starts on page 1 with no filter, search or open row. */}
+      <MemberList
+        key={tenantId}
+        members={tenantAdmins}
+        loading={loadingAdmins}
+        canMutate={canMutate}
+        removingUpn={removingAdmin}
+        updatingUpn={togglingAdmin}
+        onRemove={handleRemoveTenantAdmin}
+        onToggleEnabled={handleToggleTenantAdmin}
+        onUpdatePermissions={handleUpdatePermissions}
+      />
     </div>
   );
 }
