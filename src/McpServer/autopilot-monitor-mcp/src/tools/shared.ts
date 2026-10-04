@@ -75,6 +75,8 @@ export function leanFieldSelection(
 export const SUMMARY_EVENT_FIELDS =
   'eventType,severity,source,phase,timestamp,message,sequence,' +
   'data.scriptType,data.script_type,data.scriptPart,data.script_part,data.result,' +
+  // Platform-run corrections from IME's saved result (foreignSuccessRunIds below).
+  'data.runId,data.outcome,' +
   'data.rejectedSourceTimestamp,data.rejected_source_timestamp,' +
   'data.errorCode,data.exitCode,data.hresult,data.hresultFromWin32,data.hresultSymbol,' +
   'data.errorCodeInfo,data.exitCodeInfo,data.hresultInfo,data.hresultFromWin32Info,' +
@@ -123,6 +125,38 @@ export function isBenignHealthDetectionReport(
   // Explicit IME failure verdict is authoritative — keep it as an error.
   if (String(data.result ?? '').toLowerCase() === 'failed') return false;
   return true;
+}
+
+/**
+ * Run ids of platform runs whose `script_failed` came from another script's end block while IME
+ * itself reported Success: `script_output_reconciliation` with outcome "foreign" and result Success
+ * (D-316 — the agent had attributed a foreign executor's exit code and output; IME's saved result
+ * proved it). The stored `script_failed` stays as written; read sides treat it like the benign
+ * detection reports above: no error count, info-level rank, no exit-code catalog text.
+ */
+export function foreignSuccessRunIds(
+  events: ReadonlyArray<{ eventType?: string | null; data?: Record<string, unknown> }>,
+): Set<string> {
+  const runs = new Set<string>();
+  for (const e of events) {
+    if (e.eventType !== 'script_output_reconciliation' || !e.data) continue;
+    if (String(e.data.outcome ?? '') !== 'foreign') continue;
+    if (String(e.data.result ?? '').toLowerCase() !== 'success') continue;
+    const runId = e.data.runId;
+    if (typeof runId === 'string' && runId.length > 0) runs.add(runId);
+  }
+  return runs;
+}
+
+/** True for a `script_failed` whose run `foreignSuccessRunIds` names. */
+export function isCorrectedForeignFailure(
+  eventType: string | undefined,
+  data: Record<string, unknown> | undefined,
+  foreignRuns: ReadonlySet<string>,
+): boolean {
+  if (eventType !== 'script_failed' || !data || foreignRuns.size === 0) return false;
+  const runId = data.runId;
+  return typeof runId === 'string' && foreignRuns.has(runId);
 }
 
 /**

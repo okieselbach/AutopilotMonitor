@@ -1201,3 +1201,81 @@ describe("isOnOffsetGrid", () => {
     expect(isOnOffsetGrid(0)).toBe(false);
   });
 });
+
+describe("reduceScriptEvents — correction from IME's saved result (D-316)", () => {
+  const POLICY = "d94468af-6ebe-4e94-9901-2a62d33ea6c1";
+  const OWN = "=== Autopilot Monitor Bootstrap Started =====\nBootstrap script version: v2.5\nInstaller finished (exit code 0).";
+  const FOREIGN = "VERBOSE: === Sample Suite Detection Started ===\nWARNING: === DETECTION FAILED ===";
+  const correction = (data: Record<string, unknown>, at = 60): ScriptInputEvent => ({
+    timestamp: ts(at),
+    eventType: "script_output_reconciliation",
+    data: { policyId: POLICY, scriptType: "platform", ...data },
+  });
+
+  it("a foreign end block is replaced: the script's own output, no exit code, Success", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ eventType: "script_failed", data: { policyId: POLICY, scriptType: "platform", runId: "r1", result: "Success", exitCode: "1", stdout: FOREIGN } }),
+      correction({ runId: "r1", outcome: "foreign", result: "Success", stdout: OWN, stderr: "", previousExitCode: "1" }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Success");
+    expect(items[0].exitCode).toBeUndefined();
+    expect(items[0].stdout).toBe(OWN);
+    expect(items[0].stdout).not.toContain("Detection");
+    expect(items[0].outputCorrection).toBe("foreign");
+    expect(items[0].bootstrapVersion).toBe("2.5");
+  });
+
+  it("an incomplete output is completed and the exit code stands", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ data: { policyId: POLICY, scriptType: "platform", runId: "r2", result: "Success", exitCode: "0" } }),
+      correction({ runId: "r2", outcome: "repaired", result: "Success", stdout: OWN, stderr: "" }),
+    ]);
+    expect(items[0].exitCode).toBe(0);
+    expect(items[0].stdout).toBe(OWN);
+    expect(items[0].outputCorrection).toBe("repaired");
+  });
+
+  it("a stdout split into stderr is mended: the empty stderr clears the failure", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ eventType: "script_failed", data: { policyId: POLICY, scriptType: "platform", runId: "r3", result: "Success", exitCode: "0", stdout: "Copying files", stderr: "0 errors\nDone, error =" } }),
+      correction({ runId: "r3", outcome: "repaired", result: "Success", stdout: "Copying files, error = 0 errors\nDone", stderr: "" }),
+    ]);
+    expect(items[0].state).toBe("Success");
+    expect(items[0].stderr).toBeUndefined();
+    expect(items[0].stdout).toBe("Copying files, error = 0 errors\nDone");
+  });
+
+  it("a correction only applies to the run it names", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ eventType: "script_failed", data: { policyId: POLICY, scriptType: "platform", runId: "r4", result: "Success", exitCode: "1", stdout: FOREIGN } }),
+      correction({ runId: "another-run", outcome: "foreign", result: "Success", stdout: OWN, stderr: "" }),
+    ]);
+    expect(items[0].state).toBe("Failed");
+    expect(items[0].exitCode).toBe(1);
+    expect(items[0].outputCorrection).toBeUndefined();
+  });
+
+  it("a correction without a stdout key keeps the emitted stdout", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ eventType: "script_failed", data: { policyId: POLICY, scriptType: "platform", runId: "r5", result: "Failed", exitCode: "1", stdout: "partial" } }),
+      correction({ runId: "r5", outcome: "repaired", result: "Failed", stderr: "Access denied" }),
+    ]);
+    expect(items[0].stdout).toBe("partial");
+    expect(items[0].stderr).toBe("Access denied");
+    expect(items[0].state).toBe("Failed");
+  });
+
+  it("two runs of the same script never surface the corrected run's foreign output", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ ts: 0, data: { policyId: POLICY, scriptType: "platform", runId: "old", result: "Success", exitCode: "0", runContext: "System", stdout: OWN } }),
+      finalEvent({ ts: 30, eventType: "script_failed", data: { policyId: POLICY, scriptType: "platform", runId: "r6", result: "Success", exitCode: "1", runContext: "System", stdout: FOREIGN } }),
+      correction({ runId: "r6", outcome: "foreign", result: "Success", stdout: OWN, stderr: "" }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].stdout).toBe(OWN);
+    expect(items[0].stdout).not.toContain("Detection");
+    expect(items[0].state).toBe("Success");
+    expect(items[0].exitCode === 1).toBe(false);
+  });
+});

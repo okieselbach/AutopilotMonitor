@@ -36,7 +36,18 @@ interface ScriptEventData {
   sourceOffsetOrigin?: string;
   /** "true" when the line's own timestamp was rejected and the event was stamped from the clock. */
   derivedTimestamp?: string | boolean;
+  /** Identity of one platform-script run; a script_output_reconciliation names the run it corrects (agents from 2026-10 on). */
+  runId?: string;
+  /** On script_output_reconciliation: "foreign" (the run had another script's end block) or "repaired". */
+  outcome?: string;
 }
+
+/**
+ * A platform run corrected after the fact from IME's saved result (D-316). Its `runId` names the
+ * script_completed/script_failed it corrects; a present `stdout`/`stderr` key replaces the emitted
+ * value (empty clears it), `outcome` "foreign" makes the emitted exit code unverified.
+ */
+export const SCRIPT_OUTPUT_RECONCILIATION = "script_output_reconciliation";
 
 export interface ScriptItem {
   policyId: string;
@@ -80,6 +91,12 @@ export interface ScriptItem {
   state: "Running" | "Success" | "Failed";
   timestamp: string;
   bootstrapVersion?: string | null;
+  /**
+   * Set when IME's saved result corrected the run (script_output_reconciliation): "foreign" — the
+   * log had given the run another script's end block, so the output shown is the script's own from
+   * IME and the exit code is unknown; "repaired" — the log had delivered the output incomplete.
+   */
+  outputCorrection?: "foreign" | "repaired";
   /**
    * Set by applyObservationEnd, never by the fold: the script was still running when the
    * session's observation ended. Terminal, neither a failure nor a success — the outcome was
@@ -198,6 +215,9 @@ export function partitionHistoricScriptEvents(events: ScriptInputEvent[]): Histo
 function dataCompleteness(item: ScriptItem): number {
   let score = 0;
   if (item.exitCode != null) score += 4; // exit code is the most important signal
+  // A run corrected from IME's saved result lost a foreign exit code, not data: it must not lose
+  // the merge against a sibling run for that.
+  if (item.outputCorrection === "foreign") score += 4;
   if (item.result) score += 2;
   if (item.complianceResult) score += 2;
   if (item.remediationStatus != null) score += 1;
@@ -222,6 +242,18 @@ export function toNumber(v: unknown): number | undefined {
     return Number.isFinite(n) ? n : undefined;
   }
   return undefined;
+}
+
+/**
+ * The value a correction publishes for `key`, or the emitted one: a present key replaces it (an
+ * empty string clears it), an absent key keeps it.
+ */
+function correctedText(correction: ScriptEventData | undefined, key: "stdout" | "stderr", emitted: unknown): string | undefined {
+  if (correction && typeof correction[key] === "string") {
+    const value = correction[key] as string;
+    return value.length > 0 ? value : undefined;
+  }
+  return typeof emitted === "string" ? emitted : undefined;
 }
 
 /** Map RemediationStatus enum to the human-readable label shown in the detail panel. */
@@ -378,7 +410,14 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
   // script_started events per (policyId, scriptType) in timestamp order — the start line a
   // final is paired with when its run duration is judged (see judgeDurationPair).
   const startsByPolicy = new Map<string, ScriptInputEvent[]>();
+  // IME's saved result corrects a platform run after the fact; the correction names the run.
+  const correctionsByRunId = new Map<string, ScriptEventData>();
   for (const evt of sorted) {
+    if (evt.eventType === SCRIPT_OUTPUT_RECONCILIATION) {
+      const c = evt.data as ScriptEventData | undefined;
+      if (c && typeof c.runId === "string" && c.runId.length > 0) correctionsByRunId.set(c.runId, c);
+      continue;
+    }
     if (evt.eventType !== "script_started") continue;
     const d = evt.data as ScriptEventData | undefined;
     const startPolicyId = d?.policyId ?? d?.policy_id;
@@ -402,7 +441,10 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     const key = `${dedupeId}-${scriptType}-${scriptPart ?? ""}`;
     if (policyId) policyIdsWithFinal.add(`${policyId}-${scriptType}`);
 
-    const exitCode = toNumber(d.exitCode ?? d.exit_code);
+    const correction = typeof d.runId === "string" ? correctionsByRunId.get(d.runId) : undefined;
+    const outputCorrection = correction ? (correction.outcome === "foreign" ? "foreign" : "repaired") : undefined;
+    // A foreign end block's exit code belongs to another script: unknown, not the emitted value.
+    const exitCode = outputCorrection === "foreign" ? undefined : toNumber(d.exitCode ?? d.exit_code);
 
     // Duration normalization — the wire field durationSeconds carries two different
     // semantics, named by durationBasis (see the ScriptItem field docs):
@@ -435,8 +477,9 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     const remediationStatus = toNumber(d.remediationStatus ?? d.remediation_status);
     const targetType = toNumber(d.targetType ?? d.target_type);
     const errorCode = toNumber(d.errorCode ?? d.error_code);
-    const stdout = typeof d.stdout === "string" ? d.stdout : undefined;
-    const stderr = typeof d.stderr === "string" ? d.stderr : undefined;
+    const stdout = correctedText(correction, "stdout", d.stdout);
+    const stderr = correctedText(correction, "stderr", d.stderr);
+    const result = (typeof correction?.result === "string" ? correction.result : undefined) ?? d.result;
     const hasStderr = !!stderr && stderr.trim().length > 0;
 
     // State derivation — rules in priority order (mirrors the agent's EmitScriptCompleted):
@@ -450,8 +493,10 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     //   3. Defensive: explicit script_failed eventType OR result === "Failed" → Failed.
     const isHealthComplianceReport = scriptType === "remediation"
       && (scriptPart === "detection" || scriptPart === "post-detection");
-    const isFailureSignal = evt.eventType === "script_failed"
-      || d.result === "Failed"
+    // A corrected run is judged on its corrected data: the agent chose script_failed from the
+    // emitted values the correction replaced.
+    const isFailureSignal = (!correction && evt.eventType === "script_failed")
+      || result === "Failed"
       || (!isHealthComplianceReport && (hasStderr || (exitCode != null && exitCode !== 0)));
 
     const candidate: ScriptItem = {
@@ -460,7 +505,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       scriptPart,
       runContext: d.runContext ?? d.run_context,
       exitCode,
-      result: d.result,
+      result,
       complianceResult: d.complianceResult ?? d.compliance_result,
       remediationStatus,
       targetType,
@@ -476,6 +521,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       timestamp: evt.timestamp,
       bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(stdout) : null,
       isIncomplete: false,
+      outputCorrection,
     };
 
     // Keep the most-complete entry, but merge the duration fields across both: the

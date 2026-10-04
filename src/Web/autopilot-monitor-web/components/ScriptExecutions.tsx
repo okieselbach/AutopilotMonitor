@@ -30,6 +30,14 @@ import PhaseDivider from "@/components/PhaseDivider";
 // span is hours of offset error rather than run time (a 10 s script once read "1h 00m").
 const DURATION_SUPPRESSED_TITLE = "Run time not measurable: the start and end log lines were resolved on different timezone assumptions, so their span would be offset error, not run time";
 
+// IME's saved result corrected the run (script_output_reconciliation): the log had attributed
+// another script's end block to it, so its exit code is unknown and the output shown is IME's.
+const EXIT_UNVERIFIED_TITLE = "Exit code unknown: the IME log had attributed another script's output and exit code to this run. The output shown is this script's own, as IME saved it.";
+const OUTPUT_CORRECTED_TITLE: Record<"foreign" | "repaired", string> = {
+  foreign: "The IME log had attributed another script's output to this run. This is the script's own output, as IME saved it after reporting the result.",
+  repaired: "The IME log delivered this output incomplete. This is the full output, as IME saved it after reporting the result.",
+};
+
 interface ScriptExecutionsProps {
   events: ScriptInputEvent[];
   showScriptOutput?: boolean;
@@ -528,6 +536,9 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
               exit {item.exitCode}
             </span>
           )}
+          {item.exitCode == null && item.outputCorrection === "foreign" && (
+            <span className="font-mono text-gray-400" title={EXIT_UNVERIFIED_TITLE}>exit n/a</span>
+          )}
           {durationLabel && (
             <span
               className={`font-mono ${isSlowDuration ? "text-amber-600 font-medium" : "text-gray-500"}`}
@@ -564,6 +575,9 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
             {!nested && item.runContext && <span><span className="font-medium text-gray-700">Context:</span> {item.runContext}</span>}
             {!nested && item.targetType != null && <span><span className="font-medium text-gray-700">Target:</span> {item.targetType === 2 ? "Device" : "User"}</span>}
             {item.exitCode != null && <span><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono">{item.exitCode}</span></span>}
+            {item.exitCode == null && item.outputCorrection === "foreign" && (
+              <span title={EXIT_UNVERIFIED_TITLE}><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono text-gray-400">n/a</span></span>
+            )}
             {detailDurationLabel && <span><span className="font-medium text-gray-700">Duration:</span> <span className={`font-mono ${isSlowDuration ? "text-amber-600" : ""}`}>{detailDurationLabel}</span></span>}
             {!detailDurationLabel && item.durationSuppressedReason && (
               <span title={DURATION_SUPPRESSED_TITLE}><span className="font-medium text-gray-700">Duration:</span> <span className="font-mono text-gray-400">n/a</span></span>
@@ -601,7 +615,12 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
 
           {hasStdout && (
             <div>
-              <div className="text-xs font-medium text-gray-500 mb-1">stdout</div>
+              <div className="text-xs font-medium text-gray-500 mb-1">
+                stdout
+                {item.outputCorrection && (
+                  <span className="font-normal text-gray-400" title={OUTPUT_CORRECTED_TITLE[item.outputCorrection]}>{" · from IME's saved result"}</span>
+                )}
+              </div>
               <div className="p-2 bg-gray-900 rounded text-xs text-gray-100 font-mono overflow-x-auto max-h-48 overflow-y-auto">
                 <pre className="whitespace-pre-wrap break-words">{item.stdout}</pre>
               </div>
@@ -614,7 +633,12 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
 
           {hasStderr && (
             <div>
-              <div className="text-xs font-medium text-red-500 mb-1">stderr</div>
+              <div className="text-xs font-medium text-red-500 mb-1">
+                stderr
+                {item.outputCorrection && (
+                  <span className="font-normal text-gray-400" title={OUTPUT_CORRECTED_TITLE[item.outputCorrection]}>{" · from IME's saved result"}</span>
+                )}
+              </div>
               <div className="p-2 bg-gray-900 rounded text-xs text-red-300 font-mono overflow-x-auto max-h-48 overflow-y-auto">
                 <pre className="whitespace-pre-wrap break-words">{item.stderr}</pre>
               </div>

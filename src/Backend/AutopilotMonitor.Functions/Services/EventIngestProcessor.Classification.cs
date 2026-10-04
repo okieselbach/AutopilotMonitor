@@ -480,6 +480,9 @@ namespace AutopilotMonitor.Functions.Services
             // observation too — a device that slept through its stall must stay Stalled.
             "system_clock_changed" => true,
             "system_sleep_episode" => true,
+            // A platform run corrected after the fact from IME's saved result (D-316): registry
+            // observation of an earlier run, not progress — a stalled session stays Stalled.
+            Constants.EventTypes.ScriptOutputReconciliation => true,
             _ => false
         };
 

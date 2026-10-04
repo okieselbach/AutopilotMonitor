@@ -234,6 +234,8 @@ function SessionDetailContent() {
       e => e.eventType === "script_started"
         || e.eventType === "script_completed"
         || e.eventType === "script_failed"
+        // Corrections of a platform run from IME's saved result (D-316) — applied by the reducer.
+        || e.eventType === "script_output_reconciliation"
     ),
     [events]
   );

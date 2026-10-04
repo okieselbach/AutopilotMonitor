@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useDeferredValue } from "react";
+import { createContext, useContext, useState, useMemo, useDeferredValue } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
 import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../utils/eventSearchQuery";
@@ -8,6 +8,11 @@ import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeI
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
+import { SCRIPT_OUTPUT_RECONCILIATION } from "@/lib/scriptExecutions";
+
+// runId → outcome of every platform run that IME's saved result corrected later (D-316): the
+// run's own row says so, so its emitted output is never read as the script's.
+const CorrectedRunsContext = createContext<ReadonlyMap<string, "foreign" | "repaired">>(new Map());
 
 const SEARCH_SYNTAX_HINT =
   "Searches event type, message, source and the details JSON (e.g. gather output). " +
@@ -104,10 +109,20 @@ export default function EventTimeline({
     [events],
   );
 
+  const correctedRuns = useMemo(() => {
+    const runs = new Map<string, "foreign" | "repaired">();
+    for (const e of events) {
+      if (e.eventType !== SCRIPT_OUTPUT_RECONCILIATION) continue;
+      const runId = e.data?.runId;
+      if (typeof runId === "string" && runId.length > 0) runs.set(runId, e.data?.outcome === "foreign" ? "foreign" : "repaired");
+    }
+    return runs;
+  }, [events]);
+
   const filterPhaseEvents = (phaseEvents: EnrollmentEvent[]) =>
     matchesSearch ? phaseEvents.filter(matchesSearch) : phaseEvents;
 
-  return (
+  const timeline = (
     <div className="space-y-6">
       {/* Search + Severity filters + Expand/Collapse — shared controls above the timeline(s) */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -356,6 +371,8 @@ export default function EventTimeline({
       )}
     </div>
   );
+
+  return <CorrectedRunsContext.Provider value={correctedRuns}>{timeline}</CorrectedRunsContext.Provider>;
 }
 
 function PhaseSection({
@@ -515,7 +532,13 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
   // timeline still applies the same script-event styling/iconography.
   const isScriptEvent = event.eventType === "script_started"
     || event.eventType === "script_completed"
-    || event.eventType === "script_failed";
+    || event.eventType === "script_failed"
+    || event.eventType === SCRIPT_OUTPUT_RECONCILIATION;
+  const correctedRuns = useContext(CorrectedRunsContext);
+  const eventRunId = event.data?.runId;
+  const laterCorrection = event.eventType !== SCRIPT_OUTPUT_RECONCILIATION && typeof eventRunId === "string"
+    ? correctedRuns.get(eventRunId)
+    : undefined;
   const detailData = useMemo(() => {
     if (!rawDetailData || !isScriptEvent || showScriptOutput !== false) return rawDetailData;
     const filtered = { ...rawDetailData };
@@ -611,6 +634,13 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
             <span className="text-sm font-medium text-gray-900">{event.eventType}</span>
           </div>
           <p className="mt-1 text-sm text-gray-600" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</p>
+          {laterCorrection && (
+            <p className="mt-0.5 text-xs text-gray-500">
+              {laterCorrection === "foreign"
+                ? "Corrected later from IME's saved result: the output and exit code on this row belonged to another script."
+                : "Output completed later from IME's saved result."}
+            </p>
+          )}
           {/* Exit code / HRESULT badge for app install events */}
           {(event.eventType === "app_install_failed" || event.eventType === "app_install_completed") && (() => {
             const ec = (event.data?.exitCode ?? event.data?.exit_code) as string | number | undefined;

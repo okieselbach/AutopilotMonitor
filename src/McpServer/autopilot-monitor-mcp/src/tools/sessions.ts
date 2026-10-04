@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApiError, apiFetch, buildQuery, jsonBody, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, foreignSuccessRunIds, isCorrectedForeignFailure, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
 import { withEventTypeNote, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
@@ -534,6 +534,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // Observation coverage: what the agent could and could not see, folded from the
         // health/lifecycle events that the triage timeline below ranks low or drops.
         const coverage = buildSessionCoverage(s, allEvents);
+        // Platform runs IME's saved result proved to carry another script's exit code (D-316).
+        const foreignRuns = foreignSuccessRunIds(allEvents);
 
         let errorCount = 0;
         let warningCount = 0;
@@ -545,7 +547,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           const sev = String(e.severity ?? '');
           // A compliant health-script detection mis-stamped script_failed/Error is benign —
           // exclude it so a green session's errorCount isn't inflated by routine compliance reports.
-          const benign = isBenignHealthDetectionReport(String(e.eventType ?? ''), e.data);
+          const benign = isBenignHealthDetectionReport(String(e.eventType ?? ''), e.data)
+            || isCorrectedForeignFailure(String(e.eventType ?? ''), e.data, foreignRuns);
           if (!benign && (sev === 'Error' || sev === 'Critical')) errorCount++;
           if (sev === 'Warning') warningCount++;
           const et = String(e.eventType ?? '');
@@ -571,6 +574,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const relevanceScore = (e: Partial<EnrollmentEvent>): number => {
           // Benign compliant detection mis-stamped Error → rank as info-level, not top.
           if (isBenignHealthDetectionReport(String(e.eventType ?? ''), e.data)) return 10;
+          // A failure that was another script's exit code is not a failure of this one.
+          if (isCorrectedForeignFailure(String(e.eventType ?? ''), e.data, foreignRuns)) return 10;
           const sev = SEVERITY_RANK[String(e.severity ?? '')] ?? -1;
           if (sev >= 3) return 100;                        // Error/Critical
           if (PHASE_EVENT_TYPES.has(String(e.eventType ?? ''))) return 60;
@@ -597,7 +602,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           phase: phaseName(e.phase, s.enrollmentType),
           message: e.message,
           source: e.source,
-          ...keyEventErrorCode(e.data, e.source),
+          // The exit code on a corrected run was another script's: no catalog text for it.
+          ...(isCorrectedForeignFailure(String(e.eventType ?? ''), e.data, foreignRuns)
+            ? { correctedByImeSavedResult: true }
+            : keyEventErrorCode(e.data, e.source)),
         }));
 
         let analysis = null;
