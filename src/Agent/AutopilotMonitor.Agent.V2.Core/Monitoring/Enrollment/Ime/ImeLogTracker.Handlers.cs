@@ -271,14 +271,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
             else
             {
-                HandlePlatformScriptStarted(id, source);
+                HandlePlatformScriptStarted(id, source, ImeUserIdFrom(match.Value));
             }
+        }
+
+        /// <summary>
+        /// The IME user id on a platform-script line — <c>User Id = {id}</c> on the result line,
+        /// <c>…\Policies\Scripts\{id}_{policy}.ps1</c> on the start lines — or null. Read from the
+        /// matched text, not from a capture group, so it works with every pattern pack the agent may
+        /// be served.
+        /// </summary>
+        internal static string ImeUserIdFrom(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            const string resultTag = "User Id = ";
+            const string pathTag = @"\Policies\Scripts\";
+            var i = text.IndexOf(resultTag, StringComparison.OrdinalIgnoreCase);
+            if (i >= 0) return GuidAt(text, i + resultTag.Length);
+            i = text.IndexOf(pathTag, StringComparison.OrdinalIgnoreCase);
+            return i >= 0 ? GuidAt(text, i + pathTag.Length) : null;
+        }
+
+        private static string GuidAt(string text, int start)
+        {
+            if (start + 36 > text.Length) return null;
+            var candidate = text.Substring(start, 36);
+            return Guid.TryParse(candidate, out _) ? candidate.ToLowerInvariant() : null;
         }
 
         // Platform script: AgentExecutor.log entries create/enrich, IME log entries also create.
         // Internal so the stale-slot hardening is directly testable (the public path arrives via
         // a regex Match).
-        internal void HandlePlatformScriptStarted(string id, string source = null)
+        internal void HandlePlatformScriptStarted(string id, string source = null, string userId = null)
         {
             var currentStartTs = LastMatchedLogTimestamp ?? UtcNowProvider();
             var currentStartProvenance = CaptureLastMatchedProvenance();
@@ -327,6 +351,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     pendingSlot.StartedAtProvenance = currentStartProvenance;
                     _stateDirty = true;
                 }
+                if (pendingSlot.UserId == null && userId != null) pendingSlot.UserId = userId;
             }
             if (!_pendingPlatformScripts.ContainsKey(id))
             {
@@ -340,6 +365,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     PolicyId = id,
                     ScriptType = "platform",
+                    UserId = userId,
                     // Prefer the source CMTrace timestamp so a script that started before the
                     // agent launched (replayed log content) is dated to its real start, not now.
                     // Set only at slot creation: the start line fires twice (agentexecutor + ime
@@ -347,6 +373,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     StartedAtUtc = currentStartTs,
                     StartedAtProvenance = currentStartProvenance,
                 };
+                ScriptRuns.NoteStarted(userId, id, UtcNowProvider());
                 // Live "running" indicator — same signal health scripts emit. Gated on slot
                 // creation so the duplicate start line (agentexecutor + ime source) doesn't
                 // double-emit for the same execution.
@@ -513,7 +540,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (string.IsNullOrEmpty(id)) return;
 
-            CompletePlatformScriptFromImeResult(id, result, LastMatchedLogTimestamp, LastMatchedPatternId, CaptureLastMatchedProvenance());
+            CompletePlatformScriptFromImeResult(id, result, LastMatchedLogTimestamp, LastMatchedPatternId, CaptureLastMatchedProvenance(), ImeUserIdFrom(match.Value));
         }
 
         /// <summary>
@@ -527,7 +554,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// line reopened the slot, produced a fallback duplicate (session e7f3c910).
         /// <see cref="FlushPendingPlatformScriptResults"/> emits the held completion.
         /// </summary>
-        internal void CompletePlatformScriptFromImeResult(string policyId, string result, DateTime? resultLineTimestampUtc, string patternId, CmTraceLineProvenance resultProvenance)
+        internal void CompletePlatformScriptFromImeResult(string policyId, string result, DateTime? resultLineTimestampUtc, string patternId, CmTraceLineProvenance resultProvenance, string userId = null)
         {
             // Dedup: the deadline-based fallback (FlushPendingPlatformScriptResults) may already have
             // emitted this script from its AgentExecutor exit code because IME's authoritative
@@ -564,11 +591,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 script = new ScriptExecutionState
                 {
                     PolicyId = policyId,
-                    ScriptType = "platform"
+                    ScriptType = "platform",
+                    UserId = userId,
                 };
                 _pendingPlatformScripts[policyId] = script;
+                ScriptRuns.NoteStarted(userId, policyId, UtcNowProvider());
             }
 
+            if (script.UserId == null && userId != null) script.UserId = userId;
             script.Result = result;
             script.ResultSource = "ime_policy_result";
             script.ResultObservedAtUtc = resultLineTimestampUtc ?? UtcNowProvider();
@@ -597,7 +627,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void EmitPlatformScriptResult(ScriptExecutionState script, string note = null)
         {
             _logger.Info($"ImeLogTracker: platform script completed: {script.PolicyId}, result={script.Result}, exit={script.ExitCode}{(note != null ? $" ({note})" : string.Empty)}");
+            if (string.IsNullOrEmpty(script.RunId)) script.RunId = Guid.NewGuid().ToString("D");
             EmitScriptEvent(script);
+            ScriptRuns.NoteEmitted(script, UtcNowProvider());
             // The run's source stamp, capped at the clock: a result line cannot be read before it
             // was written, so a stamp ahead of the clock is a wrong zone assumption on that line
             // (a rewound result resolved in the reader's zone, session 4377911b: +1 h). Left
@@ -1169,11 +1201,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         internal static readonly TimeSpan HeldScriptStartGrace = TimeSpan.FromMinutes(30);
         internal static readonly TimeSpan HeldScriptStartShutdownGrace = TimeSpan.FromMinutes(5);
 
-        private static string TruncateOutput(string output)
+        internal static string TruncateOutput(string output)
         {
             if (string.IsNullOrEmpty(output) || output.Length <= MaxScriptOutputLength)
                 return output;
-            return output.Substring(0, MaxScriptOutputLength) + "...[truncated]";
+            return output.Substring(0, MaxScriptOutputLength) + OutputTruncationMarker;
         }
 
         // -----------------------------------------------------------------------

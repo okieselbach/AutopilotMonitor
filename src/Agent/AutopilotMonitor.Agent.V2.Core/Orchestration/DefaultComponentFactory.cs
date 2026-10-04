@@ -524,14 +524,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // EspTrackingWin32Apps, StatusServiceReports) via snapshot-and-diff. Emits
             // registry_app_state on real changes and app_state_reconciliation when the
             // registry outcome diverges from the IME-log-derived state (= built-in pattern-drift
-            // alarm). Always-on observability host; the tracker probe is read-only.
+            // alarm). Always-on observability host; the tracker probe is read-only. Under the same
+            // root IME saves each platform script's result after reporting the batch: the script
+            // observer checks the tracker's emitted runs against it (script_output_reconciliation).
             hosts.Add(new ImeRegistryAppStateHost(
                 sessionId: sessionId,
                 tenantId: tenantId,
                 logger: logger,
                 ingress: ingress,
                 clock: clock,
-                trackerStateProbe: () => imeLogHost.AllKnownPackageStates));
+                trackerStateProbe: () => imeLogHost.AllKnownPackageStates,
+                scriptRuns: imeLogHost.Tracker.ScriptRuns));
 
             // Deterministic update corroboration — compares the persisted OS build (CurrentBuild.UBR)
             // across agent restarts and emits os_build_changed when it differs (session 7443317c:

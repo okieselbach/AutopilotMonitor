@@ -900,6 +900,7 @@ export const SHARED_MANIFEST = {
     "remote_config_fetch_failed",
     "script_completed",
     "script_failed",
+    "script_output_reconciliation",
     "script_recurrence_summary",
     "script_started",
     "script_timeout_suspected",

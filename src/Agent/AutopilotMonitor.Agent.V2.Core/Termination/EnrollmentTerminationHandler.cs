@@ -599,6 +599,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     ["verifiedBytes"] = health.VerifiedBytes,
                     ["passMaxMs"] = health.PassMaxMs,
                     ["passGapMaxMs"] = health.PassGapMaxMs,
+                    ["platformOutputVerified"] = health.PlatformOutputVerified,
+                    ["platformOutputCorrected"] = health.PlatformOutputCorrected,
                     ["agentVersion"] = _agentVersion ?? string.Empty,
                 };
                 if (!string.IsNullOrEmpty(health.ImeAgentVersion))

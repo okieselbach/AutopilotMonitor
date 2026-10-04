@@ -543,6 +543,13 @@ namespace AutopilotMonitor.Shared
             // policies on its own schedule for as long as the device is up; the first run and
             // every run with a different result are still emitted in full.
             public const string ScriptRecurrenceSummary = "script_recurrence_summary";
+            // A platform script's emitted output disagreed with IME's own saved result
+            // (HKLM\...\IntuneManagementExtension\Policies\<user>\<policy>, written after IME reported the
+            // script batch): Data.outcome "foreign" (Warning, immediate upload — the run had been given
+            // another executor's end block; Data.stdout/stderr replace it, the exit code is unverified) or
+            // "repaired" (Info — the log had delivered the output incomplete). Data.runId names the corrected
+            // script_completed/script_failed. Observability only, never DecisionEngine input.
+            public const string ScriptOutputReconciliation = "script_output_reconciliation";
             // One-shot per agent run: the IME adapter detected replayed log content from a
             // previous enrollment (source lines > 24 h stale, e.g. IME logs surviving a
             // re-enrollment) and suppressed the historic script (script_started/completed/

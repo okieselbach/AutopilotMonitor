@@ -92,6 +92,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             SharedConstants.EventTypes.ImePatternHits,
             // Bookkeeping of runs that were deliberately not reported as activity.
             SharedConstants.EventTypes.ScriptRecurrenceSummary,
+            // A correction of an already reported script run from IME's saved result (D-316):
+            // registry observation after the fact, not progress.
+            SharedConstants.EventTypes.ScriptOutputReconciliation,
             // Same for the update watchers' tally of Store/Defender/other update events (D-310):
             // emitted on stop, never progress. Windows/.NET update steps stay activity.
             SharedConstants.EventTypes.WindowsUpdateActivitySummary,

@@ -16,6 +16,19 @@ public class ScriptExecutionState
     public string ScriptType { get; set; }
 
     /// <summary>
+    /// IME user id a platform script ran for (the all-zero GUID in device context), read from its
+    /// script path or its result line. Keys IME's saved result
+    /// (<c>Policies\&lt;UserId&gt;\&lt;PolicyId&gt;</c>) that the registry reconciliation compares against.
+    /// </summary>
+    public string UserId { get; set; }
+
+    /// <summary>
+    /// Identity of one emitted platform-script run, surfaced as <c>runId</c> on the event: what a
+    /// later <c>script_output_reconciliation</c> names when it corrects that run.
+    /// </summary>
+    public string RunId { get; set; }
+
+    /// <summary>
     /// UTC timestamp of the script's first observed start line, taken from the source CMTrace log
     /// timestamp (so it dates correctly even when the agent replays historic IME log content that
     /// predates its own launch). For platform scripts: set once at slot creation in

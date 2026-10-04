@@ -1263,6 +1263,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // logged its result line before the deadline). Lets the UI/MCP flag fallback-grounded
             // platform-script completions. Platform scripts only — null for health scripts.
             if (!string.IsNullOrEmpty(script.ResultSource)) data["resultSource"] = script.ResultSource!;
+            // The run a later script_output_reconciliation corrects names it by this id (platform only).
+            if (!string.IsNullOrEmpty(script.RunId)) data["runId"] = script.RunId!;
             if (!string.IsNullOrEmpty(script.ComplianceResult)) data["complianceResult"] = script.ComplianceResult!;
             if (script.RemediationStatus.HasValue) data["remediationStatus"] = script.RemediationStatus.Value.ToString(culture);
             if (script.TargetType.HasValue) data["targetType"] = script.TargetType.Value.ToString(culture);

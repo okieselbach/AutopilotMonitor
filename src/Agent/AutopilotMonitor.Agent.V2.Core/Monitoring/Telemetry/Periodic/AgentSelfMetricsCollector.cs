@@ -215,6 +215,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                         data["ime_verified_bytes"] = health.VerifiedBytes;
                         data["ime_pass_max_ms"] = health.PassMaxMs;
                         data["ime_pass_gap_max_ms"] = health.PassGapMaxMs;
+                        data["ime_platform_output_verified"] = health.PlatformOutputVerified;
+                        data["ime_platform_output_corrected"] = health.PlatformOutputCorrected;
                     }
                 }
                 catch (Exception ex)

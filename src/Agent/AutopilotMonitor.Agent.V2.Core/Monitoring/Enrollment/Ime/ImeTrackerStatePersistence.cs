@@ -185,6 +185,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // Poll-loop timing maxima (null-defaulting on older state files).
         public long PassMaxMs { get; set; }
         public long PassGapMaxMs { get; set; }
+        // Registry reconciliation of platform-script output (null-defaulting on older state files).
+        public long PlatformOutputVerified { get; set; }
+        public long PlatformOutputCorrected { get; set; }
     }
 
     public class PackageStateData

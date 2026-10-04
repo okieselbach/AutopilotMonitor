@@ -148,6 +148,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal(0, script.ExitCode);
             Assert.Equal(PlatformStdout.Replace("\r\n", "\n"), script.Stdout);
             Assert.DoesNotContain(h.Completed, s => (s.Stdout ?? string.Empty).Contains("Detection"));
+
+            // The run is known to the registry reconciliation under the user id of its own lines (D-316).
+            Assert.Equal(RaceUserId, script.UserId);
+            Assert.False(string.IsNullOrEmpty(script.RunId));
+            h.Tracker.ScriptRuns.NotePassCompleted(DateTime.MaxValue.AddDays(-1));
+            Assert.Equal(PlatformRunClaim.Claimed, h.Tracker.ScriptRuns.TryClaim(RaceUserId, RacePlatformId, h.Now, out var run));
+            Assert.Equal(script.RunId, run!.RunId);
         }
 
         /// <summary>

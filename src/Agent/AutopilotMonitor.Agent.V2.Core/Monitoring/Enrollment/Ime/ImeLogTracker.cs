@@ -182,6 +182,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly Dictionary<string, ScriptExecutionState> _pendingPlatformScripts =
             new Dictionary<string, ScriptExecutionState>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// The platform runs this tracker started and emitted, for the registry reconciliation that
+        /// checks them against IME's saved results (D-316). Shared with the registry host's thread.
+        /// </summary>
+        internal PlatformScriptRunRegister ScriptRuns { get; } = new PlatformScriptRunRegister();
+
         // Health-script (remediation) line-by-line accumulator — single slot because IME
         // executes health scripts SEQUENTIALLY within a session (verified across multiple
         // diagnostic captures: ProcessScript → context → exit → stdout → stderr → compliance,
@@ -240,7 +246,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // the 32K-char Table Storage property limit that bounds the event downstream. Growth
         // driver is the number of log lines the bootstrap chain writes, so re-measure before
         // adding a chatty step rather than raising this again.
-        private const int MaxScriptOutputLength = 8192;
+        internal const int MaxScriptOutputLength = 8192;
+        internal const string OutputTruncationMarker = "...[truncated]";
         private const int MaxMultiLineBufferLines = 100;
         // Size cap for ONE entry — a single physical line (enforced by BoundedLineReader before
         // the line is materialized) and an assembled multiline entry alike. Any process able to
@@ -389,6 +396,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     VerifiedBytes = _verifiedBytes,
                     PassMaxMs = _passMaxMs,
                     PassGapMaxMs = _passGapMaxMs,
+                    PlatformOutputVerified = ScriptRuns.Verified,
+                    PlatformOutputCorrected = ScriptRuns.Corrected,
                     PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase),
                 };
             }
@@ -1034,6 +1043,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         internal async Task RunPollPassAsync(CancellationToken token)
         {
             var startMs = MonotonicMillisProvider();
+            var passStartedUtc = UtcNowProvider();
             if (_lastPassEndMs >= 0 && startMs - _lastPassEndMs > _passGapMaxMs)
             {
                 _passGapMaxMs = startMs - _lastPassEndMs;
@@ -1044,6 +1054,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             FlushPendingPlatformScriptResults(UtcNowProvider());
             FlushRecurringScripts(UtcNowProvider(), shuttingDown: false);
             CheckPendingTokenFailure(UtcNowProvider());
+
+            // The lines written before this pass started are read now — a held tail or a fragment
+            // awaiting its check follows a pass or two later, which TrackerCatchUp covers. The
+            // registry reconciliation waits for such a pass before it pairs an IME save with a run.
+            if (!token.IsCancellationRequested) ScriptRuns.NotePassCompleted(passStartedUtc);
+            if (ScriptRuns.ConsumeCountersChanged()) _stateDirty = true;
 
             var endMs = MonotonicMillisProvider();
             if (endMs - startMs > _passMaxMs)
@@ -1207,6 +1223,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _verifiedBytes = state.Health.VerifiedBytes;
                     _passMaxMs = state.Health.PassMaxMs;
                     _passGapMaxMs = state.Health.PassGapMaxMs;
+                    ScriptRuns.RestoreCounters(state.Health.PlatformOutputVerified, state.Health.PlatformOutputCorrected);
                 }
                 if (state.PatternHits != null)
                 {
@@ -1283,6 +1300,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     VerifiedBytes = _verifiedBytes,
                     PassMaxMs = _passMaxMs,
                     PassGapMaxMs = _passGapMaxMs,
+                    PlatformOutputVerified = ScriptRuns.Verified,
+                    PlatformOutputCorrected = ScriptRuns.Corrected,
                 };
                 state.PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase);
             }

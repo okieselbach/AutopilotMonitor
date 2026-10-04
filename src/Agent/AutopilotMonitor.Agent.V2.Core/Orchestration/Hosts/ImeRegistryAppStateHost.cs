@@ -15,9 +15,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 {
     /// <summary>
     /// Hosts the <see cref="ImeRegistryAppStateObserver"/> (registry second pillar, audit
-    /// 2026-08-17): one recursive <see cref="RegistryWatcher"/> on the IME root — all three
-    /// observed surfaces (Win32Apps, EspTrackingWin32Apps, SideCarPolicies\StatusServiceReports)
-    /// live under it — debounced into snapshot-and-diff ticks, plus a 60-s periodic fallback
+    /// 2026-08-17) and the <see cref="ImeRegistryScriptResultObserver"/> (D-316): one recursive
+    /// <see cref="RegistryWatcher"/> on the IME root — every observed surface (Win32Apps,
+    /// EspTrackingWin32Apps, SideCarPolicies\StatusServiceReports, Policies) lives under it —
+    /// debounced into snapshot-and-diff ticks, plus a 60-s periodic fallback
     /// tick. The fallback both evaluates the reconciliation settle-delay when the registry goes
     /// quiet AND keeps the pillar alive if the watcher fails to arm (poll-only degraded mode,
     /// announced once via <c>collector_degraded</c>). Always-on observability host, no config
@@ -31,6 +32,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private static readonly TimeSpan PeriodicInterval = TimeSpan.FromSeconds(60);
 
         private readonly ImeRegistryAppStateObserver _observer;
+        // Platform-script results under the same root (D-316); null when no run register was supplied.
+        private readonly ImeRegistryScriptResultObserver? _scriptObserver;
         private readonly InformationalEventPost _post;
         private readonly AgentLogger? _logger;
         private readonly string _sessionId;
@@ -47,7 +50,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             AgentLogger? logger,
             ISignalIngressSink ingress,
             IClock clock,
-            Func<IReadOnlyList<AppPackageState>>? trackerStateProbe)
+            Func<IReadOnlyList<AppPackageState>>? trackerStateProbe,
+            PlatformScriptRunRegister? scriptRuns = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -56,6 +60,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _logger = logger;
             _post = new InformationalEventPost(ingress, clock);
             _observer = new ImeRegistryAppStateObserver(_post, logger, clock, trackerStateProbe);
+            if (scriptRuns != null) _scriptObserver = new ImeRegistryScriptResultObserver(scriptRuns, _post, logger, clock);
         }
 
         public void Start()
@@ -63,6 +68,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // Baseline immediately: pre-existing registry state must be captured silently
             // BEFORE the first change edge, or stale entries would replay as fresh events.
             _observer.Tick("baseline");
+            _scriptObserver?.Tick("baseline");
 
             try
             {
@@ -120,6 +126,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             try
             {
                 _observer.Tick(reason);
+                _scriptObserver?.Tick(reason);
             }
             catch (Exception ex)
             {

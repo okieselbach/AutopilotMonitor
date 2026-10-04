@@ -141,6 +141,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         [Fact]
+        public void Registry_reconciliation_counters_survive_a_restart()
+        {
+            using var h = new Harness();
+            h.Tracker.ScriptRuns.CountVerified();
+            h.Tracker.ScriptRuns.CountVerified();
+            h.Tracker.ScriptRuns.CountCorrected();
+            h.Tracker.SaveStateForTest();
+
+            h.Restart();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal(2, health.PlatformOutputVerified);
+            Assert.Equal(1, health.PlatformOutputCorrected);
+        }
+
+        [Fact]
         public async Task Handler_time_does_not_count_against_the_line_budget()
         {
             // Session 946ccbd6: a stalled Hyper-V guest spent >2 s between two patterns of one

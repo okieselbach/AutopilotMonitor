@@ -81,6 +81,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         public long PassGapMaxMs { get; set; }
 
+        /// <summary>
+        /// Platform-script runs whose emitted output IME's saved result (registry, after the batch
+        /// report) confirmed — the exit code of the same end block with it. Together with
+        /// <see cref="PlatformOutputCorrected"/> the field measure of the registry reconciliation (D-316).
+        /// </summary>
+        public long PlatformOutputVerified { get; set; }
+
+        /// <summary>Platform-script runs whose emitted output IME's saved result corrected (script_output_reconciliation).</summary>
+        public long PlatformOutputCorrected { get; set; }
+
         /// <summary>Match count per enabled pattern ID — every enabled pattern is present, zeros included.</summary>
         public IReadOnlyDictionary<string, int> PatternHits { get; set; }
 
