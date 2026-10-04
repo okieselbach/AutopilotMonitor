@@ -108,12 +108,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
             var tracker = BuildTracker(tmp, out var emitted);
             tracker.LoadStateForTest(); // must not throw
+            Assert.Equal(0, tracker.ParkedPlatformScriptCountForTest);
 
             // Degrades to pre-fix behavior: no markers restored, normal emission works (the
             // result waits for its end block until the shutdown flush).
             tracker.CompletePlatformScriptFromImeResultForTesting("policyD", "Success");
             tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
             Assert.Single(emitted);
+        }
+
+        [Fact]
+        public void Pending_slot_from_a_state_file_without_executor_start_loads_and_completes()
+        {
+            using var tmp = new TempDirectory();
+            var started = new DateTime(2026, 10, 4, 9, 0, 0, DateTimeKind.Utc);
+
+            // A pending slot written by an agent before runs carried their executor start and run id.
+            var persistence = new ImeTrackerStatePersistence(tmp.Path, new AgentLogger(tmp.Path, AgentLogLevel.Info));
+            persistence.Save(new ImeTrackerStateData
+            {
+                PendingPlatformScripts = new List<ScriptExecutionState>
+                {
+                    new ScriptExecutionState { PolicyId = "policyF", ScriptType = "platform", StartedAtUtc = started, ExitCode = 0, ExitObservedAtUtc = started.AddSeconds(5), Stdout = "done", Stderr = "" },
+                },
+            });
+
+            var tracker = BuildTracker(tmp, out var emitted);
+            tracker.LoadStateForTest();
+            tracker.CompletePlatformScriptFromImeResultForTesting("policyF", "Success", started.AddSeconds(6));
+
+            var script = Assert.Single(emitted);
+            Assert.Equal("Success", script.Result);
+            Assert.Equal(0, script.ExitCode);
+            Assert.False(string.IsNullOrEmpty(script.RunId));
         }
 
         [Fact]

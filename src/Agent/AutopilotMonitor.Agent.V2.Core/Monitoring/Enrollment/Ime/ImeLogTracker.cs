@@ -182,6 +182,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly Dictionary<string, ScriptExecutionState> _pendingPlatformScripts =
             new Dictionary<string, ScriptExecutionState>(StringComparer.OrdinalIgnoreCase);
 
+        // Earlier runs of a policy whose next executor run started before IME's result of them was
+        // read (IME re-runs a failed script on later check-ins; the first pass reads all of
+        // AgentExecutor.log before the IME log). Each keeps its own end block until its result
+        // arrives — session eff1b413 lost that and paired the first result with the last run's block.
+        private readonly List<ScriptExecutionState> _parkedPlatformScripts = new List<ScriptExecutionState>();
+        private const int MaxParkedPlatformScripts = 64;
+
         /// <summary>
         /// The platform runs this tracker started and emitted, for the registry reconciliation that
         /// checks them against IME's saved results (D-316). Shared with the registry host's thread.
@@ -1191,6 +1198,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 }
             }
 
+            _parkedPlatformScripts.Clear();
+            if (state.ParkedPlatformScripts != null)
+            {
+                foreach (var parked in state.ParkedPlatformScripts)
+                {
+                    if (!string.IsNullOrEmpty(parked?.PolicyId) && _parkedPlatformScripts.Count < MaxParkedPlatformScripts)
+                        _parkedPlatformScripts.Add(parked);
+                }
+            }
+
             _scriptTimeoutSuspectedPosted.Clear();
             if (state.ScriptTimeoutSuspectedPosted != null)
             {
@@ -1276,6 +1293,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // must survive restarts — see the LoadState comment for the duplicate scenario.
                 PlatformScriptResultEmittedAt = new Dictionary<string, DateTime>(_platformScriptResultEmitted, StringComparer.OrdinalIgnoreCase),
                 PendingPlatformScripts = _pendingPlatformScripts.Values.ToList(),
+                ParkedPlatformScripts = _parkedPlatformScripts.ToList(),
                 ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
                 RecurringScripts = _recurringScripts.ToPersisted(),
             };

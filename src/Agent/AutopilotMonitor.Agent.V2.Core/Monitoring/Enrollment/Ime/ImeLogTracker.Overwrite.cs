@@ -380,10 +380,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             public long Offset;
             public string PolicyId;
+            /// <summary>
+            /// The platform run the start line belongs to: the lines behind it go to that run while it is pending or
+            /// waits for its IME result, and nowhere once it was emitted — never to a later run of the same policy.
+            /// Null only on seeded test markers, which resolve by policy.
+            /// </summary>
+            public string RunId;
             public bool IsClose;
             /// <summary>Set on a writer boundary: the platform invocation it closed.</summary>
             public string ClosedPolicyId;
         }
+
+        /// <summary>Run id of a start line whose run was emitted already (a late line): owns its lines, matches no live run.</summary>
+        private const string EmittedRunId = "emitted";
 
         private const string ExecutorLogFileName = "AgentExecutor.log";
 
@@ -437,7 +446,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             list.Add(marker);
         }
 
-        private void RecordInvocationMarker(string policyId, bool isClose)
+        private void RecordInvocationMarker(string policyId, bool isClose, string runId = null)
         {
             if (_currentEntryOffset < 0) return;
             var file = _currentSourceFileName ?? TestSourceFileName;
@@ -451,6 +460,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 if (!isClose && policyId != null && last.ClosedPolicyId == null)
                 {
                     last.PolicyId = policyId;
+                    last.RunId = runId;
                     last.IsClose = false;
                     _lastPlatformMarker = last;
                     _platformMarkerFiles.Add(file);
@@ -458,7 +468,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
 
-            var marker = new InvocationMarker { Offset = _currentEntryOffset, PolicyId = policyId, IsClose = isClose };
+            var marker = new InvocationMarker { Offset = _currentEntryOffset, PolicyId = policyId, RunId = runId, IsClose = isClose };
             AppendInvocationMarker(list, marker);
             if (!isClose && policyId != null)
             {
@@ -526,6 +536,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (marker == null || marker.IsClose || marker.PolicyId == null) return null;
 
             ownerPolicyId = marker.PolicyId;
+            if (marker.RunId != null) return FindLivePlatformRun(marker.PolicyId, marker.RunId);
             ScriptExecutionState state;
             return _pendingPlatformScripts.TryGetValue(marker.PolicyId, out state) ? state : null;
         }

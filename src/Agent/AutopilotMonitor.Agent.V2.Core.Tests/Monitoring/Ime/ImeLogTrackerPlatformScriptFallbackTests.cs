@@ -83,8 +83,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Single(emitted);
         }
 
+        [Theory]
+        // IME's verdict is Success exactly when the error file is empty, whatever the exit code. Judged by the exit
+        // code, session 67ae751c showed exit 0 with the script's own stderr as Success, and 46a41a0a an exit 1 without
+        // stderr as Failed, a run IME reported as Success one cycle earlier.
+        [InlineData(0, "Invoke-WebRequest : The remote name could not be resolved", "Failed")]
+        [InlineData(1, "", "Success")]
+        [InlineData(1, "  \n", "Success")]
+        [InlineData(0, "", "Success")]
+        [InlineData(1, null, "Failed")]
+        [InlineData(0, null, "Success")]
+        public void Fallback_judges_like_ime_by_the_stderr_it_read(int exitCode, string? stderr, string expected)
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp, out var emitted);
+            var observedAt = new DateTime(2026, 6, 19, 12, 59, 4, DateTimeKind.Utc);
+
+            tracker.SeedPendingPlatformScriptForTesting("0d2294bf", exitCode: exitCode, exitObservedAtUtc: observedAt, stderr: stderr);
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
+
+            var script = Assert.Single(emitted);
+            Assert.Equal(expected, script.Result);
+            Assert.Equal(exitCode, script.ExitCode);
+            Assert.Equal("agentexecutor_fallback", script.ResultSource);
+        }
+
         [Fact]
-        public void Nonzero_exit_code_emits_failed_result()
+        public void Nonzero_exit_code_without_a_stderr_line_emits_failed_result()
         {
             using var tmp = new TempDirectory();
             var tracker = BuildTracker(tmp, out var emitted);

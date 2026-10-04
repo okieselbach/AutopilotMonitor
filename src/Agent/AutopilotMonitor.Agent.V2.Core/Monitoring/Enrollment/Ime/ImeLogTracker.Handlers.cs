@@ -306,6 +306,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             var currentStartTs = LastMatchedLogTimestamp ?? UtcNowProvider();
             var currentStartProvenance = CaptureLastMatchedProvenance();
+            var fromExecutor = string.Equals(source, "agentexecutor", StringComparison.OrdinalIgnoreCase);
 
             // A start line older than the result this policy already emitted is the late start
             // line of THAT run: its AgentExecutor block surfaced after the IME result — the two
@@ -318,7 +319,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // never tie; a low-resolution clock in a test may).
             if (_platformScriptResultEmitted.TryGetValue(id, out var emittedResultTs) && currentStartTs < emittedResultTs)
             {
-                RecordInvocationMarker(id, isClose: false);
+                RecordInvocationMarker(id, isClose: false, EmittedRunId);
                 NoteInvocationActivity();
                 _logger.Debug($"ImeLogTracker: platform script start line for {id} (source: {source ?? "ime"}) predates its emitted result — late line of that run, not a new one");
                 return;
@@ -326,7 +327,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (_pendingPlatformScripts.TryGetValue(id, out var pendingSlot))
             {
-                if (pendingSlot.StartedAtUtc.HasValue && currentStartTs - pendingSlot.StartedAtUtc.Value > TimeSpan.FromHours(24))
+                if (pendingSlot.StartedAtUtc.HasValue && currentStartTs - pendingSlot.StartedAtUtc.Value > StalePlatformRunAge)
                 {
                     // Stale-slot hardening (session eaf3d8c4): a replayed start line from a previous
                     // enrollment whose matching result never appeared (script was mid-run when that
@@ -343,6 +344,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     // Emit what the held run has; its end block did not surface in time.
                     EmitPlatformScriptResult(pendingSlot, "the next run of this policy started");
                 }
+                else if (fromExecutor && LastMatchedLogTimestamp.HasValue && pendingSlot.Result == null
+                    && pendingSlot.ExecutorStartedAtUtc.HasValue && pendingSlot.ExecutorStartedAtUtc.Value < currentStartTs)
+                {
+                    // Every executor process writes its start line once: a later one is the next run
+                    // (IME re-runs a failed script on a later check-in), whose end block must not
+                    // overwrite this one's. This run waits for its IME result — on the first pass
+                    // AgentExecutor.log is read in full before the IME log (session eff1b413).
+                    ParkPlatformRun(pendingSlot);
+                }
                 else if (!pendingSlot.StartedAtUtc.HasValue)
                 {
                     // The slot was opened by its result while the start block was still hidden;
@@ -351,9 +361,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     pendingSlot.StartedAtProvenance = currentStartProvenance;
                     _stateDirty = true;
                 }
-                if (pendingSlot.UserId == null && userId != null) pendingSlot.UserId = userId;
             }
-            if (!_pendingPlatformScripts.ContainsKey(id))
+            if (_pendingPlatformScripts.TryGetValue(id, out var slot))
+            {
+                if (slot.UserId == null && userId != null) slot.UserId = userId;
+                if (fromExecutor && !slot.ExecutorStartedAtUtc.HasValue)
+                {
+                    slot.ExecutorStartedAtUtc = currentStartTs;
+                    _stateDirty = true;
+                }
+            }
+            else
             {
                 // A fresh start for this policy (no pending entry) begins a NEW execution.
                 // Clear any emitted-marker from a prior run so IME re-evaluations / retries of
@@ -361,18 +379,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // deduped away. A start line of the emitted run itself never reaches this point
                 // (the guard above), so this never clears the current run's own marker.
                 _platformScriptResultEmitted.Remove(id);
-                _pendingPlatformScripts[id] = new ScriptExecutionState
+                slot = new ScriptExecutionState
                 {
                     PolicyId = id,
                     ScriptType = "platform",
                     UserId = userId,
+                    RunId = NewRunId(),
                     // Prefer the source CMTrace timestamp so a script that started before the
                     // agent launched (replayed log content) is dated to its real start, not now.
                     // Set only at slot creation: the start line fires twice (agentexecutor + ime
                     // source) but the earliest wins.
                     StartedAtUtc = currentStartTs,
                     StartedAtProvenance = currentStartProvenance,
+                    ExecutorStartedAtUtc = fromExecutor ? currentStartTs : (DateTime?)null,
                 };
+                _pendingPlatformScripts[id] = slot;
                 ScriptRuns.NoteStarted(userId, id, UtcNowProvider());
                 // Live "running" indicator — same signal health scripts emit. Gated on slot
                 // creation so the duplicate start line (agentexecutor + ime source) doesn't
@@ -380,12 +401,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "platform" }); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
             }
-            RecordInvocationMarker(id, isClose: false);
+            RecordInvocationMarker(id, isClose: false, LastMatchedLogTimestamp.HasValue ? RunIdOfStartLine(slot, fromExecutor, currentStartTs) : slot.RunId);
             NoteInvocationActivity();
             // Started lines fire twice per script (agentexecutor + ime source) and carry no
             // outcome — the matching `platform script completed` line below carries result+exit
             // and stays on Info. Keep starts on Debug so Info reflects script outcomes only.
             _logger.Debug($"ImeLogTracker: platform script started: {id} (source: {source ?? "ime"})");
+        }
+
+        /// <summary>How long after IME's "Script file … is generated" line its executor writes its start line (about 2 s).</summary>
+        private static readonly TimeSpan ImeLaunchWindow = TimeSpan.FromMinutes(1);
+
+        /// <summary>
+        /// The run a timestamped start line belongs to, for its invocation marker. An executor start line belongs to the
+        /// slot unless it is older than the slot's executor start — re-read behind a later run — then to the parked run
+        /// it started. IME's "Script file … is generated" precedes its executor: it belongs to the live run whose
+        /// executor started within <see cref="ImeLaunchWindow"/> after it, else to a slot whose executor has not
+        /// started yet; otherwise its run is not known (yet) and the lines behind it go nowhere.
+        /// </summary>
+        private string RunIdOfStartLine(ScriptExecutionState slot, bool fromExecutor, DateTime lineTs)
+        {
+            if (fromExecutor)
+            {
+                if (!slot.ExecutorStartedAtUtc.HasValue || slot.ExecutorStartedAtUtc.Value <= lineTs) return slot.RunId;
+                var parked = _parkedPlatformScripts.FirstOrDefault(r =>
+                    string.Equals(r.PolicyId, slot.PolicyId, StringComparison.OrdinalIgnoreCase) && r.ExecutorStartedAtUtc == lineTs);
+                return parked?.RunId ?? EmittedRunId;
+            }
+
+            var launched = LivePlatformRuns(slot.PolicyId)
+                .Where(r => r.ExecutorStartedAtUtc.HasValue && r.ExecutorStartedAtUtc.Value >= lineTs && r.ExecutorStartedAtUtc.Value - lineTs <= ImeLaunchWindow)
+                .OrderBy(r => r.ExecutorStartedAtUtc.Value)
+                .FirstOrDefault();
+            if (launched != null) return launched.RunId;
+            return slot.ExecutorStartedAtUtc.HasValue ? EmittedRunId : slot.RunId;
         }
 
         // Routes line-by-line script-data handlers (context / exitCode / output) to the right
@@ -502,13 +551,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             // PS-AGENT-OUTPUT captures both stdout and stderr in one pattern
             var output = match.Groups["output"]?.Value;
-            var error = match.Groups["error"]?.Value;
+            var error = match.Groups["error"];
 
-            if (!string.IsNullOrEmpty(output) && !string.IsNullOrEmpty(error))
+            if (error != null && error.Success)
             {
-                // Combined pattern (write output done. output = ..., error = ...)
-                script.Stdout = TruncateOutput(output.Trim());
-                script.Stderr = TruncateOutput(error.Trim());
+                // Combined pattern (write output done. output = ..., error = ...): both texts as
+                // AgentExecutor wrote them to the result files — the error part is the error file
+                // IME judges. The "error from script" line before it is a snapshot taken before the
+                // output readers finished, so this one replaces it, an empty stdout included.
+                script.Stdout = TruncateOutput(output?.Trim());
+                script.Stderr = TruncateOutput(error.Value.Trim());
             }
             else if (string.Equals(outputType, "stderr", StringComparison.OrdinalIgnoreCase))
             {
@@ -556,49 +608,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         internal void CompletePlatformScriptFromImeResult(string policyId, string result, DateTime? resultLineTimestampUtc, string patternId, CmTraceLineProvenance resultProvenance, string userId = null)
         {
-            // Dedup: the deadline-based fallback (FlushPendingPlatformScriptResults) may already have
-            // emitted this script from its AgentExecutor exit code because IME's authoritative
-            // PS-SCRIPT-RESULT line arrived late. The fallback carries the same exit code + stdout,
-            // so re-emitting here would duplicate the timeline entry and inflate counts. Drop the
-            // now-redundant pending entry and skip.
-            if (_platformScriptResultEmitted.ContainsKey(policyId))
+            // The result belongs to the run of this policy that started last before its line —
+            // the run in flight, or an earlier one that waits for its result while a later run
+            // already started (ParkPlatformRun).
+            var script = FindRunForResult(policyId, userId, resultLineTimestampUtc);
+            if (script == null)
             {
-                _logger.Debug($"ImeLogTracker: platform script {policyId} PS-SCRIPT-RESULT arrived after fallback emit — skipping duplicate");
-                _pendingPlatformScripts.Remove(policyId);
-                return;
-            }
+                // Dedup: the deadline-based fallback (FlushPendingPlatformScriptResults) may already
+                // have emitted this run from its AgentExecutor end block because IME's authoritative
+                // PS-SCRIPT-RESULT line arrived late, or the same result line is read again.
+                // Re-emitting would duplicate the timeline entry and inflate counts.
+                if (_platformScriptResultEmitted.ContainsKey(policyId))
+                {
+                    _logger.Debug($"ImeLogTracker: platform script {policyId} PS-SCRIPT-RESULT arrived after its run was emitted — skipping duplicate");
+                    return;
+                }
 
-            // Merge with pending AgentExecutor data if available
-            if (_pendingPlatformScripts.TryGetValue(policyId, out var script))
-            {
-                // Stale-result guard: on an intra-lifetime re-run of the same policy, run 1's
-                // late PS-SCRIPT-RESULT can arrive after run 2's start line already created a
-                // fresh slot (the start clears the emitted-marker). Merging would pair run 2's
-                // StartedAtUtc/state with run 1's result and then drop run 2's genuine result at
-                // the marker check above. A result line always postdates its own run's start
-                // line in the source log, so a result older than the pending slot's start
-                // belongs to a previous run — drop it and keep the live slot intact.
-                if (script.StartedAtUtc.HasValue
-                    && resultLineTimestampUtc.HasValue
-                    && resultLineTimestampUtc.Value < script.StartedAtUtc.Value)
+                // Stale-result guard: every run of this policy in flight started after the result
+                // line — a result line always postdates its own run's start line in the source log,
+                // so it belongs to a previous run. Keep the live runs intact.
+                if (HasLivePlatformRun(policyId))
                 {
                     _logger.Debug($"ImeLogTracker: platform script {policyId} result predates the current run's start — stale result from a previous run, skipping");
                     return;
                 }
-            }
-            else
-            {
+
                 script = new ScriptExecutionState
                 {
                     PolicyId = policyId,
                     ScriptType = "platform",
                     UserId = userId,
+                    RunId = NewRunId(),
                 };
                 _pendingPlatformScripts[policyId] = script;
                 ScriptRuns.NoteStarted(userId, policyId, UtcNowProvider());
             }
 
             if (script.UserId == null && userId != null) script.UserId = userId;
+            ResolveParkedRunsBefore(script);
             script.Result = result;
             script.ResultSource = "ime_policy_result";
             script.ResultObservedAtUtc = resultLineTimestampUtc ?? UtcNowProvider();
@@ -627,19 +674,148 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void EmitPlatformScriptResult(ScriptExecutionState script, string note = null)
         {
             _logger.Info($"ImeLogTracker: platform script completed: {script.PolicyId}, result={script.Result}, exit={script.ExitCode}{(note != null ? $" ({note})" : string.Empty)}");
-            if (string.IsNullOrEmpty(script.RunId)) script.RunId = Guid.NewGuid().ToString("D");
+            if (string.IsNullOrEmpty(script.RunId)) script.RunId = NewRunId();
             EmitScriptEvent(script);
-            ScriptRuns.NoteEmitted(script, UtcNowProvider());
+            // The register keeps the latest run per (user, policy) for the registry reconciliation:
+            // a run that waited for its result while a later one started must not take that later
+            // run's entry.
+            if (!HasLaterLivePlatformRun(script)) ScriptRuns.NoteEmitted(script, UtcNowProvider());
             // The run's source stamp, capped at the clock: a result line cannot be read before it
             // was written, so a stamp ahead of the clock is a wrong zone assumption on that line
             // (a rewound result resolved in the reader's zone, session 4377911b: +1 h). Left
             // uncapped, the marker made the genuine NEXT run's start line read as a late line of
-            // this run and its result a duplicate.
+            // this run and its result a duplicate. Only ever raised: a run emitted after a later
+            // one must not move the reference back.
             var runStamp = script.ResultObservedAtUtc ?? script.ExitObservedAtUtc ?? UtcNowProvider();
             var nowUtc = UtcNowProvider();
-            _platformScriptResultEmitted[script.PolicyId] = runStamp > nowUtc ? nowUtc : runStamp;
-            _pendingPlatformScripts.Remove(script.PolicyId);
+            var stamp = runStamp > nowUtc ? nowUtc : runStamp;
+            if (!_platformScriptResultEmitted.TryGetValue(script.PolicyId, out var previousStamp) || stamp > previousStamp)
+                _platformScriptResultEmitted[script.PolicyId] = stamp;
+            if (_pendingPlatformScripts.TryGetValue(script.PolicyId, out var current) && ReferenceEquals(current, script))
+                _pendingPlatformScripts.Remove(script.PolicyId);
+            else
+                _parkedPlatformScripts.Remove(script);
             _stateDirty = true;
+        }
+
+        private static string NewRunId() => Guid.NewGuid().ToString("D");
+
+        /// <summary>A run older than this by source time is from a previous enrollment, not a run in flight.</summary>
+        private static readonly TimeSpan StalePlatformRunAge = TimeSpan.FromHours(24);
+
+        private static bool SameUserOrUnknown(string a, string b)
+            => a == null || b == null || string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        private static DateTime StartOf(ScriptExecutionState run) => run.StartedAtUtc ?? DateTime.MinValue;
+
+        /// <summary>The runs of a policy that are not emitted yet: the earlier ones waiting for their IME result, then the one in flight.</summary>
+        private IEnumerable<ScriptExecutionState> LivePlatformRuns(string policyId)
+        {
+            foreach (var run in _parkedPlatformScripts)
+            {
+                if (string.Equals(run.PolicyId, policyId, StringComparison.OrdinalIgnoreCase)) yield return run;
+            }
+            if (_pendingPlatformScripts.TryGetValue(policyId, out var current)) yield return current;
+        }
+
+        private bool HasLivePlatformRun(string policyId) => LivePlatformRuns(policyId).Any();
+
+        /// <summary>The live run a start marker names, or null once that run was emitted.</summary>
+        private ScriptExecutionState FindLivePlatformRun(string policyId, string runId)
+            => LivePlatformRuns(policyId).FirstOrDefault(r => string.Equals(r.RunId, runId, StringComparison.Ordinal));
+
+        private bool HasLaterLivePlatformRun(ScriptExecutionState script)
+            => LivePlatformRuns(script.PolicyId).Any(r => !ReferenceEquals(r, script)
+                && SameUserOrUnknown(r.UserId, script.UserId) && StartOf(r) > StartOf(script));
+
+        /// <summary>
+        /// The live run an IME result line belongs to: of the runs of its policy that started at or before the line,
+        /// the latest — one of the same IME user when there is one.
+        /// </summary>
+        private ScriptExecutionState FindRunForResult(string policyId, string userId, DateTime? resultLineTimestampUtc)
+        {
+            ScriptExecutionState sameUser = null, anyUser = null;
+            foreach (var run in LivePlatformRuns(policyId))
+            {
+                if (resultLineTimestampUtc.HasValue && run.StartedAtUtc.HasValue && run.StartedAtUtc.Value > resultLineTimestampUtc.Value) continue;
+                if (anyUser == null || StartOf(run) > StartOf(anyUser)) anyUser = run;
+                if (SameUserOrUnknown(run.UserId, userId) && (sameUser == null || StartOf(run) > StartOf(sameUser))) sameUser = run;
+            }
+            return sameUser ?? anyUser;
+        }
+
+        /// <summary>
+        /// Moves the run in flight aside when the next executor run of its policy starts: it keeps its own end block and
+        /// waits for its IME result (<see cref="FindRunForResult"/>), the exit-code fallback, or a later run's result.
+        /// </summary>
+        private void ParkPlatformRun(ScriptExecutionState run)
+        {
+            _pendingPlatformScripts.Remove(run.PolicyId);
+            _parkedPlatformScripts.Add(run);
+            _stateDirty = true;
+            if (_parkedPlatformScripts.Count > MaxParkedPlatformScripts)
+            {
+                var oldest = _parkedPlatformScripts.OrderBy(StartOf).First();
+                _logger.Warning($"ImeLogTracker: more than {MaxParkedPlatformScripts} platform runs wait for their IME result — resolving the oldest ({oldest.PolicyId}, started {oldest.StartedAtUtc:o}) now");
+                ResolveParkedRun(oldest, "too many runs waiting for their IME result");
+            }
+            _logger.Debug($"ImeLogTracker: platform script {run.PolicyId}: the next executor run started before IME's result of run {run.RunId} was read — that run keeps its end block and waits for its result");
+        }
+
+        /// <summary>
+        /// Results arrive in run order: a parked run of the same IME user that started before the run a result belongs to
+        /// gets none any more (its result line was lost) — it goes out now, ahead of the later run.
+        /// </summary>
+        private void ResolveParkedRunsBefore(ScriptExecutionState owner)
+        {
+            if (_parkedPlatformScripts.Count == 0 || !owner.StartedAtUtc.HasValue) return;
+            var earlier = _parkedPlatformScripts
+                .Where(r => !ReferenceEquals(r, owner)
+                    && string.Equals(r.PolicyId, owner.PolicyId, StringComparison.OrdinalIgnoreCase)
+                    && SameUserOrUnknown(r.UserId, owner.UserId)
+                    && r.StartedAtUtc.HasValue && r.StartedAtUtc.Value < owner.StartedAtUtc.Value)
+                .OrderBy(StartOf)
+                .ToList();
+            foreach (var run in earlier) ResolveParkedRun(run, "a later run of this policy got its IME result first");
+        }
+
+        /// <summary>A parked run that will not get its IME result: out with what it has, or dropped when it has nothing.</summary>
+        private void ResolveParkedRun(ScriptExecutionState run, string why)
+        {
+            if (run.Result != null)
+            {
+                EmitPlatformScriptResult(run, why);
+            }
+            else if (run.ExitCode.HasValue)
+            {
+                EmitFromExecutorEndBlock(run, why);
+            }
+            else
+            {
+                _parkedPlatformScripts.Remove(run);
+                _stateDirty = true;
+                _logger.Debug($"ImeLogTracker: platform script {run.PolicyId} run {run.RunId} has neither IME result nor executor end block — dropped ({why})");
+            }
+        }
+
+        /// <summary>
+        /// IME's own verdict from a run's end block: Success exactly when the error file was empty
+        /// (<c>IsNullOrEmpty(errorFile.Trim())</c> in IME), whatever the exit code — PowerShell returns 0 after a
+        /// non-terminating error and any code a script exits with. Only when the stderr line was never read does the
+        /// exit code stand in.
+        /// </summary>
+        internal static string ImeResultFromEndBlock(ScriptExecutionState script)
+        {
+            if (script.Stderr != null) return string.IsNullOrWhiteSpace(script.Stderr) ? "Success" : "Failed";
+            return script.ExitCode == 0 ? "Success" : "Failed";
+        }
+
+        private void EmitFromExecutorEndBlock(ScriptExecutionState script, string why)
+        {
+            script.Result = ImeResultFromEndBlock(script);
+            script.ResultSource = "agentexecutor_fallback";
+            var basis = script.Stderr == null ? $"exit code {script.ExitCode}, stderr not read" : script.Stderr.Trim().Length == 0 ? "empty stderr" : "stderr present";
+            EmitPlatformScriptResult(script, $"{why} — {script.Result} from the executor end block ({basis}) (fallback)");
         }
 
         /// <summary>
@@ -679,29 +855,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// out once its executor end block has been read — the block arrives within one pass, so
         /// stdout/stderr are in by now — or after <see cref="PlatformScriptEndBlockGrace"/>.</item>
         /// <item>A script with a known AgentExecutor exit code but no IME <c>PS-SCRIPT-RESULT</c>
-        /// line within <see cref="PlatformScriptResultGrace"/> is emitted from the exit code
-        /// (0 → Success, else Failed), tagged <c>resultSource=agentexecutor_fallback</c> so the
-        /// data is honest about its provenance. Without this, scripts that completed shortly
-        /// before the agent terminates were silently dropped.</item>
+        /// line within <see cref="PlatformScriptResultGrace"/> is emitted from its end block by
+        /// IME's own rule (<see cref="ImeResultFromEndBlock"/>), tagged
+        /// <c>resultSource=agentexecutor_fallback</c> so the data is honest about its provenance.
+        /// Without this, scripts that completed shortly before the agent terminates were silently
+        /// dropped.</item>
         /// </list>
+        /// Parked runs go first, oldest first, so a policy's runs leave in run order; one without
+        /// result and end block keeps waiting — across a shutdown too — until a later run's result
+        /// resolves it or it is a day old.
         /// Runs on the single-threaded polling loop (no locking needed, same as the handlers).
         /// <paramref name="force"/> bypasses both grace checks for the final pass on shutdown.
         /// </summary>
         internal void FlushPendingPlatformScriptResults(DateTime nowUtc, bool force = false)
         {
-            if (_pendingPlatformScripts.Count == 0) return;
+            if (_pendingPlatformScripts.Count == 0 && _parkedPlatformScripts.Count == 0) return;
 
             var fallbackEmitted = false;
-            foreach (var script in _pendingPlatformScripts.Values.ToList())
+            foreach (var run in _parkedPlatformScripts.OrderBy(StartOf).ToList())
             {
-                // Already emitted by the authoritative path — just drop the stale buffer entry.
-                if (_platformScriptResultEmitted.ContainsKey(script.PolicyId))
+                if (run.Result != null)
                 {
-                    _pendingPlatformScripts.Remove(script.PolicyId);
-                    _stateDirty = true;
+                    if (run.ExitCode.HasValue || force || !run.ResultHeldSinceUtc.HasValue || nowUtc - run.ResultHeldSinceUtc.Value >= PlatformScriptEndBlockGrace)
+                        EmitPlatformScriptResult(run, run.ExitCode.HasValue ? "executor end block read after the result" : $"no executor end block within {PlatformScriptEndBlockGrace.TotalSeconds:F0}s");
                     continue;
                 }
+                if (run.ExitCode.HasValue)
+                {
+                    if (!force && (!run.ExitObservedAtUtc.HasValue || nowUtc - run.ExitObservedAtUtc.Value < PlatformScriptResultGrace)) continue;
+                    EmitFromExecutorEndBlock(run, $"result not seen within {PlatformScriptResultGrace.TotalSeconds:F0}s{(force ? ", shutdown flush" : string.Empty)}");
+                    fallbackEmitted = true;
+                    continue;
+                }
+                if (run.StartedAtUtc.HasValue && nowUtc - run.StartedAtUtc.Value > StalePlatformRunAge)
+                {
+                    _parkedPlatformScripts.Remove(run);
+                    _stateDirty = true;
+                    _logger.Debug($"ImeLogTracker: platform script {run.PolicyId} run {run.RunId} waited a day without IME result or executor end block — dropped");
+                }
+            }
 
+            foreach (var script in _pendingPlatformScripts.Values.ToList())
+            {
                 if (script.Result != null)
                 {
                     if (script.ExitCode.HasValue)
@@ -720,10 +915,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     if (nowUtc - script.ExitObservedAtUtc.Value < PlatformScriptResultGrace) continue;
                 }
 
-                script.Result = script.ExitCode.Value == 0 ? "Success" : "Failed";
-                script.ResultSource = "agentexecutor_fallback";
-                EmitPlatformScriptResult(script,
-                    $"result not seen within {PlatformScriptResultGrace.TotalSeconds:F0}s{(force ? ", shutdown flush" : string.Empty)} — emitted from AgentExecutor exit code {script.ExitCode.Value} (fallback)");
+                EmitFromExecutorEndBlock(script, $"result not seen within {PlatformScriptResultGrace.TotalSeconds:F0}s{(force ? ", shutdown flush" : string.Empty)}");
                 fallbackEmitted = true;
             }
 
@@ -735,7 +927,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>Test seam: inject a pending platform script as if AgentExecutor.log had reported
         /// its start + exit code, without an IME PS-SCRIPT-RESULT line.</summary>
         internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null, DateTime? startedAtUtc = null,
-            CmTraceLineProvenance startedAtProvenance = null, CmTraceLineProvenance exitProvenance = null)
+            CmTraceLineProvenance startedAtProvenance = null, CmTraceLineProvenance exitProvenance = null, string stderr = null)
         {
             // Mirrors a fresh execution start: a new run clears any prior emitted-marker (see
             // HandleScriptStarted) so re-runs of the same policy within one lifetime emit again.
@@ -744,9 +936,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 PolicyId = policyId,
                 ScriptType = "platform",
+                RunId = NewRunId(),
                 ExitCode = exitCode,
                 ExitObservedAtUtc = exitObservedAtUtc,
                 Stdout = stdout,
+                Stderr = stderr,
                 StartedAtUtc = startedAtUtc,
                 StartedAtProvenance = startedAtProvenance,
                 ExitProvenance = exitProvenance,
@@ -754,6 +948,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             NextTestEntry();
             RecordInvocationMarker(policyId, isClose: false);
         }
+
+        /// <summary>Test seam: earlier runs waiting for their IME result while a later run of their policy is in flight.</summary>
+        internal int ParkedPlatformScriptCountForTest => _parkedPlatformScripts.Count;
 
         /// <summary>Test seam: the authoritative IME PS-SCRIPT-RESULT path for a platform script
         /// (the production handler minus regex extraction). <paramref name="resultLineTimestampUtc"/>

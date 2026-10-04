@@ -41,9 +41,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     /// Written on the tracker's poll thread, claimed on the registry host's timer thread: every member
     /// locks, and nothing calls out while holding the lock.
     /// <para>
-    /// A save belongs to the latest run of its key: IME runs a policy once per batch and saves the
-    /// batch after its last script, so the next run of the same key starts minutes later at the
-    /// earliest. A save is paired only after the tracker completed a pass that started
+    /// A save belongs to the latest run of its key: IME runs a policy at most once per check-in and
+    /// saves after reporting that check-in's batch, so the next run of the key comes with a later
+    /// check-in. (Overlapping check-ins can run a key twice at once; then IME itself shares the key's
+    /// result files and the judge's foreign verdict is the safety net.) A run that waited for its IME
+    /// result while a later run of its key already started is emitted without touching that later
+    /// run's entry. A save is paired only after the tracker completed a pass that started
     /// <see cref="TrackerCatchUp"/> after the save was seen — every line written before the save, the
     /// run's start among them, has been read by then, a stalled poll loop included.
     /// </para>

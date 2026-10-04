@@ -151,6 +151,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // that run from the start of the next one.
         public Dictionary<string, DateTime> PlatformScriptResultEmittedAt { get; set; }
         public List<ScriptExecutionState> PendingPlatformScripts { get; set; }
+        // Earlier runs that wait for their IME result while a later run of the same policy is in
+        // flight; a restart between reading AgentExecutor.log and the IME log must keep them. Null on
+        // older state files → none.
+        public List<ScriptExecutionState> ParkedPlatformScripts { get; set; }
         public List<string> ScriptTimeoutSuspectedPosted { get; set; }
 
         // Recurring health-script runs collapsed per policy. Saved in the same write as

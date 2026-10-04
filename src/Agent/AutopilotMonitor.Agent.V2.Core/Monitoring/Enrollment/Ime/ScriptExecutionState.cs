@@ -23,10 +23,19 @@ public class ScriptExecutionState
     public string UserId { get; set; }
 
     /// <summary>
-    /// Identity of one emitted platform-script run, surfaced as <c>runId</c> on the event: what a
-    /// later <c>script_output_reconciliation</c> names when it corrects that run.
+    /// Identity of one platform-script run, given when its slot opens and surfaced as <c>runId</c> on
+    /// the event: the invocation markers bind the run's executor lines to it, and a later
+    /// <c>script_output_reconciliation</c> names it when it corrects that run.
     /// </summary>
     public string RunId { get; set; }
+
+    /// <summary>
+    /// Source timestamp of the run's AgentExecutor start line (<c>Adding argument powershell with
+    /// value …</c>). Every executor process writes that line once, so a later one for the same
+    /// policy starts the next run, never this one. Null until the line is read, and on state files
+    /// from before the field.
+    /// </summary>
+    public System.DateTime? ExecutorStartedAtUtc { get; set; }
 
     /// <summary>
     /// UTC timestamp of the script's first observed start line, taken from the source CMTrace log
