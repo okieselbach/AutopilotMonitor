@@ -439,6 +439,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ApplyExitCode(script, exitCode, LastMatchedLogTimestamp ?? UtcNowProvider(), CaptureLastMatchedProvenance());
             else if (ownerPolicyId != null)
                 _logger.Debug($"ImeLogTracker: exit code {exitCode} belongs to platform script {ownerPolicyId}, whose completion was already emitted — dropped");
+            else
+                LogLineBehindWriterBoundary($"exit code {exitCode}");
             // An exit code means the executor just wrote its end block and IME is about to
             // write the result — both land at a stale stream position when another process
             // appended meanwhile. Check the ledgers on the next pass.
@@ -465,7 +467,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             var outputType = parameters != null && parameters.TryGetValue("outputType", out var ot) ? ot : null;
             var script = GetCurrentScriptForLineUpdate(parameters);
-            if (script == null) return;
+            if (script == null)
+            {
+                LogLineBehindWriterBoundary($"script output ({outputType ?? "combined"})");
+                return;
+            }
 
             // PS-AGENT-OUTPUT captures both stdout and stderr in one pattern
             var output = match.Groups["output"]?.Value;

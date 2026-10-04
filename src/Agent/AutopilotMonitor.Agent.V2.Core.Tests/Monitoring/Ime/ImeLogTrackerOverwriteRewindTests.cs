@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
     /// contract: unchanged bytes never rewind, changed bytes are processed exactly once, and the
     /// executor lines a rewind uncovers belong to the invocation that owns their file position.
     /// </summary>
-    public sealed class ImeLogTrackerOverwriteRewindTests
+    public sealed partial class ImeLogTrackerOverwriteRewindTests
     {
         private static readonly DateTime T0 = new DateTime(2026, 9, 10, 19, 30, 0, DateTimeKind.Utc);
 
@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         private static readonly string[] ScriptPatternIds =
         {
             "PS-AGENT-INVOCATION", "PS-AGENT-ARG", "PS-AGENT-SCRIPT-START", "PS-AGENT-EXITCODE",
-            "PS-AGENT-OUTPUT", "PS-AGENT-COMPLETED", "PS-SCRIPT-GENERATED", "PS-SCRIPT-CONTEXT", "PS-SCRIPT-RESULT",
+            "PS-AGENT-OUTPUT", "PS-AGENT-ERROR", "PS-AGENT-COMPLETED", "PS-SCRIPT-GENERATED", "PS-SCRIPT-CONTEXT", "PS-SCRIPT-RESULT",
         };
 
         /// <summary>The shipped pattern JSON — the same source combine.js embeds — so the contract is the real one.</summary>

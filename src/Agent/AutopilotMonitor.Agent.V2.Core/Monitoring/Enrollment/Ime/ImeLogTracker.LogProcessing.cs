@@ -123,16 +123,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var ledger = IsMultiWriterLogFile(fileName) ? GetLedger(fileName) : null;
 
             // Set by a rewind: entries that still read unchanged behind the old bookmark are
-            // skipped, and nothing below the old bookmark is fresh or a calibration anchor.
-            HashSet<LedgerEntry> rewoundEntries = null;
+            // skipped (their invocation markers are given back), and nothing below the old
+            // bookmark is fresh or a calibration anchor.
+            RewindState rewind = null;
             long oldBookmark = -1;
+            var writerBoundaries = IsWriterBoundaryLogFile(fileName);
 
             if (ledger != null)
             {
                 var rewindTo = await PrepareLedgerAsync(filePath, fileName, ledger, startPos, passNowUtc, token);
                 if (rewindTo >= 0)
                 {
-                    rewoundEntries = ApplyRewind(filePath, fileName, ledger, rewindTo, startPos);
+                    rewind = ApplyRewind(filePath, fileName, ledger, rewindTo, startPos);
                     oldBookmark = startPos;
                     startPos = rewindTo;
                 }
@@ -164,7 +166,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 // Guard zone: the file grew and is open anyway — re-check the entries just behind
                 // the bookmark, where a stale writer's block lands when it is short.
-                if (ledger != null && rewoundEntries == null && ledger.Entries.Count > 0)
+                if (ledger != null && rewind == null && ledger.Entries.Count > 0)
                 {
                     var guardFrom = ledger.OffsetOfEntryAtOrAfter(startPos - OverwriteGuardBytes);
                     if (guardFrom >= 0 && guardFrom < startPos)
@@ -178,7 +180,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             _verifiedBytes += startPos - ledger.StartOffset;
                             _verifyPasses++;
                             if (earliest >= 0) divergence = earliest;
-                            rewoundEntries = ApplyRewind(filePath, fileName, ledger, divergence, startPos);
+                            rewind = ApplyRewind(filePath, fileName, ledger, divergence, startPos);
                             oldBookmark = startPos;
                             startPos = divergence;
                         }
@@ -259,7 +261,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         // A fragment right at the bookmark of a multi-writer file (the previous
                         // entry ended exactly here, this one does not open an entry) is the tail of
                         // a block a stale writer laid over already-read bytes: verify before reading on.
-                        if (ledger != null && rewoundEntries == null && entry.Offset == ledger.EndOffset
+                        if (ledger != null && rewind == null && entry.Offset == ledger.EndOffset
                             && ledger.LastFragmentOffset != entry.Offset && !entry.Text.StartsWith("<![LOG["))
                         {
                             ledger.VerifyRequested = true;
@@ -270,8 +272,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     }
 
                     if (ledger != null) ledger.Record(entry);
-                    if (rewoundEntries != null && rewoundEntries.Contains(new LedgerEntry { Offset = entry.Offset, Hash = entry.Hash }))
-                        continue; // unchanged behind the old bookmark — processed before the rewind
+                    var unchanged = rewind != null && rewind.IsUnchanged(entry);
+                    if (unchanged) RestoreInvocationMarkers(rewind, entry.Offset);
+
+                    // Writer boundary (see ImeLogTracker.Overwrite.cs): an AgentExecutor.log entry that is
+                    // not exactly one CMTrace record ends the bytes of the executor in front of it. Never
+                    // matched — its text is the cut of two writers. Evaluated for unchanged entries too:
+                    // what owns the position in front of them may have changed with the rewind.
+                    if (writerBoundaries && !IsSingleCmTraceRecord(entry.Text))
+                    {
+                        CloseAtWriterBoundary(fileName, entry.Offset, entry.Text);
+                        continue;
+                    }
+
+                    if (unchanged) continue; // unchanged behind the old bookmark — processed before the rewind
 
                     _currentPassLinesAreFresh = passLinesAreFresh && entry.Offset >= oldBookmark;
 

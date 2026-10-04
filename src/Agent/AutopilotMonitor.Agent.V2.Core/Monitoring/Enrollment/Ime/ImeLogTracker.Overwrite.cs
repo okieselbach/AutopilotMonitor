@@ -293,13 +293,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
         }
 
-        /// <summary>Moves the bookmark back to the first changed entry; returns the entries to skip if they still read unchanged behind it.</summary>
-        private HashSet<LedgerEntry> ApplyRewind(string filePath, string fileName, FileLedger ledger, long rewindTo, long bookmark)
+        /// <summary>
+        /// What one rewind pass carries: the entries to skip if they still read unchanged behind the rewind point, and
+        /// the invocation markers set aside there until their entries prove unchanged. Pass-local by design — whatever
+        /// is not given back dies with the pass on every exit path.
+        /// </summary>
+        private sealed class RewindState
+        {
+            public RewindState(string fileName, HashSet<LedgerEntry> unchanged, List<InvocationMarker> markers, InvocationMarker lastPlatformMarker)
+            {
+                FileName = fileName;
+                Unchanged = unchanged;
+                Markers = markers;
+                LastPlatformMarker = lastPlatformMarker;
+            }
+
+            public string FileName { get; }
+            public HashSet<LedgerEntry> Unchanged { get; }
+            /// <summary>Set aside at the rewind, ascending by offset.</summary>
+            public List<InvocationMarker> Markers { get; }
+            /// <summary>The tracker-wide last platform marker, when it was among the set-aside ones.</summary>
+            public InvocationMarker LastPlatformMarker { get; }
+            public int Next { get; set; }
+
+            public bool IsUnchanged(AssembledEntry entry) => Unchanged.Contains(new LedgerEntry { Offset = entry.Offset, Hash = entry.Hash });
+        }
+
+        /// <summary>Moves the bookmark back to the first changed entry; returns what the re-read needs to skip and to give back.</summary>
+        private RewindState ApplyRewind(string filePath, string fileName, FileLedger ledger, long rewindTo, long bookmark)
         {
             var removed = ledger.TruncateFrom(rewindTo);
             _positionTracker.SetPosition(filePath, rewindTo);
             _heldTails.Remove(filePath);
-            InvalidateInvocationMarkersFrom(fileName, rewindTo);
+            var lastPlatformMarker = _lastPlatformMarker;
+            var markers = TakeInvocationMarkersFrom(fileName, rewindTo, out var tookLastPlatformMarker);
             _overwriteRewinds++;
             _overwriteBytesReprocessed += bookmark - rewindTo;
 
@@ -314,7 +341,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 _logger.Debug(message);
             }
-            return removed;
+            return new RewindState(fileName, removed, markers, tookLastPlatformMarker ? lastPlatformMarker : null);
         }
 
         private long RetentionFloor(string fileName, long bookmark)
@@ -331,19 +358,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // -----------------------------------------------------------------------
         //
         // AgentExecutor.log carries "Powershell exit code is N" / "write output done" without a
-        // policy id. Their owner is decided by FILE POSITION, not by the order lines were read:
-        // an executor writes its end block at its own stream position, i.e. directly after its
-        // own start block in the final bytes, so the nearest preceding invocation marker names
-        // it — and stays right after a rewind re-reads that region. A marker is a platform start
-        // (policy id), some other invocation (detection, remediation, requirement: null) or a
-        // close ("gets invoked" banner, "Agent executor completed").
+        // policy id. Their owner is decided by FILE POSITION: the nearest preceding marker — a
+        // platform start (policy id), some other invocation (detection, remediation, requirement:
+        // null), a close ("gets invoked" banner, "Agent executor completed") or a writer boundary.
+        //
+        // Every executor writes its lines contiguously from its own stream position, so its end
+        // block follows its own start block — but that start block may be gone. Two executors that
+        // open the file at the same end write their start blocks over each other, and the end block
+        // of the one that lost then sits behind the OTHER executor's start block (session 756970cf:
+        // a detection script's exit code and output on a platform script). Where one writer's bytes
+        // meet another's, the cut leaves an entry that is not exactly one CMTrace record — a
+        // fragment, a merged line or an empty line — unless the line boundaries of both writers
+        // coincide byte-exactly. That writer boundary closes the platform invocation in front of it.
+        // AgentExecutor.log only: in the IME log the service writes the markers and the lines they
+        // own itself, and its fragments are executor telemetry lines.
+        //
+        // A marker lives exactly as long as the bytes of its entry: a rewind sets the markers from
+        // the rewind point on aside, and an entry that reads unchanged gets its markers back.
 
         private sealed class InvocationMarker
         {
             public long Offset;
             public string PolicyId;
             public bool IsClose;
+            /// <summary>Set on a writer boundary: the platform invocation it closed.</summary>
+            public string ClosedPolicyId;
         }
+
+        private const string ExecutorLogFileName = "AgentExecutor.log";
 
         private readonly Dictionary<string, List<InvocationMarker>> _invocationMarkers =
             new Dictionary<string, List<InvocationMarker>>(StringComparer.OrdinalIgnoreCase);
@@ -354,22 +396,59 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly HashSet<string> _platformMarkerFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private long _testEntryOrdinal;
 
-        private void RecordInvocationMarker(string policyId, bool isClose)
+        /// <summary>
+        /// The executor log, live or rotated (<c>AgentExecutor-yyyyMMdd-HHmmss.log</c>): its invocations are one process
+        /// each, so a writer boundary ends an invocation — in the final bytes of a rotation as much as in the live file.
+        /// </summary>
+        internal static bool IsWriterBoundaryLogFile(string fileName)
+            => string.Equals(fileName, ExecutorLogFileName, StringComparison.OrdinalIgnoreCase)
+            || (fileName != null
+                && fileName.StartsWith("AgentExecutor-", StringComparison.OrdinalIgnoreCase)
+                && fileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>
+        /// True when the entry is exactly one CMTrace record: it opens with <c>&lt;![LOG[</c> (culture-sensitive like
+        /// <c>CmTraceLogParser.TryParseLine</c>, so a BOM is ignorable) and holds no second one — the parser takes the
+        /// message up to the LAST trailer, so a line cut anywhere, its trailer included, would swallow the record
+        /// written over it. An empty entry is the terminator of a cut line. A script whose own output contains the
+        /// open tag loses that output line: the bytes cannot tell it from a merged line.
+        /// </summary>
+        internal static bool IsSingleCmTraceRecord(string text)
         {
-            if (_currentEntryOffset < 0) return;
-            var file = _currentSourceFileName ?? TestSourceFileName;
+            if (string.IsNullOrEmpty(text) || !text.StartsWith(LogOpenTag)) return false;
+            var first = text.IndexOf(LogOpenTag, StringComparison.Ordinal);
+            return first >= 0 && text.IndexOf(LogOpenTag, first + LogOpenTag.Length, StringComparison.Ordinal) < 0;
+        }
+
+        private List<InvocationMarker> GetOrCreateMarkerList(string file)
+        {
             List<InvocationMarker> list;
             if (!_invocationMarkers.TryGetValue(file, out list))
             {
                 list = new List<InvocationMarker>();
                 _invocationMarkers[file] = list;
             }
+            return list;
+        }
+
+        private static void AppendInvocationMarker(List<InvocationMarker> list, InvocationMarker marker)
+        {
+            if (list.Count >= MaxInvocationMarkersPerFile) list.RemoveAt(0);
+            list.Add(marker);
+        }
+
+        private void RecordInvocationMarker(string policyId, bool isClose)
+        {
+            if (_currentEntryOffset < 0) return;
+            var file = _currentSourceFileName ?? TestSourceFileName;
+            var list = GetOrCreateMarkerList(file);
 
             if (list.Count > 0 && list[list.Count - 1].Offset == _currentEntryOffset)
             {
                 // Two patterns on one line: the platform start outranks the generic argument line.
+                // A writer boundary is never upgraded.
                 var last = list[list.Count - 1];
-                if (!isClose && policyId != null)
+                if (!isClose && policyId != null && last.ClosedPolicyId == null)
                 {
                     last.PolicyId = policyId;
                     last.IsClose = false;
@@ -379,9 +458,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
 
-            if (list.Count >= MaxInvocationMarkersPerFile) list.RemoveAt(0);
             var marker = new InvocationMarker { Offset = _currentEntryOffset, PolicyId = policyId, IsClose = isClose };
-            list.Add(marker);
+            AppendInvocationMarker(list, marker);
             if (!isClose && policyId != null)
             {
                 _lastPlatformMarker = marker;
@@ -390,21 +468,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
-        /// The pending platform script that owns the entry being processed, or null.
-        /// <paramref name="ownerPolicyId"/> names the owning platform script even when its slot is
-        /// gone (completion already emitted); null when no platform invocation owns the entry.
+        /// An entry of <paramref name="fileName"/> at <paramref name="offset"/> that is not exactly one CMTrace record:
+        /// the bytes behind it were written by another process than the bytes in front of it. Closes the platform
+        /// invocation that owns the position; records nothing when none is open there (a cut multi-line output yields
+        /// one fragment per line). Idempotent at the same offset.
         /// </summary>
-        private ScriptExecutionState ResolvePlatformScriptForCurrentEntry(out string ownerPolicyId)
+        private void CloseAtWriterBoundary(string fileName, long offset, string text)
         {
-            ownerPolicyId = null;
-            var file = _currentSourceFileName ?? TestSourceFileName;
+            var owner = FindOwningMarker(fileName, offset);
+            if (owner == null || owner.IsClose || owner.PolicyId == null) return;
+
+            var list = GetOrCreateMarkerList(fileName);
+            if (list.Count > 0 && list[list.Count - 1].Offset >= offset) return;
+            AppendInvocationMarker(list, new InvocationMarker { Offset = offset, IsClose = true, ClosedPolicyId = owner.PolicyId });
+
+            var kind = string.IsNullOrEmpty(text) ? "empty line" : text.StartsWith(LogOpenTag) ? "merged line" : "fragment";
+            _logger.Debug($"ImeLogTracker: writer boundary in {fileName} at offset {offset} ({kind}, {text?.Length ?? 0} chars) closes platform script {owner.PolicyId} (opened at {owner.Offset}) — the bytes behind it belong to another executor");
+        }
+
+        /// <summary>The marker that owns <paramref name="offset"/> in <paramref name="file"/>, or null.</summary>
+        private InvocationMarker FindOwningMarker(string file, long offset)
+        {
             InvocationMarker marker = null;
             List<InvocationMarker> list = null;
-            if (_currentEntryOffset >= 0 && _invocationMarkers.TryGetValue(file, out list))
+            if (offset >= 0 && _invocationMarkers.TryGetValue(file, out list))
             {
                 for (var i = list.Count - 1; i >= 0; i--)
                 {
-                    if (list[i].Offset <= _currentEntryOffset)
+                    if (list[i].Offset <= offset)
                     {
                         marker = list[i];
                         break;
@@ -420,6 +511,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // (session 24dc69d1: the health-script worker's exit line pre-filled a platform slot's
             // exit code, its launch line the slot's context).
             if (marker == null && (list == null || list.Count == 0) && _platformMarkerFiles.Contains(file)) marker = _lastPlatformMarker;
+            return marker;
+        }
+
+        /// <summary>
+        /// The pending platform script that owns the entry being processed, or null.
+        /// <paramref name="ownerPolicyId"/> names the owning platform script even when its slot is
+        /// gone (completion already emitted); null when no platform invocation owns the entry.
+        /// </summary>
+        private ScriptExecutionState ResolvePlatformScriptForCurrentEntry(out string ownerPolicyId)
+        {
+            ownerPolicyId = null;
+            var marker = FindOwningMarker(_currentSourceFileName ?? TestSourceFileName, _currentEntryOffset);
             if (marker == null || marker.IsClose || marker.PolicyId == null) return null;
 
             ownerPolicyId = marker.PolicyId;
@@ -427,17 +530,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return _pendingPlatformScripts.TryGetValue(marker.PolicyId, out state) ? state : null;
         }
 
-        private void InvalidateInvocationMarkersFrom(string fileName, long offset)
+        /// <summary>Debug trace for an executor line that a writer boundary kept away from a platform script.</summary>
+        private void LogLineBehindWriterBoundary(string what)
         {
+            var marker = FindOwningMarker(_currentSourceFileName ?? TestSourceFileName, _currentEntryOffset);
+            if (marker?.ClosedPolicyId == null) return;
+            _logger.Debug($"ImeLogTracker: {what} at offset {_currentEntryOffset} lies behind the writer boundary at {marker.Offset} that closed platform script {marker.ClosedPolicyId} — another executor's end block, not attributed");
+        }
+
+        /// <summary>Removes the markers from <paramref name="offset"/> on and returns them in offset order.</summary>
+        private List<InvocationMarker> TakeInvocationMarkersFrom(string fileName, long offset, out bool tookLastPlatformMarker)
+        {
+            tookLastPlatformMarker = false;
+            var taken = new List<InvocationMarker>();
             List<InvocationMarker> list;
-            if (!_invocationMarkers.TryGetValue(fileName, out list) || list.Count == 0) return;
-            var removedLast = false;
-            for (var i = list.Count - 1; i >= 0 && list[i].Offset >= offset; i--)
+            if (!_invocationMarkers.TryGetValue(fileName, out list) || list.Count == 0) return taken;
+
+            var from = list.Count;
+            while (from > 0 && list[from - 1].Offset >= offset) from--;
+            for (var i = from; i < list.Count; i++)
             {
-                if (ReferenceEquals(list[i], _lastPlatformMarker)) removedLast = true;
-                list.RemoveAt(i);
+                if (ReferenceEquals(list[i], _lastPlatformMarker)) tookLastPlatformMarker = true;
+                taken.Add(list[i]);
             }
-            if (removedLast)
+            list.RemoveRange(from, list.Count - from);
+
+            if (tookLastPlatformMarker)
             {
                 _lastPlatformMarker = null;
                 for (var i = list.Count - 1; i >= 0; i--)
@@ -448,6 +566,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         break;
                     }
                 }
+            }
+            return taken;
+        }
+
+        private void InvalidateInvocationMarkersFrom(string fileName, long offset) => TakeInvocationMarkersFrom(fileName, offset, out _);
+
+        /// <summary>
+        /// An entry that reads unchanged after a rewind keeps its markers: gives back the set-aside markers at exactly
+        /// <paramref name="entryOffset"/>. Set-aside markers in front of it belonged to entries that changed and stay
+        /// gone with their bytes.
+        /// </summary>
+        private void RestoreInvocationMarkers(RewindState rewind, long entryOffset)
+        {
+            var markers = rewind.Markers;
+            while (rewind.Next < markers.Count && markers[rewind.Next].Offset < entryOffset) rewind.Next++;
+            while (rewind.Next < markers.Count && markers[rewind.Next].Offset == entryOffset)
+            {
+                var marker = markers[rewind.Next++];
+                var list = GetOrCreateMarkerList(rewind.FileName);
+                if (list.Count > 0 && list[list.Count - 1].Offset >= marker.Offset) continue;
+                AppendInvocationMarker(list, marker);
+                if (ReferenceEquals(marker, rewind.LastPlatformMarker)) _lastPlatformMarker = marker;
             }
         }
 
@@ -473,6 +613,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         /// <summary>What a rollover of the file does to its invocation markers.</summary>
         internal void ClearInvocationMarkersForTest(string fileName) => InvalidateInvocationMarkersFrom(fileName, 0);
+
+        internal int InvocationMarkerCountForTest(string fileName)
+            => _invocationMarkers.TryGetValue(fileName, out var list) ? list.Count : 0;
 
         internal int LedgerEntryCountForTest(string fileName)
         {
