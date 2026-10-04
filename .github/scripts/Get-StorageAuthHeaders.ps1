@@ -11,6 +11,7 @@
     Identity comes from whatever `az login` established: the federated GitHub OIDC principal
     in CI (azure/login, subject repo:okieselbach/AutopilotMonitor:ref:refs/heads/main), the
     operator's own account for the local build. No secret is read, stored or passed around.
+    Under GitHub Actions the token is masked in the run log before it is returned.
 
     x-ms-version is MANDATORY here, not decoration: Entra-authorized requests are rejected
     below 2017-11-09, and Table requests without a SAS must carry the header at all. 2021-08-06
@@ -43,6 +44,15 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
            '`az login`. A token alone is not enough: the principal also needs Storage Blob ' +
            'Data Contributor on the container it writes, and Storage Table Data Contributor ' +
            'on the table -- a missing role shows up later as HTTP 403 AuthorizationPermissionMismatch.')
+}
+
+# GitHub masks only secrets.* on its own; a token minted at run time is clear text in the
+# (public) run log the moment anything prints it -- an uncaptured call of this script, or
+# Get-Error / Format-List on a failed request, whose TargetObject carries this header.
+# Write-Host, never Write-Output: the output stream is this script's return value. Only
+# under Actions -- anywhere else the line would print the token instead of hiding it.
+if ($env:GITHUB_ACTIONS -eq 'true') {
+    Write-Host "::add-mask::$token"
 }
 
 return @{
