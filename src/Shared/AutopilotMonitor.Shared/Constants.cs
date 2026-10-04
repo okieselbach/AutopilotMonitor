@@ -913,6 +913,37 @@ namespace AutopilotMonitor.Shared
             /// author-defined (no error-code enrichment unless <see cref="GatherRuleDataKeys.EnrichErrorCodes"/>).
             /// </summary>
             public const string GatherRuleExecutor = "GatherRuleExecutor";
+
+            /// <summary>Clock steps and sleep episodes from the Windows System log.</summary>
+            public const string SystemTimelineWatcher = "SystemTimelineWatcher";
+
+            /// <summary>Windows Update client events (System and Operational log).</summary>
+            public const string WindowsUpdateWatcher = "WindowsUpdateWatcher";
+
+            /// <summary>CBS servicing steps from the Setup log.</summary>
+            public const string ServicingWatcher = "ServicingWatcher";
+
+            /// <summary>
+            /// Sources whose rows never set a session's start. Their watchers backfill the Windows
+            /// event logs with the original event time — clock steps and sleep up to 24 h, update
+            /// and servicing activity up to 60 min before the agent started — so their earliest row
+            /// is environment observation from before the enrollment, not its first step. Every
+            /// place that derives the start from events applies this list: backend ingest and the
+            /// Events-table probe, and the portal's session duration via shared-manifests.json.
+            /// </summary>
+            public static readonly string[] SessionAnchorIneligible =
+            {
+                SystemTimelineWatcher,
+                WindowsUpdateWatcher,
+                ServicingWatcher,
+            };
+
+            /// <summary>
+            /// False for <see cref="SessionAnchorIneligible"/> sources; true otherwise, including a
+            /// row without a source.
+            /// </summary>
+            public static bool IsSessionAnchorEligible(string? source) =>
+                System.Array.IndexOf(SessionAnchorIneligible, source) < 0;
         }
 
         /// <summary>

@@ -1,4 +1,8 @@
 import type { EnrollmentEvent } from "@/types";
+import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+
+/** Sources whose rows never set a session's start (backend `Constants.EventSources.SessionAnchorIneligible`). */
+const ANCHOR_INELIGIBLE_SOURCES: ReadonlySet<string> = new Set(SHARED_MANIFEST.sessionAnchorIneligibleSources);
 
 export interface StandbyWindow {
   startMs: number;
@@ -7,17 +11,18 @@ export interface StandbyWindow {
 
 /**
  * The enrollment window as the session page measures its duration: first activity event →
- * `enrollment_complete`, or the last activity event while no verdict exists. System-timeline
- * rows (clock steps, sleep episodes) are excluded — they are backfilled from the Windows event
- * log with timestamps up to 24 h before the agent started and would drag the start into
- * pre-enrollment idle time. Null when the session has no activity events.
+ * `enrollment_complete`, or the last activity event while no verdict exists. Backfilled
+ * environment rows (clock steps, sleep, update and servicing activity) are excluded, as in the
+ * backend's session anchor — they carry Windows event-log timestamps from before the agent
+ * started and would drag the start into pre-enrollment time. Null when the session has no
+ * activity events.
  */
 export function enrollmentWindowOf(events: EnrollmentEvent[]): StandbyWindow | null {
   let startMs = Number.POSITIVE_INFINITY;
   let lastMs = Number.NEGATIVE_INFINITY;
   let completeMs: number | null = null;
   for (const e of events) {
-    if (e.source === "SystemTimelineWatcher") continue;
+    if (ANCHOR_INELIGIBLE_SOURCES.has(e.source)) continue;
     const t = new Date(e.timestamp).getTime();
     if (!Number.isFinite(t)) continue;
     if (t < startMs) startMs = t;

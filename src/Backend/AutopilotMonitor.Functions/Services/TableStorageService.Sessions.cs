@@ -3540,18 +3540,15 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Event sources whose rows never anchor the session. The system timeline watcher
-        /// backfills environment observations (clock steps, sleep episodes) from the Windows
-        /// event log with their ORIGINAL timestamps — up to 24h before the agent started.
-        /// They belong on the timeline, but they are not enrollment activity: anchoring on
-        /// them silently stretches StartedAt/DurationSeconds toward pre-enrollment OOBE idle
-        /// time (field case d0c5b672: a pre-agent clock correction pulled StartedAt ~14min
-        /// before the first real activity; the 2h backward-shift guard only caps, not
-        /// prevents, this). User decision 2026-08-21: the session anchor stays on real
-        /// enrollment activity.
+        /// Whether an event row may anchor the session (<see cref="Constants.EventSources.SessionAnchorIneligible"/>).
+        /// Backfilled environment observations carry their ORIGINAL event time, up to 24h before
+        /// the agent started; anchoring on them silently stretches StartedAt/DurationSeconds into
+        /// pre-enrollment time (field case d0c5b672: a pre-agent clock correction, ~14 min; the 2h
+        /// backward-shift guard only caps this). User decision 2026-08-21: the session anchor
+        /// stays on real enrollment activity.
         /// </summary>
         internal static bool IsSessionAnchorEligible(TableEntity eventRow)
-            => eventRow.GetString("Source") != "SystemTimelineWatcher";
+            => Constants.EventSources.IsSessionAnchorEligible(eventRow.GetString("Source"));
 
         /// <summary>
         /// Returns the earliest ANCHOR-ELIGIBLE event timestamp persisted for a session, if

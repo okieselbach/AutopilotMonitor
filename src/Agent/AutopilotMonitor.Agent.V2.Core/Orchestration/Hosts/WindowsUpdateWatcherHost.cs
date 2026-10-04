@@ -197,7 +197,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     TenantId = _tenantId,
                     EventType = SharedConstants.EventTypes.WindowsUpdateActivitySummary,
                     Severity = EventSeverity.Debug,
-                    Source = "WindowsUpdateWatcher",
+                    Source = SharedConstants.EventSources.WindowsUpdateWatcher,
                     Phase = EnrollmentPhase.Unknown,
                     Message = $"Update activity counted instead of listed: {total} event(s) " +
                         "(Store, Defender and other non-OS updates, repeated scan results, servicing of non-OS packages)",
@@ -223,7 +223,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _ingress.Post(
                 kind: DecisionSignalKind.OsUpdateActivity,
                 occurredAtUtc: DateTime.SpecifyKind(occurredAtUtc, DateTimeKind.Utc),
-                sourceOrigin: source == "servicing" ? "ServicingWatcher" : "WindowsUpdateWatcher",
+                sourceOrigin: source == "servicing" ? SharedConstants.EventSources.ServicingWatcher : SharedConstants.EventSources.WindowsUpdateWatcher,
                 evidence: new Evidence(
                     kind: EvidenceKind.Raw,
                     identifier: $"os-update-activity:{source}",

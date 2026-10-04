@@ -280,7 +280,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Timestamp = timeCreatedUtc ?? DateTime.UtcNow,
                 EventType = Constants.EventTypes.WindowsUpdateServicing,
                 Severity = severity,
-                Source = "ServicingWatcher",
+                Source = Constants.EventSources.ServicingWatcher,
                 Phase = EnrollmentPhase.Unknown,
                 Message = message,
                 Data = data,

@@ -90,6 +90,8 @@ public sealed class SharedManifestParityTests
             ["annotationVerdicts"] = AnnotationVerdicts.All,
             // Install channels of the app rows (AppInstallSummary.Source and the per-app DTOs).
             ["appInstallSources"] = AppInstallSources.All,
+            // Event sources whose rows never set a session's start; the portal's session duration applies them.
+            ["sessionAnchorIneligibleSources"] = Constants.EventSources.SessionAnchorIneligible,
             // Community rule submissions: kinds, effective statuses (incl. the derived "published"),
             // attribution modes and reviewer decisions — the MCP tool schemas enumerate these.
             ["ruleSubmissionKinds"] = RuleSubmissionKinds.All,

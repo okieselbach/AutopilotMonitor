@@ -499,6 +499,11 @@
     "ime",
     "realmjoin"
   ],
+  "sessionAnchorIneligibleSources": [
+    "SystemTimelineWatcher",
+    "WindowsUpdateWatcher",
+    "ServicingWatcher"
+  ],
   "ruleSubmissionKinds": [
     "gather",
     "analyze"

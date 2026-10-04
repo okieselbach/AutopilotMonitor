@@ -503,6 +503,11 @@ export const SHARED_MANIFEST = {
     "ime",
     "realmjoin"
   ],
+  "sessionAnchorIneligibleSources": [
+    "SystemTimelineWatcher",
+    "WindowsUpdateWatcher",
+    "ServicingWatcher"
+  ],
   "ruleSubmissionKinds": [
     "gather",
     "analyze"

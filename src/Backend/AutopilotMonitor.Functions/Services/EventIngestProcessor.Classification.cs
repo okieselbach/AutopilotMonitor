@@ -1,4 +1,5 @@
 using AutopilotMonitor.DecisionCore.State;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
@@ -9,19 +10,18 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
-        private EventClassification ClassifyEvents(List<EnrollmentEvent> storedEvents)
+        internal static EventClassification ClassifyEvents(List<EnrollmentEvent> storedEvents)
         {
             var classification = new EventClassification();
 
             foreach (var evt in storedEvents)
             {
-                // System-timeline-watcher rows (clock steps, sleep episodes) are backfilled
-                // from the Windows event log with original timestamps up to 24h before the
-                // agent started — environment observation, not enrollment activity. They must
-                // not pull the session anchor toward pre-enrollment OOBE idle time (mirrors
-                // TableStorageService.IsSessionAnchorEligible on the Events-table probe;
-                // field case d0c5b672).
-                var anchorEligible = evt.Source != "SystemTimelineWatcher";
+                // Backfilled environment observations (clock steps, sleep, update and servicing
+                // activity from before the agent started) are timeline rows, not enrollment
+                // activity: they must not pull the session anchor into pre-enrollment time
+                // (Constants.EventSources.SessionAnchorIneligible; the Events-table probe applies
+                // the same rule).
+                var anchorEligible = Constants.EventSources.IsSessionAnchorEligible(evt.Source);
                 if (anchorEligible &&
                     (!classification.EarliestEventTimestamp.HasValue || evt.Timestamp < classification.EarliestEventTimestamp.Value))
                     classification.EarliestEventTimestamp = evt.Timestamp;

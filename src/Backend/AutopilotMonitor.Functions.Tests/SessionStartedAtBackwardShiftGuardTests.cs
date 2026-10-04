@@ -104,10 +104,14 @@ public class SessionStartedAtBackwardShiftGuardTests
     // =========================== system-timeline rows are not session anchors ====
 
     [Fact]
-    public void IsSessionAnchorEligible_excludes_system_timeline_watcher_rows()
+    public void IsSessionAnchorEligible_excludes_backfilled_environment_rows()
     {
         Assert.False(TableStorageService.IsSessionAnchorEligible(
             new TableEntity("p", "r") { ["Source"] = "SystemTimelineWatcher" }));
+        Assert.False(TableStorageService.IsSessionAnchorEligible(
+            new TableEntity("p", "r") { ["Source"] = "WindowsUpdateWatcher" }));
+        Assert.False(TableStorageService.IsSessionAnchorEligible(
+            new TableEntity("p", "r") { ["Source"] = "ServicingWatcher" }));
         Assert.True(TableStorageService.IsSessionAnchorEligible(
             new TableEntity("p", "r") { ["Source"] = "ImeLogTracker" }));
         Assert.True(TableStorageService.IsSessionAnchorEligible(
@@ -128,6 +132,29 @@ public class SessionStartedAtBackwardShiftGuardTests
         var harness = new Harness(SessionRow(), eventRows: new[]
         {
             EventRow(clockEventAt, sequence: 18, source: "SystemTimelineWatcher"),
+            EventRow(firstActivity, sequence: 2, source: "ImeLogTracker"),
+        });
+
+        var ok = await harness.Sut.UpdateSessionStatusAsync(
+            TenantId, SessionId, SessionStatus.Pending, VerdictPaths.AgentWhiteGlovePending,
+            latestEventTimestamp: lastEvent);
+
+        Assert.True(ok);
+        Assert.NotNull(harness.Written);
+        Assert.Equal((int)(lastEvent - firstActivity).TotalSeconds, harness.Written!.GetInt32("DurationSeconds"));
+    }
+
+    [Fact]
+    public async Task Pending_duration_skips_backfilled_update_rows_and_anchors_on_activity()
+    {
+        // D-315: update scans and CBS servicing backfilled with their event time up to 60 min
+        // before the agent started were the partition's earliest rows and re-anchored StartedAt.
+        var firstActivity = StartedAt.AddMinutes(-5);
+        var lastEvent = StartedAt.AddMinutes(70);
+        var harness = new Harness(SessionRow(), eventRows: new[]
+        {
+            EventRow(StartedAt.AddMinutes(-55), sequence: 27, source: "WindowsUpdateWatcher"),
+            EventRow(StartedAt.AddMinutes(-50), sequence: 34, source: "ServicingWatcher"),
             EventRow(firstActivity, sequence: 2, source: "ImeLogTracker"),
         });
 
