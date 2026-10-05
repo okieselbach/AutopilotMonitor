@@ -1,0 +1,119 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-014",
+  "title": "OOBE Quality Update Not Offered After an Earlier Failure",
+  "description": "Detects that the Windows quality update page at the end of OOBE found no update to install although the device is out of date, on a device whose update page counts an earlier failed download or install (oobe_update_page: NDUPDownloadInstallPreviousFailureCount above 0, osUpdatesWithNDUPPI false, getDaysOutOfDateSucceeded above 0). No failure and no install success are recorded in this session — a failure in this session is ANALYZE-DEV-013 — and the agent's names_capped marker vetoes the finding, because a missing name proves nothing once the page's names were capped. The device finishes OOBE without the monthly security update.",
+  "severity": "warning",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end"
+  ],
+  "trigger": "single",
+  "baseConfidence": 75,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "previous_failures",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "value",
+      "operator": "gt",
+      "value": "0",
+      "filterField": "name",
+      "filterOperator": "equals",
+      "filterValue": "SdxWebAppCloudNDUP_initialize_NDUPDownloadInstallPreviousFailureCount",
+      "required": true
+    },
+    {
+      "signal": "nothing_offered",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "value",
+      "operator": "equals",
+      "value": "false",
+      "filterField": "name",
+      "filterOperator": "equals",
+      "filterValue": "SdxWebAppCloudNDUP_updateManager_processUpdatesMetadata_osUpdatesWithNDUPPI",
+      "required": true
+    },
+    {
+      "signal": "days_out_of_date",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "value",
+      "operator": "gt",
+      "value": "0",
+      "filterField": "name",
+      "filterOperator": "equals",
+      "filterValue": "ExpeditedUpdate_getDaysOutOfDateSucceeded",
+      "required": true
+    },
+    {
+      "signal": "no_update_failure",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "name",
+      "filterOperator": "in",
+      "filterValue": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError,SdxWebAppCloudNDUP_processStatusChangeFromHandler_installFailedError,ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure",
+      "required": true
+    },
+    {
+      "signal": "no_install_success",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "name",
+      "filterOperator": "regex",
+      "filterValue": "installSucceededRebootRequired|commitExpeditionDownloadInstallAsyncSucceeded",
+      "required": true
+    },
+    {
+      "signal": "page_names_complete",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "cxhEvent",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "cxhEvent",
+      "filterOperator": "equals",
+      "filterValue": "names_capped",
+      "required": true
+    }
+  ],
+  "explanation": "The Windows quality update page at the end of OOBE checked for updates and found none to install, although Windows reports the device as {{days_out_of_date}} days out of date. The page's failure counter for this device stands at {{previous_failures}}: an earlier download or install of an OOBE quality update on this device failed. The device finished OOBE without the monthly security update and installs it only later, through the Windows Update policy that applies after enrollment.",
+  "remediation": [
+    {
+      "title": "Check the earlier attempt",
+      "steps": [
+        "Look at the device's earlier enrollment sessions — the failed attempt and its ANALYZE-DEV-013 finding are usually there.",
+        "Verify the device's patch level after enrollment; the update ring assigned to the device installs the missing monthly security update on its normal schedule."
+      ]
+    },
+    {
+      "title": "Reduce how far behind devices start",
+      "steps": [
+        "Devices that start OOBE many months behind need a long update during setup; a current OS image or factory build shortens it and gives a failed attempt less to repeat."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Install Windows quality updates during OOBE (Enrollment Status Page)",
+      "url": "https://learn.microsoft.com/en-us/intune/device-enrollment/windows/setup-status-page#windows-monthly-security-update-release-details"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "windows-update",
+    "oobe",
+    "quality-update"
+  ]
+}

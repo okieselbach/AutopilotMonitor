@@ -95,13 +95,15 @@ describe("enrollmentWindowOf", () => {
     expect(w).toEqual({ startMs: Date.parse("2026-09-09T06:32:46Z"), endMs: Date.parse("2026-09-09T06:40:00Z") });
   });
 
-  it("ignores update and servicing rows backfilled from before the agent started", () => {
-    // D-315: the update watchers deliver rows with their event-log time up to 60 min before the agent.
+  it("ignores update, servicing and update-page rows backfilled from before the agent started", () => {
+    // D-315: the update watchers deliver rows with their event-log time up to 60 min before the agent;
+    // so does the update page telemetry on an agent's first run.
     const w = enrollmentWindowOf([
       activity(1, "2026-10-03T08:51:58Z", "windows_update_started", "WindowsUpdateWatcher"),
       activity(2, "2026-10-03T08:52:37Z", "windows_update_servicing", "ServicingWatcher"),
-      activity(3, "2026-10-03T08:56:46Z", "ime_agent_version", "ImeLogTracker"),
-      activity(4, "2026-10-03T10:08:09Z", "enrollment_complete", "DecisionEngine"),
+      activity(3, "2026-10-03T08:53:10Z", "oobe_update_page", "ShellCoreTracker"),
+      activity(4, "2026-10-03T08:56:46Z", "ime_agent_version", "ImeLogTracker"),
+      activity(5, "2026-10-03T10:08:09Z", "enrollment_complete", "DecisionEngine"),
     ]);
     expect(w).toEqual({ startMs: Date.parse("2026-10-03T08:56:46Z"), endMs: Date.parse("2026-10-03T10:08:09Z") });
   });

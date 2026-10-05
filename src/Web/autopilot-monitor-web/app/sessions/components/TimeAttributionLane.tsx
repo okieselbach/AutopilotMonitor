@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { SessionTimeBreakdown } from "@/utils/wire-types.generated";
+import { osUpdateDetail } from "./timeAttributionLogic";
 
 /**
  * F1 time attribution (insights spec §F1): renders the PRE-COMPUTED breakdown row of a
@@ -85,15 +86,9 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
   }
   totals.set("unattributed", breakdown.unattributedSeconds);
 
-  // What the OOBE quality update installed and how often it restarted — named on the
-  // Windows Update slice (the server computed it; the client only joins the lists).
-  const osUpdates = breakdown.osUpdates ?? [];
-  const updateKbs = Array.from(new Set(osUpdates.flatMap(u => u.kbs ?? [])));
-  const updateRestarts = osUpdates.reduce((sum, u) => sum + (u.rebootCount ?? 0), 0);
-  const updateDetail = [
-    updateKbs.join(", "),
-    updateRestarts > 0 ? `${updateRestarts} restart${updateRestarts !== 1 ? "s" : ""}` : "",
-  ].filter(Boolean).join(" · ");
+  // How the OOBE quality update ended, what it installed and how often it restarted — named on
+  // the Windows Update slice.
+  const updateDetail = osUpdateDetail(breakdown.osUpdates ?? []);
 
   const parts = SEGMENT_META
     .map(meta => ({

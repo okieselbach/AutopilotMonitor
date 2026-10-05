@@ -506,7 +506,14 @@ export const SHARED_MANIFEST = {
   "sessionAnchorIneligibleSources": [
     "SystemTimelineWatcher",
     "WindowsUpdateWatcher",
-    "ServicingWatcher"
+    "ServicingWatcher",
+    "ShellCoreTracker"
+  ],
+  "osUpdateOutcomes": [
+    "installed",
+    "failed",
+    "skipped",
+    "unknown"
   ],
   "ruleSubmissionKinds": [
     "gather",

@@ -1,0 +1,118 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-013",
+  "title": "OOBE Quality Update Failed",
+  "description": "Detects that the Windows quality update page at the end of OOBE (Enrollment Status Page setting \"Install Windows quality updates\") reported a failed download or install and recorded no successful install afterwards — the page's own failure names on the oobe_update_page events. Setup usually continues, so the failure is otherwise invisible: the device finishes OOBE without the monthly security update. An OS build change across a restart (os_build_changed) vetoes the finding, and so does the agent's names_capped marker — once the page's event names were capped, a missing success name proves nothing. A downloadInstallFailureHelper entry alone is no failure: updates that installed fine log it too.",
+  "severity": "warning",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end"
+  ],
+  "trigger": "single",
+  "baseConfidence": 75,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "update_failure",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "in",
+      "value": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError,SdxWebAppCloudNDUP_processStatusChangeFromHandler_installFailedError,ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure",
+      "required": true
+    },
+    {
+      "signal": "no_install_success",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "name",
+      "filterOperator": "regex",
+      "filterValue": "installSucceededRebootRequired|commitExpeditionDownloadInstallAsyncSucceeded",
+      "required": true
+    },
+    {
+      "signal": "os_build_unchanged",
+      "source": "event_type",
+      "eventType": "os_build_changed",
+      "operator": "not_exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "page_names_complete",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "cxhEvent",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "cxhEvent",
+      "filterOperator": "equals",
+      "filterValue": "names_capped",
+      "required": true
+    },
+    {
+      "signal": "update_page_failed",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "result",
+      "operator": "equals",
+      "value": "fail",
+      "filterField": "page",
+      "filterOperator": "equals",
+      "filterValue": "OobeNDUP",
+      "required": false
+    },
+    {
+      "signal": "update_skipped",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "regex",
+      "value": "SkipDownloadInstallButtonClicked$",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    {
+      "signal": "update_page_failed",
+      "condition": "exists",
+      "weight": 10
+    }
+  ],
+  "explanation": "The Windows quality update page at the end of OOBE reported `{{update_failure}}`, and no successful install was recorded afterwards. When the download or install of the update fails, the page gives up and setup continues, so the enrollment itself can still succeed — but the device most likely finished OOBE without the monthly security update and installs it only later, through the Windows Update policy that applies after enrollment. Selecting Skip on the page after the failure leads to the same result.",
+  "remediation": [
+    {
+      "title": "Find out why the update failed",
+      "steps": [
+        "Open the oobe_update_page events around the failure in the session timeline: the download progress before it shows how far the download got, and a Skip after it shows that someone chose to continue.",
+        "Check the network path the device uses during OOBE for Windows Update and Delivery Optimization: proxy, TLS inspection and firewall rules for the Windows Update endpoints.",
+        "Compare with other devices: the same failure on many devices of one site points at the network path, on one model at the device, and across the fleet at the update itself."
+      ]
+    },
+    {
+      "title": "Make sure the device gets the update",
+      "steps": [
+        "Verify the device's patch level after enrollment; the update ring assigned to the device installs the missing monthly security update on its normal schedule.",
+        "Where the OOBE quality update keeps failing for one network or device group, decide per Enrollment Status Page profile whether \"Install Windows quality updates\" should stay on."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Install Windows quality updates during OOBE (Enrollment Status Page)",
+      "url": "https://learn.microsoft.com/en-us/intune/device-enrollment/windows/setup-status-page#windows-monthly-security-update-release-details"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "windows-update",
+    "oobe",
+    "quality-update"
+  ]
+}

@@ -53,7 +53,12 @@ public class TimeAttributionPersistenceAndAggregationTests
             },
             OsUpdates = new List<OsUpdateSpan>
             {
-                new() { StartUtc = T0.AddMinutes(9), EndUtc = T0.AddMinutes(19), Seconds = 600, Kbs = new List<string> { "KB5129195", "KB5054156" }, RebootCount = 2 },
+                new()
+                {
+                    StartUtc = T0.AddMinutes(9), EndUtc = T0.AddMinutes(19), Seconds = 600,
+                    Kbs = new List<string> { "KB5129195", "KB5054156" }, NotInstalledKbs = new List<string> { "KB5124007" },
+                    Outcome = OsUpdateOutcomes.Failed, RebootCount = 2,
+                },
             },
             BlockingApps = new List<BlockingAppInterval>
             {
@@ -98,6 +103,8 @@ public class TimeAttributionPersistenceAndAggregationTests
         Assert.Equal(T0.AddMinutes(19), update.EndUtc);
         Assert.Equal(600, update.Seconds);
         Assert.Equal(new[] { "KB5129195", "KB5054156" }, update.Kbs);
+        Assert.Equal(new[] { "KB5124007" }, update.NotInstalledKbs);
+        Assert.Equal(OsUpdateOutcomes.Failed, update.Outcome);
         Assert.Equal(2, update.RebootCount);
 
         var app = Assert.Single(mapped.BlockingApps);
@@ -115,6 +122,21 @@ public class TimeAttributionPersistenceAndAggregationTests
         entity.Remove("OsUpdatesJson");
 
         Assert.Empty(TableStorageService.MapToSessionTimeBreakdown(entity).OsUpdates);
+    }
+
+    [Fact]
+    public void BreakdownEntity_OsUpdateWrittenBeforeTheOutcome_MapsToUnknown()
+    {
+        // v4 spans carry no Outcome/NotInstalledKbs until the sweep recomputes them.
+        var entity = TableStorageService.BuildSessionTimeBreakdownEntity(
+            new SessionTimeBreakdown { TenantId = TenantA, SessionId = "s-1", WallClockSeconds = 600 });
+        entity["OsUpdatesJson"] =
+            "[{\"StartUtc\":\"2026-10-02T14:00:00Z\",\"EndUtc\":\"2026-10-02T14:10:00Z\",\"Seconds\":600,\"Kbs\":[\"KB5129195\"],\"RebootCount\":1}]";
+
+        var update = Assert.Single(TableStorageService.MapToSessionTimeBreakdown(entity).OsUpdates);
+        Assert.Equal(OsUpdateOutcomes.Unknown, update.Outcome);
+        Assert.Empty(update.NotInstalledKbs);
+        Assert.Equal(new[] { "KB5129195" }, update.Kbs);
     }
 
     [Fact]

@@ -67,10 +67,11 @@ public sealed class TimeAttributionInput
 /// <c>system_reboot_detected</c> event is detection-time-stamped by the next run and never used
 /// as the reboot moment (audit Q7). Reboots are a cross-cutting annotation, not a segment.</item>
 /// <item><b>The OOBE quality update takes its time from the phase segments</b> (v4, D-314):
-/// <c>os_update</c> from the start of the update page that installed an update to the last
-/// update evidence before the user is back, then — after a restart — <c>awaiting_sign_in</c>
-/// until the first evidence of the user. Without update evidence (the page cancelled or found
-/// nothing) the partition is the phase partition unchanged.</item>
+/// <c>os_update</c> from the start of the update page that worked on an update — or, when the
+/// agent started after the page, from the update's first evidence (v5) — to the last update
+/// evidence before the user is back, then — after a restart — <c>awaiting_sign_in</c> until the
+/// first evidence of the user. Without update evidence (the page cancelled or found nothing) the
+/// partition is the phase partition unchanged. The latest outcome evidence names the outcome.</item>
 /// </list>
 /// </summary>
 public static class TimeAttributionCalculator
@@ -82,7 +83,9 @@ public static class TimeAttributionCalculator
     // annotations mirroring RebootSpans; the maintenance sweep recomputes older rows.
     // v4: os_update + awaiting_sign_in — the OOBE quality update and the wait for the user after
     // its restart, cut out of the phase segment they overlap (D-314), with OsUpdates naming the KBs.
-    public const int CurrentVersion = 4;
+    // v5: an update whose page start the agent missed begins at its first evidence; the device-ESP
+    // exit is the window's own; OsUpdates carry the outcome and split installed from not installed KBs.
+    public const int CurrentVersion = 5;
 
     /// <summary>
     /// Enrollment class for fleet aggregation — classes are NEVER mixed in one aggregate (a
@@ -217,6 +220,8 @@ public static class TimeAttributionCalculator
                     EndUtc = u.End,
                     Seconds = ClampToWindows(u.Start, u.End, windows)?.Seconds ?? 0,
                     Kbs = u.Kbs,
+                    NotInstalledKbs = u.NotInstalledKbs,
+                    Outcome = u.Outcome,
                     RebootCount = u.RebootCount,
                 })
                 .ToList(),
@@ -774,26 +779,53 @@ public static class TimeAttributionCalculator
         public DateTime? AwaitingSignInEnd;
 
         public List<string> Kbs = new();
+        public List<string> NotInstalledKbs = new();
+        public string Outcome = OsUpdateOutcomes.Unknown;
         public int RebootCount;
     }
 
     private readonly struct PageRecord
     {
-        public PageRecord(DateTime at, string cxhEvent, string? page, string? name)
+        public PageRecord(DateTime at, string cxhEvent, string? page, string? name, string? result)
         {
             At = at;
             CxhEvent = cxhEvent;
             Page = page;
             Name = name;
+            Result = result;
         }
 
         public DateTime At { get; }
         public string CxhEvent { get; }
         public string? Page { get; }
         public string? Name { get; }
+        public string? Result { get; }
 
         public bool IsStartOf(string page) => CxhEvent == "page_started" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
         public bool IsStopOf(string page) => CxhEvent == "page_stopped" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>One CBS servicing step (<c>windows_update_servicing</c>) of an OS package.</summary>
+    private readonly struct ServicingStep
+    {
+        public ServicingStep(DateTime at, string? package, string? step, string? targetState)
+        {
+            At = at;
+            Package = package;
+            Step = step;
+            TargetState = targetState;
+        }
+
+        public DateTime At { get; }
+        public string? Package { get; }
+        public string? Step { get; }
+        public string? TargetState { get; }
+
+        public bool ReachedInstalled =>
+            string.Equals(Step, "state_reached", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(TargetState, "Installed", StringComparison.OrdinalIgnoreCase);
+
+        public bool Failed => string.Equals(Step, "failed", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -818,21 +850,48 @@ public static class TimeAttributionCalculator
     /// The update page's own record of a download or an install — evidence of an update next to
     /// the servicing steps (an agent caps the page names per run, so this is the weaker of the two).
     /// </summary>
-    internal static bool IsUpdateActivityName(string? name) =>
+    internal static bool IsUpdateActivityName(string? name) => HasMarker(name, UpdateActivityMarkers);
+
+    // Outcome evidence on the update page (field data 2026-10-03/05). Only the explicit failures
+    // count: an update that installed fine can still log downloadInstallFailureHelper and a start
+    // timeout after its "restart required" (session shape e4ecd6f8).
+    private static readonly string[] UpdateSucceededMarkers =
+    {
+        "installSucceededRebootRequired",               // also the _lcu twin
+        "commitExpeditionDownloadInstallAsyncSucceeded",
+    };
+
+    private static readonly string[] UpdateFailedMarkers =
+    {
+        "downloadFailedError",
+        "installFailedError",
+        "commitExpeditionDownloadInstallAsyncFailure",
+    };
+
+    private static readonly string[] UpdateSkippedMarkers =
+    {
+        "SkipDownloadInstallButtonClicked",             // someone selected Skip on the page
+    };
+
+    private static bool HasMarker(string? name, string[] markers) =>
         name != null &&
-        UpdateActivityMarkers.Any(marker => name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+        markers.Any(marker => name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
 
     /// <summary>
-    /// At most one update per observation window. <b>Begin:</b> the start of the update page
-    /// (<see cref="UpdatePage"/>) whose visit holds update evidence — a servicing step or an
+    /// At most one update per observation window. <b>Begin:</b> update-activity names the agent
+    /// saw before the first observed start of the update page (<see cref="UpdatePage"/>) — it
+    /// started after the visit they belong to — begin at the earliest of the first such name and
+    /// the update's first servicing step (see <see cref="FindUpdateBegin"/>). Otherwise the start
+    /// of the update page whose visit holds update evidence — a servicing step or an
     /// update-activity name before the visit ends (its stop, the <see cref="UpdateRestartPage"/>
-    /// start or the next visit). Only when no page start was observed in the window: the first
-    /// servicing step after the device-ESP exit. Never after the user is back. <b>Bound:</b> the first evidence of the
-    /// user (user ESP apps, desktop, Hello wizard, a Complete declaration), the end of
-    /// attribution (Failed) or the window end. <b>End:</b> the latest update evidence before the
-    /// bound — page record, servicing step, or the end of a restart that began in the interval.
-    /// With a restart in the interval the user is signed out: <c>awaiting_sign_in</c> runs from
-    /// the end to the bound.
+    /// start or the next visit). Only when no page start and no such name was observed in the
+    /// window: the first servicing step after the window's device-ESP exit. Never after the user
+    /// is back. <b>Bound:</b> the first evidence of the user (user ESP apps, desktop, Hello
+    /// wizard, a Complete declaration), the end of attribution (Failed) or the window end.
+    /// <b>End:</b> the latest update evidence before the bound — page record, servicing step, or
+    /// the end of a restart that began in the interval. With a restart in the interval the user
+    /// is signed out: <c>awaiting_sign_in</c> runs from the end to the bound. <b>Outcome:</b> the
+    /// latest outcome evidence in [begin, bound) — see <see cref="ResolveOutcome"/>.
     /// </summary>
     private static List<OsUpdate> BuildOsUpdates(
         List<EnrollmentEvent> events, List<Window> windows, List<Anchor> anchors,
@@ -841,7 +900,7 @@ public static class TimeAttributionCalculator
         var result = new List<OsUpdate>();
 
         var pages = new List<PageRecord>();
-        var servicing = new List<(DateTime At, string? Package)>();
+        var servicing = new List<ServicingStep>();
         foreach (var evt in events)
         {
             if (evt.EventType == Constants.EventTypes.OobeUpdatePage && evt.Data != null)
@@ -849,11 +908,14 @@ public static class TimeAttributionCalculator
                 pages.Add(new PageRecord(evt.Timestamp,
                     DataString(evt.Data, "cxhEvent") ?? string.Empty,
                     DataString(evt.Data, "page"),
-                    DataString(evt.Data, "name")));
+                    DataString(evt.Data, "name"),
+                    DataString(evt.Data, "result")));
             }
             else if (evt.EventType == Constants.EventTypes.WindowsUpdateServicing)
             {
-                servicing.Add((evt.Timestamp, evt.Data != null ? DataString(evt.Data, "package") : null));
+                servicing.Add(evt.Data != null
+                    ? new ServicingStep(evt.Timestamp, DataString(evt.Data, "package"), DataString(evt.Data, "step"), DataString(evt.Data, "targetState"))
+                    : new ServicingStep(evt.Timestamp, null, null, null));
             }
         }
         if (servicing.Count == 0 && !pages.Any(p => IsUpdateActivityName(p.Name))) return result;
@@ -874,11 +936,17 @@ public static class TimeAttributionCalculator
             .OrderBy(t => t)
             .ToList();
         var attributionEnd = anchors.FirstOrDefault(a => a.Bucket == null)?.Ts;
-        var deviceEspExit = events.FirstOrDefault(e => e.EventType == Constants.EventTypes.EspExiting)?.Timestamp;
+        // esp_exiting fires for the Device→Account handoff AND the final exit and is never
+        // replayed; each window picks its own (a WhiteGlove part-1 exit never bounds part 2).
+        var espExits = events
+            .Where(e => e.EventType == Constants.EventTypes.EspExiting)
+            .Select(e => e.Timestamp)
+            .OrderBy(t => t)
+            .ToList();
 
         foreach (var window in windows)
         {
-            var begin = FindUpdateBegin(window, pages, evidence, servicing, deviceEspExit, userBack);
+            var begin = FindUpdateBegin(window, pages, evidence, servicing, espExits, userBack, attributionEnd);
             if (!begin.HasValue) continue;
 
             var bound = window.End;
@@ -896,13 +964,22 @@ public static class TimeAttributionCalculator
             {
                 if (page.At > update.End && page.At < bound) update.End = page.At;
             }
-            foreach (var (at, package) in servicing)
+            var servicedKbs = new List<string>();
+            var installedKbs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var step in servicing)
             {
-                if (at < begin.Value || at >= bound) continue;
-                if (at > update.End) update.End = at;
-                var kb = ExtractKb(package);
-                if (kb != null && !update.Kbs.Contains(kb)) update.Kbs.Add(kb);
+                if (step.At < begin.Value || step.At >= bound) continue;
+                if (step.At > update.End) update.End = step.At;
+                var kb = ExtractKb(step.Package);
+                if (kb == null) continue;
+                if (!servicedKbs.Contains(kb)) servicedKbs.Add(kb);
+                if (step.ReachedInstalled) installedKbs.Add(kb);
             }
+            // A KB counts as installed only once its package reached "Installed"; a failed
+            // update can leave packages staged.
+            update.Kbs = servicedKbs.Where(installedKbs.Contains).ToList();
+            update.NotInstalledKbs = servicedKbs.Where(kb => !installedKbs.Contains(kb)).ToList();
+            update.Outcome = ResolveOutcome(pages, servicing, begin.Value, bound);
             foreach (var (gapStart, gapEnd) in rebootGaps)
             {
                 if (gapStart < begin.Value || gapStart >= bound) continue;
@@ -923,11 +1000,86 @@ public static class TimeAttributionCalculator
     }
 
     private static DateTime? FindUpdateBegin(
-        Window window, List<PageRecord> pages, List<DateTime> evidence,
-        List<(DateTime At, string? Package)> servicing, DateTime? deviceEspExit, List<DateTime> userBack)
+        Window window, List<PageRecord> pages, List<DateTime> evidence, List<ServicingStep> servicing,
+        List<DateTime> espExits, List<DateTime> userBack, DateTime? attributionEnd)
     {
         // An update after the user is back runs beside the enrollment, not instead of it.
         bool UserBackBy(DateTime t) => userBack.Any(u => u > window.Start && u <= t);
+        bool InWindow(DateTime t) => t >= window.Start && t < window.End;
+
+        // This window's device-ESP exit before the given moment, if one was observed.
+        DateTime? EspExitBefore(DateTime before)
+        {
+            foreach (var exit in espExits)
+            {
+                if (exit < window.Start) continue;
+                if (exit >= window.End || exit >= before) break;
+                return exit;
+            }
+            return null;
+        }
+
+        DateTime? firstPageStart = null;
+        foreach (var page in pages)
+        {
+            if (!page.IsStartOf(UpdatePage) || !InWindow(page.At)) continue;
+            firstPageStart = page.At;
+            break;
+        }
+
+        // Update-activity names before the first observed page start: the agent started after
+        // the visit they belong to (a first run reads no Shell-Core history), so its start is
+        // missing. Evaluated first — their visit lies before any observed one.
+        DateTime? firstOrphanName = null;
+        foreach (var page in pages)
+        {
+            if (firstPageStart.HasValue && page.At >= firstPageStart.Value) break;
+            if (!InWindow(page.At) || !IsUpdateActivityName(page.Name) || UserBackBy(page.At)) continue;
+            firstOrphanName = page.At;
+            break;
+        }
+        if (firstOrphanName.HasValue)
+        {
+            var firstName = firstOrphanName.Value;
+            DateTime? firstStep = null;
+            var exitBefore = EspExitBefore(firstName);
+            if (exitBefore.HasValue)
+            {
+                // A known exit bounds it as in v4: the first servicing step after the exit.
+                foreach (var step in servicing)
+                {
+                    if (step.At < exitBefore.Value || step.At < window.Start) continue;
+                    if (step.At < firstName) firstStep = step.At;
+                    break;
+                }
+            }
+            else
+            {
+                // No exit observed: the earliest step of a package this update also serviced at or
+                // after its first name — the servicing watcher backfills an hour, so the update's
+                // early staging is there; a package finished before (the OOBE's own) is not.
+                var limit = window.End;
+                if (attributionEnd.HasValue && attributionEnd.Value < limit) limit = attributionEnd.Value;
+                foreach (var u in userBack)
+                {
+                    if (u <= firstName) continue;
+                    if (u < limit) limit = u;
+                    break;
+                }
+                var members = new HashSet<string>(
+                    servicing.Where(s => s.At >= firstName && s.At < limit && !string.IsNullOrEmpty(s.Package)).Select(s => s.Package!),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var step in servicing)
+                {
+                    if (step.At < window.Start) continue;
+                    if (step.At >= firstName) break;
+                    if (string.IsNullOrEmpty(step.Package) || !members.Contains(step.Package!)) continue;
+                    firstStep = step.At;
+                    break;
+                }
+            }
+            return firstStep.HasValue && firstStep.Value < firstName ? firstStep.Value : firstName;
+        }
 
         var pageStartSeen = false;
         for (var i = 0; i < pages.Count; i++)
@@ -963,15 +1115,60 @@ public static class TimeAttributionCalculator
         // a servicing step beside it is some other update.
         if (pageStartSeen) return null;
 
-        // Fallback: the page start was not observed (the agent started after it). The first
-        // servicing step after the device-ESP exit — without the download before it.
-        if (!deviceEspExit.HasValue) return null;
-        foreach (var (at, _) in servicing)
+        // Fallback: neither the page start nor an update name was observed (the agent started
+        // after the page and saw only CBS). The first servicing step after this window's
+        // device-ESP exit before the user is back — without the download before it.
+        DateTime? deviceEspExit = null;
+        foreach (var exit in espExits)
         {
-            if (at < deviceEspExit.Value || at < window.Start || at >= window.End) continue;
-            return UserBackBy(at) ? null : at;
+            if (exit < window.Start) continue;
+            if (exit >= window.End || UserBackBy(exit)) break;
+            deviceEspExit = exit;
+            break;
+        }
+        if (!deviceEspExit.HasValue) return null;
+        foreach (var step in servicing)
+        {
+            if (step.At < deviceEspExit.Value || step.At < window.Start || step.At >= window.End) continue;
+            return UserBackBy(step.At) ? null : step.At;
         }
         return null;
+    }
+
+    /// <summary>
+    /// How the update in [begin, bound) ended: the latest outcome evidence decides — a package
+    /// reaching "Installed" or the page's install success (installed), an explicit download or
+    /// install failure, a failed servicing step or a page stop with result "fail" (failed), or the
+    /// page's Skip button (skipped). A later attempt overrides an earlier one (a failure retried
+    /// and installed is installed; a failure followed by Skip is skipped). No evidence: unknown.
+    /// </summary>
+    private static string ResolveOutcome(List<PageRecord> pages, List<ServicingStep> servicing, DateTime begin, DateTime bound)
+    {
+        DateTime? latest = null;
+        var outcome = OsUpdateOutcomes.Unknown;
+        void Consider(DateTime at, string kind)
+        {
+            if (latest.HasValue && at < latest.Value) return;
+            latest = at;
+            outcome = kind;
+        }
+
+        foreach (var page in pages)
+        {
+            if (page.At < begin || page.At >= bound) continue;
+            if (HasMarker(page.Name, UpdateSucceededMarkers)) Consider(page.At, OsUpdateOutcomes.Installed);
+            else if (HasMarker(page.Name, UpdateFailedMarkers)) Consider(page.At, OsUpdateOutcomes.Failed);
+            else if (HasMarker(page.Name, UpdateSkippedMarkers)) Consider(page.At, OsUpdateOutcomes.Skipped);
+            else if (page.IsStopOf(UpdatePage) && string.Equals(page.Result, "fail", StringComparison.OrdinalIgnoreCase))
+                Consider(page.At, OsUpdateOutcomes.Failed);
+        }
+        foreach (var step in servicing)
+        {
+            if (step.At < begin || step.At >= bound) continue;
+            if (step.ReachedInstalled) Consider(step.At, OsUpdateOutcomes.Installed);
+            else if (step.Failed) Consider(step.At, OsUpdateOutcomes.Failed);
+        }
+        return outcome;
     }
 
     private static string? ExtractKb(string? package)

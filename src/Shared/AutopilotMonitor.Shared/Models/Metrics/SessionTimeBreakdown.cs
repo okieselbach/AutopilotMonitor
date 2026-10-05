@@ -18,10 +18,11 @@ namespace AutopilotMonitor.Shared.Models
         public const string EspApps = "esp_apps";
 
         /// <summary>
-        /// The OOBE quality update (D-310): from the start of the update page that installed an
-        /// update to the last update evidence before the user is back — download, install, the
-        /// restarts and the servicing after them. Takes the time from the phase segment it
-        /// overlaps; one <see cref="OsUpdateSpan"/> per interval names the packages.
+        /// The OOBE quality update (D-310): from the start of the update page that worked on an
+        /// update — or, when the agent started after the page, from the update's first evidence —
+        /// to the last update evidence before the user is back: download, install, the restarts
+        /// and the servicing after them. Takes the time from the phase segment it overlaps; one
+        /// <see cref="OsUpdateSpan"/> per interval names the packages and the outcome.
         /// </summary>
         public const string OsUpdate = "os_update";
 
@@ -196,11 +197,38 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>In-window seconds of the interval.</summary>
         public int Seconds { get; set; }
 
-        /// <summary>KB numbers of the packages Windows serviced in the interval ("KB5129195"), in order of first appearance; empty when no package named one.</summary>
+        /// <summary>KB numbers of the packages that reached "Installed" in the interval ("KB5129195"), in order of first appearance; empty when none did or no package named one.</summary>
         public List<string> Kbs { get; set; } = new List<string>();
+
+        /// <summary>KB numbers of the packages Windows serviced in the interval without reaching "Installed" (for example only staged before a failed download).</summary>
+        public List<string> NotInstalledKbs { get; set; } = new List<string>();
+
+        /// <summary>How the update ended — one of <see cref="OsUpdateOutcomes"/>; the latest outcome evidence in the interval decides.</summary>
+        public string Outcome { get; set; } = OsUpdateOutcomes.Unknown;
 
         /// <summary>Restarts that began inside the interval.</summary>
         public int RebootCount { get; set; }
+    }
+
+    /// <summary>
+    /// Outcome of an OOBE quality update (<see cref="OsUpdateSpan.Outcome"/>), decided by the
+    /// latest outcome evidence in its interval. Exported to the portal via shared-manifests.json.
+    /// </summary>
+    public static class OsUpdateOutcomes
+    {
+        /// <summary>A package reached "Installed", or the update page reported the install as succeeded.</summary>
+        public const string Installed = "installed";
+
+        /// <summary>The update page or servicing reported the download or install as failed.</summary>
+        public const string Failed = "failed";
+
+        /// <summary>Someone selected Skip on the update page; the update was not installed.</summary>
+        public const string Skipped = "skipped";
+
+        /// <summary>No outcome evidence before the interval ended (for example the session ended first).</summary>
+        public const string Unknown = "unknown";
+
+        public static readonly string[] All = { Installed, Failed, Skipped, Unknown };
     }
 
     /// <summary>

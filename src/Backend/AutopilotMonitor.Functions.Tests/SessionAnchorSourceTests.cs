@@ -21,6 +21,7 @@ public class SessionAnchorSourceTests
     [InlineData("SystemTimelineWatcher")]
     [InlineData("WindowsUpdateWatcher")]
     [InlineData("ServicingWatcher")]
+    [InlineData("ShellCoreTracker")]   // the update page, read back an hour on an agent's first run
     public void Backfill_sources_are_not_anchor_eligible(string source)
     {
         Assert.False(Constants.EventSources.IsSessionAnchorEligible(source));
@@ -30,6 +31,7 @@ public class SessionAnchorSourceTests
     [InlineData("ImeLogTracker")]
     [InlineData("Agent")]
     [InlineData("MdmRebootPolicyWatcher")]
+    [InlineData("EspAndHelloTracker")]   // the ESP and Hello signals from the same Shell-Core log
     [InlineData("windowsupdatewatcher")] // ordinal: a differently cased source is not the watcher
     [InlineData(null)]                    // legacy row without a source
     public void Activity_sources_are_anchor_eligible(string? source)

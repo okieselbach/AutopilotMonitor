@@ -1,0 +1,117 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-015",
+  "title": "OOBE Update Check Ended Without a Result",
+  "description": "Detects that the Windows quality update page at the end of OOBE started its Windows Update scan but ended without a scan result (oobe_update_page: startWUScanStartedSuccedded, an OobeNDUP stop and no ExpeditedUpdate_getUpdateResults name), on a device that is out of date and allowed to update. In the observed sessions the page ended two minutes after the scan started, on devices more than a year behind. The device finishes OOBE without the monthly security update. The agent's names_capped marker vetoes the finding: once the page's event names were capped, a missing scan result proves nothing.",
+  "severity": "warning",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end"
+  ],
+  "trigger": "single",
+  "baseConfidence": 75,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "update_allowed",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "value",
+      "operator": "equals",
+      "value": "true",
+      "filterField": "name",
+      "filterOperator": "equals",
+      "filterValue": "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded",
+      "required": true
+    },
+    {
+      "signal": "scan_started",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "equals",
+      "value": "ExpeditedUpdate_startWUScanStartedSuccedded",
+      "required": true
+    },
+    {
+      "signal": "no_scan_result",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "name",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "name",
+      "filterOperator": "regex",
+      "filterValue": "^ExpeditedUpdate_getUpdateResults",
+      "required": true
+    },
+    {
+      "signal": "update_page_ended",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "cxhEvent",
+      "operator": "equals",
+      "value": "page_stopped",
+      "filterField": "page",
+      "filterOperator": "equals",
+      "filterValue": "OobeNDUP",
+      "required": true
+    },
+    {
+      "signal": "days_out_of_date",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "value",
+      "operator": "gt",
+      "value": "0",
+      "filterField": "name",
+      "filterOperator": "equals",
+      "filterValue": "ExpeditedUpdate_getDaysOutOfDateSucceeded",
+      "required": true
+    },
+    {
+      "signal": "page_names_complete",
+      "source": "event_data",
+      "eventType": "oobe_update_page",
+      "dataField": "cxhEvent",
+      "operator": "not_exists",
+      "value": "",
+      "filterField": "cxhEvent",
+      "filterOperator": "equals",
+      "filterValue": "names_capped",
+      "required": true
+    }
+  ],
+  "explanation": "The Windows quality update page at the end of OOBE started a Windows Update scan, but no scan result arrived before the page ended. The device is {{days_out_of_date}} days out of date, so an update was due — the device finished OOBE without the monthly security update and installs it only later, through the Windows Update policy that applies after enrollment. The page waits only a short time for the scan (two minutes in the observed sessions): a scan that takes longer, or cannot reach Windows Update, ends the page without an update.",
+  "remediation": [
+    {
+      "title": "Check the path to Windows Update during OOBE",
+      "steps": [
+        "Verify that devices in OOBE reach the Windows Update service: proxy, TLS inspection and firewall rules for the Windows Update endpoints.",
+        "Check whether an update policy applied during the Enrollment Status Page points the scan at another source, such as WSUS."
+      ]
+    },
+    {
+      "title": "Shorten the scan",
+      "steps": [
+        "Devices far behind scan longer; a current OS image or factory build keeps the OOBE scan short.",
+        "Verify the device's patch level after enrollment; the update ring assigned to the device installs the missing monthly security update on its normal schedule."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Install Windows quality updates during OOBE (Enrollment Status Page)",
+      "url": "https://learn.microsoft.com/en-us/intune/device-enrollment/windows/setup-status-page#windows-monthly-security-update-release-details"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "windows-update",
+    "oobe",
+    "quality-update"
+  ]
+}

@@ -6,10 +6,12 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Golden fixtures for the OOBE quality update in the time attribution (AttributionVersion 4,
-/// D-314): <c>os_update</c> from the update page start whose visit holds update evidence to the
-/// last update evidence before the user is back, then — after a restart — <c>awaiting_sign_in</c>
-/// until the user is back. Sequences follow the field sessions of 2026-10-02 (synthetic times, no
-/// customer data). EVERY fixture asserts the exact-partition invariant.
+/// D-314; v5): <c>os_update</c> from the update page start whose visit holds update evidence — or,
+/// when the agent missed the start, from the update's first evidence — to the last update evidence
+/// before the user is back, then — after a restart — <c>awaiting_sign_in</c> until the user is back;
+/// the latest outcome evidence names the outcome. Sequences follow the field sessions of
+/// 2026-10-02..05 (synthetic times, no customer data). EVERY fixture asserts the exact-partition
+/// invariant.
 /// </summary>
 public class TimeAttributionOsUpdateTests
 {
@@ -131,7 +133,7 @@ public class TimeAttributionOsUpdateTests
         var b = TimeAttributionCalculator.Compute(Input(LongUpdateWithSecondVisit(), At(125), 7500))!;
 
         AssertExactPartition(b);
-        Assert.Equal(4, b.AttributionVersion);
+        Assert.Equal(TimeAttributionCalculator.CurrentVersion, b.AttributionVersion);
         Assert.Equal(120, Total(b, TimeAttributionSegments.DevicePrep));
         Assert.Equal(18 * 60 + 5, Total(b, TimeAttributionSegments.EspApps));             // +2m → page start
         Assert.Equal(100 * 60 + 31, Total(b, TimeAttributionSegments.OsUpdate));          // page start → second visit ends
@@ -144,7 +146,11 @@ public class TimeAttributionOsUpdateTests
         Assert.Equal(At(120, 36), update.EndUtc);
         Assert.Equal(100 * 60 + 31, update.Seconds);
         Assert.Equal(new[] { "KB5129195" }, update.Kbs);
+        Assert.Empty(update.NotInstalledKbs);
         Assert.Equal(3, update.RebootCount);
+        // downloadInstallFailureHelper and a start timeout after "restart required" are no failure:
+        // the package reached Installed after the restarts (field shape e4ecd6f8).
+        Assert.Equal(OsUpdateOutcomes.Installed, update.Outcome);
 
         // The update's restarts sit in its own segment.
         Assert.Equal(3, b.RebootSpans.Count);
@@ -363,6 +369,348 @@ public class TimeAttributionOsUpdateTests
         Assert.Equal(23 * 60, Total(b, TimeAttributionSegments.EspApps));                // the hole until the first step stays the phase's
     }
 
+    // ── the agent started after the page (v5) ───────────────────────────────
+
+    /// <summary>
+    /// Field shape 6a7d241d: the agent's first run began after the device ESP and after the page
+    /// start — it saw neither (a first run reads no Shell-Core history), only the update's later
+    /// page names and the servicing steps the watcher backfills an hour.
+    /// </summary>
+    private static List<EnrollmentEvent> LateAgentUpdate()
+    {
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(At(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            // A package the OOBE itself finished during the ESP: no part of the update.
+            Servicing(At(5), "initiating", package: "KB5128942", targetState: "Staged"),
+            Servicing(At(6), "state_reached", package: "KB5128942", targetState: "Staged"),
+            Servicing(At(6, 5), "initiating", package: "KB5128942"),
+            Servicing(At(7), "state_reached", package: "KB5128942"),
+            // The update's servicing stack, staged before the agent ran.
+            Servicing(At(20), "initiating", package: "KB5124007", targetState: "Staged"),
+            Servicing(At(20, 5), "state_reached", package: "KB5124007", targetState: "Staged"),
+            // The agent runs from here on.
+            PageName(At(27, 40), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"),
+            Servicing(At(32, 25), "initiating", package: "KB5124007"),
+            Servicing(At(33, 22), "state_reached", package: "KB5124007"),
+            Servicing(At(34), "initiating", package: "KB5129195", targetState: "Staged"),
+            Servicing(At(36), "state_reached", package: "KB5129195", targetState: "Staged"),
+            Servicing(At(36, 10), "initiating", package: "KB5054156", targetState: "Staged"),
+            Servicing(At(38), "state_reached", package: "KB5054156", targetState: "Staged"),
+            Servicing(At(38, 10), "initiating", package: "KB5129195"),
+            Servicing(At(38, 20), "initiating", package: "KB5054156"),
+            Servicing(At(43, 5), "reboot_required", package: "KB5129195"),
+            Servicing(At(43, 6), "reboot_required", package: "KB5054156"),
+            PageName(At(43, 10), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_installSucceededRebootRequired"),
+            PageName(At(43, 12), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"),
+            PageName(At(43, 30), "SdxWebAppCloudNDUP_rebootCountdown_starting"),
+            PageStart(At(43, 35), "RebootNDUP"),
+            RebootDetected(At(46), lastBoot: At(45)),
+            Servicing(At(50), "state_reached", package: "KB5129195"),
+            Evt(At(52), "agent_shutting_down"),
+            // The second restart; the backfilled servicing step is the first event after it.
+            Servicing(At(59, 17), "state_reached", package: "KB5054156"),
+            RebootDetected(At(59, 30), lastBoot: At(58)),
+            Evt(At(62, 10), "desktop_arrived"),
+            Evt(At(63), "enrollment_complete"),
+        };
+        return events;
+    }
+
+    [Fact]
+    public void LateAgent_UpdateBeginsAtTheFirstStepOfAPackageItAlsoServiced()
+    {
+        var b = TimeAttributionCalculator.Compute(Input(LateAgentUpdate(), At(63), 63 * 60))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        // Not the OOBE's own package at 5 min: it has no step after the update's first name.
+        Assert.Equal(At(20), update.StartUtc);
+        Assert.Equal(At(59, 17), update.EndUtc);                                         // the last step, where the second restart ends
+        Assert.Equal(39 * 60 + 17, Total(b, TimeAttributionSegments.OsUpdate));
+        Assert.Equal(2 * 60 + 53, Total(b, TimeAttributionSegments.AwaitingSignIn));     // → desktop
+        Assert.Equal(18 * 60, Total(b, TimeAttributionSegments.EspApps));
+        Assert.Equal(new[] { "KB5124007", "KB5129195", "KB5054156" }, update.Kbs);
+        Assert.Empty(update.NotInstalledKbs);
+        Assert.Equal(2, update.RebootCount);
+        Assert.Equal(OsUpdateOutcomes.Installed, update.Outcome);
+    }
+
+    [Fact]
+    public void LateAgent_WithoutItsNames_StaysTheAppsPhase()
+    {
+        // Without its names the update is invisible to a window without an observed exit (v4 saw
+        // it so even with them): the servicing steps alone never begin an update there.
+        var withoutNames = LateAgentUpdate().Where(e => e.EventType != "oobe_update_page").ToList();
+
+        var b = TimeAttributionCalculator.Compute(Input(withoutNames, At(63), 63 * 60))!;
+
+        AssertExactPartition(b);
+        Assert.Empty(b.OsUpdates);
+        Assert.Equal((62 * 60 + 10) - 2 * 60, Total(b, TimeAttributionSegments.EspApps));
+    }
+
+    [Fact]
+    public void LateAgent_NamesWithoutServicing_BeginAtTheFirstName()
+    {
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(At(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            PageName(At(24), "SdxWebAppCloudNDUP_updateUSOProgressBar_DownloadPhase_progress40"),
+            PageName(At(29), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"),
+            PageStop(At(29, 20), "OobeNDUP", "success"),
+            Evt(At(31), "desktop_arrived"),
+            Evt(At(32), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(32), 32 * 60))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(At(24), update.StartUtc);
+        Assert.Equal(At(29, 20), update.EndUtc);
+        Assert.Equal(0, update.RebootCount);
+        Assert.Equal(0, Total(b, TimeAttributionSegments.AwaitingSignIn));               // no restart: nobody was signed out
+        Assert.Equal(OsUpdateOutcomes.Installed, update.Outcome);
+        Assert.Empty(update.Kbs);
+    }
+
+    [Fact]
+    public void MissedFirstVisit_BeginsAtItsNames_NotAtTheSecondVisit()
+    {
+        // The agent missed visit 1 (it updated and restarted) and saw the confirmation visit,
+        // which holds no evidence of its own: v4 found no update at all.
+        var events = DeviceEsp();
+        events.RemoveAll(e => e.EventType == "esp_exiting");
+        events.AddRange(new[]
+        {
+            Servicing(At(21), "initiating", targetState: "Staged"),
+            PageName(At(23), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"),
+            Servicing(At(30), "state_reached", targetState: "Staged"),
+            Servicing(At(30, 10), "initiating"),
+            Servicing(At(36), "reboot_required"),
+            PageName(At(36, 5), "SdxWebAppCloudNDUP_rebootCountdown_starting"),
+            PageStart(At(36, 10), "RebootNDUP"),
+            RebootDetected(At(38), lastBoot: At(37)),
+            Servicing(At(39), "state_reached"),
+            PageStart(At(39, 10), "OobeNDUP"),
+            PageStop(At(39, 30), "OobeNDUP", "success"),
+            Evt(At(41), "desktop_arrived"),
+            Evt(At(42), "enrollment_complete"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(42), 42 * 60))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(At(21), update.StartUtc);                                           // the package's first step, before the name
+        Assert.Equal(At(39, 30), update.EndUtc);
+        Assert.Equal(new[] { "KB5129195" }, update.Kbs);
+        Assert.Equal(1, update.RebootCount);
+        Assert.Equal(90, Total(b, TimeAttributionSegments.AwaitingSignIn));
+    }
+
+    [Fact]
+    public void EspExitAfterTheNames_DoesNotBoundTheBegin()
+    {
+        // An exit the agent saw after the update's names belongs to a later handoff; the begin
+        // comes from the packages the update serviced, as without an exit.
+        var events = LateAgentUpdate();
+        events.Add(Evt(At(44), "esp_exiting"));
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(63), 63 * 60))!;
+
+        AssertExactPartition(b);
+        Assert.Equal(At(20), Assert.Single(b.OsUpdates).StartUtc);
+    }
+
+    [Fact]
+    public void EspExitBeforeTheNames_BoundsTheBeginAsInV4()
+    {
+        // A known exit before the names: the first servicing step after it begins the update —
+        // the KB staged during the ESP stays out, whatever the update did with it later.
+        var events = LateAgentUpdate();
+        events.Add(Evt(At(25), "esp_exiting"));
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(63), 63 * 60))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(At(27, 40), update.StartUtc);                                       // no step between the exit and the first name
+        Assert.Equal(new[] { "KB5124007", "KB5129195", "KB5054156" }, update.Kbs);
+    }
+
+    [Fact]
+    public void NamesAfterTheUserIsBack_AreNoUpdate()
+    {
+        var events = WithAccountPhase(new[]
+        {
+            PageName(At(28, 30), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"),
+            PageName(At(29), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(30), 1800))!;
+
+        AssertExactPartition(b);
+        Assert.Empty(b.OsUpdates);
+    }
+
+    [Fact]
+    public void WhiteGlove_PartOneExit_DoesNotBeginAnUpdateInPartTwo()
+    {
+        // v4 took the session's first exit: part 1's let a servicing step in part 2 begin an
+        // update. Part 2 here has no exit, no page and no update name — no update.
+        var part1End = At(30);
+        var resumedAt = T0.AddDays(2);
+        var completedAt = resumedAt.AddMinutes(20);
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(At(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(At(25), "esp_exiting"),
+            Evt(part1End, "whiteglove_part1_complete"),
+            Evt(resumedAt.AddSeconds(30), "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(resumedAt.AddMinutes(1), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Servicing(resumedAt.AddMinutes(5), "initiating", targetState: "Staged"),
+            Servicing(resumedAt.AddMinutes(8), "state_reached", targetState: "Staged"),
+            Evt(resumedAt.AddMinutes(15), "esp_phase_changed", EnrollmentPhase.AccountSetup),
+            Evt(resumedAt.AddMinutes(16), "hello_wizard_started"),
+            Evt(resumedAt.AddMinutes(19), "desktop_arrived"),
+            Evt(completedAt, "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt, durationSeconds: 30 * 60 + 20 * 60, wg: true, resumedAt: resumedAt))!;
+
+        AssertExactPartition(b);
+        Assert.Empty(b.OsUpdates);
+    }
+
+    // ── outcome ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void FailedDownload_IsFailed_AndTheStagedKbIsNotInstalled()
+    {
+        // Field shape e7551b82: only the servicing stack staged; the download failed after 25
+        // minutes, the page restarted the device, and the second visit found nothing to offer.
+        var events = DeviceEsp();
+        events.AddRange(new[]
+        {
+            PageStart(At(20, 2), "OobeNDUP"),
+            PageName(At(20, 3), "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", "true"),
+            PageName(At(21, 42), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"),
+            Servicing(At(22), "initiating", package: "KB5124007", targetState: "Staged"),
+            Servicing(At(26), "state_reached", package: "KB5124007", targetState: "Staged"),
+            PageName(At(45, 10), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"),
+            PageName(At(45, 12), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure"),
+            PageName(At(45, 13), "SdxWebAppCloudNDUP_downloadInstallFailureHelper"),
+            PageStop(At(45, 20), "OobeNDUP", "fail"),
+            PageStart(At(45, 20), "RebootNDUP"),
+            RebootDetected(At(46, 30), lastBoot: At(45, 50)),
+            PageStart(At(46, 51), "OobeNDUP"),
+            PageName(At(46, 52), "SdxWebAppCloudNDUP_initialize_NDUPDownloadInstallPreviousFailureCount", "1"),
+            PageName(At(47, 10), "SdxWebAppCloudNDUP_updateManager_processUpdatesMetadata_osUpdatesWithNDUPPI", "false"),
+            PageStop(At(47, 13), "OobeNDUP", "cancel"),
+            Evt(At(48, 15), "desktop_arrived"),
+            Evt(At(50), "enrollment_complete"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(50), 3000))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(At(20, 2), update.StartUtc);
+        Assert.Equal(At(47, 13), update.EndUtc);
+        Assert.Equal(OsUpdateOutcomes.Failed, update.Outcome);
+        Assert.Empty(update.Kbs);
+        Assert.Equal(new[] { "KB5124007" }, update.NotInstalledKbs);
+        Assert.Equal(1, update.RebootCount);
+    }
+
+    [Fact]
+    public void FailureThenSkip_IsSkipped()
+    {
+        // Field shape cb1992b8: visit 1 failed; visit 2 downloaded again, and someone selected
+        // Skip before the install began.
+        var events = DeviceEsp();
+        events.AddRange(new[]
+        {
+            PageStart(At(20, 2), "OobeNDUP"),
+            PageName(At(21), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"),
+            PageName(At(30), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"),
+            PageName(At(30, 2), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure"),
+            PageStop(At(30, 10), "OobeNDUP", "fail"),
+            PageStart(At(30, 10), "RebootNDUP"),
+            RebootDetected(At(31, 30), lastBoot: At(30, 40)),
+            PageStart(At(32), "OobeNDUP"),
+            PageName(At(32, 1), "SdxWebAppCloudNDUP_initialize_NDUPDownloadInstallPreviousFailureCount", "1"),
+            PageName(At(33), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"),
+            PageName(At(40), "SdxWebAppCloudNDUP_manageProgressBars_waitingForInstallStartError"),
+            PageName(At(41), "CloudNDUPSkipDownloadInstallButtonClicked", "0"),
+            PageStop(At(41, 5), "OobeNDUP", "cancel"),
+            Evt(At(43), "desktop_arrived"),
+            Evt(At(44), "enrollment_complete"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(44), 2640))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(OsUpdateOutcomes.Skipped, update.Outcome);
+        Assert.Equal(At(41, 5), update.EndUtc);
+    }
+
+    [Fact]
+    public void FailureRetriedAndInstalled_IsInstalled()
+    {
+        var events = DeviceEsp();
+        events.AddRange(new[]
+        {
+            PageStart(At(20, 2), "OobeNDUP"),
+            PageName(At(21), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"),
+            PageName(At(25), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"),
+            PageName(At(26), "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"),
+            Servicing(At(27), "initiating"),
+            Servicing(At(30), "state_reached"),
+            PageName(At(30, 5), "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"),
+            PageStop(At(30, 10), "OobeNDUP", "success"),
+            Evt(At(32), "desktop_arrived"),
+            Evt(At(33), "enrollment_complete"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(33), 1980))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(OsUpdateOutcomes.Installed, update.Outcome);
+        Assert.Equal(new[] { "KB5129195" }, update.Kbs);
+    }
+
+    [Fact]
+    public void FailedServicingStep_IsFailed()
+    {
+        var events = DeviceEsp();
+        events.AddRange(new[]
+        {
+            PageStart(At(20, 2), "OobeNDUP"),
+            Servicing(At(22), "initiating"),
+            Servicing(At(28), "failed"),
+            PageStop(At(28, 30), "OobeNDUP", "cancel"),
+            Evt(At(30), "desktop_arrived"),
+            Evt(At(31), "enrollment_complete"),
+        });
+
+        var b = TimeAttributionCalculator.Compute(Input(events, At(31), 1860))!;
+
+        AssertExactPartition(b);
+        var update = Assert.Single(b.OsUpdates);
+        Assert.Equal(OsUpdateOutcomes.Failed, update.Outcome);
+        Assert.Empty(update.Kbs);
+        Assert.Equal(new[] { "KB5129195" }, update.NotInstalledKbs);
+    }
+
     [Theory]
     [InlineData("ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted", true)]
     [InlineData("SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded", true)]
@@ -448,6 +796,9 @@ public class TimeAttributionOsUpdateTests
         var update = Assert.Single(b.OsUpdates);
         Assert.Equal(At(25), update.EndUtc);                                             // the step after the failure is not attributed
         Assert.Equal(4 * 60 + 58, Total(b, TimeAttributionSegments.OsUpdate));
+        Assert.Empty(update.Kbs);                                                        // only staged before the bound
+        Assert.Equal(new[] { "KB5129195" }, update.NotInstalledKbs);
+        Assert.Equal(OsUpdateOutcomes.Unknown, update.Outcome);
         Assert.Equal(0, Total(b, TimeAttributionSegments.AwaitingSignIn));
         Assert.True(b.UnattributedSeconds >= 10 * 60);                                   // the post-failure tail stays unattributed
     }

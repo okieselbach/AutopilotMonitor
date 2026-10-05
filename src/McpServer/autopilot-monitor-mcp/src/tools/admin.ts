@@ -2060,8 +2060,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'time breakdown — wall-clock partition into device_prep / esp_apps / os_update / awaiting_sign_in / ' +
         'identity_hello / user_esp / desktop_handoff spans plus an EXPLICIT unattributed remainder (sums are exact ' +
         'against the session\'s authoritative duration; the WhiteGlove pause is excluded by design; os_update = the ' +
-        'OOBE quality update, its KBs and restarts in osUpdates; awaiting_sign_in = after that update\'s restart ' +
-        'until the user is back), the ESP-blocking app install ' +
+        'OOBE quality update, its outcome, installed and not installed KBs and restarts in osUpdates; ' +
+        'awaiting_sign_in = after that update\'s restart until the user is back), the ESP-blocking app install ' +
         'intervals with critical-path occupancy (an app\'s seconds = its ACTIVE install time summed across all ' +
         'IME passes/attempts — deliberately broader than get_app_install_metrics\' final-attempt duration, ' +
         'because a failed attempt and an evaluation pass still occupied the critical path), reboot outage ' +

@@ -12,7 +12,7 @@ export interface StandbyWindow {
 /**
  * The enrollment window as the session page measures its duration: first activity event →
  * `enrollment_complete`, or the last activity event while no verdict exists. Backfilled
- * environment rows (clock steps, sleep, update and servicing activity) are excluded, as in the
+ * environment rows (clock steps, sleep, update and servicing activity, the update page) are excluded, as in the
  * backend's session anchor — they carry Windows event-log timestamps from before the agent
  * started and would drag the start into pre-enrollment time. Null when the session has no
  * activity events.

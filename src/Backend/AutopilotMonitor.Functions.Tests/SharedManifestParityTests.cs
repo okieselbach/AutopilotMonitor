@@ -92,6 +92,8 @@ public sealed class SharedManifestParityTests
             ["appInstallSources"] = AppInstallSources.All,
             // Event sources whose rows never set a session's start; the portal's session duration applies them.
             ["sessionAnchorIneligibleSources"] = Constants.EventSources.SessionAnchorIneligible,
+            // How an OOBE quality update ended (OsUpdateSpan.Outcome in the time attribution).
+            ["osUpdateOutcomes"] = OsUpdateOutcomes.All,
             // Community rule submissions: kinds, effective statuses (incl. the derived "published"),
             // attribution modes and reviewer decisions — the MCP tool schemas enumerate these.
             ["ruleSubmissionKinds"] = RuleSubmissionKinds.All,

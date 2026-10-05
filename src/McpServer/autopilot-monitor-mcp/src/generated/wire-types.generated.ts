@@ -3060,8 +3060,12 @@ export interface OsUpdateSpan {
   endUtc: string;
   /** In-window seconds of the interval. */
   seconds: number;
-  /** KB numbers of the packages Windows serviced in the interval ("KB5129195"), in order of first appearance; empty when no package named one. */
+  /** KB numbers of the packages that reached "Installed" in the interval ("KB5129195"), in order of first appearance; empty when none did or no package named one. */
   kbs: string[];
+  /** KB numbers of the packages Windows serviced in the interval without reaching "Installed" (for example only staged before a failed download). */
+  notInstalledKbs: string[];
+  /** How the update ended — one of OsUpdateOutcomes; the latest outcome evidence in the interval decides. */
+  outcome: string;
   /** Restarts that began inside the interval. */
   rebootCount: number;
 }

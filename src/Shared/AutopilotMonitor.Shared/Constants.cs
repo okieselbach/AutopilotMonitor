@@ -658,7 +658,7 @@ namespace AutopilotMonitor.Shared
             // update page (CXID OobeNDUP / RebootNDUP) and its ExpeditedUpdate_* event names, plus the
             // registry state behind it (NDUP keys and both ESP "Install Windows quality updates"
             // policy paths). Bounded per agent run.
-            public const string OobeUpdatePage            = "oobe_update_page";              // Shell-Core 62404/62405 of an NDUP page, 62406/62407 update-page names — Data.cxhEvent+page+result+name(+value: boolean/integer/HRESULT only)
+            public const string OobeUpdatePage            = "oobe_update_page";              // Shell-Core 62404/62405 of an NDUP page, 62406/62407 update-page names — Data.cxhEvent+page+result+name(+value: boolean/integer/HRESULT only); cxhEvent names_capped = the run's later names were not sent
             public const string OobeUpdateState           = "oobe_update_state";             // NDUP + ESP-policy registry values at agent start/stop and at the update page — Data.moment + one entry per key alias; only when values exist and changed
             // Corroboration snapshots (gather rules, config-delivered). Secondary evidence that an
             // update landed during enrollment even when the watcher's backfill window missed it.
@@ -931,18 +931,27 @@ namespace AutopilotMonitor.Shared
             public const string ServicingWatcher = "ServicingWatcher";
 
             /// <summary>
+            /// The OOBE update page telemetry from the Shell-Core log (<c>oobe_update_page</c>,
+            /// <c>oobe_update_state</c>). The ESP and Hello signals read from the same log carry
+            /// the source "EspAndHelloTracker".
+            /// </summary>
+            public const string ShellCoreTracker = "ShellCoreTracker";
+
+            /// <summary>
             /// Sources whose rows never set a session's start. Their watchers backfill the Windows
             /// event logs with the original event time — clock steps and sleep up to 24 h, update
-            /// and servicing activity up to 60 min before the agent started — so their earliest row
-            /// is environment observation from before the enrollment, not its first step. Every
-            /// place that derives the start from events applies this list: backend ingest and the
-            /// Events-table probe, and the portal's session duration via shared-manifests.json.
+            /// and servicing activity and the update page up to 60 min before the agent started —
+            /// so their earliest row is environment observation from before the enrollment, not
+            /// its first step. Every place that derives the start from events applies this list:
+            /// backend ingest and the Events-table probe, and the portal's session duration via
+            /// shared-manifests.json.
             /// </summary>
             public static readonly string[] SessionAnchorIneligible =
             {
                 SystemTimelineWatcher,
                 WindowsUpdateWatcher,
                 ServicingWatcher,
+                ShellCoreTracker,
             };
 
             /// <summary>
