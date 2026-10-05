@@ -88,6 +88,10 @@ function formatByKind(kind: RowKind | undefined, value: unknown): string {
 
 // ── Row and section primitives ───────────────────────────────────────────────
 
+// Heavier rule between grouped rows. It sits on the cell: the section tbody's divide utility overrides
+// a row's border width and color, while the collapsed table border keeps the wider cell edge.
+const GROUP_SEPARATOR = 'border-t-2 border-gray-200 dark:border-gray-600';
+
 interface ConfigRowProps {
   label: string;
   display: string;
@@ -185,8 +189,8 @@ function ChannelRows({ config }: { config: TenantConfiguration }) {
   return (
     <>
       {channels.map((ch, i) => (
-        <tr key={ch.id ?? i} className={i > 0 ? 'border-t-2 border-gray-200 dark:border-gray-600' : ''}>
-          <td colSpan={2} className="p-0">
+        <tr key={ch.id ?? i}>
+          <td colSpan={2} className={`p-0 ${i > 0 ? GROUP_SEPARATOR : ''}`}>
             <table className="w-full">
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 <ConfigRow label="Channel" display={`${ch.name || ch.id}${ch.enabled === false ? ' (disabled)' : ''}`} />
@@ -214,8 +218,8 @@ function SelfHostedAiClientRows({ list }: { list: McpClientRegistrationListRespo
       <ConfigRow label="Self-hosted AI (platform switch)" display={list.enabled ? 'On' : 'Off'} />
       {list.registrations.length === 0 && <ConfigRow label="Self-hosted AI Clients" display="—" />}
       {list.registrations.map((r) => (
-        <tr key={r.registrationId} className="border-t-2 border-gray-200 dark:border-gray-600">
-          <td colSpan={2} className="p-0">
+        <tr key={r.registrationId}>
+          <td colSpan={2} className={`p-0 ${GROUP_SEPARATOR}`}>
             <table className="w-full">
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 <ConfigRow label="Self-hosted AI Client" display={r.name} />

@@ -436,8 +436,8 @@ export default function GeographicPerformancePage() {
                           key={loc.locationKey}
                           id={`loc-${loc.locationKey.replace(/[^a-zA-Z0-9]/g, "-")}`}
                           className={`hover:bg-gray-50 transition-colors cursor-pointer ${
-                            loc.isOutlier ? "border-l-4 border-l-red-400" : ""
-                          } ${selectedLocation === loc.locationKey ? "bg-blue-50" : ""}`}
+                            selectedLocation === loc.locationKey ? "bg-blue-50" : ""
+                          }`}
                           onClick={() => {
                             const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
                             // Carry the selected tenant into the drill-in so a cross-tenant caller (GA override
@@ -447,7 +447,8 @@ export default function GeographicPerformancePage() {
                           }}
                           onMouseEnter={() => setSelectedLocation(loc.locationKey)}
                         >
-                          <td className="px-4 py-3 text-sm text-gray-900">
+                          {/* Outlier accent on the cell, not the row: the tbody's divide color overrides a row's border-color. */}
+                          <td className={`px-4 py-3 text-sm text-gray-900 ${loc.isOutlier ? "border-l-4 border-l-red-400" : ""}`}>
                             <div className="flex items-center">
                               <span className="font-medium">{loc.locationKey}</span>
                               {loc.isOutlier && (

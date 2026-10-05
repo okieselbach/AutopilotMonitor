@@ -298,9 +298,10 @@ export default function Navbar() {
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
+                        {/* Row accents are inset shadows, not border-l: the divide color overrides a child's border-color on every row but the first. */}
                         {/* Tenant-scoped persistent notifications (e.g. hardware rejections) — top */}
                         {tenantNotifications.map((tn) => (
-                          <div key={`tn-${tn.id}`} className={`px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/45 transition-colors border-l-4 border-blue-500 bg-blue-50/30 dark:bg-blue-900/20 ${tn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (tn.href) openNotificationHref(tn.href); }}>
+                          <div key={`tn-${tn.id}`} className={`px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/45 transition-colors shadow-[inset_4px_0_0_0] shadow-blue-500 bg-blue-50/30 dark:bg-blue-900/20 ${tn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (tn.href) openNotificationHref(tn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{tn.type === 'hardware_rejection' ? '🖥️' : '🔔'}</span>
@@ -333,7 +334,7 @@ export default function Navbar() {
                         ))}
                         {/* Persistent Global Admin Notifications */}
                         {visibleGlobal.map((gn) => (
-                          <div key={`ga-${gn.id}`} className={`px-4 py-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/45 transition-colors border-l-4 border-purple-500 bg-purple-50/30 dark:bg-purple-900/20 ${gn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (gn.href) openNotificationHref(gn.href); }}>
+                          <div key={`ga-${gn.id}`} className={`px-4 py-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/45 transition-colors shadow-[inset_4px_0_0_0] shadow-purple-500 bg-purple-50/30 dark:bg-purple-900/20 ${gn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (gn.href) openNotificationHref(gn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{gn.type === 'session_report' ? '\uD83D\uDCCB' : '\uD83C\uDF1F'}</span>
