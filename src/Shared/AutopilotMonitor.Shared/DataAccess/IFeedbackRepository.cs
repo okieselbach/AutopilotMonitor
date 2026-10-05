@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Shared.DataAccess
     /// intentionally NOT in any tenant-offboarding wipe list — feedback (especially from
     /// offboarded tenants) is exactly the data we want to keep for product learning.
     /// <para>
-    /// Two partition layouts share the table:
+    /// Three partition layouts share the table:
     /// </para>
     /// <list type="bullet">
     ///   <item><c>PK="InApp"</c>, <c>RK=upn</c> — in-app star rating + comment from the
@@ -17,6 +17,8 @@ namespace AutopilotMonitor.Shared.DataAccess
     ///   <item><c>PK="Offboarding"</c>, <c>RK=historyRowKey</c> — free-form "what could we
     ///   improve" comment captured during the offboarding drain-barrier countdown. One row
     ///   per offboarding attempt (matches the <c>OffboardingHistory</c> row).</item>
+    ///   <item><c>PK="General"</c>, <c>RK={invertedTicks}_{id}</c> — free-text feedback sent
+    ///   from the portal's help menu. One row per submission, newest first; never replaced.</item>
     /// </list>
     /// </summary>
     public interface IFeedbackRepository
@@ -37,18 +39,29 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Upserts the offboarding feedback entry. Sets <see cref="FeedbackEntry.Type"/> to <c>"Offboarding"</c>.</summary>
         Task SaveOffboardingFeedbackAsync(FeedbackEntry entry);
 
+        // ── General feedback (free text, one row per submission) ────────────────
+
+        /// <summary>
+        /// Inserts one general-feedback submission. Sets <see cref="FeedbackEntry.Type"/> to <c>"General"</c>
+        /// and stamps <see cref="FeedbackEntry.FeedbackId"/> (the RowKey) from <see cref="FeedbackEntry.InteractedAt"/>.
+        /// </summary>
+        Task SaveGeneralFeedbackAsync(FeedbackEntry entry);
+
+        /// <summary>Counts the general-feedback submissions of one user (case-insensitive UPN) at or after <paramref name="sinceUtc"/>.</summary>
+        Task<int> CountGeneralFeedbackSinceAsync(string upn, DateTime sinceUtc);
+
         // ── Reports / dashboard ─────────────────────────────────────────────────
 
-        /// <summary>Returns ALL feedback entries (both In-App + Offboarding partitions). Used by the Global-Admin reports page.</summary>
+        /// <summary>Returns ALL feedback entries (every partition). Used by the Global-Admin reports page.</summary>
         Task<List<FeedbackEntry>> GetAllAsync();
     }
 
     /// <summary>
-    /// Single shape for both partitions; nullable fields disambiguate the two kinds.
+    /// Single shape for all partitions; nullable fields disambiguate the kinds.
     /// </summary>
     public class FeedbackEntry
     {
-        /// <summary><c>"InApp"</c> or <c>"Offboarding"</c>. Matches the storage PartitionKey.</summary>
+        /// <summary><c>"InApp"</c>, <c>"Offboarding"</c> or <c>"General"</c>. Matches the storage PartitionKey.</summary>
         public string Type { get; set; } = FeedbackEntryType.InApp;
 
         public string Upn { get; set; } = string.Empty;
@@ -67,8 +80,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>RowKey of the matching <c>OffboardingHistory</c> entry. Only set for <c>Type="Offboarding"</c>.</summary>
         public string? HistoryRowKey { get; set; }
 
-        /// <summary>Snapshot of the tenant's domain at offboarding time — TenantConfiguration is wiped in Phase 2 so this captures the display value once. Only set for <c>Type="Offboarding"</c>.</summary>
+        /// <summary>Snapshot of the tenant's domain at submit time — captured once so the row keeps a readable label after the tenant's configuration is gone. Set for <c>Type="Offboarding"</c> and <c>Type="General"</c>.</summary>
         public string? DomainName { get; set; }
+
+        // ── General-only ────────────────────────────────────────────────────────
+
+        /// <summary>RowKey of a general-feedback row (<c>{invertedTicks}_{id}</c>). Only set for <c>Type="General"</c>.</summary>
+        public string? FeedbackId { get; set; }
+
+        /// <summary>Optional reply address the sender entered. Only set for <c>Type="General"</c>.</summary>
+        public string? ContactEmail { get; set; }
     }
 
     /// <summary>Discriminator values for <see cref="FeedbackEntry.Type"/> + storage PartitionKey.</summary>
@@ -76,5 +97,6 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         public const string InApp = "InApp";
         public const string Offboarding = "Offboarding";
+        public const string General = "General";
     }
 }

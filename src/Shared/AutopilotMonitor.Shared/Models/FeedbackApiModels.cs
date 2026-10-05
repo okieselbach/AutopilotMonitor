@@ -33,6 +33,10 @@ namespace AutopilotMonitor.Shared.Models
         public string? InteractedAt { get; set; }
         public string? HistoryRowKey { get; set; }
         public string? DomainName { get; set; }
+        /// <summary>Row id of a general-feedback entry; absent on the other kinds.</summary>
+        public string? FeedbackId { get; set; }
+        /// <summary>Reply address a general-feedback sender entered; absent when none was given.</summary>
+        public string? ContactEmail { get; set; }
     }
 
     /// <summary>Body of POST feedback.</summary>
@@ -42,5 +46,14 @@ namespace AutopilotMonitor.Shared.Models
         public int? Rating { get; set; }
         public string? Comment { get; set; }
         public bool Dismissed { get; set; }
+    }
+
+    /// <summary>Body of POST feedback/general: free-text feedback from a member of a tenant to the Autopilot Monitor team.</summary>
+    public class GeneralFeedbackRequest : IApiRequest
+    {
+        /// <summary>The feedback text, 1 to 4096 characters after trimming.</summary>
+        public string Message { get; set; } = default!;
+        /// <summary>Optional reply address, for senders whose sign-in name is not a mailbox.</summary>
+        public string? ContactEmail { get; set; }
     }
 }

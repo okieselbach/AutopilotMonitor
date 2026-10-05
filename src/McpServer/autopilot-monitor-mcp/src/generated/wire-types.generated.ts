@@ -1779,6 +1779,10 @@ export interface FeedbackEntryWire {
   interactedAt?: string;
   historyRowKey?: string;
   domainName?: string;
+  /** Row id of a general-feedback entry; absent on the other kinds. */
+  feedbackId?: string;
+  /** Reply address a general-feedback sender entered; absent when none was given. */
+  contactEmail?: string;
 }
 
 /** Response of GET feedback/all (Global Admin dashboard): every stored feedback entry. */
@@ -1933,6 +1937,14 @@ export interface GatherRule {
 export interface GatherRuleListResponse {
   success: boolean;
   rules: GatherRule[];
+}
+
+/** Body of POST feedback/general: free-text feedback from a member of a tenant to the Autopilot Monitor team. */
+export interface GeneralFeedbackRequest {
+  /** The feedback text, 1 to 4096 characters after trimming. */
+  message: string;
+  /** Optional reply address, for senders whose sign-in name is not a mailbox. */
+  contactEmail?: string | null;
 }
 
 /** Default (lean) geographic drilldown envelope shared by GetGeographicLocationSessions and GetGlobalGeographicLocationSessions — per-row payload an order of magnitude smaller than the full LocationSessionRow shape. */
@@ -4557,11 +4569,11 @@ export interface SubmitDiagFilesReportRequest {
   tenantId: string;
   comment?: string | null;
   email?: string | null;
-  /** Base64-encoded screenshot image (optional) */
+  /** Base64-encoded screenshot image, or a zip of several (optional) */
   screenshotBase64?: string | null;
   /** Original screenshot file name for extension detection */
   screenshotFileName?: string | null;
-  /** Base64-encoded log/state payload (single file or zip of many; max ~5 MB enforced client-side) */
+  /** Base64-encoded log/state payload (single file or zip of many; the request body cap bounds all attachments together) */
   agentLogBase64?: string | null;
   /** Original file name (e.g. "agent.log", "state.json", "diag-files.zip") */
   agentLogFileName?: string | null;
@@ -4607,11 +4619,11 @@ export interface SubmitSessionReportRequest {
   eventsCsv?: string | null;
   /** Pre-generated analysis rule results export (CSV) */
   ruleResultsCsv?: string | null;
-  /** Base64-encoded screenshot image (optional) */
+  /** Base64-encoded screenshot image, or a zip of several (optional) */
   screenshotBase64?: string | null;
   /** Original screenshot file name for extension detection */
   screenshotFileName?: string | null;
-  /** Base64-encoded agent log file (optional, max 5 MB) */
+  /** Base64-encoded agent log file or zip of logs (optional; the request body cap bounds all attachments together) */
   agentLogBase64?: string | null;
   /** Original agent log file name */
   agentLogFileName?: string | null;

@@ -597,6 +597,7 @@
     "PrivilegedRouteDenied",
     "McpServicePrincipalFirstSeen",
     "OffboardingFeedbackReceived",
+    "FeedbackReceived",
     "TenantOffboarded",
     "TenantOffboardingFailed",
     "TenantAutoApproved",
@@ -961,6 +962,13 @@
     "globalNotificationsDismissedAll",
     "accessRevoked"
   ],
+  "submissionLimits": {
+    "feedbackTextMaxChars": 4096,
+    "reportCommentMaxChars": 4096,
+    "contactEmailMaxChars": 254,
+    "reportRequestMaxBytes": 20971520,
+    "generalFeedbackPerUserPerDay": 10
+  },
   "types": {
     "AcceptDelegationInvitationRequest": {
       "kind": "object",
@@ -8620,6 +8628,24 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "feedbackId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Row id of a general-feedback entry; absent on the other kinds."
+        },
+        {
+          "name": "contactEmail",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Reply address a general-feedback sender entered; absent when none was given."
         }
       ]
     },
@@ -9271,6 +9297,30 @@
               "name": "GatherRule"
             }
           }
+        }
+      ]
+    },
+    "GeneralFeedbackRequest": {
+      "kind": "object",
+      "doc": "Body of POST feedback/general: free-text feedback from a member of a tenant to the Autopilot Monitor team.",
+      "fields": [
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The feedback text, 1 to 4096 characters after trimming."
+        },
+        {
+          "name": "contactEmail",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Optional reply address, for senders whose sign-in name is not a mailbox."
         }
       ]
     },
@@ -20993,7 +21043,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Base64-encoded screenshot image (optional)"
+          "doc": "Base64-encoded screenshot image, or a zip of several (optional)"
         },
         {
           "name": "screenshotFileName",
@@ -21013,7 +21063,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Base64-encoded log/state payload (single file or zip of many; max ~5 MB enforced client-side)"
+          "doc": "Base64-encoded log/state payload (single file or zip of many; the request body cap bounds all attachments together)"
         },
         {
           "name": "agentLogFileName",
@@ -21223,7 +21273,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Base64-encoded screenshot image (optional)"
+          "doc": "Base64-encoded screenshot image, or a zip of several (optional)"
         },
         {
           "name": "screenshotFileName",
@@ -21243,7 +21293,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Base64-encoded agent log file (optional, max 5 MB)"
+          "doc": "Base64-encoded agent log file or zip of logs (optional; the request body cap bounds all attachments together)"
         },
         {
           "name": "agentLogFileName",

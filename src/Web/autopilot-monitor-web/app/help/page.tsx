@@ -116,14 +116,13 @@ export default function HelpPage() {
           </p>
           <p className="text-gray-700 leading-relaxed mb-4">
             For everything else — general questions, portal issues, or feature ideas — a GitHub
-            issue works best. A short description of what you expected versus what happened, plus
-            a screenshot where helpful, makes it much faster to track down. Attachments work in
-            both places, so use whichever you prefer.
+            issue works best. No GitHub account? Use <strong>Send feedback</strong> in the
+            portal&apos;s help menu (?) instead. A short description of what you expected versus
+            what happened, plus a screenshot where helpful, makes it much faster to track down.
           </p>
           <p className="text-sm text-gray-500 leading-relaxed">
             GitHub issues are public — leave out anything confidential like tenant names, user
-            identities, or internal hostnames. If the details are sensitive, use Report Session
-            or LinkedIn instead and reference the issue number.
+            identities, or internal hostnames.
           </p>
         </section>
 

@@ -4,11 +4,12 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import type { SubmitOffboardingFeedbackRequest } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
 
 /** localStorage key prefix for "this user already submitted feedback for offboarding X". */
 const FEEDBACK_SUBMITTED_KEY_PREFIX = "offboard-feedback-submitted:";
 
-export const OFFBOARDING_FEEDBACK_MAX_CHARS = 4096;
+export const OFFBOARDING_FEEDBACK_MAX_CHARS = SHARED_MANIFEST.submissionLimits.feedbackTextMaxChars;
 
 interface OffboardingFeedbackFormProps {
   /** Tenant being offboarded — the feedback POST is scoped to it. */

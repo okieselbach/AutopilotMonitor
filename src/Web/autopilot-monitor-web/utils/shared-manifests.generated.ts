@@ -601,6 +601,7 @@ export const SHARED_MANIFEST = {
     "PrivilegedRouteDenied",
     "McpServicePrincipalFirstSeen",
     "OffboardingFeedbackReceived",
+    "FeedbackReceived",
     "TenantOffboarded",
     "TenantOffboardingFailed",
     "TenantAutoApproved",
@@ -964,5 +965,12 @@ export const SHARED_MANIFEST = {
     "globalNotificationDismissed",
     "globalNotificationsDismissedAll",
     "accessRevoked"
-  ]
+  ],
+  "submissionLimits": {
+    "feedbackTextMaxChars": 4096,
+    "reportCommentMaxChars": 4096,
+    "contactEmailMaxChars": 254,
+    "reportRequestMaxBytes": 20971520,
+    "generalFeedbackPerUserPerDay": 10
+  }
 } as const;

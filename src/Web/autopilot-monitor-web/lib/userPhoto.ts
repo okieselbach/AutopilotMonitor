@@ -1,4 +1,5 @@
 import { GRAPH_URL } from "@/utils/config";
+import { bytesToBase64 } from "@/lib/base64";
 
 /**
  * Loads the signed-in user's Entra ID profile photo straight from Microsoft Graph.
@@ -29,11 +30,7 @@ function browserStorage(): PhotoStorage | null {
 }
 
 function toDataUrl(contentType: string, bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return `data:${contentType};base64,${btoa(binary)}`;
+  return `data:${contentType};base64,${bytesToBase64(bytes)}`;
 }
 
 async function fetchPhoto(

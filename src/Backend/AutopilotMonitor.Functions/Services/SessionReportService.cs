@@ -6,8 +6,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Diagnostics;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
@@ -195,7 +197,7 @@ namespace AutopilotMonitor.Functions.Services
                     await entryStream.WriteAsync(screenshotBytes);
                 }
 
-                // Optional agent log file (max 5 MB enforced by frontend)
+                // Optional agent log file (bounded by the request body cap)
                 if (agentLogBytes != null)
                 {
                     var logFileName = SanitizeZipEntryName(request.AgentLogFileName, "agent.log");
@@ -236,7 +238,10 @@ namespace AutopilotMonitor.Functions.Services
                 DiagnosticsCopyStatus = diagnosticsCopyStatus
             };
 
-            await _notificationRepo.StoreSessionReportMetadataAsync(metadata);
+            await RecordOrRollBackAsync(
+                () => _notificationRepo.StoreSessionReportMetadataAsync(metadata),
+                name => containerClient.GetBlobClient(name).DeleteIfExistsAsync(),
+                _logger, reportId, blobName, copiedDiagnosticsBlobName);
 
             return metadata;
         }
@@ -323,9 +328,51 @@ namespace AutopilotMonitor.Functions.Services
                 ReportType = ReportTypes.DiagFiles
             };
 
-            await _notificationRepo.StoreSessionReportMetadataAsync(metadata);
+            await RecordOrRollBackAsync(
+                () => _notificationRepo.StoreSessionReportMetadataAsync(metadata),
+                name => containerClient.GetBlobClient(name).DeleteIfExistsAsync(),
+                _logger, reportId, blobName);
 
             return metadata;
+        }
+
+        /// <summary>
+        /// Comment and contact-address limits of both report routes: the 400 message, or null when valid.
+        /// Both values land in table properties next to the upload, so they are bounded before the upload.
+        /// </summary>
+        internal static string? ValidateSubmissionText(string? comment, string? email)
+        {
+            if (comment != null && comment.Length > Constants.SubmissionLimits.ReportCommentMaxChars)
+                return $"The comment is limited to {Constants.SubmissionLimits.ReportCommentMaxChars} characters.";
+            if (TenantConfigValidation.ValidateContactEmail(email) is { } emailError)
+                return $"Invalid contact address: {emailError}";
+            return null;
+        }
+
+        /// <summary>
+        /// Writes the report's SessionReports row. A report without its row is invisible in the operator
+        /// list while the submitter was told it arrived, so a failed write fails the request and takes the
+        /// uploaded blobs back down (best effort).
+        /// </summary>
+        internal static async Task RecordOrRollBackAsync(
+            Func<Task<bool>> storeRow, Func<string, Task> deleteBlob, ILogger logger, string reportId, params string?[] blobNames)
+        {
+            if (await storeRow())
+                return;
+
+            foreach (var name in blobNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                try
+                {
+                    await deleteBlob(name);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Blob {BlobName} of unrecorded report {ReportId} could not be removed", name, reportId);
+                }
+            }
+            throw new InvalidOperationException($"Report {reportId} could not be recorded.");
         }
 
         /// <summary>

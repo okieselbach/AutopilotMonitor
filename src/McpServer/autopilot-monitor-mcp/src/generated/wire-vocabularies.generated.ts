@@ -105,6 +105,7 @@ export const OPS_EVENT_TYPES = [
   "PrivilegedRouteDenied",
   "McpServicePrincipalFirstSeen",
   "OffboardingFeedbackReceived",
+  "FeedbackReceived",
   "TenantOffboarded",
   "TenantOffboardingFailed",
   "TenantAutoApproved",

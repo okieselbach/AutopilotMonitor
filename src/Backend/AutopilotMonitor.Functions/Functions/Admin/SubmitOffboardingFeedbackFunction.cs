@@ -34,11 +34,9 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// </summary>
 public class SubmitOffboardingFeedbackFunction
 {
-    // Departing tenants often have more context to share than the in-app 500-char limit
-    // allows. Azure Table Storage caps a single string property at 64 KB, so 4096 chars
-    // (max ~16 KB UTF-8) sits well within both the table and the 16 KB request-body
-    // guard above.
-    private const int MaxCommentLength = 4096;
+    // The shared feedback limit. Azure Table Storage caps a single string property at 64 KB,
+    // so 4096 chars (max ~16 KB UTF-8) sits well within the table and the body guard below.
+    private const int MaxCommentLength = Constants.SubmissionLimits.FeedbackTextMaxChars;
 
     private readonly ILogger<SubmitOffboardingFeedbackFunction> _logger;
     private readonly IOffboardingAuditRepository _offboardingRepo;

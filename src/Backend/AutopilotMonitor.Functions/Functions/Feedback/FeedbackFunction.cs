@@ -69,15 +69,18 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 //      the endpoint is bounded by the slowest read instead of summing
                 //      four sequential round-trips on Flex Consumption.
                 var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-                var tenantConfigTask = _tenantConfigService.GetConfigurationAsync(tenantId);
+                var tenantConfigTask = _tenantConfigService.GetConfigurationIfExistsAsync(tenantId);
                 var sessionsTask = _sessionRepo.GetSessionsPageAsync(tenantId, days: null, pageSize: 1, continuation: null);
                 var feedbackTask = _feedbackRepo.GetInAppFeedbackAsync(upn);
 
                 await Task.WhenAll(membershipTask, tenantConfigTask, sessionsTask, feedbackTask);
 
                 // Tenant config is needed both for the app-role opt-in flag (role check) and the
-                // tenant age check below.
+                // tenant age check below. No row means not onboarded, so not eligible — and this
+                // poll runs for every signed-in user, so it must never create the row.
                 var tenantConfig = tenantConfigTask.Result;
+                if (tenantConfig == null)
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 // 3. Role check — only Admin + Operator. Use the effective role so Entra-only
                 //    members (app-role claim, no table row) are eligible too, consistent with
@@ -153,12 +156,11 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                     return await req.BadRequestAsync("Rating must be between 1 and 5");
                 }
 
-                // Trim comment. Aligned with the offboarding-feedback endpoint at 4096 chars
-                // so users have room for a substantive comment without hitting a tight limit;
-                // Azure Tables caps a single property at 64 KB so this stays well within.
+                // Trim comment to the shared feedback limit (Azure Tables caps a single property
+                // at 64 KB, so this stays well within).
                 var comment = body.Comment?.Trim();
-                if (comment?.Length > 4096)
-                    comment = comment.Substring(0, 4096);
+                if (comment?.Length > Constants.SubmissionLimits.FeedbackTextMaxChars)
+                    comment = comment.Substring(0, Constants.SubmissionLimits.FeedbackTextMaxChars);
 
                 // Upsert feedback record
                 await _feedbackRepo.SaveInAppFeedbackAsync(new FeedbackEntry
@@ -217,6 +219,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                     InteractedAt = e.InteractedAt?.ToString("o"),
                     HistoryRowKey = e.HistoryRowKey,
                     DomainName = e.DomainName,
+                    FeedbackId = e.FeedbackId,
+                    ContactEmail = e.ContactEmail,
                 }).ToList();
 
                 return await WriteJson(req, new FeedbackListResponse { Feedback = entries });

@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -51,12 +52,14 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var tenantId = requestCtx.TenantId;
                 var userIdentifier = requestCtx.UserPrincipalName;
 
-                // Body size limit (20 MB) — same as SubmitSessionReport. Diag-files payloads
-                // are typically smaller (no events.csv/timeline.txt synthesis), but log
-                // bundles + screenshots still benefit from the same upper bound.
-                var read = await req.ReadAsync<SubmitDiagFilesReportRequest>(20_971_520);
+                // Same body cap as SubmitSessionReport; the portal sizes its attachment budget from it.
+                var read = await req.ReadAsync<SubmitDiagFilesReportRequest>(Constants.SubmissionLimits.ReportRequestMaxBytes);
                 if (read.Error != null) return read.Error;
                 var request = read.Value!;
+
+                request.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+                if (SessionReportService.ValidateSubmissionText(request.Comment, request.Email) is { } invalid)
+                    return await req.BadRequestAsync(invalid);
 
                 // Tenant identity: enforce JWT tenantId for non-GAs (prevents body
                 // tampering / horizontal escalation). Global Admins MAY submit reports

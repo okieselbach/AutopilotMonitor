@@ -5,12 +5,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/utils/wire-types.generated";
 import { fetchJson, fetchOk, jsonBody, nullOnApiError } from "@/lib/apiClient";
+import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
 
 type Phase = "loading" | "bubble" | "form" | "thankyou" | "hidden";
 
-// Aligned with the offboarding-feedback textarea — gives users room for substantive
-// comments without hitting an artificial 500-char limit. Backend cap matches.
-const FEEDBACK_MAX_CHARS = 4096;
+// The shared feedback limit the backend enforces (same for every feedback form).
+const FEEDBACK_MAX_CHARS = SHARED_MANIFEST.submissionLimits.feedbackTextMaxChars;
 
 export default function FeedbackBubble() {
   const { isAuthenticated, user, getAccessToken } = useAuth();

@@ -38,7 +38,7 @@ import AnalysisResultsSection from "./components/AnalysisResultsSection";
 import VulnerabilityReportSection from "./components/VulnerabilityReportSection";
 import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
-import ReportSessionModal from "./components/ReportSessionModal";
+import ReportSessionModal, { type ReportSubmission } from "./components/ReportSessionModal";
 import CollectLogsButton from "./components/CollectLogsButton";
 import SessionAnnotationsCard from "./components/SessionAnnotationsCard";
 import { usePageSections } from "../../hooks/usePageSections";
@@ -47,6 +47,8 @@ import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIco
 import DeviceDetailsCard from "./components/DeviceDetailsCard";
 import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
+import { bytesToBase64 } from "@/lib/base64";
+import { fitsReportRequest } from "@/lib/reportAttachments";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -173,6 +175,8 @@ function SessionDetailContent() {
   const viewedTenantId = (session?.tenantId ?? sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
   const isCrossTenantView = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
+  // Report Session is an Admin/Operator route (Global Admins too); Viewers get no button that ends in a 403.
+  const canReportSession = (user?.isTenantAdmin ?? false) || user?.role === "Operator" || (user?.isGlobalAdmin ?? false);
 
   // Browser-tab title: lead with the device identifier so multiple session tabs stay distinguishable when
   // compared side by side (tabs truncate to the first chars). Pipe separator matches the root layout
@@ -299,55 +303,53 @@ function SessionDetailContent() {
     }
   };
 
-  const handleSubmitReport = async (
-    comment: string, email: string,
-    screenshotBase64: string | null, screenshotFileName: string | null,
-    agentLogBase64: string | null, agentLogFileName: string | null,
-    includeDiagnostics: boolean
-  ) => {
+  const handleSubmitReport = async (submission: ReportSubmission) => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
       setReportSubmitting(true);
 
-      // Generate TXT and CSV exports from the events currently loaded
       const exportEvents: SessionExportEvent[] = events.map(e => ({
         ...e,
         tenantId: effectiveTenantId || '',
       }));
-      const timelineExportTxt = generateUiExport(exportEvents, sessionId, effectiveTenantId || '', session?.status);
-      const eventsCsv = generateCsvExport(exportEvents);
-      const sessionCsv = session ? generateSessionCsvExport(session) : '';
-      const ruleResultsCsv = generateRuleResultsCsvExport(analysisResults);
+      const report: SubmitSessionReportRequest = {
+        tenantId: effectiveTenantId,
+        sessionId,
+        comment: submission.comment,
+        email: submission.email,
+        sessionCsv: session ? generateSessionCsvExport(session) : '',
+        ruleResultsCsv: generateRuleResultsCsvExport(analysisResults),
+        screenshotBase64: submission.screenshot ? bytesToBase64(submission.screenshot.bytes) : null,
+        screenshotFileName: submission.screenshot?.fileName ?? null,
+        agentLogBase64: submission.agentLog ? bytesToBase64(submission.agentLog.bytes) : null,
+        agentLogFileName: submission.agentLog?.fileName ?? null,
+        includeDiagnostics: submission.includeDiagnostics,
+        sessionEventCount: session?.eventCount,
+        eventStreamActive: eventsApi.isStreamingMore,
+      };
 
-      await fetchOk(
-        api.sessions.report(sessionId, effectiveTenantId),
-        getAccessToken,
-        {
-          method: 'POST',
-          body: jsonBody<SubmitSessionReportRequest>({
-            tenantId: effectiveTenantId,
-            sessionId,
-            comment,
-            email,
-            sessionCsv,
-            eventsCsv,
-            ruleResultsCsv,
-            timelineExportTxt,
-            screenshotBase64,
-            screenshotFileName,
-            agentLogBase64,
-            agentLogFileName,
-            includeDiagnostics,
-            // Completeness signal: lets the operator detect a partial export
-            // (client had not finished streaming all event pages at submit time).
-            exportedEventCount: events.length,
-            sessionEventCount: session?.eventCount,
-            eventStreamActive: eventsApi.isStreamingMore
-          })
+      // The event exports (TXT + CSV of the events currently loaded) go along when they fit next
+      // to the attachments. Attachments win: only the reporter has them, while the team can read
+      // the session's events directly. exportedEventCount lets the operator detect a partial or
+      // missing export (0 = left out).
+      let body = jsonBody<SubmitSessionReportRequest>({
+        ...report,
+        eventsCsv: generateCsvExport(exportEvents),
+        timelineExportTxt: generateUiExport(exportEvents, sessionId, effectiveTenantId || '', session?.status),
+        exportedEventCount: events.length,
+      });
+      let exportsOmitted = false;
+      if (!fitsReportRequest(body)) {
+        exportsOmitted = true;
+        body = jsonBody<SubmitSessionReportRequest>({ ...report, exportedEventCount: 0 });
+        if (!fitsReportRequest(body)) {
+          throw new Error("The attachments are too large to send. Remove some files and try again.");
         }
-      );
+      }
 
-      trackEvent("session_report_submitted", { sessionId });
+      await fetchOk(api.sessions.report(sessionId, effectiveTenantId), getAccessToken, { method: 'POST', body });
+
+      trackEvent("session_report_submitted", { sessionId, exportsOmitted });
       addNotification('success', 'Report Submitted', 'Session report has been submitted for analysis.', 'report-success');
     } catch (err: unknown) {
       // Re-throw so the modal can show inline error feedback; a backend refusal is also toasted.
@@ -555,7 +557,7 @@ function SessionDetailContent() {
                 </button>
               </>
             )}
-            {!isReadOnlyView && (
+            {!isReadOnlyView && canReportSession && (
               <button
                 onClick={() => setShowReportModal(true)}
                 className="px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2 text-sm"

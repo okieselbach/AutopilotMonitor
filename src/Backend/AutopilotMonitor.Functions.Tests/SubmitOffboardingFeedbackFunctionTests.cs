@@ -316,6 +316,12 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
             return Task.CompletedTask;
         }
 
+        public Task SaveGeneralFeedbackAsync(FeedbackEntry entry)
+            => throw new NotSupportedException("Test should not write general feedback");
+
+        public Task<int> CountGeneralFeedbackSinceAsync(string upn, DateTime sinceUtc)
+            => throw new NotSupportedException("Test should not count general feedback");
+
         public Task<List<FeedbackEntry>> GetAllAsync()
             => throw new NotSupportedException("Test should not enumerate feedback");
     }

@@ -655,6 +655,7 @@ export const api = {
   feedback: {
     status: () => `${API_BASE_URL}/api/feedback/status`,
     submit: () => `${API_BASE_URL}/api/feedback`,
+    general: () => `${API_BASE_URL}/api/feedback/general`,
     all: () => `${API_BASE_URL}/api/feedback/all`,
   },
 

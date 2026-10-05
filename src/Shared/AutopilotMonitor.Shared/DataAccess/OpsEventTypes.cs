@@ -88,6 +88,12 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // ── Tenant ── Tenant lifecycle: offboarding, trials, plan changes, regression radars, config toggles.
         public const string OffboardingFeedbackReceived   = "OffboardingFeedbackReceived";
+        /// <summary>
+        /// A member of a tenant sent feedback from the portal's help menu (<c>POST feedback/general</c>).
+        /// Info. Message and details never carry the feedback text or the sender — the text is read in
+        /// the portal (User Feedback), so a channel bound to this rule receives no personal data.
+        /// </summary>
+        public const string FeedbackReceived              = "FeedbackReceived";
         public const string TenantOffboarded              = "TenantOffboarded";
         public const string TenantOffboardingFailed       = "TenantOffboardingFailed";
         public const string TenantAutoApproved            = "TenantAutoApproved";
@@ -149,7 +155,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen,
-            OffboardingFeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
+            OffboardingFeedbackReceived, FeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert,

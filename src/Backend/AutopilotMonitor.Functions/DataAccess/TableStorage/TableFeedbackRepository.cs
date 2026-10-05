@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -103,6 +104,49 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        // ── General ────────────────────────────────────────────────────────────
+
+        public async Task SaveGeneralFeedbackAsync(FeedbackEntry entry)
+        {
+            entry.Type = FeedbackEntryType.General;
+            entry.InteractedAt ??= DateTime.UtcNow;
+            entry.Upn = entry.Upn.ToLowerInvariant();
+            entry.FeedbackId = $"{RowKeyCodec.InvertedTicks(entry.InteractedAt.Value)}_{Guid.NewGuid().ToString("N")[..12]}";
+            try
+            {
+                // Insert, never upsert: every submission is its own row.
+                await _tableClient.AddEntityAsync(StoreGeneral(entry));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving general feedback for {Upn}", entry.Upn);
+                throw;
+            }
+        }
+
+        public async Task<int> CountGeneralFeedbackSinceAsync(string upn, DateTime sinceUtc)
+        {
+            var normalizedUpn = upn.ToLowerInvariant();
+            // Newest-first RowKeys: a row at or after sinceUtc has an inverted-tick prefix <= that of
+            // sinceUtc, so everything below the prefix of the tick before sinceUtc is in the window.
+            var bound = RowKeyCodec.InvertedTicks(sinceUtc.AddTicks(-1));
+            var filter = $"PartitionKey eq '{FeedbackEntryType.General}' and RowKey lt '{bound}' " +
+                         $"and Upn eq '{normalizedUpn.Replace("'", "''")}'";
+            var count = 0;
+            await foreach (var entity in _tableClient.QueryAsync<TableEntity>(
+                filter, select: new[] { "Upn", "InteractedAt" }))
+            {
+                // The service filter is the efficient bound; the same conditions are re-checked here.
+                if (entity.PartitionKey == FeedbackEntryType.General
+                    && string.Equals(entity.GetString("Upn"), normalizedUpn, StringComparison.Ordinal)
+                    && entity.GetDateTime("InteractedAt") is DateTime at && at >= sinceUtc)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
         // ── Reports ────────────────────────────────────────────────────────────
 
         public async Task<List<FeedbackEntry>> GetAllAsync()
@@ -116,6 +160,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     {
                         FeedbackEntryType.InApp => MapInApp(entity),
                         FeedbackEntryType.Offboarding => MapOffboarding(entity),
+                        FeedbackEntryType.General => MapGeneral(entity),
                         _ => MapUnknown(entity),
                     });
                 }
@@ -175,6 +220,31 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             DisplayName = e.GetString("DisplayName") ?? string.Empty,
             DomainName = e.GetString("DomainName"),
             Comment = e.GetString("Comment"),
+            InteractedAt = e.GetDateTime("InteractedAt"),
+        };
+
+        private static TableEntity StoreGeneral(FeedbackEntry e) =>
+            new(FeedbackEntryType.General, e.FeedbackId!)
+            {
+                ["TenantId"] = e.TenantId,
+                ["Upn"] = e.Upn,
+                ["DisplayName"] = e.DisplayName,
+                ["DomainName"] = e.DomainName,
+                ["Comment"] = e.Comment,
+                ["ContactEmail"] = e.ContactEmail,
+                ["InteractedAt"] = e.InteractedAt,
+            };
+
+        private static FeedbackEntry MapGeneral(TableEntity e) => new()
+        {
+            Type = FeedbackEntryType.General,
+            FeedbackId = e.RowKey,
+            TenantId = e.GetString("TenantId") ?? string.Empty,
+            Upn = e.GetString("Upn") ?? string.Empty,
+            DisplayName = e.GetString("DisplayName") ?? string.Empty,
+            DomainName = e.GetString("DomainName"),
+            Comment = e.GetString("Comment"),
+            ContactEmail = e.GetString("ContactEmail"),
             InteractedAt = e.GetDateTime("InteractedAt"),
         };
 

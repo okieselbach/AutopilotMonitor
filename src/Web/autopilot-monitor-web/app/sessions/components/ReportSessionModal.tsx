@@ -1,36 +1,36 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { ModalPortal } from "@/components/ModalPortal";
+import { AttachmentBudgetLine, AttachmentField } from "@/components/ReportAttachments";
+import { useAttachmentPack } from "@/hooks/useAttachmentPack";
+import { formatBytes } from "@/lib/formatting";
+import { ATTACHMENT_BUDGET_BYTES, packedSize, type PackedAttachment } from "@/lib/reportAttachments";
+import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
 
-const MAX_AGENT_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
-// Backend caps the whole request body at 20 MB. Base64 adds ~33%, and the body also
-// carries agent logs (≤5 MB raw) plus CSV/TXT exports — 8 MB raw screenshots keeps
-// the worst case comfortably under the cap.
-const MAX_SCREENSHOT_SIZE = 8 * 1024 * 1024; // 8 MB
+const MAX_COMMENT_CHARS = SHARED_MANIFEST.submissionLimits.reportCommentMaxChars;
+const MAX_EMAIL_CHARS = SHARED_MANIFEST.submissionLimits.contactEmailMaxChars;
+
+/** What the dialog hands the page; the page adds the session exports and sends the report. */
+export interface ReportSubmission {
+  comment: string;
+  email: string;
+  screenshot: PackedAttachment | null;
+  agentLog: PackedAttachment | null;
+  includeDiagnostics: boolean;
+}
 
 interface ReportSessionModalProps {
   show: boolean;
   session: Session | null;
   events: EnrollmentEvent[];
   analysisResults: RuleResult[];
-  onSubmit: (
-    comment: string, email: string,
-    screenshotBase64: string | null, screenshotFileName: string | null,
-    agentLogBase64: string | null, agentLogFileName: string | null,
-    includeDiagnostics: boolean
-  ) => Promise<void>;
+  onSubmit: (submission: ReportSubmission) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
   /** True while the timeline is still streaming event pages — the export would be partial. */
   eventsStreaming?: boolean;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default function ReportSessionModal({
@@ -38,16 +38,11 @@ export default function ReportSessionModal({
 }: ReportSessionModalProps) {
   const [comment, setComment] = useState("");
   const [email, setEmail] = useState("");
-  const [screenshotFiles, setScreenshotFiles] = useState<File[]>([]);
-  const [screenshotError, setScreenshotError] = useState<string | null>(null);
-  const [agentLogFiles, setAgentLogFiles] = useState<File[]>([]);
-  const [agentLogError, setAgentLogError] = useState<string | null>(null);
+  const agentLogs = useAttachmentPack("logs", "agent-logs.zip");
+  const screenshots = useAttachmentPack("screenshots", "screenshots.zip");
   const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
   const [submitResult, setSubmitResult] = useState<'success' | 'error' | null>(null);
   const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
-
-  const agentLogInputRef = useRef<HTMLInputElement>(null);
-  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   // Clear stale result feedback from a previous submission the moment the modal
   // (re)opens. Adjust-during-render (compare-prev) instead of an effect — same
@@ -66,112 +61,24 @@ export default function ReportSessionModal({
   // Backend omits null fields (WhenWritingNull) — truthiness check, never `=== null`.
   const hasDiagnostics = !!session.diagnosticsBlobName;
 
-  const addAgentLogs = (newFiles: File[]) => {
-    setAgentLogError(null);
-    const merged = [...agentLogFiles];
-    for (const f of newFiles) {
-      if (!merged.some(existing => existing.name === f.name && existing.size === f.size)) {
-        merged.push(f);
-      }
-    }
-    const totalSize = merged.reduce((sum, f) => sum + f.size, 0);
-    if (totalSize > MAX_AGENT_LOG_SIZE) {
-      setAgentLogError(`Total size (${formatFileSize(totalSize)}) exceeds 5 MB limit. Remove some files or add smaller ones.`);
-      // Keep existing files, don't add the new ones
-      return;
-    }
-    setAgentLogFiles(merged);
-    if (agentLogInputRef.current) agentLogInputRef.current.value = "";
-  };
-
-  const removeAgentLog = (index: number) => {
-    setAgentLogError(null);
-    setAgentLogFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const addScreenshots = (newFiles: File[]) => {
-    setScreenshotError(null);
-    const merged = [...screenshotFiles];
-    for (const f of newFiles) {
-      if (!merged.some(existing => existing.name === f.name && existing.size === f.size)) {
-        merged.push(f);
-      }
-    }
-    const totalSize = merged.reduce((sum, f) => sum + f.size, 0);
-    if (totalSize > MAX_SCREENSHOT_SIZE) {
-      setScreenshotError(`Total size (${formatFileSize(totalSize)}) exceeds 8 MB limit. Remove some files or add smaller ones.`);
-      // Keep existing files, don't add the new ones
-      return;
-    }
-    setScreenshotFiles(merged);
-    if (screenshotInputRef.current) screenshotInputRef.current.value = "";
-  };
-
-  const removeScreenshot = (index: number) => {
-    setScreenshotError(null);
-    setScreenshotFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const fileToBase64 = async (file: File): Promise<string> => {
-    const buffer = await file.arrayBuffer();
-    return btoa(
-      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-    );
-  };
+  const usedBytes = packedSize(agentLogs.packed, screenshots.packed);
+  const overBudget = usedBytes > ATTACHMENT_BUDGET_BYTES;
+  const packing = agentLogs.packing || screenshots.packing;
 
   const handleSubmit = async () => {
-    let screenshotBase64: string | null = null;
-    let screenshotFileName: string | null = null;
-    let agentLogBase64: string | null = null;
-    let agentLogFileName: string | null = null;
-
-    if (screenshotFiles.length === 1) {
-      screenshotBase64 = await fileToBase64(screenshotFiles[0]);
-      screenshotFileName = screenshotFiles[0].name;
-    } else if (screenshotFiles.length > 1) {
-      const entries: Record<string, Uint8Array> = {};
-      for (const file of screenshotFiles) {
-        const buffer = await file.arrayBuffer();
-        entries[file.name] = new Uint8Array(buffer);
-      }
-      // fflate is only needed when zipping multi-file uploads — load on demand
-      // (module is cached after first import) to keep it out of the route chunk.
-      const { zipSync } = await import("fflate");
-      const zipped = zipSync(entries);
-      screenshotBase64 = btoa(
-        zipped.reduce((data, byte) => data + String.fromCharCode(byte), "")
-      );
-      screenshotFileName = "screenshots.zip";
-    }
-
-    if (agentLogFiles.length === 1) {
-      agentLogBase64 = await fileToBase64(agentLogFiles[0]);
-      agentLogFileName = agentLogFiles[0].name;
-    } else if (agentLogFiles.length > 1) {
-      const entries: Record<string, Uint8Array> = {};
-      for (const file of agentLogFiles) {
-        entries[file.name] = new Uint8Array(await file.arrayBuffer());
-      }
-      const { zipSync } = await import("fflate");
-      const zipped = zipSync(entries);
-      agentLogBase64 = btoa(
-        zipped.reduce((data, byte) => data + String.fromCharCode(byte), "")
-      );
-      agentLogFileName = "agent-logs.zip";
-    }
-
     try {
-      await onSubmit(
-        comment, email, screenshotBase64, screenshotFileName, agentLogBase64, agentLogFileName,
-        hasDiagnostics && includeDiagnostics
-      );
+      await onSubmit({
+        comment,
+        email,
+        screenshot: screenshots.packed,
+        agentLog: agentLogs.packed,
+        includeDiagnostics: hasDiagnostics && includeDiagnostics,
+      });
       setSubmitResult('success');
       setComment("");
       setEmail("");
-      setScreenshotFiles([]);
-      setScreenshotError(null);
-      setAgentLogFiles([]);
-      setAgentLogError(null);
+      agentLogs.reset();
+      screenshots.reset();
     } catch (err: unknown) {
       setSubmitResult('error');
       setSubmitErrorMessage(err instanceof Error ? err.message : 'Failed to submit report.');
@@ -183,8 +90,6 @@ export default function ReportSessionModal({
     setSubmitErrorMessage(null);
     onCancel();
   };
-
-  const agentLogTotalSize = agentLogFiles.reduce((sum, f) => sum + f.size, 0);
 
   return (
     <ModalPortal>
@@ -248,11 +153,15 @@ export default function ReportSessionModal({
                   <textarea
                     value={comment}
                     onChange={e => setComment(e.target.value)}
+                    maxLength={MAX_COMMENT_CHARS}
                     placeholder="Describe what seems incorrect or unexpected..."
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     rows={3}
                     disabled={submitting}
                   />
+                  {comment.length > 0 && (
+                    <p className="text-xs text-gray-400 text-right mt-0.5">{comment.length} / {MAX_COMMENT_CHARS}</p>
+                  )}
                 </div>
 
                 {/* Email */}
@@ -264,6 +173,7 @@ export default function ReportSessionModal({
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
+                    maxLength={MAX_EMAIL_CHARS}
                     placeholder="your.email@company.com"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     disabled={submitting}
@@ -273,92 +183,25 @@ export default function ReportSessionModal({
                   </p>
                 </div>
 
-                {/* Agent Log Files */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Agent Logs <span className="text-gray-400">(optional, max 5 MB total)</span>
-                  </label>
-                  <input
-                    ref={agentLogInputRef}
-                    type="file"
-                    accept=".log,.txt,.zip"
-                    multiple
-                    onChange={e => addAgentLogs(e.target.files ? Array.from(e.target.files) : [])}
-                    className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
-                    disabled={submitting}
-                  />
-                  {agentLogError && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">{agentLogError}</p>
-                  )}
-                  {agentLogFiles.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {agentLogFiles.map((file, i) => (
-                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
-                          <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
-                          <button
-                            type="button"
-                            onClick={() => removeAgentLog(i)}
-                            disabled={submitting}
-                            className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-                            title="Remove"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        {agentLogFiles.length} file{agentLogFiles.length !== 1 ? "s" : ""} — {formatFileSize(agentLogTotalSize)} total
-                      </p>
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Located at %ProgramData%\AutopilotMonitor\Logs\ on the device.
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    Located at %ProgramData%\Microsoft\IntuneManagementExtension\Logs\ on the device.
-                  </p>
-                </div>
+                <AttachmentField
+                  label="Agent Logs"
+                  accept=".log,.txt,.zip"
+                  pack={agentLogs}
+                  disabled={submitting}
+                  hints={[
+                    "Located at %ProgramData%\\AutopilotMonitor\\Logs\\ on the device.",
+                    "Located at %ProgramData%\\Microsoft\\IntuneManagementExtension\\Logs\\ on the device.",
+                  ]}
+                />
 
-                {/* Screenshots */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Screenshots <span className="text-gray-400">(optional, max 8 MB total)</span>
-                  </label>
-                  <input
-                    ref={screenshotInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={e => addScreenshots(e.target.files ? Array.from(e.target.files) : [])}
-                    className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
-                    disabled={submitting}
-                  />
-                  {screenshotError && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">{screenshotError}</p>
-                  )}
-                  {screenshotFiles.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {screenshotFiles.map((file, i) => (
-                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
-                          <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
-                          <button
-                            type="button"
-                            onClick={() => removeScreenshot(i)}
-                            disabled={submitting}
-                            className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-                            title="Remove"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <AttachmentField
+                  label="Screenshots"
+                  accept="image/*"
+                  pack={screenshots}
+                  disabled={submitting}
+                />
+
+                <AttachmentBudgetLine usedBytes={usedBytes} />
 
                 {/* Diagnostics archive opt-in — active only when the session has an uploaded
                     diag ZIP; rendered disabled otherwise so the option is discoverable. */}
@@ -391,10 +234,14 @@ export default function ReportSessionModal({
                     <li>{analysisResults.length} analysis result{analysisResults.length !== 1 ? "s" : ""}</li>
                     <li>Timeline export (TXT)</li>
                     <li>Table export (CSV)</li>
-                    {agentLogFiles.length === 1 && <li>Agent log: {agentLogFiles[0].name} ({formatFileSize(agentLogFiles[0].size)})</li>}
-                    {agentLogFiles.length > 1 && <li>{agentLogFiles.length} agent logs ({formatFileSize(agentLogTotalSize)}, will be zipped)</li>}
-                    {screenshotFiles.length === 1 && <li>Screenshot: {screenshotFiles[0].name}</li>}
-                    {screenshotFiles.length > 1 && <li>{screenshotFiles.length} screenshots (will be zipped)</li>}
+                    {agentLogs.files.length > 0 && (
+                      <li>
+                        {agentLogs.files.length === 1 ? `Agent log: ${agentLogs.files[0].name}` : `${agentLogs.files.length} agent logs`}
+                        {agentLogs.packed ? ` (${formatBytes(agentLogs.packed.bytes.length)} zipped)` : ""}
+                      </li>
+                    )}
+                    {screenshots.files.length === 1 && <li>Screenshot: {screenshots.files[0].name}</li>}
+                    {screenshots.files.length > 1 && <li>{screenshots.files.length} screenshots (zipped)</li>}
                     {hasDiagnostics && includeDiagnostics && <li>Uploaded diagnostics archive (copied server-side)</li>}
                   </ul>
                   {eventsStreaming && (
@@ -427,7 +274,7 @@ export default function ReportSessionModal({
                   </button>
                   <button
                     onClick={handleSubmit}
-                    disabled={submitting || !!agentLogError || !!screenshotError}
+                    disabled={submitting || packing || overBudget}
                     className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     {submitting ? (

@@ -567,6 +567,33 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, submittedBy, details);
         }
 
+        /// <summary>
+        /// Fired when a member of a tenant sends feedback from the portal's help menu. Info. Message and
+        /// details carry neither the text nor the sender, so an alert channel receives no personal data;
+        /// the text is read in the portal (User Feedback). The UPN is only the row's UserId, which the
+        /// dispatch never forwards.
+        /// </summary>
+        public Task RecordFeedbackReceivedAsync(
+            string tenantId, string submittedBy, string? domainName, string feedbackId, int length, bool hasContactEmail)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
+                ? tenantId
+                : $"{domainName} ({tenantId})";
+
+            var details = new Dictionary<string, object?>
+            {
+                ["domainName"] = domainName,
+                ["feedbackId"] = feedbackId,
+                ["length"] = length,
+                ["hasContactEmail"] = hasContactEmail,
+                ["portalPath"] = "/admin/reports/user-feedback",
+            };
+
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FeedbackReceived, OpsEventSeverity.Info,
+                $"Feedback received from {tenantLabel}",
+                tenantId, submittedBy, details);
+        }
+
         public Task RecordTenantOffboardedAsync(string tenantId, string performedBy, Dictionary<string, int> deletedCounts, string? domainName = null)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName)

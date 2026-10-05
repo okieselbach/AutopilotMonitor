@@ -269,6 +269,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "config/latest-versions",    EndpointPolicy.AuthenticatedUser),
 
         // ── MemberRead (Admin + Operator, later + Viewer) ───────────────
+        // Help-menu feedback: every member may write to the team, a roleless caller may not (the
+        // in-app rating route above stays AuthenticatedUser). The function caps it per user and day.
+        new("POST",   "feedback/general",                    EndpointPolicy.MemberRead),
         new("GET",    "raw/sessions",                        EndpointPolicy.MemberRead),
         new("GET",    "raw/events",                          EndpointPolicy.MemberRead),
         new("GET",    "search/quick",                   EndpointPolicy.MemberRead),
@@ -365,10 +368,10 @@ public static class EndpointAccessPolicyCatalog
         // function re-gates the per-lane matrix (tenantadmin lane → IsTenantAdmin, globaladmin
         // lane → IsGlobalAdmin) via UpsertSessionAnnotationFunction.IsLaneWritableByCaller.
         new("PUT",    "sessions/{sessionId}/annotations/{lane}", EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
-        new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrGA),
-        // Operator tier: submitting diagnostic files to the Autopilot Monitor team is a
-        // troubleshooting action, not a config change — a support-driven Operator may use it.
-        // Viewer and the read-only Global Reader stay excluded (the tier admits no Viewer/Reader).
+        // Operator tier: reporting a session or submitting diagnostic files to the Autopilot Monitor
+        // team is a troubleshooting action, not a config change — a support-driven Operator may use
+        // both. Viewer and the read-only Global Reader stay excluded (the tier admits no Viewer/Reader).
+        new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrOperator),
         new("POST",   "diagnostics/files",                  EndpointPolicy.TenantAdminOrOperator),
         // Community rule submissions: the tenant admin submits references to own custom rules
         // (frozen server-side), lists and withdraws them for the JWT tenant only.

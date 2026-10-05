@@ -354,6 +354,32 @@ namespace AutopilotMonitor.Shared
         }
 
         /// <summary>
+        /// Limits of what a portal user sends to the Autopilot Monitor team: feedback, session reports
+        /// and Submit Logs. The backend enforces them; the shared manifest exports them as
+        /// <c>submissionLimits</c>, so the portal's counters and upload budget use the same numbers.
+        /// </summary>
+        public static class SubmissionLimits
+        {
+            /// <summary>Longest feedback text (general feedback, rating comment, offboarding comment), in characters.</summary>
+            public const int FeedbackTextMaxChars = 4096;
+
+            /// <summary>Longest comment on a session report or a Submit Logs report, in characters.</summary>
+            public const int ReportCommentMaxChars = 4096;
+
+            /// <summary>Longest contact address, in characters (the SMTP path limit).</summary>
+            public const int ContactEmailMaxChars = 254;
+
+            /// <summary>
+            /// Request body cap of the two report routes, in bytes. Attachments travel base64-encoded next to
+            /// the session exports, so the portal derives its attachment budget from this value.
+            /// </summary>
+            public const int ReportRequestMaxBytes = 20 * 1024 * 1024;
+
+            /// <summary>General feedback submissions one user may send in a rolling 24 hours.</summary>
+            public const int GeneralFeedbackPerUserPerDay = 10;
+        }
+
+        /// <summary>
         /// Machine-readable <c>code</c> values of the critical-table backup and restore surface
         /// (<c>global/backups/*</c>). <c>BackupTerminalException.Code</c> carries one of these;
         /// <c>RestoreRowFunction</c> maps it to the HTTP status. Wire contract — keep stable.

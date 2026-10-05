@@ -41,13 +41,13 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Pre-generated analysis rule results export (CSV)</summary>
         public string? RuleResultsCsv { get; set; }
 
-        /// <summary>Base64-encoded screenshot image (optional)</summary>
+        /// <summary>Base64-encoded screenshot image, or a zip of several (optional)</summary>
         public string? ScreenshotBase64 { get; set; }
 
         /// <summary>Original screenshot file name for extension detection</summary>
         public string? ScreenshotFileName { get; set; }
 
-        /// <summary>Base64-encoded agent log file (optional, max 5 MB)</summary>
+        /// <summary>Base64-encoded agent log file or zip of logs (optional; the request body cap bounds all attachments together)</summary>
         public string? AgentLogBase64 { get; set; }
 
         /// <summary>Original agent log file name</summary>
@@ -82,13 +82,13 @@ namespace AutopilotMonitor.Shared.Models
         public string? Comment { get; set; }
         public string? Email { get; set; }
 
-        /// <summary>Base64-encoded screenshot image (optional)</summary>
+        /// <summary>Base64-encoded screenshot image, or a zip of several (optional)</summary>
         public string? ScreenshotBase64 { get; set; }
 
         /// <summary>Original screenshot file name for extension detection</summary>
         public string? ScreenshotFileName { get; set; }
 
-        /// <summary>Base64-encoded log/state payload (single file or zip of many; max ~5 MB enforced client-side)</summary>
+        /// <summary>Base64-encoded log/state payload (single file or zip of many; the request body cap bounds all attachments together)</summary>
         public string? AgentLogBase64 { get; set; }
 
         /// <summary>Original file name (e.g. "agent.log", "state.json", "diag-files.zip")</summary>

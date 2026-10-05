@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import type { FeedbackEntryWire, FeedbackListResponse } from "@/utils/wire-types.generated";
+import { avgRating, paginate, partitionFeedback, type FeedbackTab } from "@/lib/feedbackPartition";
 
 /** One stored feedback entry — the wire shape (fields absent on dismissals). */
 type FeedbackEntry = FeedbackEntryWire;
 
-type FeedbackTab = "InApp" | "Offboarding";
 type InAppFilter = "all" | "submitted" | "dismissed";
 
 interface FeedbackSectionProps {
@@ -21,7 +21,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
   // flashes the empty state for one paint.
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<FeedbackTab>("InApp");
+  const [activeTab, setActiveTab] = useState<FeedbackTab>("General");
   const [inAppFilter, setInAppFilter] = useState<InAppFilter>("all");
   const [currentPage, setCurrentPage] = useState(0);
   // Reference clock for the "Xm ago" labels — render must stay pure
@@ -60,17 +60,14 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
   }, [fetchFeedback]);
 
   // Partition by tab. Server returns mixed; client splits + filters per active tab so the
-  // two lists never share render code (different shapes: In-App has stars, Offboarding has
-  // a domain + history-row reference instead).
-  const inAppEntries = entries.filter(e => e.type === "InApp");
-  const offboardingEntries = entries.filter(e => e.type === "Offboarding");
+  // lists never share render code (different shapes: General carries a message + reply
+  // address, In-App has stars, Offboarding has a domain + history-row reference).
+  const { general: generalEntries, inApp: inAppEntries, offboarding: offboardingEntries } = partitionFeedback(entries);
 
-  // Stats — In-App only (Offboarding tab has its own count below).
+  // Stats — In-App only (the other tabs show a plain count).
   const submittedEntries = inAppEntries.filter(e => e.submitted);
   const dismissedEntries = inAppEntries.filter(e => e.dismissed && !e.submitted);
-  const avgRating = submittedEntries.length > 0
-    ? (submittedEntries.reduce((sum, e) => sum + (e.rating || 0), 0) / submittedEntries.length).toFixed(1)
-    : "—";
+  const averageRating = avgRating(inAppEntries);
 
   // In-App tab honours the Submitted/Dismissed filter (click the stat to narrow the list).
   const filteredInAppEntries = inAppFilter === "submitted"
@@ -80,12 +77,10 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
       : inAppEntries;
 
   // Pagination over the currently-active tab.
-  const activeEntries = activeTab === "InApp" ? filteredInAppEntries : offboardingEntries;
-  const totalPages = Math.ceil(activeEntries.length / entriesPerPage);
-  const paginatedEntries = activeEntries.slice(
-    currentPage * entriesPerPage,
-    (currentPage + 1) * entriesPerPage
-  );
+  const activeEntries = activeTab === "General"
+    ? generalEntries
+    : activeTab === "InApp" ? filteredInAppEntries : offboardingEntries;
+  const { items: paginatedEntries, totalPages } = paginate(activeEntries, currentPage, entriesPerPage);
 
   const switchTab = (tab: FeedbackTab) => {
     setActiveTab(tab);
@@ -142,13 +137,23 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
           </div>
           <div className="text-left">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">User Feedback</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">In-app feedback from tenant admins and operators</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Feedback from portal users</p>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="px-6 border-t border-gray-200 dark:border-gray-700 flex gap-2 pt-3">
+      <div className="px-6 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-2 pt-3">
+        <button
+          onClick={() => switchTab("General")}
+          className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            activeTab === "General"
+              ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200"
+              : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          Feedback ({generalEntries.length})
+        </button>
         <button
           onClick={() => switchTab("InApp")}
           className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
@@ -157,7 +162,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
               : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
           }`}
         >
-          In-App Feedback ({inAppEntries.length})
+          Ratings ({inAppEntries.length})
         </button>
         <button
           onClick={() => switchTab("Offboarding")}
@@ -179,13 +184,19 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
           </div>
         ) : activeEntries.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            {activeTab === "InApp" ? "No in-app feedback received yet" : "No offboarding feedback received yet"}
+            {activeTab === "General"
+              ? "No feedback received yet"
+              : activeTab === "InApp" ? "No ratings received yet" : "No offboarding feedback received yet"}
           </div>
         ) : (
           <>
-            {/* Stats — only meaningful for In-App; Offboarding tab gets a simpler summary */}
+            {/* Stats — only meaningful for In-App; the other tabs get a simpler summary */}
             <div className="flex flex-wrap items-center gap-4 py-4 text-sm">
-              {activeTab === "InApp" ? (
+              {activeTab === "General" ? (
+                <span className="text-gray-600 dark:text-gray-300">
+                  <span className="font-semibold text-purple-600 dark:text-purple-400">{generalEntries.length}</span> Messages
+                </span>
+              ) : activeTab === "InApp" ? (
                 <>
                   <button
                     onClick={() => toggleInAppFilter("submitted")}
@@ -214,7 +225,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                   </button>
                   <span className="text-gray-400">|</span>
                   <span className="text-gray-600 dark:text-gray-300">
-                    Avg <span className="font-semibold text-yellow-500">{avgRating}</span>
+                    Avg <span className="font-semibold text-yellow-500">{averageRating}</span>
                   </span>
                   {inAppFilter !== "all" && (
                     <button
@@ -238,9 +249,45 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
               </button>
             </div>
 
-            {/* Entries — distinct render path per tab so the Offboarding shape (domain + comment-only)
-                doesn't get distorted into the In-App star UI. */}
-            {activeTab === "InApp" ? (
+            {/* Entries — distinct render path per tab so the General and Offboarding shapes
+                don't get distorted into the In-App star UI. */}
+            {activeTab === "General" ? (
+              <div className="space-y-2">
+                {paginatedEntries.map((entry) => (
+                  <div
+                    key={entry.feedbackId ?? `${entry.upn}-${entry.interactedAt}`}
+                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" title={entry.upn}>
+                          {entry.upn}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 truncate" title={entry.tenantId}>
+                          {entry.domainName || entry.tenantId?.substring(0, 8) + "…"}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
+                        {formatTimeAgo(entry.interactedAt ?? null)}
+                      </span>
+                    </div>
+                    {entry.contactEmail && (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Reply to{" "}
+                        <a href={`mailto:${entry.contactEmail}`} className="text-purple-600 dark:text-purple-400 hover:underline">
+                          {entry.contactEmail}
+                        </a>
+                      </p>
+                    )}
+                    {entry.comment && (
+                      <p className="mt-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
+                        {entry.comment}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : activeTab === "InApp" ? (
               <div className="space-y-2">
                 {paginatedEntries.map((entry) => (
                   <div

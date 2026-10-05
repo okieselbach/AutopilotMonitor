@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Config;
 
@@ -20,7 +21,7 @@ namespace AutopilotMonitor.Functions.Helpers
         private const int MaxNotificationChannelsJsonLength = 65536;
 
         // RFC 5321 caps a forward path at 254 characters.
-        internal const int MaxContactEmailLength = 254;
+        internal const int MaxContactEmailLength = Constants.SubmissionLimits.ContactEmailMaxChars;
 
         // A display label for support, not a legal entity record — long enough for any real
         // organization name, short enough that the field cannot become a free-text dumping ground.

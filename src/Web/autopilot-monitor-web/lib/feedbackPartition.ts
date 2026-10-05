@@ -1,13 +1,13 @@
 /**
  * Pure helpers for partitioning + paginating the mixed feedback list returned by
- * GET /api/feedback/all (In-App rows + Offboarding rows in one array).
+ * GET /api/feedback/all (General, In-App and Offboarding rows in one array).
  *
  * Extracted so vitest can pin the discriminator behaviour without booting React;
  * the FeedbackSection component just plumbs results through.
  */
 
 export interface FeedbackEntryLike {
-  type: "InApp" | "Offboarding" | string;
+  type: "General" | "InApp" | "Offboarding" | string;
   upn: string;
   tenantId: string;
   rating: number | null;
@@ -17,34 +17,39 @@ export interface FeedbackEntryLike {
   interactedAt: string | null;
   historyRowKey: string | null;
   domainName: string | null;
+  feedbackId?: string | null;
+  contactEmail?: string | null;
 }
 
-export type FeedbackTab = "InApp" | "Offboarding";
+export type FeedbackTab = "General" | "InApp" | "Offboarding";
 
 /**
- * Splits the mixed list into the two tab partitions. Unknown discriminator values
- * (future-proofing — server might add a third kind) are dropped so they don't end up
+ * Splits the mixed list into the three tab partitions. Unknown discriminator values
+ * (future-proofing — server might add another kind) are dropped so they don't end up
  * misrendered in one of the existing tabs.
  */
-export function partitionFeedback<T extends FeedbackEntryLike>(entries: T[]): {
+export function partitionFeedback<T extends { type?: string | null }>(entries: readonly T[]): {
+  general: T[];
   inApp: T[];
   offboarding: T[];
 } {
+  const general: T[] = [];
   const inApp: T[] = [];
   const offboarding: T[] = [];
   for (const e of entries) {
-    if (e.type === "InApp") inApp.push(e);
+    if (e.type === "General") general.push(e);
+    else if (e.type === "InApp") inApp.push(e);
     else if (e.type === "Offboarding") offboarding.push(e);
     // else: silently drop — future-proof against unknown kinds.
   }
-  return { inApp, offboarding };
+  return { general, inApp, offboarding };
 }
 
 /**
  * Computes the slice + total-page metadata for the active tab. Returns 0 totalPages
  * when the page list is empty so the pagination UI hides itself.
  */
-export function paginate<T>(entries: T[], page: number, perPage: number): {
+export function paginate<T>(entries: readonly T[], page: number, perPage: number): {
   items: T[];
   totalPages: number;
 } {
@@ -61,8 +66,8 @@ export function paginate<T>(entries: T[], page: number, perPage: number): {
  * Computes the average rating across submitted In-App entries. Returns "—" when no
  * ratings exist (matches the legacy UI string).
  */
-export function avgRating<T extends Pick<FeedbackEntryLike, "submitted" | "rating">>(
-  inAppEntries: T[],
+export function avgRating<T extends { submitted?: boolean; rating?: number | null }>(
+  inAppEntries: readonly T[],
 ): string {
   const submitted = inAppEntries.filter(e => e.submitted && typeof e.rating === "number");
   if (submitted.length === 0) return "—";

@@ -551,6 +551,24 @@ public class TypedContractCompletionWireParityTests
                         interactedAt = (string?)"2026-08-30T10:00:00.0000000Z",
                         historyRowKey = (string?)null, // in-app entry → key vanishes
                         domainName = (string?)null,
+                        feedbackId = (string?)null,
+                        contactEmail = (string?)null,
+                    },
+                    new
+                    {
+                        type = "General",
+                        upn = "bob@fabrikam.invalid",
+                        tenantId = "22222222-2222-2222-2222-222222222222",
+                        displayName = "Bob",
+                        rating = (int?)null, // general entry → no rating key
+                        comment = (string?)"The timeline filter could remember my choice.",
+                        dismissed = false,
+                        submitted = false,
+                        interactedAt = (string?)"2026-10-05T09:30:00.0000000Z",
+                        historyRowKey = (string?)null,
+                        domainName = (string?)"fabrikam.invalid",
+                        feedbackId = (string?)"2516114433936827287_0123456789ab",
+                        contactEmail = (string?)"bob.support@fabrikam.invalid",
                     },
                 },
             },
@@ -571,6 +589,21 @@ public class TypedContractCompletionWireParityTests
                         InteractedAt = "2026-08-30T10:00:00.0000000Z",
                         HistoryRowKey = null,
                         DomainName = null,
+                    },
+                    new FeedbackEntryWire
+                    {
+                        Type = "General",
+                        Upn = "bob@fabrikam.invalid",
+                        TenantId = "22222222-2222-2222-2222-222222222222",
+                        DisplayName = "Bob",
+                        Rating = null,
+                        Comment = "The timeline filter could remember my choice.",
+                        Dismissed = false,
+                        Submitted = false,
+                        InteractedAt = "2026-10-05T09:30:00.0000000Z",
+                        DomainName = "fabrikam.invalid",
+                        FeedbackId = "2516114433936827287_0123456789ab",
+                        ContactEmail = "bob.support@fabrikam.invalid",
                     },
                 },
             });

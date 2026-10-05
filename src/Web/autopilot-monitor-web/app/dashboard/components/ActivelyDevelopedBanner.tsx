@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { DOCS_URL } from "@/utils/config";
 import { trackEvent } from "@/lib/appInsights";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
+import { openFeedbackDialog } from "@/lib/feedbackDialogStore";
 
 // Session-scoped dismissal: sessionStorage is per-tab, so the banner stays hidden
 // across reloads in this tab (service-desk monitor use case) but reappears in every
@@ -65,6 +66,14 @@ export function ActivelyDevelopedBanner() {
         </a>
         .{" "}
         Feedback or bug report?{" "}
+        <button
+          type="button"
+          className={linkClassName}
+          onClick={() => { trackLink("send_feedback"); openFeedbackDialog("banner"); }}
+        >
+          Send it right here
+        </button>
+        , open a{" "}
         <a
           href="https://github.com/okieselbach/AutopilotMonitor/issues"
           target="_blank"
@@ -72,7 +81,7 @@ export function ActivelyDevelopedBanner() {
           className={linkClassName}
           onClick={() => trackLink("github_issues")}
         >
-          Open a GitHub issue
+          GitHub issue
         </a>
         {" "}or message me on{" "}
         <a

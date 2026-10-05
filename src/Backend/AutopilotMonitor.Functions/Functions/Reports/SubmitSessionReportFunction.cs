@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -41,16 +42,20 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
             try
             {
-                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
+                // Authentication + TenantAdminOrOperator authorization enforced by PolicyEnforcementMiddleware
                 var requestCtx = req.GetRequestContext();
                 var tenantId = requestCtx.TenantId;
                 var userIdentifier = requestCtx.UserPrincipalName;
 
-                // Request body size limit (20 MB — must accommodate base64-encoded agent logs,
-                // screenshots, plus CSV/TXT exports; base64 adds ~33% overhead)
-                var read = await req.ReadAsync<SubmitSessionReportRequest>(20_971_520);
+                // Body cap shared with the portal's attachment budget: base64 attachments (+33 %)
+                // plus the CSV/TXT exports must fit inside it.
+                var read = await req.ReadAsync<SubmitSessionReportRequest>(Constants.SubmissionLimits.ReportRequestMaxBytes);
                 if (read.Error != null) return read.Error;
                 var request = read.Value!;
+
+                request.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+                if (SessionReportService.ValidateSubmissionText(request.Comment, request.Email) is { } invalid)
+                    return await req.BadRequestAsync(invalid);
 
                 // Ensure sessionId consistency
                 request.SessionId = sessionId;

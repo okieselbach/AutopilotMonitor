@@ -245,6 +245,95 @@ public class TableFeedbackRepositoryTests
         Assert.Equal(HistoryRowKey, offb[0].HistoryRowKey);
     }
 
+    // ── General (help-menu feedback) ────────────────────────────────────────
+
+    [Fact]
+    public async Task General_RoundTrips_AllFields_WithNewestFirstRowKey()
+    {
+        var harness = new Harness();
+        var at = new DateTime(2026, 10, 5, 9, 30, 0, DateTimeKind.Utc);
+        var entry = new FeedbackEntry
+        {
+            Upn = "Alice@Contoso.Invalid",
+            TenantId = TenantId,
+            DisplayName = "Alice (Contoso)",
+            DomainName = "contoso.invalid",
+            Comment = "The timeline filter could remember my choice.",
+            ContactEmail = "alice.support@contoso.invalid",
+            InteractedAt = at,
+        };
+
+        await harness.Sut.SaveGeneralFeedbackAsync(entry);
+
+        var fetched = Assert.Single(await harness.Sut.GetAllAsync());
+        Assert.Equal(FeedbackEntryType.General, fetched.Type);
+        Assert.Equal(entry.FeedbackId, fetched.FeedbackId);
+        Assert.Matches("^[0-9]{19}_[0-9a-f]{12}$", fetched.FeedbackId!);
+        Assert.StartsWith((DateTime.MaxValue.Ticks - at.Ticks).ToString("D19"), fetched.FeedbackId!);
+        Assert.Equal("alice@contoso.invalid", fetched.Upn);
+        Assert.Equal(TenantId, fetched.TenantId);
+        Assert.Equal("Alice (Contoso)", fetched.DisplayName);
+        Assert.Equal("contoso.invalid", fetched.DomainName);
+        Assert.Equal("The timeline filter could remember my choice.", fetched.Comment);
+        Assert.Equal("alice.support@contoso.invalid", fetched.ContactEmail);
+        Assert.Equal(at, fetched.InteractedAt);
+    }
+
+    [Fact]
+    public async Task General_EverySubmission_IsItsOwnRow()
+    {
+        // Unlike the in-app rating (one row per user), a second message never replaces the first.
+        var harness = new Harness();
+        var at = DateTime.UtcNow;
+        for (var i = 0; i < 2; i++)
+        {
+            await harness.Sut.SaveGeneralFeedbackAsync(new FeedbackEntry
+            {
+                Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Comment = $"Message {i}", InteractedAt = at,
+            });
+        }
+
+        var all = await harness.Sut.GetAllAsync();
+        Assert.Equal(2, all.Count(e => e.Type == FeedbackEntryType.General));
+    }
+
+    [Fact]
+    public async Task CountGeneralFeedbackSince_CountsOnlyThatUser_InsideTheWindow()
+    {
+        var harness = new Harness();
+        var now = new DateTime(2026, 10, 5, 12, 0, 0, DateTimeKind.Utc);
+        async Task Save(string upn, DateTime at) => await harness.Sut.SaveGeneralFeedbackAsync(new FeedbackEntry
+        {
+            Upn = upn, TenantId = TenantId, DisplayName = "x", Comment = "c", InteractedAt = at,
+        });
+        await Save(Upn, now.AddHours(-1));
+        await Save(Upn, now.AddHours(-23));
+        await Save(Upn, now.AddHours(-24));               // exactly at the window start → counted
+        await Save(Upn, now.AddHours(-25));               // outside
+        await Save("bob@fabrikam.invalid", now.AddHours(-1));
+        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "x", Rating = 5, Submitted = true, InteractedAt = now,
+        });
+
+        var count = await harness.Sut.CountGeneralFeedbackSinceAsync("ALICE@contoso.invalid", now.AddHours(-24));
+
+        Assert.Equal(3, count);
+        Assert.Contains("PartitionKey eq 'General'", harness.LastFilter);
+        Assert.Contains("Upn eq 'alice@contoso.invalid'", harness.LastFilter);
+        Assert.Contains($"RowKey lt '{(DateTime.MaxValue.Ticks - now.AddHours(-24).AddTicks(-1).Ticks):D19}'", harness.LastFilter);
+    }
+
+    [Fact]
+    public async Task CountGeneralFeedbackSince_EscapesQuotesInTheUpn()
+    {
+        var harness = new Harness();
+
+        await harness.Sut.CountGeneralFeedbackSinceAsync("o'brien@contoso.invalid", DateTime.UtcNow.AddHours(-24));
+
+        Assert.Contains("Upn eq 'o''brien@contoso.invalid'", harness.LastFilter);
+    }
+
     // ── Harness — minimal TableClient mock with a (PK,RK) → TableEntity store ──
 
     private sealed class Harness
@@ -253,9 +342,22 @@ public class TableFeedbackRepositoryTests
 
         private readonly Dictionary<(string Pk, string Rk), TableEntity> _store = new();
 
+        /// <summary>Filter of the last QueryAsync call (the mock itself ignores it and returns every row).</summary>
+        public string? LastFilter { get; private set; }
+
         public Harness()
         {
             var mockTableClient = new Mock<TableClient>();
+
+            mockTableClient
+                .Setup(c => c.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+                .Returns<TableEntity, CancellationToken>((e, _) =>
+                {
+                    if (_store.ContainsKey((e.PartitionKey, e.RowKey)))
+                        throw new RequestFailedException(409, "Conflict", "EntityAlreadyExists", null);
+                    _store[(e.PartitionKey, e.RowKey)] = e;
+                    return Task.FromResult(new Mock<Response>().Object);
+                });
 
             mockTableClient
                 .Setup(c => c.UpsertEntityAsync(
@@ -281,17 +383,21 @@ public class TableFeedbackRepositoryTests
                     return Task.FromResult(Response.FromValue(entity, new Mock<Response>().Object));
                 });
 
-            // QueryAsync — no filter, returns all stored entities.
+            // QueryAsync — ignores the filter (recorded for assertions), returns all stored entities.
             mockTableClient
                 .Setup(c => c.QueryAsync<TableEntity>(
                     It.IsAny<string>(),
                     It.IsAny<int?>(),
                     It.IsAny<IEnumerable<string>>(),
                     It.IsAny<CancellationToken>()))
-                .Returns(() => AsyncPageable<TableEntity>.FromPages(new[]
+                .Returns<string, int?, IEnumerable<string>, CancellationToken>((filter, _, _, _) =>
                 {
-                    Page<TableEntity>.FromValues(_store.Values.ToList(), null, new Mock<Response>().Object),
-                }));
+                    LastFilter = filter;
+                    return AsyncPageable<TableEntity>.FromPages(new[]
+                    {
+                        Page<TableEntity>.FromValues(_store.Values.ToList(), null, new Mock<Response>().Object),
+                    });
+                });
 
             var mockServiceClient = new Mock<TableServiceClient>();
             mockServiceClient.Setup(s => s.GetTableClient(It.IsAny<string>()))

@@ -124,6 +124,9 @@ public sealed class SharedManifestParityTests
             // Declaration order kept: the web derives a union type from this list, order is cosmetic
             // but a stable order keeps the generated file diff-minimal.
             ["signalRMessages"] = ConstStrings(typeof(Constants.SignalRMessages)),
+            // Limits of feedback and reports (text lengths, the report body cap, the daily feedback cap):
+            // the portal's counters and upload budget read the same numbers the backend enforces.
+            ["submissionLimits"] = ConstInts(typeof(Constants.SubmissionLimits)),
             // Every IApiResponse + IApiRequest implementer + [WireContract] type, transitively closed —
             // the source of utils/wire-types.generated.ts. See WireTypeManifestBuilder.
             ["types"] = WireTypeManifestBuilder.BuildTypesSection(),
@@ -172,6 +175,12 @@ public sealed class SharedManifestParityTests
     private static Dictionary<string, int> EnumMap<TEnum>() where TEnum : struct, Enum
         => Enum.GetValues<TEnum>()
             .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v));
+
+    /// <summary>camelCase name → value of the int constants, declaration order.</summary>
+    private static Dictionary<string, int> ConstInts(Type constClass)
+        => constClass.GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(int))
+            .ToDictionary(f => JsonNamingPolicy.CamelCase.ConvertName(f.Name), f => (int)f.GetRawConstantValue()!);
 
     private static string[] ConstStrings(Type constClass)
         => constClass.GetFields(BindingFlags.Public | BindingFlags.Static)

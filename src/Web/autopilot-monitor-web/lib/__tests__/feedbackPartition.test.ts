@@ -38,31 +38,59 @@ function mkOffb(overrides: Partial<FeedbackEntryLike> = {}): FeedbackEntryLike {
   };
 }
 
+function mkGeneral(overrides: Partial<FeedbackEntryLike> = {}): FeedbackEntryLike {
+  return {
+    type: "General",
+    upn: "dave@contoso.invalid",
+    tenantId: "tenant-1",
+    rating: null,
+    comment: "The timeline filter could remember my choice.",
+    dismissed: false,
+    submitted: false,
+    interactedAt: "2026-10-05T09:30:00Z",
+    historyRowKey: null,
+    domainName: "contoso.invalid",
+    feedbackId: "2516114433936827287_0123456789ab",
+    contactEmail: "dave.support@contoso.invalid",
+    ...overrides,
+  };
+}
+
 describe("partitionFeedback", () => {
   it("splits mixed list by type discriminator", () => {
-    const { inApp, offboarding } = partitionFeedback([
+    const { general, inApp, offboarding } = partitionFeedback([
       mkInApp(),
       mkOffb(),
+      mkGeneral(),
       mkInApp({ upn: "carol@contoso.invalid" }),
     ]);
+    expect(general).toHaveLength(1);
+    expect(general[0].feedbackId).toBe("2516114433936827287_0123456789ab");
     expect(inApp).toHaveLength(2);
     expect(offboarding).toHaveLength(1);
     expect(offboarding[0].historyRowKey).toBe("20260519093000000_tenant-2");
   });
 
   it("drops entries with unknown discriminator (future-proofing)", () => {
-    const { inApp, offboarding } = partitionFeedback([
+    const { general, inApp, offboarding } = partitionFeedback([
       mkInApp(),
       { ...mkInApp(), type: "FutureKind" as never },
     ]);
+    expect(general).toHaveLength(0);
     expect(inApp).toHaveLength(1);
     expect(offboarding).toHaveLength(0);
   });
 
   it("returns empty partitions when input is empty", () => {
-    const { inApp, offboarding } = partitionFeedback<FeedbackEntryLike>([]);
+    const { general, inApp, offboarding } = partitionFeedback<FeedbackEntryLike>([]);
+    expect(general).toHaveLength(0);
     expect(inApp).toHaveLength(0);
     expect(offboarding).toHaveLength(0);
+  });
+
+  it("accepts the wire shape, where absent keys are undefined", () => {
+    const { general } = partitionFeedback([{ type: "General" }, { type: undefined }, {}]);
+    expect(general).toHaveLength(1);
   });
 });
 

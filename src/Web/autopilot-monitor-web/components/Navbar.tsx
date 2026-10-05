@@ -19,6 +19,7 @@ import { DOCS_URL } from "@/utils/config";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { WhatsNewCountBadge, WhatsNewIconBadge } from "./WhatsNewPanel";
+import { openFeedbackDialog } from "@/lib/feedbackDialogStore";
 
 export default function Navbar() {
   const { isAuthenticated, user, hasGlobalScope, logout } = useAuth();
@@ -519,6 +520,17 @@ export default function Navbar() {
                     <span>Service Announcements</span>
                   </a>
 
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    onClick={() => { setShowHelp(false); openFeedbackDialog("help"); }}
+                  >
+                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                    <span>Send feedback</span>
+                  </button>
+
                   <div className="border-t border-gray-100 my-1"></div>
 
                   <NavLink
@@ -718,6 +730,10 @@ export default function Navbar() {
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
                         <span>Service Announcements</span>
                       </a>
+                      <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); openFeedbackDialog("overflow"); }}>
+                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                        <span>Send feedback</span>
+                      </button>
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
                       <NavLink href="/privacy" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
