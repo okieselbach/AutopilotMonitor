@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Session } from "@/types";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import FailureSnapshotBlock from "./FailureSnapshotBlock";
+import { deviceClockDirection } from "./sessionInfoLogic";
 import { formatDuration } from "@/lib/formatting";
 
 interface SessionInfoCardProps {
@@ -125,7 +126,7 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           </svg>
           <span>
             <strong>Clock Skew:</strong> Device clock is {Math.abs(ntpOffset.offsetSeconds).toFixed(1)}s
-            {ntpOffset.offsetSeconds > 0 ? " ahead of" : " behind"} UTC
+            {" "}{deviceClockDirection(ntpOffset.offsetSeconds)} UTC
             {ntpOffset.ntpServer && <> (NTP: {ntpOffset.ntpServer})</>}
           </span>
         </div>

@@ -5,7 +5,7 @@
   "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts.",
   "severity": "warning",
   "category": "device",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -17,7 +17,7 @@
   "confidenceThreshold": 50,
   "conditions": [
     {
-      "signal": "clock_ahead",
+      "signal": "clock_behind",
       "source": "event_data",
       "eventType": "ntp_time_check",
       "dataField": "offsetSeconds",
@@ -26,7 +26,7 @@
       "required": false
     },
     {
-      "signal": "clock_behind",
+      "signal": "clock_ahead",
       "source": "event_data",
       "eventType": "ntp_time_check",
       "dataField": "offsetSeconds",
