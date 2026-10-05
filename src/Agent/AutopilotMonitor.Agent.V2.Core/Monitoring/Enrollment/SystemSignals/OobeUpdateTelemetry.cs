@@ -18,6 +18,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public const string PageStopped = "page_stopped";
         public const string EventName = "event_name";
 
+        /// <summary>
+        /// Not a record: the <c>cxhEvent</c> of the marker <see cref="OobeUpdateTelemetry"/> sends
+        /// once per budget when the event names of a run start staying in agent.log.
+        /// </summary>
+        public const string NamesCapped = "names_capped";
+
         public OobeUpdatePageRecord(string cxhEvent, int windowsEventId, string page = null, string result = null, string name = null, string value = null)
         {
             CxhEvent = cxhEvent;
@@ -54,6 +60,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     internal sealed class OobeUpdateTelemetry
     {
         internal const int MaxPageEventsPerRun = 150;
+
+        /// <summary>
+        /// Event names the backfills (first run, restart) report per run — their own budget, so
+        /// the records from before the agent started cannot spend the live page's.
+        /// </summary>
+        internal const int MaxBackfillPageEventsPerRun = 150;
+
         internal const int MaxPageEventsPerKey = 3;
         internal const int MaxStateEventsPerRun = 6;
         internal const int MaxStateLineLength = 1000;
@@ -67,7 +80,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             public const string AgentStop = "agent_stop";
         }
 
-        private const string Source = "ShellCoreTracker";
+        private const string Source = Constants.EventSources.ShellCoreTracker;
 
         private readonly string _sessionId;
         private readonly string _tenantId;
@@ -77,8 +90,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private readonly object _lock = new object();
         private readonly Dictionary<string, int> _pageEventsPerKey = new Dictionary<string, int>(StringComparer.Ordinal);
-        private int _pageEvents;
-        private bool _pageCapLogged;
+        private int _livePageEvents;
+        private int _backfillPageEvents;
+        private bool _liveCapReported;
+        private bool _backfillCapReported;
         private int _stateEvents;
         private string _lastStateContent;
 
@@ -99,9 +114,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <summary>
         /// One <c>oobe_update_page</c> per update-page record, at most
         /// <see cref="MaxPageEventsPerKey"/> per page/name — a page that logs the same name in a
-        /// loop cannot flood the session. Event names also share <see cref="MaxPageEventsPerRun"/>
-        /// per run; a page start or stop is outside that budget, because the time attribution
-        /// reads the update's span from them. True when the record was reported.
+        /// loop cannot flood the session. Event names also share a budget per run: live ones
+        /// <see cref="MaxPageEventsPerRun"/>, backfilled ones <see cref="MaxBackfillPageEventsPerRun"/>;
+        /// the first name over a budget sends the <see cref="OobeUpdatePageRecord.NamesCapped"/>
+        /// marker. A page start or stop is outside the budgets, because the time attribution reads
+        /// the update's span from them. True when the record was reported.
         /// </summary>
         public bool ReportPage(OobeUpdatePageRecord record, DateTime occurredAtUtc, bool isBackfill)
         {
@@ -109,23 +126,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             var isEventName = record.CxhEvent == OobeUpdatePageRecord.EventName;
             var key = $"{record.CxhEvent}:{record.Page ?? record.Name}";
-            int occurrence;
+            var budget = isBackfill ? MaxBackfillPageEventsPerRun : MaxPageEventsPerRun;
+            var occurrence = 0;
+            bool overBudget;
+            var firstOverBudget = false;
             lock (_lock)
             {
-                if (isEventName && _pageEvents >= MaxPageEventsPerRun)
+                overBudget = isEventName && (isBackfill ? _backfillPageEvents : _livePageEvents) >= budget;
+                if (overBudget)
                 {
-                    if (!_pageCapLogged)
-                    {
-                        _pageCapLogged = true;
-                        _logger.Info($"OOBE update page telemetry: {MaxPageEventsPerRun} event names reached, the rest of this run stays in agent.log");
-                    }
-                    return false;
+                    firstOverBudget = isBackfill ? !_backfillCapReported : !_liveCapReported;
+                    if (isBackfill) _backfillCapReported = true;
+                    else _liveCapReported = true;
                 }
-                _pageEventsPerKey.TryGetValue(key, out occurrence);
-                if (occurrence >= MaxPageEventsPerKey) return false;
-                occurrence++;
-                _pageEventsPerKey[key] = occurrence;
-                if (isEventName) _pageEvents++;
+                else
+                {
+                    _pageEventsPerKey.TryGetValue(key, out occurrence);
+                    if (occurrence >= MaxPageEventsPerKey) return false;
+                    occurrence++;
+                    _pageEventsPerKey[key] = occurrence;
+                    if (isEventName)
+                    {
+                        if (isBackfill) _backfillPageEvents++;
+                        else _livePageEvents++;
+                    }
+                }
+            }
+
+            if (overBudget)
+            {
+                if (firstOverBudget) ReportNamesCapped(budget, occurredAtUtc, isBackfill);
+                return false;
             }
 
             var data = new Dictionary<string, object>
@@ -141,6 +172,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (record.Name != null) data["name"] = record.Name;
             if (record.Value != null) data["value"] = record.Value;
 
+            return EmitPage(occurredAtUtc, DescribePage(record), data);
+        }
+
+        /// <summary>
+        /// The marker that a budget is spent: from here on this run's live or backfilled event
+        /// names stay in agent.log, so a name missing from the session proves nothing — the
+        /// analyze rules that read an absent name check for this marker first.
+        /// </summary>
+        private void ReportNamesCapped(int budget, DateTime occurredAtUtc, bool isBackfill)
+        {
+            var kind = isBackfill ? "backfilled " : string.Empty;
+            _logger.Info($"OOBE update page telemetry: {budget} {kind}event names reached, the rest of this run stays in agent.log");
+
+            EmitPage(occurredAtUtc,
+                $"OOBE update page: {budget} {kind}event names reached, later ones of this agent run are not sent",
+                new Dictionary<string, object>
+                {
+                    { "cxhEvent", OobeUpdatePageRecord.NamesCapped },
+                    { "eventTime", occurredAtUtc.ToString("o") },
+                    { "backfill", isBackfill },
+                    { "limit", budget },
+                });
+        }
+
+        private bool EmitPage(DateTime occurredAtUtc, string message, Dictionary<string, object> data)
+        {
             try
             {
                 _post.Emit(new EnrollmentEvent
@@ -152,7 +209,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     Severity = EventSeverity.Debug,
                     Source = Source,
                     Phase = EnrollmentPhase.Unknown,
-                    Message = DescribePage(record),
+                    Message = message,
                     Data = data,
                     ImmediateUpload = false,
                 });

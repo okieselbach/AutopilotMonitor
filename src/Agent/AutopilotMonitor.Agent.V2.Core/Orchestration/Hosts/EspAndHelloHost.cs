@@ -142,6 +142,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// replayed 62407 cannot be placed in time; see
         /// <c>ShellCoreTracker.ReplayBackfillRecords</c>.
         /// </para>
+        /// <para>
+        /// The first run reads the last hour for the OOBE update page telemetry instead — no
+        /// replay, nothing that reaches the decision engine; see
+        /// <c>ShellCoreTracker.BackfillUpdatePageTelemetry</c>.
+        /// </para>
         /// </summary>
         public void Start()
         {
@@ -149,6 +154,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             if (_espExitBackfillLookbackMinutes > 0)
                 _tracker.BackfillRecentHelloWizardStart(_espExitBackfillLookbackMinutes);
+            else
+                _tracker.BackfillUpdatePageTelemetry(ShellCoreTracker.UpdatePageBackfillLookbackMinutes);
         }
 
         public void Stop() => _tracker.Stop();

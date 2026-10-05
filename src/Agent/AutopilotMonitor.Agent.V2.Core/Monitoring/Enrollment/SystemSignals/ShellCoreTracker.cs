@@ -51,6 +51,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// </summary>
         internal const int BackfillLookbackMaxMinutes = 360;
 
+        /// <summary>
+        /// Lookback of the first run's update page backfill (<see cref="BackfillUpdatePageTelemetry"/>)
+        /// — the hour the servicing watcher reads back, so the page's records and the update's
+        /// servicing steps cover the same time.
+        /// </summary>
+        internal const int UpdatePageBackfillLookbackMinutes = 60;
+
         private static readonly HashSet<int> TrackedShellCoreEventIds = new HashSet<int>
         {
             EventId_ShellCore_WebAppStarted,
@@ -100,7 +107,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _espExitDetected;
         private bool _whiteGloveDetected;
         private bool _helloWizardStartDetected;
-        private string _lastCxhPage; // 62405 names no page, it ends the last one started
+        // 62405 names no page, it ends the last one started. The live watcher's page; a backfill
+        // moves it only with a newer record (see ObserveCxhRecord).
+        private string _lastCxhPage;
+        private long _lastCxhPageRecordId = -1;
         private readonly object _stateLock = new object();
 
         /// <summary>
@@ -194,7 +204,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // WhiteGlove success — indistinguishable on the backend from a real no-signal
                 // enrollment. Surface it as one-shot telemetry.
                 CollectorDegradationReporter.Report(_post, _sessionId, _tenantId,
-                    collectorName: "ShellCoreTracker", reason: "watcher_arm_failed", ex: ex);
+                    collectorName: Constants.EventSources.ShellCoreTracker, reason: "watcher_arm_failed", ex: ex);
             }
         }
 
@@ -258,7 +268,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             IReadOnlyList<string> properties = null)
         {
             var fields = ReadCxhFields(eventId, description, properties);
-            ObserveCxhRecord(eventId, fields, timestamp, isBackfill, recordId);
+            ObserveCxhRecord(eventId, fields, timestamp, isBackfill, recordId, backfillPage: null);
             if (eventId == EventId_ShellCore_WebAppStopped || eventId == EventId_ShellCore_WebAppEventName) return;
 
             string eventType;
@@ -459,36 +469,82 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                var lookbackMs = ClampLookbackMinutes(lookbackMinutes) * 60 * 1000;
-                var query = new EventLogQuery(
-                    ShellCoreEventLogChannel,
-                    PathType.LogName,
-                    $"*[System[{WatchedEventIdsXPath} and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
-
-                var records = new List<ShellCoreRecord>();
-                using (var reader = new EventLogReader(query))
-                {
-                    for (EventRecord record = reader.ReadEvent(); record != null; record = reader.ReadEvent())
-                    {
-                        using (record)
-                        {
-                            var description = record.FormatDescription() ?? "";
-                            // Preserve the historical event time across backfill so subscribers
-                            // (EspAndHelloTrackerAdapter) can stamp signals with the source time
-                            // rather than collapsing to wall-clock-now.
-                            var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
-                            records.Add(new ShellCoreRecord(record.Id, description, timestamp,
-                                record.RecordId ?? -1, ReadProperties(record)));
-                        }
-                    }
-                }
-
-                ReplayBackfillRecords(records);
+                ReplayBackfillRecords(ReadRecentRecords(lookbackMinutes));
             }
             catch (Exception ex)
             {
                 _logger.Warning($"Shell-Core replay failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// The FIRST run's counterpart of the restart replay, for telemetry only: the update
+        /// page's records of the last <paramref name="lookbackMinutes"/> minutes (clamped like
+        /// the replay) become <c>oobe_update_page</c> rows. The agent is installed during the ESP
+        /// and can start after the update page began; without this its time attribution has no
+        /// page start to begin the update with (field: a first run 7 min after the update's
+        /// restart saw neither the page start nor the update's first half).
+        /// <para>
+        /// Nothing else is looked at: no Hello-wizard replay, no ESP exit or failure count, no
+        /// <c>agent_trace</c>. The first run keeps its decision behaviour exactly — see
+        /// <see cref="ReplayBackfillRecords"/> for why no replayed record may reach the engine and
+        /// <c>DefaultComponentFactory.ResolveEspExitBackfillLookbackMinutes</c> for why the first
+        /// run has no replay. No boot bound: an agent that first starts after the update's restart
+        /// is exactly the case to cover; the RecordId watermark keeps it from re-sending.
+        /// </para>
+        /// </summary>
+        public void BackfillUpdatePageTelemetry(int lookbackMinutes)
+        {
+            try
+            {
+                ReplayUpdatePageTelemetry(ReadRecentRecords(lookbackMinutes));
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Shell-Core update page backfill failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>The update page telemetry of a chronological batch of Shell-Core records — nothing else.</summary>
+        internal void ReplayUpdatePageTelemetry(IReadOnlyList<ShellCoreRecord> records)
+        {
+            if (records == null || records.Count == 0) return;
+
+            var page = new BackfillPageCursor();
+            foreach (var record in records)
+            {
+                var fields = ReadCxhFields(record.Id, record.Description ?? string.Empty, record.Properties);
+                ObserveCxhRecord(record.Id, fields, record.OccurredAtUtc, isBackfill: true, recordId: record.RecordId, backfillPage: page);
+            }
+        }
+
+        /// <summary>The watched Shell-Core records of the last minutes, oldest first, with their original event time.</summary>
+        private List<ShellCoreRecord> ReadRecentRecords(int lookbackMinutes)
+        {
+            var lookbackMs = ClampLookbackMinutes(lookbackMinutes) * 60 * 1000;
+            var query = new EventLogQuery(
+                ShellCoreEventLogChannel,
+                PathType.LogName,
+                $"*[System[{WatchedEventIdsXPath} and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
+
+            var records = new List<ShellCoreRecord>();
+            using (var reader = new EventLogReader(query))
+            {
+                for (EventRecord record = reader.ReadEvent(); record != null; record = reader.ReadEvent())
+                {
+                    using (record)
+                    {
+                        var description = record.FormatDescription() ?? "";
+                        // Preserve the historical event time across backfill so subscribers
+                        // (EspAndHelloTrackerAdapter) can stamp signals with the source time
+                        // rather than collapsing to wall-clock-now.
+                        var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
+                        records.Add(new ShellCoreRecord(record.Id, description, timestamp,
+                            record.RecordId ?? -1, ReadProperties(record)));
+                    }
+                }
+            }
+            return records;
         }
 
         /// <summary>
@@ -546,12 +602,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             var skippedFailures = 0;
             DateTime? oldestSkipped = null;
             DateTime? newestSkipped = null;
+            var page = new BackfillPageCursor();
 
             foreach (var record in records)
             {
                 var description = record.Description ?? string.Empty;
                 var fields = ReadCxhFields(record.Id, description, record.Properties);
-                ObserveCxhRecord(record.Id, fields, record.OccurredAtUtc, isBackfill: true, recordId: record.RecordId);
+                ObserveCxhRecord(record.Id, fields, record.OccurredAtUtc, isBackfill: true, recordId: record.RecordId, backfillPage: page);
 
                 if (record.Id == EventId_ShellCore_WebAppStarted)
                 {
@@ -594,7 +651,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     TenantId = _tenantId,
                     EventType = Constants.EventTypes.AgentTrace,
                     Severity = EventSeverity.Info,
-                    Source = "ShellCoreTracker",
+                    Source = Constants.EventSources.ShellCoreTracker,
                     Phase = EnrollmentPhase.Unknown,
                     Message =
                         $"Shell-Core replay skipped {skippedExits} ESP exit(s) and {skippedFailures} ESP failure(s) " +
@@ -662,6 +719,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // CloudExperienceHost navigation: breadcrumbs and OOBE update page telemetry (D-310)
         // =====================================================================
 
+        /// <summary>The last page started within one backfill batch.</summary>
+        private sealed class BackfillPageCursor
+        {
+            public string Page;
+        }
+
         /// <summary>
         /// Writes one agent.log line per CloudExperienceHost page start/stop and per update-page
         /// event name, so a diagnostics package shows the OOBE navigation. Records of the update
@@ -669,8 +732,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// are also reported as <c>oobe_update_page</c> — once across agent runs, by RecordId — and
         /// at the page's live start and stop the registry state behind it as
         /// <c>oobe_update_state</c>. No decision.
+        /// <para>
+        /// A stop (62405) belongs to the page started last. A backfill batch
+        /// (<paramref name="backfillPage"/>) reads records older than the live watcher's, which is
+        /// armed first, so it keeps its own last page; it moves the live watcher's only with a
+        /// record of a higher RecordId — a replayed older start must not take over the next live
+        /// stop, and a first run's live stop still finds the page that started before the agent.
+        /// </para>
         /// </summary>
-        private void ObserveCxhRecord(int eventId, CxhFields fields, DateTime occurredAtUtc, bool isBackfill, long recordId)
+        private void ObserveCxhRecord(int eventId, CxhFields fields, DateTime occurredAtUtc, bool isBackfill, long recordId,
+            BackfillPageCursor backfillPage)
         {
             try
             {
@@ -678,8 +749,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 lock (_stateLock)
                 {
                     if (eventId == EventId_ShellCore_WebAppStarted && fields.Primary != null)
-                        _lastCxhPage = fields.Primary;
-                    page = _lastCxhPage;
+                    {
+                        if (backfillPage != null) backfillPage.Page = fields.Primary;
+                        if (backfillPage == null || (recordId >= 0 && recordId > _lastCxhPageRecordId))
+                        {
+                            _lastCxhPage = fields.Primary;
+                            if (recordId >= 0) _lastCxhPageRecordId = recordId;
+                        }
+                    }
+                    page = backfillPage != null ? backfillPage.Page : _lastCxhPage;
                 }
 
                 var crumb = FormatCxhBreadcrumb(eventId, fields, page);

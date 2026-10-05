@@ -367,6 +367,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             => _shellCoreTracker?.BackfillRecentHelloWizardStart(lookbackMinutes);
 
         /// <summary>
+        /// First run only: the update page's records from before the agent started, as telemetry
+        /// and nothing else — see <see cref="ShellCoreTracker.BackfillUpdatePageTelemetry"/>.
+        /// </summary>
+        public void BackfillUpdatePageTelemetry(int lookbackMinutes)
+            => _shellCoreTracker?.BackfillUpdatePageTelemetry(lookbackMinutes);
+
+        /// <summary>
         /// sits-d Cloud-PC fix (2026-08-19) — re-check the user-apps-settled AccountSetup
         /// synthesis after the ESP exit has already been observed. Wired to the IME tracker's
         /// app-state-change callback in <c>DefaultComponentFactory</c>.
