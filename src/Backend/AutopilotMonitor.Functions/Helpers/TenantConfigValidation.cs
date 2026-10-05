@@ -181,9 +181,10 @@ namespace AutopilotMonitor.Functions.Helpers
             if (webhookUrlError != null)
                 return $"Invalid Webhook URL: {webhookUrlError}";
 
-            var teamsUrlError = SsrfGuard.ValidateWebhookUrlFormat(candidate.TeamsWebhookUrl);
-            if (teamsUrlError != null)
-                return $"Invalid Teams Webhook URL: {teamsUrlError}";
+            // The legacy single webhook becomes a synthesized channel, so it obeys the channel rule.
+            if (candidate.WebhookProviderType != 0
+                && !Shared.Models.Notifications.NotificationChannel.IsSupportedProviderType(candidate.WebhookProviderType))
+                return "Invalid webhook provider type.";
 
             var headersError = ValidateWebhookCustomHeaders(candidate.WebhookCustomHeadersJson);
             if (headersError != null)
@@ -349,8 +350,7 @@ namespace AutopilotMonitor.Functions.Helpers
 
                 var label = string.IsNullOrWhiteSpace(channel.Name) ? channel.Id : channel.Name;
 
-                if (!Enum.IsDefined(typeof(Shared.Models.Notifications.WebhookProviderType), channel.ProviderType)
-                    || channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.None)
+                if (!Shared.Models.Notifications.NotificationChannel.IsSupportedProviderType(channel.ProviderType))
                     return $"channel \"{label}\" has an invalid provider type.";
 
                 // Telegram's destination is a chat ID, not a URL — the SSRF gate does not apply
@@ -483,7 +483,7 @@ namespace AutopilotMonitor.Functions.Helpers
         /// Validates the generic-webhook custom-headers JSON. Returns an error message, or null when
         /// valid/empty. Enforces a JSON object of string values, valid HTTP token names, no CR/LF
         /// header-injection, and size caps. Restricted (framing/host/content) headers are not rejected
-        /// here — they are silently ignored at dispatch by TenantConfiguration.GetGenericWebhookHeaders().
+        /// here — they are silently ignored at dispatch by NotificationChannel.GetCustomHeaders().
         /// </summary>
         internal static string? ValidateWebhookCustomHeaders(string? json)
         {

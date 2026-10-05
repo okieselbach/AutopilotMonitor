@@ -25,7 +25,6 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             _logger = logger;
             _renderers = new Dictionary<WebhookProviderType, INotificationRenderer>
             {
-                [WebhookProviderType.TeamsLegacyConnector] = new LegacyTeamsConnectorRenderer(),
                 [WebhookProviderType.TeamsWorkflowWebhook] = new TeamsWorkflowAdaptiveCardRenderer(),
                 [WebhookProviderType.Slack] = new SlackRenderer(),
                 [WebhookProviderType.GenericJson] = new GenericJsonRenderer(),
@@ -119,7 +118,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
         /// <summary>
         /// POSTs the rendered JSON, attaching any custom headers as request headers. Restricted
-        /// (framing/host/content) headers are already filtered upstream by GetGenericWebhookHeaders().
+        /// (framing/host/content) headers are already filtered upstream by NotificationChannel.GetCustomHeaders().
         /// When a signing secret is present, HMAC signature headers are computed over the exact
         /// JSON string being posted — after custom headers, so they can never be spoofed by one.
         /// </summary>

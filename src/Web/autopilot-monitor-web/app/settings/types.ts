@@ -9,7 +9,7 @@ export interface NotificationChannel {
   /** Stable id (UUID, generated on creation). Rules reference channels by this id. */
   id: string;
   name: string;
-  /** 1=Teams Legacy, 2=Teams Workflow, 10=Slack, 20=Generic JSON, 30=Discord */
+  /** 2=Teams Workflow, 10=Slack, 20=Generic JSON, 30=Discord, 40=Telegram */
   providerType: number;
   url?: string;
   /** JSON object string { "Header-Name": "value" }; generic provider only. */
@@ -87,12 +87,7 @@ export interface TenantConfiguration {
   enableImeMatchLog?: boolean;
   enableGatherRuleDebugLog?: boolean;
   logLevel?: string;
-  // Teams notifications (legacy)
-  teamsWebhookUrl?: string;
-  teamsNotifyOnSuccess?: boolean;
-  teamsNotifyOnFailure?: boolean;
-  teamsNotifyOnStart?: boolean;
-  // Webhook notifications (new)
+  // Legacy single webhook (read only while notificationChannelsJson is empty)
   webhookProviderType?: number;
   webhookUrl?: string;
   webhookNotifyOnSuccess?: boolean;

@@ -6,9 +6,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 {
     /// <summary>
     /// Parses custom webhook request headers from their JSON object form
-    /// (<c>{ "Header-Name": "value", ... }</c>). Shared by the legacy single-webhook config
-    /// (<c>TenantConfiguration.GetGenericWebhookHeaders</c>) and per-channel headers
-    /// (<see cref="NotificationChannel.GetCustomHeaders"/>).
+    /// (<c>{ "Header-Name": "value", ... }</c>) for <see cref="NotificationChannel.GetCustomHeaders"/>.
     /// </summary>
     public static class WebhookHeaderParser
     {

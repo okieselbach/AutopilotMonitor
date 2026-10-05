@@ -93,7 +93,6 @@ public class ConfigRedactionTests
         var existing = new TenantConfiguration
         {
             DiagnosticsBlobSasUrl = "https://acct.blob.core.windows.net/c?sig=real",
-            TeamsWebhookUrl = "https://teams.example/real",
             WebhookUrl = "https://hooks.example/real",
             WebhookCustomHeadersJson = "{\"X-Api-Key\":\"real\"}",
             DomainName = "contoso.com",
@@ -106,7 +105,6 @@ public class ConfigRedactionTests
         incoming.RestoreRedactedSecretsFrom(existing);
 
         Assert.Equal(existing.DiagnosticsBlobSasUrl, incoming.DiagnosticsBlobSasUrl);
-        Assert.Equal(existing.TeamsWebhookUrl, incoming.TeamsWebhookUrl);
         Assert.Equal(existing.WebhookUrl, incoming.WebhookUrl);
         Assert.Equal(existing.WebhookCustomHeadersJson, incoming.WebhookCustomHeadersJson);
     }

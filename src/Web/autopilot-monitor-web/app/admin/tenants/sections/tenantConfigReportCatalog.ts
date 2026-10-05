@@ -195,10 +195,6 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   webhookNotifyOnSuccess: CHANNEL_BLOCK,
   webhookNotifyOnFailure: CHANNEL_BLOCK,
   webhookNotifyOnStart: CHANNEL_BLOCK,
-  teamsWebhookUrl: CHANNEL_BLOCK,
-  teamsNotifyOnSuccess: CHANNEL_BLOCK,
-  teamsNotifyOnFailure: CHANNEL_BLOCK,
-  teamsNotifyOnStart: CHANNEL_BLOCK,
   webhookCustomHeadersJson: { section: "Webhooks", label: "Custom Headers", kind: "secret", informational: true },
 
   // SLA Targets

@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>
         /// Provider type (int form of <see cref="WebhookProviderType"/>):
-        /// 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord,
+        /// 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord,
         /// 40=Telegram (Global-Admin only — see the enum member).
         /// </summary>
         public int ProviderType { get; set; }
@@ -127,6 +127,15 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         }
 
         /// <summary>
+        /// True for a provider a channel can be dispatched to: a defined <see cref="WebhookProviderType"/>
+        /// other than <see cref="WebhookProviderType.None"/>. The one rule for parsing, save-time
+        /// validation and the legacy single-webhook field, so a retired value never becomes a channel.
+        /// </summary>
+        public static bool IsSupportedProviderType(int providerType)
+            => providerType != (int)WebhookProviderType.None
+               && Enum.IsDefined(typeof(WebhookProviderType), providerType);
+
+        /// <summary>
         /// Deserializes a channel list from its JSON storage form. Fail-soft: null/blank/malformed
         /// input yields an empty list (dispatch then simply has no channels to send to). Entries
         /// without an id or with an unknown provider type are dropped; the list is capped at
@@ -157,8 +166,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
                     break;
                 if (channel == null || string.IsNullOrWhiteSpace(channel.Id))
                     continue;
-                if (!Enum.IsDefined(typeof(WebhookProviderType), channel.ProviderType)
-                    || channel.ProviderType == (int)WebhookProviderType.None)
+                if (!IsSupportedProviderType(channel.ProviderType))
                     continue;
 
                 result.Add(channel);

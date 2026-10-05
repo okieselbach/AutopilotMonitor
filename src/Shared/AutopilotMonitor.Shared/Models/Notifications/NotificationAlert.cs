@@ -5,7 +5,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
     /// <summary>
     /// Channel-agnostic notification alert model.
     /// Provider-specific renderers transform this into the target format
-    /// (Teams MessageCard, Adaptive Card, Slack Block Kit, etc.).
+    /// (Teams Adaptive Card, Slack Block Kit, etc.).
     /// </summary>
     public class NotificationAlert
     {

@@ -86,7 +86,7 @@ public class ConfigBackupHookTests
         config.DomainName = "contoso.com";
         config.UpdatedBy = "admin@contoso.com";
         config.DataRetentionDays = 30;
-        config.TeamsWebhookUrl = "https://contoso.webhook.office.com/hook";
+        config.WebhookUrl = "https://hooks.example.com/secret-hook";
         return config;
     }
 
@@ -127,9 +127,9 @@ public class ConfigBackupHookTests
         // The snapshot holds the STORED row (retention 30), not the incoming one.
         Assert.Contains("\"DataRetentionDays\":30", snapshot.EntityJson);
         // Raw secrets ARE in EntityJson (full-fidelity restore source)…
-        Assert.Contains("contoso.webhook.office.com", snapshot.EntityJson);
+        Assert.Contains("hooks.example.com/secret-hook", snapshot.EntityJson);
         // …but the advisory diff masks them by property-name heuristics (ConfigDiffHelper).
-        Assert.DoesNotContain("contoso.webhook.office.com", snapshot.DiffJson ?? string.Empty);
+        Assert.DoesNotContain("hooks.example.com/secret-hook", snapshot.DiffJson ?? string.Empty);
         harness.Backup.Verify(
             b => b.PruneAsync(TenantId, Constants.ConfigBackupKeepCount, It.IsAny<CancellationToken>()),
             Times.Once);

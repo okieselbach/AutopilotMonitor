@@ -384,9 +384,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         }
 
         /// <summary>
-        /// Fire-and-forget enrollment-started webhook. Loads tenant config, respects the
-        /// opt-in <c>WebhookNotifyOnStart</c>/<c>TeamsNotifyOnStart</c> toggle, and dispatches
-        /// through the same renderer pipeline (Teams Legacy / Workflow / Slack) as success/failure.
+        /// Fire-and-forget enrollment-started webhook. Loads tenant config, respects each channel's
+        /// opt-in <c>NotifyOnStart</c> toggle, and dispatches through the same renderer pipeline
+        /// as success/failure.
         /// </summary>
         private async Task SendStartNotificationAsync(string tenantId, string sessionId, SessionSummary session, bool isResume)
         {

@@ -185,18 +185,18 @@ public class GetTenantFeatureFlagsPayloadTests
         var config = new TenantConfiguration
         {
             DiagnosticsBlobSasUrl = "https://example.blob.core.windows.net/diagnostics?sv=secret-sas-token",
-            TeamsWebhookUrl = "https://outlook.office.com/webhook/secret-team-hook",
             WebhookUrl = "https://hooks.example.com/services/secret-generic-hook",
+            NotificationChannelsJson = "[{\"id\":\"c1\",\"providerType\":2,\"url\":\"https://hooks.example.com/secret-channel-hook\"}]",
         };
 
         var json = TestWire.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config, Now));
 
         Assert.DoesNotContain("secret-sas-token", json);
-        Assert.DoesNotContain("secret-team-hook", json);
         Assert.DoesNotContain("secret-generic-hook", json);
+        Assert.DoesNotContain("secret-channel-hook", json);
         Assert.DoesNotContain("diagnosticsBlobSasUrl", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("teamsWebhookUrl", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("webhookUrl", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("notificationChannelsJson", json, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── diagnosticsUploadConfigured (drives the session-detail "Collect Logs" button) ──

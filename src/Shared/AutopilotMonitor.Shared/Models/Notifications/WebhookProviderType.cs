@@ -8,10 +8,11 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// <summary>No webhook configured.</summary>
         None = 0,
 
-        /// <summary>Microsoft Teams legacy Office 365 Connector (MessageCard format). Deprecated by Microsoft.</summary>
-        TeamsLegacyConnector = 1,
+        // 1 was the Teams Office 365 Connector (MessageCard), switched off by Microsoft in May 2026.
+        // Never reuse it: configuration backups still carry the value, and a retired value must
+        // keep failing validation instead of silently meaning a different provider.
 
-        /// <summary>Microsoft Teams Workflow webhook (Adaptive Card format). Recommended replacement.</summary>
+        /// <summary>Microsoft Teams Workflow webhook (Adaptive Card format).</summary>
         TeamsWorkflowWebhook = 2,
 
         /// <summary>Slack Incoming Webhook (Block Kit format).</summary>

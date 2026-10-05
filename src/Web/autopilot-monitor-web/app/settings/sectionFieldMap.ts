@@ -43,7 +43,7 @@ export const SECTION_FIELD_MAP = {
     // Channels are authoritative; saving them clears the legacy single-webhook fields so
     // deleting the last channel cannot resurrect a zombie webhook via legacy synthesis.
     // No section owns these legacy fields — they are only ever cleared here.
-    alsoWrites: ["webhookProviderType", "webhookUrl", "webhookCustomHeadersJson", "teamsWebhookUrl"],
+    alsoWrites: ["webhookProviderType", "webhookUrl", "webhookCustomHeadersJson"],
   },
   slaTargets: {
     fields: [

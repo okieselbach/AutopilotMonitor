@@ -76,20 +76,6 @@ function channelsFromConfig(data: TenantConfiguration): NotificationChannel[] {
       notifyOnSlaEvents: true, // legacy behavior: SLA alerts always went to the single webhook
     }];
   }
-  if (data.teamsWebhookUrl) {
-    return [{
-      id: LEGACY_CHANNEL_ID,
-      name: "Default",
-      providerType: 1, // TeamsLegacyConnector
-      url: data.teamsWebhookUrl,
-      enabled: true,
-      notifyOnStart: data.teamsNotifyOnStart ?? false,
-      notifyOnSuccess: data.teamsNotifyOnSuccess ?? true,
-      notifyOnFailure: data.teamsNotifyOnFailure ?? true,
-      notifyOnHardwareRejection: data.webhookNotifyOnHardwareRejection ?? false,
-      notifyOnSlaEvents: true,
-    }];
-  }
   return [];
 }
 
@@ -807,7 +793,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         webhookProviderType: 0,
         webhookUrl: undefined,
         webhookCustomHeadersJson: undefined,
-        teamsWebhookUrl: undefined,
         // SLA targets
         slaTargetSuccessRate: slaTargetSuccessRate ?? undefined,
         slaTargetMaxDurationMinutes: slaTargetMaxDurationMinutes ?? undefined,

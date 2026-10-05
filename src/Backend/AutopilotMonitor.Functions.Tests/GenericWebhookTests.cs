@@ -82,63 +82,59 @@ public class GenericWebhookTests
         Assert.Equal("hardware_rejected", alert.EventType);
     }
 
-    // ── TenantConfiguration.GetGenericWebhookHeaders ──────────────────────
+    // ── NotificationChannel.GetCustomHeaders ──────────────────────────────
 
     [Fact]
-    public void GetGenericWebhookHeaders_ReturnsEmpty_ForNonGenericProvider()
+    public void GetCustomHeaders_ReturnsEmpty_ForNonGenericProvider()
     {
-        var config = new TenantConfiguration
+        var channel = new NotificationChannel
         {
-            WebhookUrl = "https://hooks.slack.com/x",
-            WebhookProviderType = (int)WebhookProviderType.Slack,
-            WebhookCustomHeadersJson = "{\"Authorization\":\"Bearer x\"}",
+            ProviderType = (int)WebhookProviderType.Slack,
+            CustomHeadersJson = "{\"Authorization\":\"Bearer x\"}",
         };
 
-        Assert.Empty(config.GetGenericWebhookHeaders());
+        Assert.Empty(channel.GetCustomHeaders());
     }
 
     [Fact]
-    public void GetGenericWebhookHeaders_ParsesHeaders_ForGenericProvider()
+    public void GetCustomHeaders_ParsesHeaders_ForGenericProvider()
     {
-        var config = new TenantConfiguration
+        var channel = new NotificationChannel
         {
-            WebhookUrl = "https://tickets.example.com/in",
-            WebhookProviderType = (int)WebhookProviderType.GenericJson,
-            WebhookCustomHeadersJson = "{\"Authorization\":\"Bearer abc\",\"X-Api-Key\":\"k1\"}",
+            ProviderType = (int)WebhookProviderType.GenericJson,
+            CustomHeadersJson = "{\"Authorization\":\"Bearer abc\",\"X-Api-Key\":\"k1\"}",
         };
 
-        var headers = config.GetGenericWebhookHeaders();
+        var headers = channel.GetCustomHeaders();
         Assert.Equal("Bearer abc", headers["Authorization"]);
         Assert.Equal("k1", headers["X-Api-Key"]);
     }
 
     [Fact]
-    public void GetGenericWebhookHeaders_DropsRestrictedHeaders()
+    public void GetCustomHeaders_DropsRestrictedHeaders()
     {
-        var config = new TenantConfiguration
+        var channel = new NotificationChannel
         {
-            WebhookUrl = "https://tickets.example.com/in",
-            WebhookProviderType = (int)WebhookProviderType.GenericJson,
-            WebhookCustomHeadersJson = "{\"Host\":\"evil.example.com\",\"Content-Length\":\"0\",\"X-Ok\":\"v\"}",
+            ProviderType = (int)WebhookProviderType.GenericJson,
+            CustomHeadersJson = "{\"Host\":\"evil.example.com\",\"Content-Length\":\"0\",\"X-Ok\":\"v\"}",
         };
 
-        var headers = config.GetGenericWebhookHeaders();
+        var headers = channel.GetCustomHeaders();
         Assert.False(headers.ContainsKey("Host"));
         Assert.False(headers.ContainsKey("Content-Length"));
         Assert.True(headers.ContainsKey("X-Ok"));
     }
 
     [Fact]
-    public void GetGenericWebhookHeaders_ReturnsEmpty_ForMalformedJson()
+    public void GetCustomHeaders_ReturnsEmpty_ForMalformedJson()
     {
-        var config = new TenantConfiguration
+        var channel = new NotificationChannel
         {
-            WebhookUrl = "https://tickets.example.com/in",
-            WebhookProviderType = (int)WebhookProviderType.GenericJson,
-            WebhookCustomHeadersJson = "{not valid",
+            ProviderType = (int)WebhookProviderType.GenericJson,
+            CustomHeadersJson = "{not valid",
         };
 
-        Assert.Empty(config.GetGenericWebhookHeaders());
+        Assert.Empty(channel.GetCustomHeaders());
     }
 
     // ── TenantConfigValidation.ValidateWebhookCustomHeaders ────

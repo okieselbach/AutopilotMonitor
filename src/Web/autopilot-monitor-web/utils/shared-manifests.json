@@ -202,10 +202,6 @@
       "diagnosticsUploadMode",
       "diagnosticsUploadDestination",
       "sendTraceEvents",
-      "teamsWebhookUrl",
-      "teamsNotifyOnSuccess",
-      "teamsNotifyOnFailure",
-      "teamsNotifyOnStart",
       "webhookProviderType",
       "webhookUrl",
       "webhookNotifyOnSuccess",
@@ -308,10 +304,6 @@
       "diagnosticsUploadMode": "Off",
       "diagnosticsUploadDestination": "CustomerSas",
       "sendTraceEvents": true,
-      "teamsWebhookUrl": null,
-      "teamsNotifyOnSuccess": true,
-      "teamsNotifyOnFailure": true,
-      "teamsNotifyOnStart": false,
       "webhookProviderType": 0,
       "webhookUrl": null,
       "webhookNotifyOnSuccess": true,
@@ -477,7 +469,6 @@
   },
   "webhookProviderTypes": {
     "None": 0,
-    "TeamsLegacyConnector": 1,
     "TeamsWorkflowWebhook": 2,
     "Slack": 10,
     "GenericJson": 20,
@@ -22747,44 +22738,12 @@
           "doc": "Whether the agent should send Trace-severity events to the backend. Trace events capture key agent decisions for backend-side troubleshooting. Default: true (on in preview). Can be disabled per tenant to reduce traffic."
         },
         {
-          "name": "teamsWebhookUrl",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "doc": "URL of the Teams Incoming Webhook for enrollment notifications. If null or empty, no notifications are sent."
-        },
-        {
-          "name": "teamsNotifyOnSuccess",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Send a Teams notification when an enrollment completes successfully. Default: true"
-        },
-        {
-          "name": "teamsNotifyOnFailure",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Send a Teams notification when an enrollment fails. Default: true"
-        },
-        {
-          "name": "teamsNotifyOnStart",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Send a Teams notification when an enrollment starts (session registration). Opt-in: default false to avoid surprising existing tenants with a notification storm."
-        },
-        {
           "name": "webhookProviderType",
           "type": {
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Webhook provider type. Determines which renderer formats the notification payload. 0=None, 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack. Legacy tenants with TeamsWebhookUrl are auto-resolved via GetEffectiveWebhookConfig()."
+          "doc": "Provider of the legacy single webhook (int form of WebhookProviderType, 0 = none). Only read when NotificationChannelsJson is empty — see GetNotificationChannels."
         },
         {
           "name": "webhookUrl",
@@ -22792,7 +22751,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "Generic webhook URL for enrollment notifications. Replaces TeamsWebhookUrl for new configurations."
+          "doc": "URL of the legacy single webhook. Only read when NotificationChannelsJson is empty."
         },
         {
           "name": "webhookNotifyOnSuccess",
@@ -22832,7 +22791,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "Custom HTTP request headers (JSON object: { \"Header-Name\": \"value\", ... }) sent with every generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways. Only applied when the effective provider is GenericJson. Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see GetGenericWebhookHeaders."
+          "doc": "Custom HTTP request headers (JSON object: { \"Header-Name\": \"value\", ... }) sent with every generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways. Only applied when the provider is GenericJson. Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see GetCustomHeaders."
         },
         {
           "name": "notificationChannelsJson",

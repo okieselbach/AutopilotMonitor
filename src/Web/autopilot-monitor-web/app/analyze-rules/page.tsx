@@ -201,7 +201,7 @@ export default function AnalyzeRulesPage() {
             }
           } catch { /* malformed → fall through to legacy check */ }
         }
-        if ((cfg?.webhookUrl && cfg?.webhookProviderType) || cfg?.teamsWebhookUrl) {
+        if (cfg?.webhookUrl && cfg?.webhookProviderType) {
           setTenantChannels([{ id: "legacy", name: "Default" }]);
         } else {
           setTenantChannels([]);

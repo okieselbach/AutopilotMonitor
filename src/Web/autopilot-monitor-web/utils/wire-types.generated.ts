@@ -4957,17 +4957,9 @@ export interface TenantConfiguration {
   diagnosticsUploadDestination: string;
   /** Whether the agent should send Trace-severity events to the backend. Trace events capture key agent decisions for backend-side troubleshooting. Default: true (on in preview). Can be disabled per tenant to reduce traffic. */
   sendTraceEvents: boolean;
-  /** URL of the Teams Incoming Webhook for enrollment notifications. If null or empty, no notifications are sent. */
-  teamsWebhookUrl: string;
-  /** Send a Teams notification when an enrollment completes successfully. Default: true */
-  teamsNotifyOnSuccess: boolean;
-  /** Send a Teams notification when an enrollment fails. Default: true */
-  teamsNotifyOnFailure: boolean;
-  /** Send a Teams notification when an enrollment starts (session registration). Opt-in: default false to avoid surprising existing tenants with a notification storm. */
-  teamsNotifyOnStart: boolean;
-  /** Webhook provider type. Determines which renderer formats the notification payload. 0=None, 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack. Legacy tenants with TeamsWebhookUrl are auto-resolved via GetEffectiveWebhookConfig(). */
+  /** Provider of the legacy single webhook (int form of WebhookProviderType, 0 = none). Only read when NotificationChannelsJson is empty — see GetNotificationChannels. */
   webhookProviderType: number;
-  /** Generic webhook URL for enrollment notifications. Replaces TeamsWebhookUrl for new configurations. */
+  /** URL of the legacy single webhook. Only read when NotificationChannelsJson is empty. */
   webhookUrl: string;
   /** Send a webhook notification when enrollment succeeds. Default: true. */
   webhookNotifyOnSuccess: boolean;
@@ -4977,7 +4969,7 @@ export interface TenantConfiguration {
   webhookNotifyOnHardwareRejection: boolean;
   /** Send a webhook notification when an enrollment starts (session registration on the backend). Opt-in: default false to avoid surprising existing tenants with a notification storm. */
   webhookNotifyOnStart: boolean;
-  /** Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }) sent with every generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways. Only applied when the effective provider is GenericJson. Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see GetGenericWebhookHeaders. */
+  /** Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }) sent with every generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways. Only applied when the provider is GenericJson. Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see GetCustomHeaders. */
   webhookCustomHeadersJson: string;
   /** Named notification channels as a JSON array (camelCase, see NotificationChannel). Supersedes the single WebhookUrl/WebhookProviderType pair: each channel carries its own provider, URL, custom headers and per-event opt-in toggles, and analyze rules can target specific channels by id. Null/empty = tenant not migrated yet — GetNotificationChannels then synthesizes one channel from the legacy fields so existing tenants keep their exact behavior without a data migration. */
   notificationChannelsJson: string;

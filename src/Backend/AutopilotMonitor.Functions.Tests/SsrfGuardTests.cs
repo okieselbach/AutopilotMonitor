@@ -24,7 +24,7 @@ public class SsrfGuardTests
 
     [Theory]
     [InlineData("https://hooks.slack.com/services/T00/B00/xxx")]
-    [InlineData("https://contoso.webhook.office.com/webhookb2/abc")]
+    [InlineData("https://default0000.00.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/abc/triggers/manual/paths/invoke")]
     [InlineData("https://prod-12.westeurope.logic.azure.com:443/workflows/abc")]
     public void ValidateFormat_ValidHttpsUrls_ReturnsNull(string url)
     {

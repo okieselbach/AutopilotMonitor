@@ -17,13 +17,10 @@ export const PROVIDERS: {
   value: number;
   label: string;
   placeholder: string;
-  badge?: string;
-  badgeColor?: string;
   /** Offered only to Global Admins (platform-owned transport). */
   gaOnly?: boolean;
 }[] = [
-  { value: 1, label: "Microsoft Teams (Legacy Connector)", placeholder: "https://your-org.webhook.office.com/webhookb2/...", badge: "Deprecated", badgeColor: "bg-amber-100 text-amber-800" },
-  { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/...", badge: "Recommended", badgeColor: "bg-green-100 text-green-800" },
+  { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/..." },
   { value: 10, label: "Slack", placeholder: "https://hooks.slack.com/services/T.../B.../..." },
   { value: 30, label: "Discord", placeholder: "https://discord.com/api/webhooks/..." },
   { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
@@ -163,7 +160,7 @@ export function ChannelEditor({
   /** Tenant channels subscribe to event kinds here; ops channels are targeted by rules instead. */
   showEventToggles?: boolean;
 }) {
-  const selectedProvider = PROVIDERS.find((p) => p.value === channel.providerType) ?? PROVIDERS[1];
+  const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
   const isActive = channel.enabled && (channel.url ?? "").length > 0;
   const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
   // Keep the channel's own provider listed even when gated, so a GA-created Telegram channel
@@ -229,20 +226,7 @@ export function ChannelEditor({
             </option>
           ))}
         </select>
-        {selectedProvider.badge && (
-          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${selectedProvider.badgeColor}`}>
-            {selectedProvider.badge}
-          </span>
-        )}
       </div>
-
-      {channel.providerType === 1 && (
-        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-          <p className="text-sm text-amber-800">
-            <strong>Note:</strong> Office 365 Connectors are deprecated by Microsoft. Consider switching to <strong>Microsoft Teams (Workflow Webhook)</strong> for continued support.
-          </p>
-        </div>
-      )}
 
       {/* URL */}
       <div>
@@ -259,14 +243,14 @@ export function ChannelEditor({
               ? "Create a webhook in your Discord channel (Channel settings → Integrations → Webhooks) and paste the URL here."
               : isTelegram
               ? "Telegram chat or channel ID (negative number for groups), or an @username. Messages are delivered by the platform bot — add it to the chat first."
-              : "Create an Incoming Webhook in your Teams channel (Channel → Connectors → Incoming Webhook) and paste the URL here."}
+              : ""}
           </p>
           <div className="flex items-center gap-2">
             <input
               type={isTelegram ? "text" : "url"}
               value={channel.url ?? ""}
               onChange={(e) => onChange({ ...channel, url: e.target.value })}
-              placeholder={selectedProvider.placeholder}
+              placeholder={placeholder}
               className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
             />
             {isActive && (

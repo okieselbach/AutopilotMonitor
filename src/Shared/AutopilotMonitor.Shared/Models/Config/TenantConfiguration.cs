@@ -742,44 +742,17 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool SendTraceEvents { get; set; } = true;
 
-        // ===== TEAMS NOTIFICATIONS =====
-
-        /// <summary>
-        /// URL of the Teams Incoming Webhook for enrollment notifications.
-        /// If null or empty, no notifications are sent.
-        /// </summary>
-        public string TeamsWebhookUrl { get; set; } = default!;
-
-        /// <summary>
-        /// Send a Teams notification when an enrollment completes successfully.
-        /// Default: true
-        /// </summary>
-        public bool TeamsNotifyOnSuccess { get; set; } = true;
-
-        /// <summary>
-        /// Send a Teams notification when an enrollment fails.
-        /// Default: true
-        /// </summary>
-        public bool TeamsNotifyOnFailure { get; set; } = true;
-
-        /// <summary>
-        /// Send a Teams notification when an enrollment starts (session registration).
-        /// Opt-in: default false to avoid surprising existing tenants with a notification storm.
-        /// </summary>
-        public bool TeamsNotifyOnStart { get; set; } = false;
-
         // ===== WEBHOOK NOTIFICATIONS =====
 
         /// <summary>
-        /// Webhook provider type. Determines which renderer formats the notification payload.
-        /// 0=None, 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack.
-        /// Legacy tenants with TeamsWebhookUrl are auto-resolved via GetEffectiveWebhookConfig().
+        /// Provider of the legacy single webhook (int form of <see cref="Notifications.WebhookProviderType"/>,
+        /// 0 = none). Only read when <see cref="NotificationChannelsJson"/> is empty — see
+        /// <see cref="GetNotificationChannels"/>.
         /// </summary>
         public int WebhookProviderType { get; set; } = 0;
 
         /// <summary>
-        /// Generic webhook URL for enrollment notifications.
-        /// Replaces TeamsWebhookUrl for new configurations.
+        /// URL of the legacy single webhook. Only read when <see cref="NotificationChannelsJson"/> is empty.
         /// </summary>
         public string WebhookUrl { get; set; } = default!;
 
@@ -808,9 +781,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }) sent with every
         /// generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways.
-        /// Only applied when the effective provider is <see cref="Notifications.WebhookProviderType.GenericJson"/>.
+        /// Only applied when the provider is <see cref="Notifications.WebhookProviderType.GenericJson"/>.
         /// Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see
-        /// <see cref="GetGenericWebhookHeaders"/>.
+        /// <see cref="Notifications.NotificationChannel.GetCustomHeaders"/>.
         /// </summary>
         public string WebhookCustomHeadersJson { get; set; } = default!;
 
@@ -896,7 +869,6 @@ namespace AutopilotMonitor.Shared.Models
         {
             var copy = (TenantConfiguration)MemberwiseClone();
             copy.DiagnosticsBlobSasUrl = Redact(copy.DiagnosticsBlobSasUrl);
-            copy.TeamsWebhookUrl = Redact(copy.TeamsWebhookUrl);
             copy.WebhookUrl = Redact(copy.WebhookUrl);
             copy.WebhookCustomHeadersJson = Redact(copy.WebhookCustomHeadersJson);
             copy.NotificationChannelsJson = RedactChannels(copy.NotificationChannelsJson);
@@ -921,7 +893,6 @@ namespace AutopilotMonitor.Shared.Models
         {
             if (existing == null) return;
             if (DiagnosticsBlobSasUrl == Constants.RedactedSecretPlaceholder) DiagnosticsBlobSasUrl = existing.DiagnosticsBlobSasUrl;
-            if (TeamsWebhookUrl == Constants.RedactedSecretPlaceholder) TeamsWebhookUrl = existing.TeamsWebhookUrl;
             if (WebhookUrl == Constants.RedactedSecretPlaceholder) WebhookUrl = existing.WebhookUrl;
             if (WebhookCustomHeadersJson == Constants.RedactedSecretPlaceholder) WebhookCustomHeadersJson = existing.WebhookCustomHeadersJson;
             RestoreRedactedChannelsFrom(existing);
@@ -938,56 +909,6 @@ namespace AutopilotMonitor.Shared.Models
                 NotificationChannelsJson, existing.NotificationChannelsJson);
 
         /// <summary>
-        /// Returns the effective webhook URL and provider type, handling legacy TeamsWebhookUrl migration.
-        /// New fields take priority; falls back to TeamsWebhookUrl as TeamsLegacyConnector.
-        /// </summary>
-        public (string? Url, int ProviderType) GetEffectiveWebhookConfig()
-        {
-            // New fields take priority
-            if (!string.IsNullOrEmpty(WebhookUrl) && WebhookProviderType != 0)
-                return (WebhookUrl, WebhookProviderType);
-
-            // Legacy fallback: existing TeamsWebhookUrl → treat as Legacy Connector
-            if (!string.IsNullOrEmpty(TeamsWebhookUrl))
-                return (TeamsWebhookUrl, (int)Notifications.WebhookProviderType.TeamsLegacyConnector);
-
-            return (null, 0);
-        }
-
-        /// <summary>
-        /// Returns effective notify-on-success setting, preferring new fields over legacy.
-        /// </summary>
-        public bool GetEffectiveNotifyOnSuccess()
-            => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnSuccess : TeamsNotifyOnSuccess;
-
-        /// <summary>
-        /// Returns effective notify-on-failure setting, preferring new fields over legacy.
-        /// </summary>
-        public bool GetEffectiveNotifyOnFailure()
-            => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnFailure : TeamsNotifyOnFailure;
-
-        /// <summary>
-        /// Returns effective notify-on-start setting, preferring new fields over legacy.
-        /// </summary>
-        public bool GetEffectiveNotifyOnStart()
-            => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnStart : TeamsNotifyOnStart;
-
-        /// <summary>
-        /// Parses <see cref="WebhookCustomHeadersJson"/> into header name/value pairs for the generic
-        /// webhook dispatcher. Returns an empty dictionary unless the effective provider is
-        /// <see cref="Notifications.WebhookProviderType.GenericJson"/>, the JSON is a parseable object,
-        /// and after dropping restricted headers and blank names/values. Never throws.
-        /// </summary>
-        public IReadOnlyDictionary<string, string> GetGenericWebhookHeaders()
-        {
-            var (_, providerType) = GetEffectiveWebhookConfig();
-            if (providerType != (int)Notifications.WebhookProviderType.GenericJson)
-                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            return Notifications.WebhookHeaderParser.Parse(WebhookCustomHeadersJson);
-        }
-
-        /// <summary>
         /// Stable id of the channel synthesized from the legacy single-webhook fields. The web UI
         /// materializes the synthesized channel under the same id on first save, so rule → channel
         /// references made before the tenant migrates stay valid afterwards.
@@ -997,9 +918,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Returns the tenant's notification channels. Prefers <see cref="NotificationChannelsJson"/>;
         /// when unset, synthesizes a single channel from the legacy single-webhook fields
-        /// (<see cref="GetEffectiveWebhookConfig"/> incl. TeamsWebhookUrl fallback) so existing
-        /// tenants keep their exact pre-channels behavior without a data migration. Tenants with
-        /// no webhook configured at all get an empty list.
+        /// (<see cref="WebhookUrl"/> + <see cref="WebhookProviderType"/>) so existing tenants keep
+        /// their exact pre-channels behavior without a data migration. Tenants with no webhook
+        /// configured at all get an empty list.
         /// </summary>
         public IReadOnlyList<Notifications.NotificationChannel> GetNotificationChannels()
         {
@@ -1007,21 +928,20 @@ namespace AutopilotMonitor.Shared.Models
             if (channels.Count > 0)
                 return channels;
 
-            var (url, providerType) = GetEffectiveWebhookConfig();
-            if (string.IsNullOrEmpty(url) || providerType == 0)
+            if (string.IsNullOrEmpty(WebhookUrl) || WebhookProviderType == 0)
                 return channels;
 
             channels.Add(new Notifications.NotificationChannel
             {
                 Id = LegacyChannelId,
                 Name = "Default",
-                ProviderType = providerType,
-                Url = url,
+                ProviderType = WebhookProviderType,
+                Url = WebhookUrl,
                 CustomHeadersJson = WebhookCustomHeadersJson,
                 Enabled = true,
-                NotifyOnStart = GetEffectiveNotifyOnStart(),
-                NotifyOnSuccess = GetEffectiveNotifyOnSuccess(),
-                NotifyOnFailure = GetEffectiveNotifyOnFailure(),
+                NotifyOnStart = WebhookNotifyOnStart,
+                NotifyOnSuccess = WebhookNotifyOnSuccess,
+                NotifyOnFailure = WebhookNotifyOnFailure,
                 NotifyOnHardwareRejection = WebhookNotifyOnHardwareRejection,
                 // Legacy behavior: SLA notifications always went to the single webhook (gated
                 // upstream by the tenant-level SlaNotifyOn* evaluation flags).

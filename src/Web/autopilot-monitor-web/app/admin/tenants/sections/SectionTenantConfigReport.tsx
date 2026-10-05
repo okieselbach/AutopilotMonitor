@@ -30,11 +30,11 @@ interface TenantInfo {
 
 const WEBHOOK_PROVIDERS: Record<number, string> = {
   0: 'None',
-  1: 'Teams (Legacy Connector)',
   2: 'Teams (Workflow Webhook)',
   10: 'Slack',
   20: 'Generic JSON',
   30: 'Discord',
+  40: 'Telegram',
 };
 
 const SOURCE_LABELS: Record<RuntimeSource, string> = {
@@ -174,9 +174,6 @@ function resolveChannels(config: TenantConfiguration): ChannelView[] {
   }
   if (config.webhookUrl && config.webhookProviderType) {
     return [{ id: 'legacy', name: 'Default (legacy)', providerType: config.webhookProviderType, url: config.webhookUrl, enabled: true, notifyOnStart: config.webhookNotifyOnStart, notifyOnSuccess: config.webhookNotifyOnSuccess, notifyOnFailure: config.webhookNotifyOnFailure, notifyOnSlaEvents: true }];
-  }
-  if (config.teamsWebhookUrl) {
-    return [{ id: 'legacy', name: 'Default (legacy)', providerType: 1, url: config.teamsWebhookUrl, enabled: true, notifyOnStart: config.teamsNotifyOnStart, notifyOnSuccess: config.teamsNotifyOnSuccess, notifyOnFailure: config.teamsNotifyOnFailure, notifyOnSlaEvents: true }];
   }
   return [];
 }

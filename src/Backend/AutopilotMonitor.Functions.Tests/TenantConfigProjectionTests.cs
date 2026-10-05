@@ -21,7 +21,7 @@ public class TenantConfigProjectionTests
         OnboardedBy = "alice@contoso.example.com",
         DataRetentionDays = 180,
         // secret-bearing fields that must never be projected:
-        TeamsWebhookUrl = "https://contoso.webhook.office.com/secret",
+        WebhookUrl = "https://hooks.example.com/secret",
         DiagnosticsBlobSasUrl = "https://blob.core.windows.net/c?sig=SECRETSAS",
     };
 
@@ -72,11 +72,11 @@ public class TenantConfigProjectionTests
     public void Project_silently_drops_unknown_or_secret_field_requests()
     {
         // A caller cannot widen the projection to a secret (or any non-safe key).
-        var requested = TenantConfigProjection.ParseFields("tenantId,teamsWebhookUrl,bogus");
+        var requested = TenantConfigProjection.ParseFields("tenantId,webhookUrl,bogus");
         var p = TenantConfigProjection.Project(FullConfig(), requested);
 
         Assert.Equal(new[] { "tenantId" }, p.Keys);
-        Assert.DoesNotContain("teamsWebhookUrl", p.Keys);
+        Assert.DoesNotContain("webhookUrl", p.Keys);
     }
 
     [Fact]

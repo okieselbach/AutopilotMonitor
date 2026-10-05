@@ -117,7 +117,7 @@ public class TenantConfigPatchServiceTests
         config.DomainName = "contoso.com";
         config.UpdatedBy = "admin@contoso.com";
         config.DataRetentionDays = 30;
-        config.TeamsWebhookUrl = "https://contoso.webhook.office.com/hook";
+        config.WebhookUrl = "https://hooks.example.com/hook";
         return config;
     }
 

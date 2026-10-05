@@ -35,6 +35,7 @@ public class NotificationChannelsTests
             ChannelJson("ok", providerType: 10),
             "{\"name\":\"no-id\",\"providerType\":20,\"url\":\"https://x.example\"}",
             ChannelJson("none-provider", providerType: 0),
+            ChannelJson("retired-teams-connector", providerType: 1),
             ChannelJson("unknown-provider", providerType: 99)) + "]";
 
         var parsed = NotificationChannel.ParseList(json);
@@ -111,23 +112,6 @@ public class NotificationChannelsTests
         Assert.True(ch.NotifyOnHardwareRejection);
         Assert.True(ch.NotifyOnSlaEvents); // legacy: SLA alerts always went to the single webhook
         Assert.Equal("k", ch.GetCustomHeaders()["X-Api-Key"]);
-    }
-
-    [Fact]
-    public void GetNotificationChannels_LegacyTeamsOnly_SynthesizesTeamsLegacyConnector()
-    {
-        var cfg = new TenantConfiguration
-        {
-            TeamsWebhookUrl = "https://teams.example/hook",
-            TeamsNotifyOnSuccess = true,
-            TeamsNotifyOnFailure = false,
-        };
-
-        var ch = Assert.Single(cfg.GetNotificationChannels());
-        Assert.Equal((int)WebhookProviderType.TeamsLegacyConnector, ch.ProviderType);
-        Assert.Equal("https://teams.example/hook", ch.Url);
-        Assert.True(ch.NotifyOnSuccess);
-        Assert.False(ch.NotifyOnFailure);
     }
 
     [Fact]
@@ -233,6 +217,7 @@ public class NotificationChannelsTests
     [InlineData("not-json", "not valid JSON")]
     [InlineData("[{\"name\":\"no-id\",\"providerType\":20}]", "needs an id")]
     [InlineData("[{\"id\":\"a\",\"providerType\":99}]", "invalid provider type")]
+    [InlineData("[{\"id\":\"a\",\"providerType\":1}]", "invalid provider type")] // retired Teams Office 365 Connector
     [InlineData("[{\"id\":\"a\",\"providerType\":20,\"url\":\"http://plain.example\"}]", "")] // non-https rejected by SsrfGuard format check
     public void ValidateNotificationChannels_RejectsInvalidEntries(string json, string expectedFragment)
     {
@@ -249,6 +234,26 @@ public class NotificationChannelsTests
             "[" + ChannelJson("ch-1") + "," + ChannelJson("ch-1") + "]");
         Assert.NotNull(error);
         Assert.Contains("duplicate", error);
+    }
+
+    [Theory]
+    [InlineData(1, false)]  // retired Teams Office 365 Connector
+    [InlineData(99, false)]
+    [InlineData(0, true)]
+    [InlineData(2, true)]
+    public void ValidateModel_LegacyWebhookProviderType_MustBeSupportedOrNone(int providerType, bool valid)
+    {
+        var existing = TenantConfiguration.CreateDefault("tenant-1");
+        var candidate = TenantConfiguration.CreateDefault("tenant-1");
+        candidate.WebhookProviderType = providerType;
+        candidate.WebhookUrl = "https://hooks.example/x";
+
+        var error = TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false);
+
+        if (valid)
+            Assert.Null(error);
+        else
+            Assert.Equal("Invalid webhook provider type.", error);
     }
 
     [Fact]
