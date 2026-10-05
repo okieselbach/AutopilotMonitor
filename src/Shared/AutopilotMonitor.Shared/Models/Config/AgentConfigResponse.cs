@@ -519,9 +519,9 @@ namespace AutopilotMonitor.Shared.Models
         /// today's rule still decides.
         /// Active: the phase holds that window while Windows installs an update in OOBE and waits
         /// a bounded time for the sign-in after the update restart instead of failing the session.
-        /// Any other value counts as Shadow. Default: "Shadow".
+        /// Any other value counts as Shadow. Default: "Active".
         /// </summary>
-        public string OobeUpdatePhaseMode { get; set; } = "Shadow";
+        public string OobeUpdatePhaseMode { get; set; } = "Active";
 
         /// <summary>
         /// Lookback window in minutes for the Windows Update backfill scan on startup. OOBE quality

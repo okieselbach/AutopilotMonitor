@@ -419,7 +419,7 @@
         41
       ],
       "servicingWatcherEnabled": true,
-      "oobeUpdatePhaseMode": "Shadow",
+      "oobeUpdatePhaseMode": "Active",
       "windowsUpdateBackfillLookbackMinutes": 60,
       "windowsUpdateChannelCensusEnabled": true,
       "mdmRebootPolicyWatcherEnabled": true,
@@ -5736,7 +5736,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "Mode of the OOBE update phase: \"Off\", \"Shadow\" or \"Active\". Off: Windows/.NET update activity is only shown on the timeline. Shadow: the update watchers also feed it into the decision engine, which records the phase and reports at the post-ESP-exit completion window what the phase would decide; today's rule still decides. Active: the phase holds that window while Windows installs an update in OOBE and waits a bounded time for the sign-in after the update restart instead of failing the session. Any other value counts as Shadow. Default: \"Shadow\"."
+          "doc": "Mode of the OOBE update phase: \"Off\", \"Shadow\" or \"Active\". Off: Windows/.NET update activity is only shown on the timeline. Shadow: the update watchers also feed it into the decision engine, which records the phase and reports at the post-ESP-exit completion window what the phase would decide; today's rule still decides. Active: the phase holds that window while Windows installs an update in OOBE and waits a bounded time for the sign-in after the update restart instead of failing the session. Any other value counts as Shadow. Default: \"Active\"."
         },
         {
           "name": "windowsUpdateBackfillLookbackMinutes",

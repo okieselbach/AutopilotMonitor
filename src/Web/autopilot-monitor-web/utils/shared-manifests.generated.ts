@@ -423,7 +423,7 @@ export const SHARED_MANIFEST = {
         41
       ],
       "servicingWatcherEnabled": true,
-      "oobeUpdatePhaseMode": "Shadow",
+      "oobeUpdatePhaseMode": "Active",
       "windowsUpdateBackfillLookbackMinutes": 60,
       "windowsUpdateChannelCensusEnabled": true,
       "mdmRebootPolicyWatcherEnabled": true,
