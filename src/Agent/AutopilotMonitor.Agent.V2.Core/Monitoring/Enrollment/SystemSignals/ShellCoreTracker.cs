@@ -776,10 +776,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     _pageWatermark.MarkEmitted(recordId);
 
                 // The registry is read now — only a live page boundary is the page's moment.
-                if (!isBackfill && record.CxhEvent != OobeUpdatePageRecord.EventName)
+                if (!isBackfill && record.CxhEvent != OobeUpdateVocabulary.EventName)
                 {
                     _oobeUpdate.ReportState(
-                        record.CxhEvent == OobeUpdatePageRecord.PageStarted
+                        record.CxhEvent == OobeUpdateVocabulary.PageStarted
                             ? OobeUpdateTelemetry.Moments.UpdatePageStarted
                             : OobeUpdateTelemetry.Moments.UpdatePageStopped,
                         record.Page);
@@ -879,11 +879,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 case EventId_ShellCore_WebAppStarted:
                     return IsUpdatePageToken(fields.Primary)
-                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, eventId, page: fields.Primary)
+                        ? new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStarted, eventId, page: fields.Primary)
                         : null;
                 case EventId_ShellCore_WebAppStopped:
                     return IsUpdatePageToken(lastPage)
-                        ? new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, eventId,
+                        ? new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStopped, eventId,
                             page: lastPage, result: fields.Primary ?? "?")
                         : null;
                 case EventId_ShellCore_WebAppEventName:
@@ -891,7 +891,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 {
                     if (!IsUpdatePageToken(fields.Primary)) return null;
                     var value = eventId == EventId_ShellCore_WebAppEvent ? SafeValue(fields.Value) : null;
-                    return new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, eventId, name: fields.Primary, value: value);
+                    return new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, eventId, name: fields.Primary, value: value);
                 }
                 default:
                     return null;

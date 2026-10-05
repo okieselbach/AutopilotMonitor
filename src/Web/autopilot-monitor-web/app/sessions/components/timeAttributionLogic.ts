@@ -1,8 +1,5 @@
 import type { OsUpdateSpan } from "@/utils/wire-types.generated";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-
-/** How an OOBE quality update ended (backend `OsUpdateOutcomes`). */
-export type OsUpdateOutcome = (typeof SHARED_MANIFEST.osUpdateOutcomes)[number];
+import type { OsUpdateOutcome } from "@/lib/osUpdateLive";
 
 /** The words the Windows Update slice names an outcome with; "unknown" names nothing. */
 const OUTCOME_LABELS: Record<OsUpdateOutcome, string | null> = {

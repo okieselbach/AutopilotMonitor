@@ -224,27 +224,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             switch (eventId)
             {
                 case EventId_InitiatingChanges:
-                    step = "initiating";
-                    osStep = IsState(targetState, "Installed") ? OsUpdateSteps.InstallStarted
+                    step = OobeUpdateVocabulary.StepInitiating;
+                    osStep = IsState(targetState, OobeUpdateVocabulary.InstalledState) ? OsUpdateSteps.InstallStarted
                         : IsState(targetState, "Staged") ? OsUpdateSteps.StagingStarted
                         : null;
                     message = $"Servicing started for {pkg}: {(string.IsNullOrEmpty(initialState) ? "?" : initialState)} → {target}";
                     break;
                 case EventId_StateReached:
-                    step = "state_reached";
-                    osStep = IsState(targetState, "Installed") ? OsUpdateSteps.Installed
+                    step = OobeUpdateVocabulary.StepStateReached;
+                    osStep = IsState(targetState, OobeUpdateVocabulary.InstalledState) ? OsUpdateSteps.Installed
                         : IsState(targetState, "Staged") ? OsUpdateSteps.Staged
                         : null;
                     message = $"Servicing finished for {pkg}: now {target}";
                     break;
                 case EventId_RebootRequired:
-                    step = "reboot_required";
+                    step = OobeUpdateVocabulary.StepRebootRequired;
                     osStep = OsUpdateSteps.RebootRequired;
                     message = $"Servicing needs a restart to finish {pkg} → {target}";
                     break;
                 case EventId_ChangeFailed:
                 case EventId_PartiallyInstalled:
-                    step = "failed";
+                    step = OobeUpdateVocabulary.StepFailed;
                     osStep = OsUpdateSteps.Failed;
                     severity = EventSeverity.Warning;
                     message = $"Servicing FAILED for {pkg} → {target}" +

@@ -112,6 +112,12 @@ export interface UseSessionEventsReturn {
    * timeline page without delaying first paint.
    */
   isStreamingMore: boolean;
+  /**
+   * True once a walk read every page. The first page holds the oldest events, so a live
+   * reading of the latest state (the OOBE update hint) waits for this instead of flickering
+   * through the walk.
+   */
+  initialWalkComplete: boolean;
 }
 
 /**
@@ -138,6 +144,7 @@ export function useSessionEvents({
 }: UseSessionEventsParams): UseSessionEventsReturn {
   const [events, setEvents] = useState<EnrollmentEvent[]>([]);
   const [isStreamingMore, setIsStreamingMore] = useState(false);
+  const [initialWalkComplete, setInitialWalkComplete] = useState(false);
 
   // Deduplication: track in-flight fetchEvents to avoid concurrent calls
   const fetchEventsInFlight = useRef(false);
@@ -245,6 +252,7 @@ export function useSessionEvents({
         }
         setIsStreamingMore(false);
       }
+      setInitialWalkComplete(true);
 
       const currentStatus = sessionRef.current?.status;
       if (foundTerminalEvent && currentStatus && !isTerminalStatus(currentStatus)) {
@@ -330,5 +338,5 @@ export function useSessionEvents({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, sessionTenantId, isConnected]);
 
-  return { events, setEvents, fetchEvents, scheduleFetchEvents, isStreamingMore };
+  return { events, setEvents, fetchEvents, scheduleFetchEvents, isStreamingMore, initialWalkComplete };
 }

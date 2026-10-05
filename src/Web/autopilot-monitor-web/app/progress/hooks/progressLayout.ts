@@ -1,5 +1,7 @@
 import { EnrollmentEvent, Session } from "@/types";
 import { resolvePhaseLayout } from "@/app/sessions/utils/phaseConstants";
+import { isParkedAfterTechnicianPart } from "@/lib/preProvisioning";
+import { deriveOsUpdateLive, deviceNowMs, osUpdateLiveState } from "@/lib/osUpdateLive";
 
 /**
  * Pure view-model for the end-user progress page. The page used to hardcode the seven
@@ -27,6 +29,7 @@ type ProgressSession = Pick<
   | "isHybridJoin"
   | "isCloudPc"
   | "resumedAt"
+  | "startedAt"
 >;
 
 // End-user wording (the dashboard's phaseConstants carry the operator wording).
@@ -111,24 +114,7 @@ export function lastDeclaredPhase(events: EnrollmentEvent[]): number {
 
 const FIRST_USER_PHASE_ID = 4;
 
-/**
- * A pre-provisioned device whose technician part (whiteglove_complete) finished and that no
- * user has resumed yet. The backend caps such a session at the last device phase, so a
- * phase-driven reading would keep "Installing apps (device)" running forever; both the
- * headline and the step list must read the seal instead.
- */
-export function isParkedAfterTechnicianPart(
-  session: Pick<ProgressSession, "isPreProvisioned" | "resumedAt">,
-  events: EnrollmentEvent[],
-): boolean {
-  if (!session.isPreProvisioned || session.resumedAt) return false;
-  let sealed = false;
-  for (const e of events) {
-    if (e.eventType === "whiteglove_resumed") return false;
-    if (e.eventType === "whiteglove_complete") sealed = true;
-  }
-  return sealed;
-}
+export { isParkedAfterTechnicianPart };
 
 export interface ResolveActiveStepParams {
   steps: ProgressStep[];
@@ -201,11 +187,14 @@ export interface ProgressPresentation {
 const CONTACT_IT = "Please contact your IT department.";
 
 /**
- * Headline the end user sees. Mirrors the backend SessionStatus vocabulary instead of the
- * old InProgress / Succeeded / everything-else-is-red trichotomy: a pre-provisioned device
- * parked for its user, a stalled device and an Incomplete verdict are not failures.
+ * Headline the end user sees at `nowMs`. Mirrors the backend SessionStatus vocabulary instead
+ * of the old InProgress / Succeeded / everything-else-is-red trichotomy: a pre-provisioned
+ * device parked for its user, a stalled device and an Incomplete verdict are not failures.
+ * While the OOBE quality update runs, or the device waits for its user after the update's
+ * restart, the headline says so (lib/osUpdateLive) — the update explains a long silence better
+ * than "taking longer than usual".
  */
-export function resolvePresentation(session: ProgressSession, events: EnrollmentEvent[]): ProgressPresentation {
+export function resolvePresentation(session: ProgressSession, events: EnrollmentEvent[], nowMs: number): ProgressPresentation {
   switch (session.status) {
     case "Succeeded":
       return { kind: "success", title: "Setup complete!" };
@@ -221,6 +210,25 @@ export function resolvePresentation(session: ProgressSession, events: Enrollment
   // been resumed by its user is waiting, not working.
   if (isParkedAfterTechnicianPart(session, events)) {
     return awaitingUser(session);
+  }
+
+  const update = deriveOsUpdateLive(events, session);
+  const updateState = update ? osUpdateLiveState(update, deviceNowMs(update, nowMs)) : null;
+  if (updateState === "updating") {
+    return {
+      kind: "working",
+      title: "Setting up your device...",
+      detail: "Windows is installing updates. This can take a while, and the device restarts on its own. Keep it powered on and connected.",
+    };
+  }
+  if (update && updateState === "awaiting_sign_in") {
+    return {
+      kind: "waiting",
+      title: "Waiting for you to sign in",
+      detail: update.interval.outcome === "installed"
+        ? "Windows installed updates and restarted. Sign in on the device to continue."
+        : "The device restarted for Windows updates. Sign in on the device to continue.",
+    };
   }
 
   if (session.status === "Stalled") {

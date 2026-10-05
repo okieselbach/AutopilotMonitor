@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { computeDeviceStatus, DeviceStatus } from "./deviceStatus";
 import { detectSkipUserStatusPage } from "@/app/sessions/utils/espConfig";
+import { isTerminalStatus } from "@/utils/sessionStatus";
 import {
   buildProgressSteps,
   computeOverallProgress,
@@ -121,6 +122,8 @@ function computeCurrentDownload(events: EnrollmentEvent[]): CurrentDownload | nu
   };
 }
 
+const PRESENTATION_TICK_MS = 30_000;
+
 export interface UseProgressDerivedDataReturn {
   appSummary: AppSummary | null;
   currentDownload: CurrentDownload | null;
@@ -142,7 +145,8 @@ export interface UseProgressDerivedDataReturn {
  *  - currentDownload: latest-state-per-app + most recent active app
  *  - currentInstall: app-state map driven by app_install_* events
  *  - installElapsedMs: 1s live timer while an install is active
- *  - steps / activeStepIndex / presentation: scenario-aware layout (progressLayout.ts)
+ *  - steps / activeStepIndex / presentation: scenario-aware layout (progressLayout.ts); the
+ *    presentation follows a 30 s clock while the session runs (the OOBE update's live state)
  *  - overallProgress: step-based 0-100% gauge
  */
 export function useProgressDerivedData(
@@ -292,9 +296,22 @@ export function useProgressDerivedData(
     ? resolveActiveStepIndex({ steps, session, events, hasAppActivity })
     : 0;
   const overallProgress = session ? computeOverallProgress(session.status, activeStepIndex, steps.length) : 0;
+  // The headline reads the OOBE update's live state, which moves with the clock: tick while the
+  // session runs. The first tick comes at once — the page may have loaded long before the search.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const sessionRunning = session !== null && !isTerminalStatus(session.status);
+  useEffect(() => {
+    if (!sessionRunning) return;
+    const first = setTimeout(() => setNowMs(Date.now()), 0);
+    const id = setInterval(() => setNowMs(Date.now()), PRESENTATION_TICK_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [sessionRunning]);
   const presentation = useMemo<ProgressPresentation | null>(
-    () => (session ? resolvePresentation(session, events) : null),
-    [session, events],
+    () => (session ? resolvePresentation(session, events, nowMs) : null),
+    [session, events, nowMs],
   );
   const scenario = session ? scenarioLabel(session) : null;
 

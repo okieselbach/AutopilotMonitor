@@ -10,6 +10,7 @@ using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
@@ -56,7 +57,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public void Page_IsReported_WithItsEventTime_AndFields()
         {
             Build().ReportPage(
-                new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, 62405, page: "OobeNDUP", result: "success"),
+                new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStopped, 62405, page: "OobeNDUP", result: "success"),
                 At.AddMinutes(-3), isBackfill: true);
 
             var page = Assert.Single(ByType(Constants.EventTypes.OobeUpdatePage));
@@ -75,7 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public void EventName_CarriesItsSafeValue()
         {
             Build().ReportPage(
-                new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62407, name: "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", value: "true"),
+                new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62407, name: "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", value: "true"),
                 At, isBackfill: false);
 
             var data = Data(Assert.Single(ByType(Constants.EventTypes.OobeUpdatePage)));
@@ -89,9 +90,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var telemetry = Build();
             for (var i = 0; i < 10; i++)
             {
-                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: "ExpeditedUpdate_progress"), At.AddSeconds(i), isBackfill: false);
+                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: "ExpeditedUpdate_progress"), At.AddSeconds(i), isBackfill: false);
             }
-            telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, 62405, page: "OobeNDUP", result: "success"), At.AddMinutes(1), isBackfill: false);
+            telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStopped, 62405, page: "OobeNDUP", result: "success"), At.AddMinutes(1), isBackfill: false);
 
             var pages = ByType(Constants.EventTypes.OobeUpdatePage);
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerKey + 1, pages.Count);
@@ -106,14 +107,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var telemetry = Build();
             for (var i = 0; i < OobeUpdateTelemetry.MaxPageEventsPerRun + 20; i++)
             {
-                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: $"ExpeditedUpdate_step{i}"), At.AddSeconds(i), isBackfill: false);
+                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: $"ExpeditedUpdate_step{i}"), At.AddSeconds(i), isBackfill: false);
             }
 
             var pages = ByType(Constants.EventTypes.OobeUpdatePage);
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerRun + 1, pages.Count);
             // A name missing after the marker proves nothing — the rules check for it.
             var marker = Data(pages.Last());
-            Assert.Equal(OobeUpdatePageRecord.NamesCapped, marker["cxhEvent"]);
+            Assert.Equal(OobeUpdateVocabulary.NamesCapped, marker["cxhEvent"]);
             Assert.Equal(false, marker["backfill"]);
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerRun, marker["limit"]);
             Assert.Equal(At.AddSeconds(OobeUpdateTelemetry.MaxPageEventsPerRun), pages.Last().OccurredAtUtc); // the first name over the budget
@@ -126,13 +127,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var telemetry = Build();
             for (var i = 0; i < OobeUpdateTelemetry.MaxBackfillPageEventsPerRun + 5; i++)
             {
-                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: $"ExpeditedUpdate_old{i}"), At.AddMinutes(-30), isBackfill: true);
+                telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: $"ExpeditedUpdate_old{i}"), At.AddMinutes(-30), isBackfill: true);
             }
 
-            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: "ExpeditedUpdate_live"), At, isBackfill: false));
+            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: "ExpeditedUpdate_live"), At, isBackfill: false));
 
             var markers = ByType(Constants.EventTypes.OobeUpdatePage)
-                .Where(p => (string)Data(p)["cxhEvent"] == OobeUpdatePageRecord.NamesCapped).ToList();
+                .Where(p => (string)Data(p)["cxhEvent"] == OobeUpdateVocabulary.NamesCapped).ToList();
             var marker = Assert.Single(markers);
             Assert.Equal(true, Data(marker)["backfill"]);
             Assert.Equal(OobeUpdateTelemetry.MaxBackfillPageEventsPerRun, Data(marker)["limit"]);
@@ -145,17 +146,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var telemetry = Build();
             for (var i = 0; i < OobeUpdateTelemetry.MaxPageEventsPerRun; i++)
             {
-                Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: $"ExpeditedUpdate_step{i}"), At, isBackfill: false));
+                Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: $"ExpeditedUpdate_step{i}"), At, isBackfill: false));
             }
 
-            Assert.False(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: "ExpeditedUpdate_late"), At, isBackfill: false));
-            Assert.False(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.EventName, 62406, name: "ExpeditedUpdate_later"), At, isBackfill: false));
-            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, 62404, page: "RebootNDUP"), At.AddMinutes(1), isBackfill: false));
-            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStopped, 62405, page: "RebootNDUP", result: "success"), At.AddMinutes(2), isBackfill: false));
+            Assert.False(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: "ExpeditedUpdate_late"), At, isBackfill: false));
+            Assert.False(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.EventName, 62406, name: "ExpeditedUpdate_later"), At, isBackfill: false));
+            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStarted, 62404, page: "RebootNDUP"), At.AddMinutes(1), isBackfill: false));
+            Assert.True(telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStopped, 62405, page: "RebootNDUP", result: "success"), At.AddMinutes(2), isBackfill: false));
 
             var pages = ByType(Constants.EventTypes.OobeUpdatePage);
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerRun + 3, pages.Count);
-            Assert.Equal(new object[] { OobeUpdatePageRecord.NamesCapped, "page_started", "page_stopped" },
+            Assert.Equal(new object[] { OobeUpdateVocabulary.NamesCapped, "page_started", "page_stopped" },
                 pages.Skip(OobeUpdateTelemetry.MaxPageEventsPerRun).Select(p => Data(p)["cxhEvent"]).ToArray());
         }
 
@@ -165,7 +166,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             // Outside the run budget, but a page that restarts in a loop still cannot flood.
             var telemetry = Build();
             var reported = Enumerable.Range(0, 10)
-                .Count(i => telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdatePageRecord.PageStarted, 62404, page: "OobeNDUP"), At.AddMinutes(i), isBackfill: false));
+                .Count(i => telemetry.ReportPage(new OobeUpdatePageRecord(OobeUpdateVocabulary.PageStarted, 62404, page: "OobeNDUP"), At.AddMinutes(i), isBackfill: false));
 
             Assert.Equal(OobeUpdateTelemetry.MaxPageEventsPerKey, reported);
         }

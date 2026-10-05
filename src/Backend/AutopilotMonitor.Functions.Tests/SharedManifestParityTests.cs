@@ -94,6 +94,33 @@ public sealed class SharedManifestParityTests
             ["sessionAnchorIneligibleSources"] = Constants.EventSources.SessionAnchorIneligible,
             // How an OOBE quality update ended (OsUpdateSpan.Outcome in the time attribution).
             ["osUpdateOutcomes"] = OsUpdateOutcomes.All,
+            // The OOBE update page and servicing vocabulary the time attribution reads — the portal's
+            // live hint (lib/osUpdateLive.ts) reads the same values.
+            ["oobeUpdate"] = new Dictionary<string, object?>
+            {
+                ["updatePage"] = OobeUpdateVocabulary.UpdatePage,
+                ["updateRestartPage"] = OobeUpdateVocabulary.UpdateRestartPage,
+                ["cxhEvents"] = new Dictionary<string, object?>
+                {
+                    ["pageStarted"] = OobeUpdateVocabulary.PageStarted,
+                    ["pageStopped"] = OobeUpdateVocabulary.PageStopped,
+                    ["eventName"] = OobeUpdateVocabulary.EventName,
+                    ["namesCapped"] = OobeUpdateVocabulary.NamesCapped,
+                },
+                ["pageResultFail"] = OobeUpdateVocabulary.PageResultFail,
+                ["activityMarkers"] = OobeUpdateVocabulary.ActivityMarkers,
+                ["succeededMarkers"] = OobeUpdateVocabulary.SucceededMarkers,
+                ["failedMarkers"] = OobeUpdateVocabulary.FailedMarkers,
+                ["skippedMarkers"] = OobeUpdateVocabulary.SkippedMarkers,
+                ["servicingSteps"] = new Dictionary<string, object?>
+                {
+                    ["initiating"] = OobeUpdateVocabulary.StepInitiating,
+                    ["stateReached"] = OobeUpdateVocabulary.StepStateReached,
+                    ["rebootRequired"] = OobeUpdateVocabulary.StepRebootRequired,
+                    ["failed"] = OobeUpdateVocabulary.StepFailed,
+                },
+                ["installedState"] = OobeUpdateVocabulary.InstalledState,
+            },
             // Community rule submissions: kinds, effective statuses (incl. the derived "published"),
             // attribution modes and reviewer decisions — the MCP tool schemas enumerate these.
             ["ruleSubmissionKinds"] = RuleSubmissionKinds.All,

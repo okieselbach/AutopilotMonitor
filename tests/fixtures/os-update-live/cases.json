@@ -1,0 +1,489 @@
+{
+  "$comment": "Shared cases for the OOBE update interval (backend TimeAttributionCalculator) and its live label (web lib/osUpdateLive.ts). See README.md.",
+  "scenarios": [
+    {
+      "name": "long_update_three_restarts",
+      "description": "Field shape e4ecd6f8: the page starts after the ESP exit, CBS stages and installs the LCU, three restarts with the package mid-servicing, then a confirmation visit; the desktop follows 92 s after it, before the wait would show.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:05Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:10Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", "value": "true"}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:22:36Z", "phase": "AccountSetup"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:43:35Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:03:00Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:03:10Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:26:46Z", "data": {"step": "reboot_required", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T15:42:39Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_downloadInstallFailureHelper"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T15:43:11Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T15:44:43Z", "data": {"lastBootUtc": "2026-10-02T15:44:00Z"}},
+        {"type": "agent_shutting_down", "t": "2026-10-02T15:46:00Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T15:48:00Z", "data": {"lastBootUtc": "2026-10-02T15:47:00Z"}},
+        {"type": "agent_shutting_down", "t": "2026-10-02T15:50:00Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T15:52:00Z", "data": {"lastBootUtc": "2026-10-02T15:51:00Z"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:59:54Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:00:06Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:00:36Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T16:02:08Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T16:05:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:20:30Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:50:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T14:43:35Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:43:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:43:11Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T15:45:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:44:43Z", "rebootCount": 1, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:55:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:52:00Z", "rebootCount": 3, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:00:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:59:54Z", "rebootCount": 3, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:00:20Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:00:06Z", "rebootCount": 3, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:01:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:00:36Z", "rebootCount": 3, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:02:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:00:36Z", "rebootCount": 3, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "wait_for_sign_in_with_standby",
+      "description": "Update before AccountSetup, two restarts, then 48 minutes at the lock screen, 45 of them in standby: the wait shows 2 minutes after the package reached Installed, the AccountSetup declaration does not end it, the Hello wizard does.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:04Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:21:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_startWUScanStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:30:00Z", "data": {"step": "initiating", "package": "Package_for_RollupFix~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:38:50Z", "data": {"step": "reboot_required", "package": "Package_for_RollupFix~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:38:55Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:40:10Z", "data": {"lastBootUtc": "2026-10-02T14:39:30Z"}},
+        {"type": "agent_shutting_down", "t": "2026-10-02T14:41:00Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:42:30Z", "data": {"lastBootUtc": "2026-10-02T14:42:00Z"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:43:00Z", "data": {"step": "state_reached", "package": "Package_for_RollupFix~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "system_sleep_episode", "t": "2026-10-02T15:29:00Z", "data": {"enteredAt": "2026-10-02T14:44:00Z", "exitedAt": "2026-10-02T15:29:00Z", "kind": "modern_standby"}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T15:30:50Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T15:31:00Z"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T15:31:00Z", "phase": "FinalizingSetup"},
+        {"type": "desktop_arrived", "t": "2026-10-02T15:33:00Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T15:35:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:25:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:35:00Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:30:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:39:00Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:38:55Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T14:42:40Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:42:30Z", "rebootCount": 2, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:44:00Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:43:00Z", "rebootCount": 2, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:46:00Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:43:00Z", "rebootCount": 2, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T15:20:00Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:43:00Z", "rebootCount": 2, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T15:30:55Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:43:00Z", "rebootCount": 2, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T15:31:30Z", "interval": {"start": "2026-10-02T14:20:04Z", "end": "2026-10-02T14:43:00Z", "rebootCount": 2, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "cancelled_page",
+      "description": "AllowOOBEUpdates=0: the page cancels within seconds and the restart page passes through. No update, no hint.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:03Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", "value": "false"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:05Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "cancel"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:06Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:07Z", "data": {"cxhEvent": "page_stopped", "page": "RebootNDUP", "result": "success"}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:21:00Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T14:26:00Z"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:26:00Z", "phase": "FinalizingSetup"},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:28:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:20:04Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:22:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:29:00Z", "interval": null, "live": null}
+      ]
+    },
+    {
+      "name": "update_without_restart",
+      "description": "The page installs without a restart and stops with success: nobody was signed out, so the hint ends with the stop. The names_capped marker after the stop is a page record and moves the end, as in the time attribution.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:40Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:50Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "success"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:52Z", "data": {"cxhEvent": "names_capped", "backfill": false, "limit": 150}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:21:00Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T14:26:00Z"},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:28:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:20:30Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:20:45Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:20:40Z", "rebootCount": 0, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:20:55Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:20:52Z", "rebootCount": 0, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": null},
+        {"now": "2026-10-02T14:27:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:20:52Z", "rebootCount": 0, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "late_agent_first_run",
+      "description": "Field shape 6a7d241d: the session started at T0, the agent's first run at 26:30, after the page start. The servicing steps it backfills arrive with it; the first page name begins the update, and once a package it serviced shows up again the begin moves back to that package's first step (20:00). The package the OOBE finished at 5-7 min stays out.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:26:30Z", "phase": "AppsDevice"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:05:00Z", "data": {"step": "initiating", "package": "KB5128942", "client": "UpdateAgentLCU", "targetState": "Staged"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:06:00Z", "data": {"step": "state_reached", "package": "KB5128942", "client": "UpdateAgentLCU", "targetState": "Staged"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:06:05Z", "data": {"step": "initiating", "package": "KB5128942", "client": "UpdateAgentLCU", "targetState": "Installed"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:07:00Z", "data": {"step": "state_reached", "package": "KB5128942", "client": "UpdateAgentLCU", "targetState": "Installed"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:20:00Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:20:05Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}, "arrives": "2026-10-02T14:26:30Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:27:40Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:32:25Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:33:22Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:34:00Z", "data": {"step": "initiating", "package": "KB5129195", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:36:00Z", "data": {"step": "state_reached", "package": "KB5129195", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:36:10Z", "data": {"step": "initiating", "package": "KB5054156", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:38:00Z", "data": {"step": "state_reached", "package": "KB5054156", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:38:10Z", "data": {"step": "initiating", "package": "KB5129195", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:38:20Z", "data": {"step": "initiating", "package": "KB5054156", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:43:05Z", "data": {"step": "reboot_required", "package": "KB5129195", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:43:06Z", "data": {"step": "reboot_required", "package": "KB5054156", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:43:10Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_installSucceededRebootRequired"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:43:12Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:43:30Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_rebootCountdown_starting"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:43:35Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:46:00Z", "data": {"lastBootUtc": "2026-10-02T14:45:00Z"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:50:00Z", "data": {"step": "state_reached", "package": "KB5129195", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "agent_shutting_down", "t": "2026-10-02T14:52:00Z"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:59:17Z", "data": {"step": "state_reached", "package": "KB5054156", "client": "UpdateAgentLCU", "targetState": "Installed"}, "arrives": "2026-10-02T14:59:30Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:59:30Z", "data": {"lastBootUtc": "2026-10-02T14:58:00Z"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T15:02:10Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T15:03:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:26:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:27:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:28:00Z", "interval": {"start": "2026-10-02T14:27:40Z", "end": "2026-10-02T14:27:40Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:33:00Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:32:25Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:44:00Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:43:35Z", "rebootCount": 0, "outcome": "installed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195", "KB5054156"]}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T14:47:00Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:46:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195", "KB5054156"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:51:00Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:50:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": ["KB5054156"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:53:00Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:50:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": ["KB5054156"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:59:40Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:59:17Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195", "KB5054156"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:01:30Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:59:17Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195", "KB5054156"], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T15:02:30Z", "interval": {"start": "2026-10-02T14:20:00Z", "end": "2026-10-02T14:59:17Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195", "KB5054156"], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "failed_download",
+      "description": "Field shape e7551b82: only the servicing stack is staged, the download fails after 25 minutes, the page restarts the device and the second visit offers nothing. The outcome reads failed, the staged KB not installed; the device waits for its user.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:03Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_isNDUPAllowedByCSPSucceeded", "value": "true"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:21:42Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:22:00Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:26:00Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:45:10Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:45:12Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:45:13Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_downloadInstallFailureHelper"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:45:20Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "fail"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:45:21Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:46:30Z", "data": {"lastBootUtc": "2026-10-02T14:45:50Z"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:46:51Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:46:52Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_initialize_NDUPDownloadInstallPreviousFailureCount", "value": "1"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:47:10Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_updateManager_processUpdatesMetadata_osUpdatesWithNDUPPI", "value": "false"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:47:13Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "cancel"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:47:14Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:47:15Z", "data": {"cxhEvent": "page_stopped", "page": "RebootNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:52:15Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T14:54:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:21:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:22:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:22:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:45:15Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:45:13Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:45:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:45:21Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T14:46:40Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:46:30Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:47:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:46:52Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:47:20Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:47:15Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:50:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:47:15Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T14:52:20Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:47:15Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": null}
+      ]
+    },
+    {
+      "name": "failure_then_skip",
+      "description": "Field shape cb1992b8: visit 1 fails and restarts the device; visit 2 downloads again and someone selects Skip. The new download after the restart reads as running, not as waiting.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:21:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:02Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:10Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "fail"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:11Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:31:30Z", "data": {"lastBootUtc": "2026-10-02T14:30:40Z"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:32:00Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:32:01Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_initialize_NDUPDownloadInstallPreviousFailureCount", "value": "1"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:33:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:40:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_manageProgressBars_waitingForInstallStartError"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:41:00Z", "data": {"cxhEvent": "event_name", "name": "CloudNDUPSkipDownloadInstallButtonClicked", "value": "0"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:41:05Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "cancel"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:41:06Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:41:07Z", "data": {"cxhEvent": "page_stopped", "page": "RebootNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:43:00Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T14:44:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:31:40Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:31:30Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:32:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:32:01Z", "rebootCount": 1, "outcome": "failed", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:41:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:41:07Z", "rebootCount": 1, "outcome": "skipped", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:43:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:41:07Z", "rebootCount": 1, "outcome": "skipped", "kbs": [], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "names_without_servicing",
+      "description": "Update names without a page start and without servicing steps: the first name begins the update; the stop ends it without a restart, so the hint ends with it.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:24:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_updateUSOProgressBar_DownloadPhase_progress40"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:29:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:29:20Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:31:00Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T14:32:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:25:00Z", "interval": {"start": "2026-10-02T14:24:00Z", "end": "2026-10-02T14:24:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:29:30Z", "interval": {"start": "2026-10-02T14:24:00Z", "end": "2026-10-02T14:29:20Z", "rebootCount": 0, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": null},
+        {"now": "2026-10-02T14:31:30Z", "interval": {"start": "2026-10-02T14:24:00Z", "end": "2026-10-02T14:29:20Z", "rebootCount": 0, "outcome": "installed", "kbs": [], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "missed_first_visit",
+      "description": "The agent saw visit 1 only by its names (no page start, no ESP exit) and the confirmation visit after the restart: the first name begins the update until the package shows up again, then the package's first step does.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:21:00Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:23:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:30:00Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:30:10Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:36:00Z", "data": {"step": "reboot_required", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:36:05Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_rebootCountdown_starting"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:36:10Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:38:00Z", "data": {"lastBootUtc": "2026-10-02T14:37:00Z"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:39:00Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:39:10Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:39:30Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:41:00Z"},
+        {"type": "enrollment_complete", "t": "2026-10-02T14:42:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:24:00Z", "interval": {"start": "2026-10-02T14:23:00Z", "end": "2026-10-02T14:23:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:36:30Z", "interval": {"start": "2026-10-02T14:21:00Z", "end": "2026-10-02T14:36:10Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T14:38:30Z", "interval": {"start": "2026-10-02T14:21:00Z", "end": "2026-10-02T14:38:00Z", "rebootCount": 1, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:39:05Z", "interval": {"start": "2026-10-02T14:21:00Z", "end": "2026-10-02T14:39:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:39:20Z", "interval": {"start": "2026-10-02T14:21:00Z", "end": "2026-10-02T14:39:10Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:41:30Z", "interval": {"start": "2026-10-02T14:21:00Z", "end": "2026-10-02T14:39:30Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "whiteglove_part_two",
+      "description": "Pre-provisioned device, update in the user part two days later: the window starts at the resume, the part-1 ESP never bounds it.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z", "resumedAt": "2026-10-04T14:00:00Z", "isPreProvisioned": true},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "whiteglove_complete", "t": "2026-10-02T14:29:00Z"},
+        {"type": "whiteglove_part1_complete", "t": "2026-10-02T14:30:00Z"},
+        {"type": "agent_started", "t": "2026-10-04T14:00:30Z", "phase": "DeviceSetup"},
+        {"type": "esp_exiting", "t": "2026-10-04T14:03:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-04T14:03:04Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "windows_update_servicing", "t": "2026-10-04T14:10:00Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-04T14:20:00Z", "data": {"step": "reboot_required", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-04T14:20:05Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-04T14:23:00Z", "data": {"lastBootUtc": "2026-10-04T14:22:00Z"}},
+        {"type": "windows_update_servicing", "t": "2026-10-04T14:24:00Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "esp_phase_changed", "t": "2026-10-04T14:30:00Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-04T14:32:00Z"},
+        {"type": "desktop_arrived", "t": "2026-10-04T14:38:00Z"},
+        {"type": "enrollment_complete", "t": "2026-10-04T14:40:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-04T14:05:00Z", "interval": null, "live": null},
+        {"now": "2026-10-04T14:11:00Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:10:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-04T14:21:00Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:20:05Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-04T14:23:30Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:23:00Z", "rebootCount": 1, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-04T14:24:30Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:24:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-04T14:27:00Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:24:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-04T14:31:00Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:24:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-04T14:33:00Z", "interval": {"start": "2026-10-04T14:03:04Z", "end": "2026-10-04T14:24:00Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "rows_before_window_start",
+      "description": "The agent's first run at 10:00 reads back update page rows from 5-6 min, before the session started: they lie outside the window, and a page start inside it without evidence of its own begins nothing until its visit holds some.",
+      "session": {"startedAt": "2026-10-02T14:10:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:10:00Z", "phase": "DeviceSetup"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:05:00Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}, "arrives": "2026-10-02T14:10:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:06:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"}, "arrives": "2026-10-02T14:10:00Z"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:12:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:21:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:22:00Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:11:00Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:20:30Z", "interval": null, "live": null},
+        {"now": "2026-10-02T14:22:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:22:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}}
+      ]
+    },
+    {
+      "name": "restart_reported_late",
+      "description": "After the restart the servicing step reaches the backend before the agent reports the restart: the update reads as restarting until the report, then as finished. lastBootUtc carries no zone (UTC, as the backend reads it); the page start carries a 7-digit fraction.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02.1234567Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:25:00Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:30:00Z", "data": {"step": "reboot_required", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:05Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:31:30Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}, "arrives": "2026-10-02T14:31:40Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T14:33:00Z", "data": {"lastBootUtc": "2026-10-02T14:31:00.0000000"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:36:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:32:00Z", "interval": {"start": "2026-10-02T14:20:02.1234567Z", "end": "2026-10-02T14:31:30Z", "rebootCount": 0, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": true}},
+        {"now": "2026-10-02T14:33:20Z", "interval": {"start": "2026-10-02T14:20:02.1234567Z", "end": "2026-10-02T14:31:30Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:34:00Z", "interval": {"start": "2026-10-02T14:20:02.1234567Z", "end": "2026-10-02T14:31:30Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T14:36:30Z", "interval": {"start": "2026-10-02T14:20:02.1234567Z", "end": "2026-10-02T14:31:30Z", "rebootCount": 1, "outcome": "installed", "kbs": ["KB5129195"], "notInstalledKbs": []}, "live": null}
+      ]
+    },
+    {
+      "name": "names_after_user_back",
+      "description": "Update names after the Hello wizard: that update runs beside the enrollment, not instead of it. No interval, no hint.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:21:00Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T14:26:00Z"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:26:00Z", "phase": "FinalizingSetup"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:28:30Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:29:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncSucceeded"}}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:29:30Z", "interval": null, "live": null}
+      ]
+    },
+    {
+      "name": "failed_declaration",
+      "description": "The enrollment declares Failed while the update runs: the update's time ends there, a servicing step after it is not the update's, and the hint goes away.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:25:00Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "enrollment_failed", "t": "2026-10-02T14:50:00Z", "phase": "Failed"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:55:00Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:30:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:25:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:51:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:25:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": null},
+        {"now": "2026-10-02T14:56:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:25:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5129195"]}, "live": null}
+      ]
+    },
+    {
+      "name": "failed_without_restart",
+      "description": "The download fails and the page stops with fail; the restart page passes through without a restart and the package stays mid-servicing. The update gave up, so the open package does not keep it running: it ended, until the user is back.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:02Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:21:00Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:22:00Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:24:00Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:25:00Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:00Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadFailedError"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:02Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncFailure"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:10Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "fail"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:11Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:30:12Z", "data": {"cxhEvent": "page_stopped", "page": "RebootNDUP", "result": "success"}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:31:00Z", "phase": "AccountSetup"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T14:35:00Z"},
+        {"type": "desktop_arrived", "t": "2026-10-02T14:37:00Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T14:25:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:25:00Z", "rebootCount": 0, "outcome": "unknown", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:30:05Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:30:02Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T14:30:30Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:30:12Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "ended", "restarting": false}},
+        {"now": "2026-10-02T14:34:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:30:12Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": {"state": "ended", "restarting": false}},
+        {"now": "2026-10-02T14:36:00Z", "interval": {"start": "2026-10-02T14:20:02Z", "end": "2026-10-02T14:30:12Z", "rebootCount": 0, "outcome": "failed", "kbs": [], "notInstalledKbs": ["KB5124007"]}, "live": null}
+      ]
+    },
+    {
+      "name": "page_fails_while_package_awaits_restart",
+      "description": "Field shape 26b98b13 / f49084c2: the LCU reached reboot_required, then the page timed out and stopped with fail before its restart. Windows still finished the LCU across two restarts. A package waiting for its restart keeps the update running whatever the page reported; the wait begins after the confirmation visit.",
+      "session": {"startedAt": "2026-10-02T14:00:00Z"},
+      "events": [
+        {"type": "agent_started", "t": "2026-10-02T14:00:00Z", "phase": "DeviceSetup"},
+        {"type": "esp_phase_changed", "t": "2026-10-02T14:02:00Z", "phase": "AppsDevice"},
+        {"type": "esp_exiting", "t": "2026-10-02T14:20:00Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:05Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:20:50Z", "data": {"cxhEvent": "event_name", "name": "ExpeditedUpdate_commitExpeditionDownloadInstallAsyncStarted"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:23:20Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:23:25Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T14:41:50Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_processStatusChangeFromHandler_downloadSucceeded"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:52:00Z", "data": {"step": "initiating", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:55:55Z", "data": {"step": "state_reached", "package": "KB5124007", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T14:56:50Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:06:50Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Staged"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:07:20Z", "data": {"step": "initiating", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "windows_update_servicing", "t": "2026-10-02T15:29:50Z", "data": {"step": "reboot_required", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T15:44:40Z", "data": {"cxhEvent": "event_name", "name": "SdxWebAppCloudNDUP_downloadInstallFailureHelper"}, "arrives": "2026-10-02T15:50:55Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T15:44:40Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "fail"}, "arrives": "2026-10-02T15:50:55Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T15:44:41Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}, "arrives": "2026-10-02T15:50:55Z"},
+        {"type": "agent_started", "t": "2026-10-02T15:50:55Z"},
+        {"type": "system_reboot_detected", "t": "2026-10-02T15:51:05Z", "data": {"lastBootUtc": "2026-10-02T15:50:10Z"}},
+        {"type": "esp_phase_changed", "t": "2026-10-02T15:53:40Z", "phase": "AccountSetup"},
+        {"type": "windows_update_servicing", "t": "2026-10-02T16:00:35Z", "data": {"step": "state_reached", "package": "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7", "client": "UpdateAgentLCU", "targetState": "Installed"}, "arrives": "2026-10-02T16:00:45Z"},
+        {"type": "agent_started", "t": "2026-10-02T16:00:45Z"},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:00:50Z", "data": {"cxhEvent": "page_started", "page": "OobeNDUP"}},
+        {"type": "system_reboot_detected", "t": "2026-10-02T16:00:55Z", "data": {"lastBootUtc": "2026-10-02T16:00:20Z"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:02:00Z", "data": {"cxhEvent": "page_stopped", "page": "OobeNDUP", "result": "cancel"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:02:00Z", "data": {"cxhEvent": "page_started", "page": "RebootNDUP"}},
+        {"type": "oobe_update_page", "t": "2026-10-02T16:02:01Z", "data": {"cxhEvent": "page_stopped", "page": "RebootNDUP", "result": "success"}},
+        {"type": "desktop_arrived", "t": "2026-10-02T16:06:30Z"},
+        {"type": "hello_wizard_started", "t": "2026-10-02T16:12:30Z"}
+      ],
+      "cuts": [
+        {"now": "2026-10-02T15:30:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:29:50Z", "rebootCount": 0, "outcome": "installed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:45:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:29:50Z", "rebootCount": 0, "outcome": "installed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:51:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:50:55Z", "rebootCount": 1, "outcome": "failed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:54:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:50:55Z", "rebootCount": 1, "outcome": "failed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T15:59:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T15:50:55Z", "rebootCount": 1, "outcome": "failed", "kbs": ["KB5124007"], "notInstalledKbs": ["KB5129195"]}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:01:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:00:50Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:03:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:02:01Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": []}, "live": {"state": "updating", "restarting": false}},
+        {"now": "2026-10-02T16:04:30Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:02:01Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": []}, "live": {"state": "awaiting_sign_in", "restarting": false}},
+        {"now": "2026-10-02T16:07:00Z", "interval": {"start": "2026-10-02T14:20:05Z", "end": "2026-10-02T16:02:01Z", "rebootCount": 2, "outcome": "installed", "kbs": ["KB5124007", "KB5129195"], "notInstalledKbs": []}, "live": null}
+      ]
+    }
+  ]
+}

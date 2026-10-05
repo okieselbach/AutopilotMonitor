@@ -34,6 +34,15 @@ function ev(sequence: number, eventType: string, phase = -1, data?: Record<strin
 const v1 = makeSession({ status: "InProgress", currentPhase: 0, enrollmentType: "v1" });
 const v2 = makeSession({ status: "InProgress", currentPhase: 0, enrollmentType: "v2" });
 
+// The sessions start at makeSession's startedAt; the headline's clock is minutes after it.
+const T0 = Date.parse(v1.startedAt);
+const at = (minutes: number) => T0 + minutes * 60_000;
+const NOW = at(0);
+
+function timed(sequence: number, minutes: number, eventType: string, data: Record<string, unknown> = {}): EnrollmentEvent {
+  return makeEvent({ eventId: `evt-${sequence}`, sessionId: "s", eventType, source: "test", phase: -1, sequence, data, timestamp: new Date(at(minutes)).toISOString() });
+}
+
 describe("buildProgressSteps", () => {
   it("v1 shows the seven ESP steps without Complete", () => {
     expect(buildProgressSteps(v1, false).map((s) => s.id)).toEqual([0, 1, 2, 3, 4, 5, 6]);
@@ -171,34 +180,85 @@ describe("computeOverallProgress", () => {
 
 describe("resolvePresentation", () => {
   it("maps the status vocabulary — only Failed is a failure", () => {
-    expect(resolvePresentation({ ...v1, status: "Succeeded" }, []).kind).toBe("success");
-    expect(resolvePresentation({ ...v1, status: "Failed" }, []).kind).toBe("failed");
-    expect(resolvePresentation({ ...v1, status: "Incomplete" }, []).kind).toBe("incomplete");
-    expect(resolvePresentation({ ...v1, status: "AwaitingUser" }, []).kind).toBe("waiting");
-    expect(resolvePresentation({ ...v1, status: "Pending" }, []).kind).toBe("working");
-    expect(resolvePresentation({ ...v1, status: "InProgress" }, []).kind).toBe("working");
+    expect(resolvePresentation({ ...v1, status: "Succeeded" }, [], NOW).kind).toBe("success");
+    expect(resolvePresentation({ ...v1, status: "Failed" }, [], NOW).kind).toBe("failed");
+    expect(resolvePresentation({ ...v1, status: "Incomplete" }, [], NOW).kind).toBe("incomplete");
+    expect(resolvePresentation({ ...v1, status: "AwaitingUser" }, [], NOW).kind).toBe("waiting");
+    expect(resolvePresentation({ ...v1, status: "Pending" }, [], NOW).kind).toBe("working");
+    expect(resolvePresentation({ ...v1, status: "InProgress" }, [], NOW).kind).toBe("working");
   });
 
   it("Stalled keeps working but explains the delay", () => {
-    const p = resolvePresentation({ ...v1, status: "Stalled" }, []);
+    const p = resolvePresentation({ ...v1, status: "Stalled" }, [], NOW);
     expect(p.kind).toBe("working");
     expect(p.detail).toMatch(/longer than usual/);
   });
 
   it("a pre-provisioned device parked after the technician part is waiting, not working", () => {
     const parked = { ...v1, isPreProvisioned: true };
-    const p = resolvePresentation(parked, [ev(1, "whiteglove_complete")]);
+    const p = resolvePresentation(parked, [ev(1, "whiteglove_complete")], NOW);
     expect(p.kind).toBe("waiting");
     expect(p.detail).toMatch(/technician/i);
     // Once resumed by the user it is working again.
-    expect(resolvePresentation({ ...parked, resumedAt: "2026-08-28T11:00:00Z" }, [ev(1, "whiteglove_complete")]).kind).toBe("working");
+    expect(resolvePresentation({ ...parked, resumedAt: "2026-08-28T11:00:00Z" }, [ev(1, "whiteglove_complete")], NOW).kind).toBe("working");
     // Still in Part 1 (no whiteglove_complete yet) — working.
-    expect(resolvePresentation(parked, []).kind).toBe("working");
+    expect(resolvePresentation(parked, [], NOW).kind).toBe("working");
   });
 
   it("Cloud PC follows the normal status vocabulary", () => {
-    expect(resolvePresentation({ ...v1, status: "Succeeded", isCloudPc: true }, []).kind).toBe("success");
-    expect(resolvePresentation({ ...v1, status: "InProgress", isCloudPc: true }, []).kind).toBe("working");
+    expect(resolvePresentation({ ...v1, status: "Succeeded", isCloudPc: true }, [], NOW).kind).toBe("success");
+    expect(resolvePresentation({ ...v1, status: "InProgress", isCloudPc: true }, [], NOW).kind).toBe("working");
+  });
+});
+
+describe("resolvePresentation — the OOBE quality update", () => {
+  const lcu = "Package_for_KB5129195~31bf3856ad364e35~amd64~~26100.6899.1.7";
+  const running = [
+    timed(1, 20, "esp_exiting"),
+    timed(2, 20.1, "oobe_update_page", { cxhEvent: "page_started", page: "OobeNDUP" }),
+    timed(3, 30, "windows_update_servicing", { step: "initiating", package: lcu, targetState: "Installed" }),
+  ];
+  const restarted = (lastStep: string) => [
+    ...running,
+    timed(4, 38, "windows_update_servicing", { step: "reboot_required", package: lcu, targetState: "Installed" }),
+    timed(5, 38.1, "oobe_update_page", { cxhEvent: "page_started", page: "RebootNDUP" }),
+    timed(6, 40, "system_reboot_detected", { lastBootUtc: new Date(at(39)).toISOString() }),
+    timed(7, 41, "windows_update_servicing", { step: lastStep, package: lcu, targetState: "Installed" }),
+  ];
+
+  it("a running update keeps working and says what takes so long", () => {
+    const p = resolvePresentation(v1, running, at(35));
+    expect(p.kind).toBe("working");
+    expect(p.title).toBe("Setting up your device...");
+    expect(p.detail).toMatch(/Windows is installing updates/);
+  });
+
+  it("the update explains a stalled session better than the delay note", () => {
+    expect(resolvePresentation({ ...v1, status: "Stalled" }, running, at(35)).detail).toMatch(/Windows is installing updates/);
+  });
+
+  it("after the update's restart the device waits for its user, once the update has settled", () => {
+    expect(resolvePresentation(v1, restarted("state_reached"), at(42)).kind).toBe("working");
+    expect(resolvePresentation(v1, restarted("state_reached"), at(44))).toEqual({
+      kind: "waiting",
+      title: "Waiting for you to sign in",
+      detail: "Windows installed updates and restarted. Sign in on the device to continue.",
+    });
+  });
+
+  it("claims no installed update after a failed one", () => {
+    expect(resolvePresentation(v1, restarted("failed"), at(44)).detail)
+      .toBe("The device restarted for Windows updates. Sign in on the device to continue.");
+  });
+
+  it("says nothing about the update once the user is back", () => {
+    const back = [...restarted("state_reached"), timed(8, 50, "hello_wizard_started")];
+    expect(resolvePresentation(v1, back, at(51))).toEqual({ kind: "working", title: "Setting up your device..." });
+  });
+
+  it("a pre-provisioned device parked for its user stays parked", () => {
+    const parked = { ...v1, isPreProvisioned: true };
+    expect(resolvePresentation(parked, [...running, timed(9, 31, "whiteglove_complete")], at(35)).detail).toMatch(/technician/i);
   });
 });
 

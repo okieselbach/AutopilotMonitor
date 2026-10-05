@@ -11,6 +11,7 @@ using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
 using Xunit;
 
@@ -173,16 +174,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         public void UpdatePageRecords_ArePageStartsStopsAndNames_OfTheUpdatePageOnly()
         {
             var start = ShellCoreTracker.ParseUpdatePageRecord(ShellCoreTracker.EventId_ShellCore_WebAppStarted, NdupStarted, lastPage: null);
-            Assert.Equal(OobeUpdatePageRecord.PageStarted, start!.CxhEvent);
+            Assert.Equal(OobeUpdateVocabulary.PageStarted, start!.CxhEvent);
             Assert.Equal("OobeNDUP", start.Page);
 
             var stop = ShellCoreTracker.ParseUpdatePageRecord(ShellCoreTracker.EventId_ShellCore_WebAppStopped, PageStopped, lastPage: "RebootNDUP");
-            Assert.Equal(OobeUpdatePageRecord.PageStopped, stop!.CxhEvent);
+            Assert.Equal(OobeUpdateVocabulary.PageStopped, stop!.CxhEvent);
             Assert.Equal("RebootNDUP", stop.Page);
             Assert.Equal("success", stop.Result);
 
             var name = ShellCoreTracker.ParseUpdatePageRecord(ShellCoreTracker.EventId_ShellCore_WebAppEventName, ScanStartedName, lastPage: null);
-            Assert.Equal(OobeUpdatePageRecord.EventName, name!.CxhEvent);
+            Assert.Equal(OobeUpdateVocabulary.EventName, name!.CxhEvent);
             Assert.Equal("ExpeditedUpdate_startWUScanStarted", name.Name);
             Assert.Null(name.Value);
 

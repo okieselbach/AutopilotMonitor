@@ -7,6 +7,7 @@ import { detectSkipUserStatusPage } from "../utils/espConfig";
 import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
 import type { WhiteGloveDurations } from "../utils/eventHelpers";
 import { enrollmentWindowOf, sumStandbySeconds } from "@/lib/standby";
+import { deriveOsUpdateLive, type OsUpdateLiveFacts } from "@/lib/osUpdateLive";
 
 interface PhaseGrouping {
   eventsByPhase: Record<string, EnrollmentEvent[]>;
@@ -30,6 +31,8 @@ export interface UseSessionDerivedDataReturn {
   enrollmentDurationFromEvents: string | null;
   lastObservedAtMs: number | null;
   standbySeconds: number | null;
+  /** The OOBE quality update of a running session (null otherwise); its label depends on the clock. */
+  osUpdateLive: OsUpdateLiveFacts | null;
   phaseNamesMap: Record<number, string>;
   phaseOrder: string[];
   isSkipUserStatusPage: boolean;
@@ -164,6 +167,22 @@ export function useSessionDerivedData(
     return max;
   }, [events, sessionLastEventAt]);
 
+  // The OOBE quality update while the session runs — the live counterpart of the time
+  // attribution's os_update / awaiting_sign_in segments, which exist only once it ended.
+  const sessionStatus = session?.status;
+  const sessionStartedAt = session?.startedAt;
+  const sessionResumedAt = session?.resumedAt;
+  const sessionIsPreProvisioned = session?.isPreProvisioned;
+  const osUpdateLive = useMemo(
+    () => deriveOsUpdateLive(events, {
+      status: sessionStatus,
+      startedAt: sessionStartedAt,
+      resumedAt: sessionResumedAt,
+      isPreProvisioned: sessionIsPreProvisioned,
+    }),
+    [events, sessionStatus, sessionStartedAt, sessionResumedAt, sessionIsPreProvisioned],
+  );
+
   const phaseNamesMap = session?.enrollmentType === "v2" ? V2_PHASE_NAMES : V1_PHASE_NAMES;
   const phaseOrder = session?.enrollmentType === "v2" ? V2_PHASE_ORDER : V1_PHASE_ORDER;
 
@@ -250,6 +269,7 @@ export function useSessionDerivedData(
     enrollmentDurationFromEvents,
     lastObservedAtMs,
     standbySeconds,
+    osUpdateLive,
     phaseNamesMap,
     phaseOrder,
     isSkipUserStatusPage,

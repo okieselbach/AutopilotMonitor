@@ -33,6 +33,7 @@ import SessionInfoCard from "./components/SessionInfoCard";
 import DeviceHistoryBanner from "./components/DeviceHistoryBanner";
 import PhaseTimeline from "./components/PhaseTimeline";
 import TimeAttributionLane, { SessionTimeBreakdownDto } from "./components/TimeAttributionLane";
+import OsUpdateLiveHint from "./components/OsUpdateLiveHint";
 import EventTimeline from "./components/EventTimeline";
 import AnalysisResultsSection from "./components/AnalysisResultsSection";
 import VulnerabilityReportSection from "./components/VulnerabilityReportSection";
@@ -205,6 +206,7 @@ function SessionDetailContent() {
     enrollmentDurationFromEvents,
     lastObservedAtMs,
     standbySeconds,
+    osUpdateLive,
     isSkipUserStatusPage,
     isWhiteGloveSession,
     whiteGloveSplitSequence,
@@ -631,6 +633,8 @@ function SessionDetailContent() {
                     isSkipUserStatusPage={isSkipUserStatusPage}
                     onPhaseClick={scrollToPhase}
                   />
+                  {/* Not before the first full load: its oldest-first pages would show a state the session has left. */}
+                  {osUpdateLive && eventsApi.initialWalkComplete && <OsUpdateLiveHint facts={osUpdateLive} />}
                   {timeBreakdown && <TimeAttributionLane breakdown={timeBreakdown} />}
                 </>
               )}

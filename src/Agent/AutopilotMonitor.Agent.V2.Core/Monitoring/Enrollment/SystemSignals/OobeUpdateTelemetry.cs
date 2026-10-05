@@ -14,16 +14,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// </summary>
     internal sealed class OobeUpdatePageRecord
     {
-        public const string PageStarted = "page_started";
-        public const string PageStopped = "page_stopped";
-        public const string EventName = "event_name";
-
-        /// <summary>
-        /// Not a record: the <c>cxhEvent</c> of the marker <see cref="OobeUpdateTelemetry"/> sends
-        /// once per budget when the event names of a run start staying in agent.log.
-        /// </summary>
-        public const string NamesCapped = "names_capped";
-
         public OobeUpdatePageRecord(string cxhEvent, int windowsEventId, string page = null, string result = null, string name = null, string value = null)
         {
             CxhEvent = cxhEvent;
@@ -34,7 +24,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             Value = value;
         }
 
-        /// <summary><see cref="PageStarted"/>, <see cref="PageStopped"/> or <see cref="EventName"/>.</summary>
+        /// <summary>
+        /// <see cref="OobeUpdateVocabulary.PageStarted"/>, <see cref="OobeUpdateVocabulary.PageStopped"/> or
+        /// <see cref="OobeUpdateVocabulary.EventName"/> (the shared vocabulary the backend and the portal read).
+        /// </summary>
         public string CxhEvent { get; }
         public int WindowsEventId { get; }
 
@@ -116,7 +109,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <see cref="MaxPageEventsPerKey"/> per page/name — a page that logs the same name in a
         /// loop cannot flood the session. Event names also share a budget per run: live ones
         /// <see cref="MaxPageEventsPerRun"/>, backfilled ones <see cref="MaxBackfillPageEventsPerRun"/>;
-        /// the first name over a budget sends the <see cref="OobeUpdatePageRecord.NamesCapped"/>
+        /// the first name over a budget sends the <see cref="OobeUpdateVocabulary.NamesCapped"/>
         /// marker. A page start or stop is outside the budgets, because the time attribution reads
         /// the update's span from them. True when the record was reported.
         /// </summary>
@@ -124,7 +117,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             if (record == null) return false;
 
-            var isEventName = record.CxhEvent == OobeUpdatePageRecord.EventName;
+            var isEventName = record.CxhEvent == OobeUpdateVocabulary.EventName;
             var key = $"{record.CxhEvent}:{record.Page ?? record.Name}";
             var budget = isBackfill ? MaxBackfillPageEventsPerRun : MaxPageEventsPerRun;
             var occurrence = 0;
@@ -189,7 +182,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 $"OOBE update page: {budget} {kind}event names reached, later ones of this agent run are not sent",
                 new Dictionary<string, object>
                 {
-                    { "cxhEvent", OobeUpdatePageRecord.NamesCapped },
+                    { "cxhEvent", OobeUpdateVocabulary.NamesCapped },
                     { "eventTime", occurredAtUtc.ToString("o") },
                     { "backfill", isBackfill },
                     { "limit", budget },
@@ -293,9 +286,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             switch (record.CxhEvent)
             {
-                case OobeUpdatePageRecord.PageStarted:
+                case OobeUpdateVocabulary.PageStarted:
                     return $"OOBE update page started: {record.Page}";
-                case OobeUpdatePageRecord.PageStopped:
+                case OobeUpdateVocabulary.PageStopped:
                     return $"OOBE update page stopped: {record.Page} (result: {record.Result})";
                 default:
                     return record.Value == null

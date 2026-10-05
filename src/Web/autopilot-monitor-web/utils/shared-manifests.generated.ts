@@ -515,6 +515,45 @@ export const SHARED_MANIFEST = {
     "skipped",
     "unknown"
   ],
+  "oobeUpdate": {
+    "updatePage": "OobeNDUP",
+    "updateRestartPage": "RebootNDUP",
+    "cxhEvents": {
+      "pageStarted": "page_started",
+      "pageStopped": "page_stopped",
+      "eventName": "event_name",
+      "namesCapped": "names_capped"
+    },
+    "pageResultFail": "fail",
+    "activityMarkers": [
+      "commitExpeditionDownloadInstall",
+      "downloadSucceeded",
+      "installSucceededRebootRequired",
+      "DownloadPhase",
+      "installPhase",
+      "downloadInstallFailureHelper",
+      "rebootCountdown"
+    ],
+    "succeededMarkers": [
+      "installSucceededRebootRequired",
+      "commitExpeditionDownloadInstallAsyncSucceeded"
+    ],
+    "failedMarkers": [
+      "downloadFailedError",
+      "installFailedError",
+      "commitExpeditionDownloadInstallAsyncFailure"
+    ],
+    "skippedMarkers": [
+      "SkipDownloadInstallButtonClicked"
+    ],
+    "servicingSteps": {
+      "initiating": "initiating",
+      "stateReached": "state_reached",
+      "rebootRequired": "reboot_required",
+      "failed": "failed"
+    },
+    "installedState": "Installed"
+  },
   "ruleSubmissionKinds": [
     "gather",
     "analyze"

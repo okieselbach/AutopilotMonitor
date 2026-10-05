@@ -761,10 +761,15 @@ public static class TimeAttributionCalculator
     }
 
     // ── OOBE quality update (D-310) ─────────────────────────────────────────
+    //
+    // The page IDs, cxhEvent values, name markers and servicing steps live in
+    // OobeUpdateVocabulary (Shared): the agent writes them and the portal's live hint reads them
+    // (lib/osUpdateLive.ts). That hint ports BuildOsUpdates, FindUpdateBegin, ResolveOutcome,
+    // FindRebootGaps and BuildAnchors; tests/fixtures/os-update-live/cases.json pins both sides —
+    // extend it first when any of them changes.
 
-    /// <summary>CXID of the OOBE update page; <see cref="UpdateRestartPage"/> follows it and restarts for the update.</summary>
-    internal const string UpdatePage = "OobeNDUP";
-    internal const string UpdateRestartPage = "RebootNDUP";
+    private const string UpdatePage = OobeUpdateVocabulary.UpdatePage;
+    private const string UpdateRestartPage = OobeUpdateVocabulary.UpdateRestartPage;
 
     // "Package_for_KB5129195~31bf…": the KB follows an underscore, so no \b before it.
     private static readonly Regex KbPattern = new(
@@ -801,8 +806,8 @@ public static class TimeAttributionCalculator
         public string? Name { get; }
         public string? Result { get; }
 
-        public bool IsStartOf(string page) => CxhEvent == "page_started" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
-        public bool IsStopOf(string page) => CxhEvent == "page_stopped" && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
+        public bool IsStartOf(string page) => CxhEvent == OobeUpdateVocabulary.PageStarted && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
+        public bool IsStopOf(string page) => CxhEvent == OobeUpdateVocabulary.PageStopped && string.Equals(Page, page, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>One CBS servicing step (<c>windows_update_servicing</c>) of an OS package.</summary>
@@ -822,56 +827,18 @@ public static class TimeAttributionCalculator
         public string? TargetState { get; }
 
         public bool ReachedInstalled =>
-            string.Equals(Step, "state_reached", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(TargetState, "Installed", StringComparison.OrdinalIgnoreCase);
+            string.Equals(Step, OobeUpdateVocabulary.StepStateReached, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(TargetState, OobeUpdateVocabulary.InstalledState, StringComparison.OrdinalIgnoreCase);
 
-        public bool Failed => string.Equals(Step, "failed", StringComparison.OrdinalIgnoreCase);
+        public bool Failed => string.Equals(Step, OobeUpdateVocabulary.StepFailed, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// Page names that only an update in progress writes (field data 2026-10-02). Every visit
-    /// logs init names such as <c>initialize_NDUPInstallCanceledInOptOut</c> and
-    /// <c>initialize_NDUPDownloadInstallPreviousFailureCount</c>, a scan that found nothing
-    /// included, and <c>installSucceededNoReboot</c> follows the language check of visits whose
-    /// update came later — so "Download"/"Install" in a name proves nothing.
+    /// The update page's own record of a download or an install (<see cref="OobeUpdateVocabulary.ActivityMarkers"/>)
+    /// — evidence of an update next to the servicing steps (an agent caps the page names per run,
+    /// so this is the weaker of the two).
     /// </summary>
-    private static readonly string[] UpdateActivityMarkers =
-    {
-        "commitExpeditionDownloadInstall", // the page commits the download and install
-        "downloadSucceeded",
-        "installSucceededRebootRequired",
-        "DownloadPhase",                   // the progress bars of the download …
-        "installPhase",                    // … and of the install
-        "downloadInstallFailureHelper",    // a download or install failed
-        "rebootCountdown",                 // the page restarts for the update
-    };
-
-    /// <summary>
-    /// The update page's own record of a download or an install — evidence of an update next to
-    /// the servicing steps (an agent caps the page names per run, so this is the weaker of the two).
-    /// </summary>
-    internal static bool IsUpdateActivityName(string? name) => HasMarker(name, UpdateActivityMarkers);
-
-    // Outcome evidence on the update page (field data 2026-10-03/05). Only the explicit failures
-    // count: an update that installed fine can still log downloadInstallFailureHelper and a start
-    // timeout after its "restart required" (session shape e4ecd6f8).
-    private static readonly string[] UpdateSucceededMarkers =
-    {
-        "installSucceededRebootRequired",               // also the _lcu twin
-        "commitExpeditionDownloadInstallAsyncSucceeded",
-    };
-
-    private static readonly string[] UpdateFailedMarkers =
-    {
-        "downloadFailedError",
-        "installFailedError",
-        "commitExpeditionDownloadInstallAsyncFailure",
-    };
-
-    private static readonly string[] UpdateSkippedMarkers =
-    {
-        "SkipDownloadInstallButtonClicked",             // someone selected Skip on the page
-    };
+    internal static bool IsUpdateActivityName(string? name) => HasMarker(name, OobeUpdateVocabulary.ActivityMarkers);
 
     private static bool HasMarker(string? name, string[] markers) =>
         name != null &&
@@ -1156,10 +1123,10 @@ public static class TimeAttributionCalculator
         foreach (var page in pages)
         {
             if (page.At < begin || page.At >= bound) continue;
-            if (HasMarker(page.Name, UpdateSucceededMarkers)) Consider(page.At, OsUpdateOutcomes.Installed);
-            else if (HasMarker(page.Name, UpdateFailedMarkers)) Consider(page.At, OsUpdateOutcomes.Failed);
-            else if (HasMarker(page.Name, UpdateSkippedMarkers)) Consider(page.At, OsUpdateOutcomes.Skipped);
-            else if (page.IsStopOf(UpdatePage) && string.Equals(page.Result, "fail", StringComparison.OrdinalIgnoreCase))
+            if (HasMarker(page.Name, OobeUpdateVocabulary.SucceededMarkers)) Consider(page.At, OsUpdateOutcomes.Installed);
+            else if (HasMarker(page.Name, OobeUpdateVocabulary.FailedMarkers)) Consider(page.At, OsUpdateOutcomes.Failed);
+            else if (HasMarker(page.Name, OobeUpdateVocabulary.SkippedMarkers)) Consider(page.At, OsUpdateOutcomes.Skipped);
+            else if (page.IsStopOf(UpdatePage) && string.Equals(page.Result, OobeUpdateVocabulary.PageResultFail, StringComparison.OrdinalIgnoreCase))
                 Consider(page.At, OsUpdateOutcomes.Failed);
         }
         foreach (var step in servicing)
