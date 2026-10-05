@@ -2789,6 +2789,9 @@ export interface LocationSessionRow {
   lastIngestAt?: string;
   isPreProvisioned: boolean;
   resumedAt?: string;
+  startedAtServer?: string;
+  resumedAtServer?: string;
+  completedAtServer?: string;
   stalledAt?: string;
   isHybridJoin: boolean;
   isSelfDeployingProfile: boolean;
@@ -4313,6 +4316,12 @@ export interface SessionSummary {
   isPreProvisioned: boolean;
   /** Timestamp when the WhiteGlove session resumed for user enrollment (Part 2). Set when the agent sends a whiteglove_resumed event or re-registers from Pending state. Used to compute the user enrollment duration (Duration 2) for Teams notifications. */
   resumedAt?: string;
+  /** The session start on the SERVER clock. StartedAt and the other event times are device times; a device clock can be off by hours or change during the session. Every upload carries the device send time next to the server receive time, and this is the start minus the device clock offset they measure. While the session runs it follows the uploads; when the session completes it is computed over all of its events. Null for agents without the send time, and while running also for a session not followed from its first upload. */
+  startedAtServer?: string;
+  /** The WhiteGlove Part 2 start (the counterpart of ResumedAt) on the server clock. Null for sessions without a Part 2 and for agents without the send time, and while running also for a session not followed from its first upload. */
+  resumedAtServer?: string;
+  /** The session end on the server clock: the activity event CompletedAt points at, minus the device clock offset. Set when the session completes; null while it runs and for agents without the send time. */
+  completedAtServer?: string;
   /** Timestamp when the session was marked as Stalled. Set when the agent sends a session_stalled event (after 60 min without progress) or when the backend 2h maintenance sweep detects agent silence. Cleared (null) when the session heals back to InProgress via a new real event. */
   stalledAt?: string;
   /** Whether the Autopilot profile indicates Hybrid Azure AD Join. Derived from CloudAssignedDomainJoinMethod == 1 in the Autopilot profile. */

@@ -235,7 +235,8 @@ namespace AutopilotMonitor.Functions.Services
                     currentPhase: classification.LastPhaseChangeEvent?.Phase,
                     platformScriptIncrement: classification.PlatformScriptCount,
                     remediationScriptIncrement: classification.RemediationScriptCount,
-                    rebootIncrement: isTerminalBatch ? 0 : classification.RebootCount);
+                    rebootIncrement: isTerminalBatch ? 0 : classification.RebootCount,
+                    upload: storedEvents);
             }
 
             // IME pattern-drift loop: the agent's session-end histogram (every enabled pattern,

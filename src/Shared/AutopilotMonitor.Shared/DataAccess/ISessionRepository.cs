@@ -115,17 +115,21 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// snapshot (the RMW read with the applied increments) so hot-path callers can skip a
         /// follow-up <see cref="GetSessionAsync"/>; null when the row is missing or the update
         /// could not be applied (caller falls back to its own read).
+        /// <paramref name="upload"/> (the batch's stored events) feeds the session's server-time
+        /// tracker in the same write (StartedAtServer / ResumedAtServer while the session runs).
         /// </summary>
         Task<SessionSummary?> IncrementSessionEventCountAsync(
             string tenantId, string sessionId, int increment,
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,
             int platformScriptIncrement = 0, int remediationScriptIncrement = 0,
-            int rebootIncrement = 0);
+            int rebootIncrement = 0, IReadOnlyList<EnrollmentEvent>? upload = null);
         /// <summary>
         /// Reconciles the stored EventCount and RebootCount with the authoritative row counts
         /// from the Events table (rows dedupe on deterministic RowKeys; the read-modify-write
         /// increments do not). Call as the last counter write on terminal ingest batches.
+        /// Once the session has its CompletedAt, the same scan sets the server-clock twins
+        /// (StartedAtServer / ResumedAtServer / CompletedAtServer) from the full event stream.
         /// Returns the per-source timestamp-delta samples collected during the same partition
         /// scan (input to the CMTrace time-skew tripwire), or null when the scan failed.
         /// </summary>

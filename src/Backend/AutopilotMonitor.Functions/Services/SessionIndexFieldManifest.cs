@@ -84,6 +84,9 @@ namespace AutopilotMonitor.Functions.Services
             "LastIngestAt",
             "ResumedAt",
             "StalledAt",
+            "StartedAtServer",
+            "ResumedAtServer",
+            "CompletedAtServer",
             "AvgApiLatencyMs",
             "ApiRequestCount",
             "ConnectionType",
@@ -94,10 +97,11 @@ namespace AutopilotMonitor.Functions.Services
             AlwaysProjected.Concat(ConditionallyProjected).ToArray();
 
         /// <summary>
-        /// Sessions-row fields owned by separate write subsystems that deliberately do NOT
-        /// touch the index (ServerActions queue + deletion CAS). Sessions served from the
-        /// index read these as defaults; routing them through the index sync is a tracked
-        /// follow-up, not an accident.
+        /// Sessions-row fields that never reach the index: those owned by separate write
+        /// subsystems that deliberately do NOT touch it (ServerActions queue + deletion CAS —
+        /// sessions served from the index read these as defaults; routing them through the index
+        /// sync is a tracked follow-up, not an accident) and internal working state. The index
+        /// merge drops them, so a merge site may write them in the same update as mirrored fields.
         /// </summary>
         public static readonly string[] PrimaryOnly =
         {
@@ -114,9 +118,17 @@ namespace AutopilotMonitor.Functions.Services
             "OwnerBootstrapCode",
             "OwnerSerial",
             "OwnerBoundAt",
+            // Server-time tracker (ServerTime.Tracker): ingest's per-upload state behind
+            // StartedAtServer/ResumedAtServer. Internal working state, never served.
+            "ServerTimeState",
         };
 
         private static readonly HashSet<string> AllSet = new(All, StringComparer.Ordinal);
+
+        private static readonly HashSet<string> PrimaryOnlySet = new(PrimaryOnly, StringComparer.Ordinal);
+
+        /// <summary>Whether <paramref name="column"/> is a <see cref="PrimaryOnly"/> column (dropped by the index merge).</summary>
+        public static bool IsPrimaryOnly(string column) => PrimaryOnlySet.Contains(column);
 
         /// <summary>
         /// System keys a merge entity may legitimately carry besides data columns.

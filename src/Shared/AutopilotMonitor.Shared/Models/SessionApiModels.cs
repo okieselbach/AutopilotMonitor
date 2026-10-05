@@ -464,6 +464,31 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? ResumedAt { get; set; }
 
         /// <summary>
+        /// The session start on the SERVER clock. <see cref="StartedAt"/> and the other event
+        /// times are device times; a device clock can be off by hours or change during the
+        /// session. Every upload carries the device send time next to the server receive time,
+        /// and this is the start minus the device clock offset they measure. While the session
+        /// runs it follows the uploads; when the session completes it is computed over all of
+        /// its events. Null for agents without the send time, and while running also for a
+        /// session not followed from its first upload.
+        /// </summary>
+        public DateTime? StartedAtServer { get; set; }
+
+        /// <summary>
+        /// The WhiteGlove Part 2 start (the counterpart of <see cref="ResumedAt"/>) on the server
+        /// clock. Null for sessions without a Part 2 and for agents without the send time, and
+        /// while running also for a session not followed from its first upload.
+        /// </summary>
+        public DateTime? ResumedAtServer { get; set; }
+
+        /// <summary>
+        /// The session end on the server clock: the activity event <see cref="CompletedAt"/>
+        /// points at, minus the device clock offset. Set when the session completes; null while
+        /// it runs and for agents without the send time.
+        /// </summary>
+        public DateTime? CompletedAtServer { get; set; }
+
+        /// <summary>
         /// Timestamp when the session was marked as Stalled.
         /// Set when the agent sends a session_stalled event (after 60 min without progress)
         /// or when the backend 2h maintenance sweep detects agent silence.

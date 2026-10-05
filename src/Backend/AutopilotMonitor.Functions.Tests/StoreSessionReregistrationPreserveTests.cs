@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -101,6 +102,9 @@ public class StoreSessionReregistrationPreserveTests
         Assert.Equal(0, harness.Written!.GetInt32("PlatformScriptCount"));
         Assert.Equal(0, harness.Written.GetInt32("RemediationScriptCount"));
         Assert.Equal(0, harness.Written.GetInt32("RebootCount"));
+        // No server-time tracker or twins before the first upload.
+        foreach (var col in TableStorageService.ServerTimeTwinColumns.Append(TableStorageService.ServerTimeStateColumn))
+            Assert.False(harness.Written.ContainsKey(col), col);
     }
 
     [Fact]
@@ -365,6 +369,50 @@ public class StoreSessionReregistrationPreserveTests
         Assert.Equal("CC33DD44", harness.Written["OwnerThumbprint"]);
         Assert.False(harness.Written.ContainsKey("OwnerBootstrapCode"));
         Assert.Equal(new DateTimeOffset(boundAt), harness.Written.GetDateTimeOffset("OwnerBoundAt"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_carries_the_server_time_tracker_and_twins_from_the_fresh_read()
+    {
+        // The agent's first upload often races its registration (WhiteGlove Part 2: the
+        // agent_started batch). Ingest absorbed it between the initial read and the CAS read —
+        // the Replace must carry the fresh tracker and twins, not the initial (empty) ones.
+        var startedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc));
+        var initial = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = startedAt,
+            ["Status"] = "Pending",
+            ["IsPreProvisioned"] = true,
+        };
+        initial.ETag = new ETag("0xINITIAL");
+        var fresh = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = startedAt,
+            ["Status"] = "Pending",
+            ["IsPreProvisioned"] = true,
+            ["ServerTimeState"] = "{\"version\":1,\"runs\":3}",
+            ["StartedAtServer"] = startedAt.AddHours(-9),
+            ["ResumedAtServer"] = startedAt.AddDays(2),
+        };
+        fresh.ETag = new ETag("0xFRESH");
+        var harness = new Harness(initial);
+        harness.Sessions.SetupSequence(t => t.GetEntityAsync<TableEntity>(
+                TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(initial, new Mock<Response>().Object))
+            .ReturnsAsync(Response.FromValue(fresh, new Mock<Response>().Object));
+
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 3, 8, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.True(ok);
+        Assert.Equal("InProgress", harness.Written!.GetString("Status")); // WhiteGlove Part 2 resumes
+        Assert.Equal("{\"version\":1,\"runs\":3}", harness.Written.GetString("ServerTimeState"));
+        Assert.Equal(startedAt.AddHours(-9), harness.Written.GetDateTimeOffset("StartedAtServer"));
+        Assert.Equal(startedAt.AddDays(2), harness.Written.GetDateTimeOffset("ResumedAtServer"));
+        Assert.False(harness.Written.ContainsKey("CompletedAtServer"));
     }
 
     [Fact]

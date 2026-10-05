@@ -13150,6 +13150,30 @@
           "optional": true
         },
         {
+          "name": "startedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "resumedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "completedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
           "name": "stalledAt",
           "type": {
             "kind": "primitive",
@@ -19899,6 +19923,33 @@
           },
           "optional": true,
           "doc": "Timestamp when the WhiteGlove session resumed for user enrollment (Part 2). Set when the agent sends a whiteglove_resumed event or re-registers from Pending state. Used to compute the user enrollment duration (Duration 2) for Teams notifications."
+        },
+        {
+          "name": "startedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The session start on the SERVER clock. StartedAt and the other event times are device times; a device clock can be off by hours or change during the session. Every upload carries the device send time next to the server receive time, and this is the start minus the device clock offset they measure. While the session runs it follows the uploads; when the session completes it is computed over all of its events. Null for agents without the send time, and while running also for a session not followed from its first upload."
+        },
+        {
+          "name": "resumedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The WhiteGlove Part 2 start (the counterpart of ResumedAt) on the server clock. Null for sessions without a Part 2 and for agents without the send time, and while running also for a session not followed from its first upload."
+        },
+        {
+          "name": "completedAtServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The session end on the server clock: the activity event CompletedAt points at, minus the device clock offset. Set when the session completes; null while it runs and for agents without the send time."
         },
         {
           "name": "stalledAt",

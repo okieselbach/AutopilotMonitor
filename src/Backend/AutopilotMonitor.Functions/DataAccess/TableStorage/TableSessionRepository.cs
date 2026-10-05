@@ -151,10 +151,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,
             int platformScriptIncrement = 0, int remediationScriptIncrement = 0,
-            int rebootIncrement = 0)
+            int rebootIncrement = 0, IReadOnlyList<EnrollmentEvent>? upload = null)
             => _storage.IncrementSessionEventCountAsync(tenantId, sessionId, increment,
                 earliestEventTimestamp, latestEventTimestamp, currentPhase,
-                platformScriptIncrement, remediationScriptIncrement, rebootIncrement);
+                platformScriptIncrement, remediationScriptIncrement, rebootIncrement, upload);
 
         public Task<SessionSkewScan?> ReconcileSessionCountersAsync(string tenantId, string sessionId)
             => _storage.ReconcileSessionCountersAsync(tenantId, sessionId);

@@ -17,6 +17,24 @@ namespace AutopilotMonitor.Functions.Services
 {
     public partial class TableStorageService
     {
+        // Server-clock twins of StartedAt / ResumedAt / CompletedAt (ServerTime). While the session
+        // runs, ingest's tracker (ServerTimeStateColumn) writes the first two, for sessions it follows
+        // from their first upload; once CompletedAt is set, the counter reconcile writes all three
+        // from the full event stream and the tracker stops.
+        internal const string StartedAtServerColumn = "StartedAtServer";
+        internal const string ResumedAtServerColumn = "ResumedAtServer";
+        internal const string CompletedAtServerColumn = "CompletedAtServer";
+        internal static readonly string[] ServerTimeTwinColumns = { StartedAtServerColumn, ResumedAtServerColumn, CompletedAtServerColumn };
+
+        /// <summary>Primary-only column holding ingest's <see cref="ServerTime.Tracker"/> state.</summary>
+        internal const string ServerTimeStateColumn = "ServerTimeState";
+
+        /// <summary>
+        /// Memory backstop for the reconcile's server-time input: a session with more events uploaded
+        /// with send time keeps its twins as they are (the live ones, or none).
+        /// </summary>
+        internal const int MaxServerTimeEvents = 50_000;
+
         // ===== SESSION INDEX HELPERS =====
 
         /// <summary>
@@ -253,6 +271,14 @@ namespace AutopilotMonitor.Functions.Services
             if (stalledAt.HasValue)
                 indexEntity["StalledAt"] = EnsureUtc(stalledAt.Value);
 
+            // Server-clock twins (ingest's tracker while running, the terminal reconcile after).
+            foreach (var col in ServerTimeTwinColumns)
+            {
+                var twin = sessionEntity.GetDateTimeOffset(col)?.UtcDateTime;
+                if (twin.HasValue)
+                    indexEntity[col] = EnsureUtc(twin.Value);
+            }
+
             // Agent→backend HTTP latency projection (UpdateSessionNetworkLatencyAsync merges
             // these) — must be in this superset or a StartedAt-shift full upsert drops them.
             var avgApiLatencyMs = sessionEntity.GetDouble("AvgApiLatencyMs");
@@ -289,6 +315,10 @@ namespace AutopilotMonitor.Functions.Services
                 foreach (var kvp in fieldsToMerge)
                 {
                     if (kvp.Key == "odata.etag" || kvp.Key == "PartitionKey" || kvp.Key == "RowKey" || kvp.Key == "Timestamp")
+                        continue;
+                    // Primary-only columns (e.g. ServerTimeState) ride along in the session update
+                    // but never reach the index.
+                    if (SessionIndexFieldManifest.IsPrimaryOnly(kvp.Key))
                         continue;
                     indexUpdate[kvp.Key] = kvp.Value;
                 }
@@ -749,6 +779,8 @@ namespace AutopilotMonitor.Functions.Services
                                 // rebind) that landed after the initial read must survive the Replace.
                                 SessionOwner.Columns.Kind, SessionOwner.Columns.Thumbprint, SessionOwner.Columns.DeviceId,
                                 SessionOwner.Columns.BootstrapCode, SessionOwner.Columns.Serial, SessionOwner.Columns.BoundAt,
+                                // Server-time tracker + twins (see ServerTimeTwinColumns).
+                                ServerTimeStateColumn, StartedAtServerColumn, ResumedAtServerColumn, CompletedAtServerColumn,
                             });
                         freshEtag = freshResponse.Value.ETag;
                         freshEntity = freshResponse.Value;
@@ -768,6 +800,17 @@ namespace AutopilotMonitor.Functions.Services
                         var freshOwner = SessionOwnershipPolicy.FromRow(freshEntity);
                         if (freshOwner != null)
                             SessionOwnershipPolicy.ApplyTo(entity, freshOwner);
+                    }
+
+                    // Server-time tracker + twins: written only by ingest and the terminal reconcile,
+                    // and the agent's first upload often races its registration (a WhiteGlove Part 2
+                    // agent_started above all) — carry the FRESH values verbatim through the Replace.
+                    foreach (var col in ServerTimeTwinColumns.Append(ServerTimeStateColumn))
+                    {
+                        if (freshEntity != null && freshEntity.TryGetValue(col, out var val) && val is not null)
+                            entity[col] = val;
+                        else
+                            entity.Remove(col);
                     }
 
                     var freshDeletionState = freshEntity?.GetString("DeletionState");
@@ -2536,8 +2579,12 @@ namespace AutopilotMonitor.Functions.Services
         /// PlatformScriptCount/RemediationScriptCount stay increment-only — their drift is bounded
         /// (scripts per session are few) and no enforcement heuristic reads them.
         /// </para>
+        /// <para>
+        /// <paramref name="upload"/> (the batch's stored events) feeds the session's server-time
+        /// tracker in the same write, see <see cref="StageServerTimeUpload"/>.
+        /// </para>
         /// </summary>
-        public async Task<SessionSummary?> IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0)
+        public async Task<SessionSummary?> IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0, IReadOnlyList<EnrollmentEvent>? upload = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -2618,6 +2665,8 @@ namespace AutopilotMonitor.Functions.Services
                         update["RebootCount"] = current + rebootIncrement;
                     }
 
+                    StageServerTimeUpload(entity, update, upload, _logger);
+
                     await tableClient.UpdateEntityAsync(update, entity.ETag, TableUpdateMode.Merge);
 
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
@@ -2658,6 +2707,88 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Feeds one ingest upload to the session's <see cref="ServerTime.Tracker"/> and stages the
+        /// changed state and server-clock twins onto <paramref name="update"/> (the same merge as the
+        /// counters, so no extra round trip). A tracker begins only with the session's first upload
+        /// (nothing counted yet) and only when that upload carries agent_started: a session already
+        /// under way — every session in flight when this build arrived — or one that starts
+        /// otherwise is not followed live and gets its twins from the terminal reconcile. No-op once
+        /// the session has a CompletedAt (the reconcile owns the twins from then on), for uploads
+        /// without send time (agents before the X-Send-Time-Utc header) and for a state of another
+        /// format. Fail-soft: a tracker failure stages nothing and never costs the counter write.
+        /// </summary>
+        internal static void StageServerTimeUpload(TableEntity session, TableEntity update, IReadOnlyList<EnrollmentEvent>? upload, ILogger logger)
+        {
+            if (upload == null || upload.Count == 0 || upload[0].SentAt == null)
+                return;
+
+            try
+            {
+                if (session.GetDateTimeOffset("CompletedAt").HasValue)
+                    return;
+
+                var stored = session.GetString(ServerTimeStateColumn);
+                ServerTime.Tracker? tracker;
+                if (string.IsNullOrEmpty(stored))
+                {
+                    if ((session.GetInt32("EventCount") ?? 0) != 0)
+                        return; // under way before this upload: not followed live
+                    tracker = new ServerTime.Tracker();
+                }
+                else
+                {
+                    tracker = ServerTime.Tracker.FromJson(stored);
+                    if (tracker == null)
+                        return; // another format: the build that wrote it owns it
+                }
+
+                tracker.Absorb(upload.Select(ServerTime.Event.From).ToList());
+                if (tracker.Runs == 0)
+                    return; // the first upload carried no agent_started: not followed live
+                var json = tracker.ToJson();
+                if (json == stored)
+                    return;
+                var startedAtServer = tracker.StartedAtServer;
+                var resumedAtServer = tracker.ResumedAtServer;
+
+                update[ServerTimeStateColumn] = json;
+                StageServerTimeTwin(session, update, StartedAtServerColumn, startedAtServer);
+                StageServerTimeTwin(session, update, ResumedAtServerColumn, resumedAtServer);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Session {SessionId}: server-time tracker failed on an upload — nothing staged", session.RowKey);
+            }
+        }
+
+        /// <summary>
+        /// Stages the server-clock twins the rule gives over the session's full event stream, once
+        /// the session has its CompletedAt (until then ingest's tracker owns them). Returns whether
+        /// a twin changed. The tracker and the rule determine the same quantities, so a twin the
+        /// rule cannot determine (no send time) has no live value either and stays absent.
+        /// </summary>
+        internal static bool StageServerTimeTwins(TableEntity session, TableEntity update, IReadOnlyList<ServerTime.Event> events)
+        {
+            var completedAt = session.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
+            if (completedAt == null)
+                return false;
+
+            var rule = ServerTime.Compute(events, completedAt, session.GetBoolean("IsPreProvisioned") ?? false);
+            var changed = StageServerTimeTwin(session, update, StartedAtServerColumn, rule.Start);
+            changed |= StageServerTimeTwin(session, update, ResumedAtServerColumn, rule.Part2Start);
+            changed |= StageServerTimeTwin(session, update, CompletedAtServerColumn, rule.End);
+            return changed;
+        }
+
+        private static bool StageServerTimeTwin(TableEntity session, TableEntity update, string column, DateTime? value)
+        {
+            if (value == null || session.GetDateTimeOffset(column)?.UtcDateTime == value.Value)
+                return false;
+            update[column] = EnsureUtc(value.Value);
+            return true;
+        }
+
+        /// <summary>
         /// Reconciles the stored <c>EventCount</c> and <c>RebootCount</c> with the authoritative
         /// row counts from the Events table. The ingest path calls this as the LAST counter write
         /// on terminal batches (after <see cref="IncrementSessionEventCountAsync"/>), so it always
@@ -2669,6 +2800,8 @@ namespace AutopilotMonitor.Functions.Services
         /// are left untouched rather than being zeroed. Idempotent: no-ops when the row is
         /// already correct. PlatformScriptCount/RemediationScriptCount stay increment-only (their
         /// drift is bounded and they feed no enforcement heuristics; EventCount does).
+        /// The same scan feeds the server-clock twins once the session has its CompletedAt
+        /// (<see cref="StageServerTimeTwins"/>): every terminal seam funnels through here.
         /// Returns the skew-scan samples collected during the authoritative count's partition
         /// scan (CmTraceSkewTripwire input), or null when the scan itself failed — the counter
         /// reconcile outcome does not affect the returned scan.
@@ -2682,7 +2815,7 @@ namespace AutopilotMonitor.Functions.Services
             if (!authoritative.HasValue)
                 return null; // storage error — keep the incremental live values, do not zero them
 
-            var (totalEvents, rebootEvents, skewScan) = authoritative.Value;
+            var (totalEvents, rebootEvents, skewScan, serverTimeEvents) = authoritative.Value;
 
             const int maxRetries = 5;
             int retryCount = 0;
@@ -2711,6 +2844,17 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         update["RebootCount"] = rebootEvents;
                         drifted = true;
+                    }
+                    // Server-clock twins from the same scan, once the session has its CompletedAt.
+                    // Fail-soft: a rule failure never costs the counter reconcile.
+                    try
+                    {
+                        if (serverTimeEvents != null && StageServerTimeTwins(entity, update, serverTimeEvents))
+                            drifted = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Session {SessionId}: server-time twins not reconciled", sessionId);
                     }
                     if (!drifted)
                         return skewScan;
@@ -3472,6 +3616,9 @@ namespace AutopilotMonitor.Functions.Services
                 IsSelfDeployingProfile = entity.GetBoolean("IsSelfDeployingProfile") ?? false,
                 IsCloudPc = entity.GetBoolean("IsCloudPc") ?? false,
                 ResumedAt = SafeGetDateTime(entity, "ResumedAt"),
+                StartedAtServer = SafeGetDateTime(entity, StartedAtServerColumn),
+                ResumedAtServer = SafeGetDateTime(entity, ResumedAtServerColumn),
+                CompletedAtServer = SafeGetDateTime(entity, CompletedAtServerColumn),
                 StalledAt = SafeGetDateTime(entity, "StalledAt"),
                 OsName = entity.GetString("OsName") ?? string.Empty,
                 OsBuild = entity.GetString("OsBuild") ?? string.Empty,
@@ -3609,14 +3756,15 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Returns the authoritative (total, reboot) event-row counts for a session, or <c>null</c>
-        /// if they could not be determined (storage error). Events are written with UpsertReplace
+        /// if they could not be determined (storage error), plus the events the server-time rule
+        /// reads (null past <see cref="MaxServerTimeEvents"/>). Events are written with UpsertReplace
         /// and a unique RowKey per event, so the number of stored rows equals the true distinct
         /// count — making this an idempotent, retry-immune authoritative count (used to reconcile
         /// EventCount + RebootCount at the terminal transition). Single partition scan with a
         /// slim projection so both counts cost one query. The CmTraceSkewTripwire's per-source
         /// timestamp-delta samples piggyback on the same enumeration (zero extra reads).
         /// </summary>
-        private async Task<(int Total, int Reboots, SessionSkewScan Skew)?> CountSessionEventRowsAsync(string tenantId, string sessionId)
+        private async Task<(int Total, int Reboots, SessionSkewScan Skew, List<ServerTime.Event>? ServerTimeEvents)?> CountSessionEventRowsAsync(string tenantId, string sessionId)
         {
             try
             {
@@ -3624,16 +3772,43 @@ namespace AutopilotMonitor.Functions.Services
                 var partitionKey = $"{tenantId}_{sessionId}";
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: $"PartitionKey eq '{partitionKey}'",
-                    select: new[] { "RowKey", "EventType", "Source", "ReceivedAt", BusinessTimestamp.OccurredUtcColumn, "TimestampClamped" }
+                    select: new[]
+                    {
+                        "RowKey", "EventType", "Source", "ReceivedAt", BusinessTimestamp.OccurredUtcColumn, "TimestampClamped",
+                        "Sequence", "SentAt", "OriginalTimestamp",
+                    }
                 );
 
-                int total = 0, reboots = 0;
+                int total = 0, reboots = 0, serverTimeRowsSkipped = 0;
                 var skew = new SessionSkewScan();
+                List<ServerTime.Event>? serverTimeEvents = new();
                 await foreach (var entity in query)
                 {
                     total++;
                     if (entity.GetString("EventType") == Constants.EventTypes.SystemRebootDetected)
                         reboots++;
+
+                    // Server-time input: the rule reads only events uploaded with a send time. A
+                    // column of an unexpected type skips the row, never the counter scan; past the
+                    // backstop the twins stay as they are (null list).
+                    if (serverTimeEvents != null)
+                    {
+                        try
+                        {
+                            var serverTimeEvent = ToServerTimeEvent(entity);
+                            if (serverTimeEvent != null)
+                                serverTimeEvents.Add(serverTimeEvent);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            serverTimeRowsSkipped++;
+                        }
+                        if (serverTimeEvents.Count > MaxServerTimeEvents)
+                        {
+                            _logger.LogWarning("Session {SessionId}: more than {Max} events with send time — server-time twins not reconciled", sessionId, MaxServerTimeEvents);
+                            serverTimeEvents = null;
+                        }
+                    }
 
                     // Skew sample. Clamped events carry a server-substituted OccurredUtc
                     // (Δ ≈ 0) and would dilute the medians; legacy rows without ReceivedAt
@@ -3649,13 +3824,32 @@ namespace AutopilotMonitor.Functions.Services
                     var isIme = string.Equals(entity.GetString("Source"), "ImeLogTracker", StringComparison.OrdinalIgnoreCase);
                     skew.Add(isIme, (receivedAt.Value - occurredAt.Value).TotalMinutes, receivedAt.Value);
                 }
-                return (total, reboots, skew);
+                if (serverTimeRowsSkipped > 0)
+                    _logger.LogWarning("Session {SessionId}: {Count} event row(s) unreadable for the server-time twins and skipped", sessionId, serverTimeRowsSkipped);
+                return (total, reboots, skew, serverTimeEvents);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, $"Could not count event rows for session {sessionId}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// An event row as the server-time rule reads it (device time: the original one when the
+        /// backend clamped it), or null for a row uploaded without send time.
+        /// </summary>
+        internal static ServerTime.Event? ToServerTimeEvent(TableEntity row)
+        {
+            var sentAt = row.GetDateTimeOffset("SentAt")?.UtcDateTime;
+            var receivedAt = row.GetDateTimeOffset("ReceivedAt")?.UtcDateTime;
+            var time = row.GetBoolean("TimestampClamped") == true
+                ? row.GetDateTimeOffset("OriginalTimestamp")?.UtcDateTime ?? ResolveEventTimestampOrNull(row)
+                : ResolveEventTimestampOrNull(row);
+            if (sentAt == null || receivedAt == null || time == null)
+                return null;
+            return new ServerTime.Event(
+                row.GetInt64("Sequence") ?? 0, row.GetString("EventType"), row.GetString("Source"), time.Value, sentAt, receivedAt);
         }
 
         /// <summary>
