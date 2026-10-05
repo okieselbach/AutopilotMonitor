@@ -37,6 +37,8 @@ namespace AutopilotMonitor.Shared.Models
         public string? FeedbackId { get; set; }
         /// <summary>Reply address a general-feedback sender entered; absent when none was given.</summary>
         public string? ContactEmail { get; set; }
+        /// <summary>How often a rating prompt was dismissed (0 to 2); absent on the other kinds.</summary>
+        public int? DismissCount { get; set; }
     }
 
     /// <summary>Body of POST feedback.</summary>

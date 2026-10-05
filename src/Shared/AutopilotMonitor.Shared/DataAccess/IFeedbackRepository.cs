@@ -13,7 +13,8 @@ namespace AutopilotMonitor.Shared.DataAccess
     /// </para>
     /// <list type="bullet">
     ///   <item><c>PK="InApp"</c>, <c>RK=upn</c> — in-app star rating + comment from the
-    ///   feedback bubble. One row per user (Upsert-replaces on resubmit).</item>
+    ///   feedback bubble. One row per user: the latest answer plus the dismissal count; a rating
+    ///   is final and never replaced.</item>
     ///   <item><c>PK="Offboarding"</c>, <c>RK=historyRowKey</c> — free-form "what could we
     ///   improve" comment captured during the offboarding drain-barrier countdown. One row
     ///   per offboarding attempt (matches the <c>OffboardingHistory</c> row).</item>
@@ -28,8 +29,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Returns the in-app feedback entry for the given UPN, or null if the user has not interacted.</summary>
         Task<FeedbackEntry?> GetInAppFeedbackAsync(string upn);
 
-        /// <summary>Upserts the in-app feedback entry for the given UPN. Sets <see cref="FeedbackEntry.Type"/> to <c>"InApp"</c>.</summary>
-        Task SaveInAppFeedbackAsync(FeedbackEntry entry);
+        /// <summary>
+        /// Applies one answer to the person's row: reads it, lets <paramref name="decide"/> compute the new row
+        /// (null = nothing changes) and writes it only if nobody wrote in between; a conflict decides again on what
+        /// was stored. Returns the written row, or null when nothing was written.
+        /// </summary>
+        Task<FeedbackEntry?> UpdateInAppFeedbackAsync(string upn, Func<FeedbackEntry?, FeedbackEntry?> decide);
 
         // ── Offboarding feedback (one per offboarding history row) ──────────────
 
@@ -74,6 +79,9 @@ namespace AutopilotMonitor.Shared.DataAccess
         public int? Rating { get; set; }
         public bool Dismissed { get; set; }
         public bool Submitted { get; set; }
+
+        /// <summary>How often the person dismissed the rating prompt (0 to 2). Rows written before the count existed read as 1 when dismissed.</summary>
+        public int DismissCount { get; set; }
 
         // ── Offboarding-only ────────────────────────────────────────────────────
 

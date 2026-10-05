@@ -303,7 +303,7 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
         public Task<FeedbackEntry?> GetInAppFeedbackAsync(string upn)
             => throw new NotSupportedException("Test should not read InApp feedback");
 
-        public Task SaveInAppFeedbackAsync(FeedbackEntry entry)
+        public Task<FeedbackEntry?> UpdateInAppFeedbackAsync(string upn, Func<FeedbackEntry?, FeedbackEntry?> decide)
             => throw new NotSupportedException("Test should not write InApp feedback");
 
         public Task<FeedbackEntry?> GetOffboardingFeedbackAsync(string historyRowKey)

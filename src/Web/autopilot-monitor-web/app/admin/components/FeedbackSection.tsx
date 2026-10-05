@@ -307,7 +307,9 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                           {entry.upn}
                         </span>
                         {entry.submitted ? renderStars(entry.rating ?? null) : (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 italic flex-shrink-0">dismissed</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 italic flex-shrink-0">
+                            {(entry.dismissCount ?? 0) >= 2 ? "dismissed twice" : "dismissed"}
+                          </span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">

@@ -130,7 +130,7 @@ export interface AdminConfiguration {
   feedbackEnabled: boolean;
   /** Minimum tenant age in days before users are prompted for feedback. Prevents asking brand-new tenants who haven't had meaningful experience yet. Default: 14 days. */
   feedbackMinTenantAgeDays: number;
-  /** Cooldown in days after a user interacts with the feedback prompt before they are prompted again. 0 = never re-prompt (single wave only). Default: 60 days. */
+  /** Pause in days before the rating prompt asks a second time, counted from the first dismissal. A person is asked at most twice and never again after a rating. 0 = ask only once. Default: 60 days. */
   feedbackCooldownDays: number;
   /** JSON-serialized list of global diagnostics log paths/wildcards to include in the diagnostics ZIP package for all tenants. Each entry: { "path": "...", "description": "...", "isBuiltIn": true } */
   diagnosticsGlobalLogPathsJson: string;
@@ -1783,6 +1783,8 @@ export interface FeedbackEntryWire {
   feedbackId?: string;
   /** Reply address a general-feedback sender entered; absent when none was given. */
   contactEmail?: string;
+  /** How often a rating prompt was dismissed (0 to 2); absent on the other kinds. */
+  dismissCount?: number;
 }
 
 /** Response of GET feedback/all (Global Admin dashboard): every stored feedback entry. */

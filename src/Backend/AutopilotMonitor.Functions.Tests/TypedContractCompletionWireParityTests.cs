@@ -553,6 +553,7 @@ public class TypedContractCompletionWireParityTests
                         domainName = (string?)null,
                         feedbackId = (string?)null,
                         contactEmail = (string?)null,
+                        dismissCount = (int?)1,
                     },
                     new
                     {
@@ -569,6 +570,7 @@ public class TypedContractCompletionWireParityTests
                         domainName = (string?)"fabrikam.invalid",
                         feedbackId = (string?)"2516114433936827287_0123456789ab",
                         contactEmail = (string?)"bob.support@fabrikam.invalid",
+                        dismissCount = (int?)null, // general entry → no count
                     },
                 },
             },
@@ -589,6 +591,7 @@ public class TypedContractCompletionWireParityTests
                         InteractedAt = "2026-08-30T10:00:00.0000000Z",
                         HistoryRowKey = null,
                         DomainName = null,
+                        DismissCount = 1,
                     },
                     new FeedbackEntryWire
                     {

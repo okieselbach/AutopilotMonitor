@@ -280,7 +280,8 @@ public sealed class SubmitGeneralFeedbackFunctionTests
         }
 
         public Task<FeedbackEntry?> GetInAppFeedbackAsync(string upn) => throw new NotSupportedException();
-        public Task SaveInAppFeedbackAsync(FeedbackEntry entry) => throw new NotSupportedException();
+        public Task<FeedbackEntry?> UpdateInAppFeedbackAsync(string upn, Func<FeedbackEntry?, FeedbackEntry?> decide)
+            => throw new NotSupportedException();
         public Task<FeedbackEntry?> GetOffboardingFeedbackAsync(string historyRowKey) => throw new NotSupportedException();
         public Task SaveOffboardingFeedbackAsync(FeedbackEntry entry) => throw new NotSupportedException();
         public Task<List<FeedbackEntry>> GetAllAsync() => throw new NotSupportedException();

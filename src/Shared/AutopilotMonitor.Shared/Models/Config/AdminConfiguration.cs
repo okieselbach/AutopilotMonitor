@@ -161,8 +161,8 @@ namespace AutopilotMonitor.Shared.Models
         public int FeedbackMinTenantAgeDays { get; set; } = 14;
 
         /// <summary>
-        /// Cooldown in days after a user interacts with the feedback prompt
-        /// before they are prompted again. 0 = never re-prompt (single wave only).
+        /// Pause in days before the rating prompt asks a second time, counted from the first dismissal.
+        /// A person is asked at most twice and never again after a rating. 0 = ask only once.
         /// Default: 60 days.
         /// </summary>
         public int FeedbackCooldownDays { get; set; } = 60;

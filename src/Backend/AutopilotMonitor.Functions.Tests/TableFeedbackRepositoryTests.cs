@@ -48,7 +48,7 @@ public class TableFeedbackRepositoryTests
             InteractedAt = new DateTime(2026, 5, 19, 9, 15, 23, DateTimeKind.Utc),
         };
 
-        await harness.Sut.SaveInAppFeedbackAsync(entry);
+        await SaveInApp(harness, entry);
 
         var fetched = await harness.Sut.GetInAppFeedbackAsync(Upn);
         Assert.NotNull(fetched);
@@ -67,7 +67,7 @@ public class TableFeedbackRepositoryTests
     public async Task InApp_Save_LowercasesUpn_ForRowKey()
     {
         var harness = new Harness();
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Upn = "Alice@Contoso.Invalid",
             TenantId = TenantId,
@@ -90,7 +90,7 @@ public class TableFeedbackRepositoryTests
     public async Task InApp_Dismissed_RoundTrips_NullRatingAndNullComment()
     {
         var harness = new Harness();
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Upn = Upn,
             TenantId = TenantId,
@@ -172,7 +172,7 @@ public class TableFeedbackRepositoryTests
         // Defensive: callers may forget to set Type; the repo MUST stamp the partition's own
         // discriminator on every save so a misrouted Save can never poison the other partition.
         var harness = new Harness();
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Type = "WRONG",  // caller error
             Upn = Upn,
@@ -205,7 +205,7 @@ public class TableFeedbackRepositoryTests
         // mixed-partition return shape works end-to-end.
         var harness = new Harness();
 
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Upn = "alice@contoso.invalid",
             TenantId = TenantId,
@@ -214,7 +214,7 @@ public class TableFeedbackRepositoryTests
             Submitted = true,
             InteractedAt = DateTime.UtcNow,
         });
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Upn = "bob@fabrikam.invalid",
             TenantId = "99999999-9999-9999-9999-999999999999",
@@ -244,6 +244,88 @@ public class TableFeedbackRepositoryTests
         Assert.Equal("contoso.invalid", offb[0].DomainName);
         Assert.Equal(HistoryRowKey, offb[0].HistoryRowKey);
     }
+
+    // ── In-App: dismissal count and the conditional write ───────────────────
+
+    [Fact]
+    public async Task InApp_DismissCount_RoundTrips()
+    {
+        var harness = new Harness();
+        await SaveInApp(harness, new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 2,
+            InteractedAt = DateTime.UtcNow,
+        });
+
+        Assert.Equal(2, (await harness.Sut.GetInAppFeedbackAsync(Upn))!.DismissCount);
+    }
+
+    [Theory]
+    [InlineData(true, false, 1)]  // dismissed before the count existed → one recorded dismissal
+    [InlineData(false, true, 0)]  // rated
+    public async Task InApp_RowsWithoutCount_ReadAsAtMostOneDismissal(bool dismissed, bool submitted, int expected)
+    {
+        var harness = new Harness();
+        harness.Seed(new TableEntity("InApp", Upn)
+        {
+            ["TenantId"] = TenantId,
+            ["DisplayName"] = "Alice",
+            ["Dismissed"] = dismissed,
+            ["Submitted"] = submitted,
+            ["InteractedAt"] = new DateTime(2026, 4, 18, 2, 12, 0, DateTimeKind.Utc),
+        });
+
+        Assert.Equal(expected, (await harness.Sut.GetInAppFeedbackAsync(Upn))!.DismissCount);
+    }
+
+    [Fact]
+    public async Task UpdateInApp_DecisionNull_WritesNothing()
+    {
+        var harness = new Harness();
+
+        var written = await harness.Sut.UpdateInAppFeedbackAsync(Upn, _ => null);
+
+        Assert.Null(written);
+        Assert.Null(await harness.Sut.GetInAppFeedbackAsync(Upn));
+    }
+
+    [Fact]
+    public async Task UpdateInApp_ConcurrentWrite_DecidesAgainOnTheStoredRow()
+    {
+        // Tab A rates while tab B's dismissal is in flight: B read the row before A wrote, so its
+        // conditional write fails and B decides again on A's rating — which a dismissal never replaces.
+        var harness = new Harness();
+        await SaveInApp(harness, new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 1,
+            InteractedAt = DateTime.UtcNow.AddDays(-61),
+        });
+        harness.BeforeNextWrite = () => harness.Seed(new TableEntity("InApp", Upn)
+        {
+            ["TenantId"] = TenantId, ["DisplayName"] = "Alice", ["Rating"] = 5, ["Comment"] = "Great",
+            ["Dismissed"] = false, ["Submitted"] = true, ["DismissCount"] = 1, ["InteractedAt"] = DateTime.UtcNow,
+        });
+        var decisions = 0;
+
+        var written = await harness.Sut.UpdateInAppFeedbackAsync(Upn, current =>
+        {
+            decisions++;
+            return current!.Submitted ? null : new FeedbackEntry
+            {
+                Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 2,
+                InteractedAt = DateTime.UtcNow,
+            };
+        });
+
+        Assert.Null(written);
+        Assert.Equal(2, decisions);
+        var stored = await harness.Sut.GetInAppFeedbackAsync(Upn);
+        Assert.True(stored!.Submitted);
+        Assert.Equal(5, stored.Rating);
+    }
+
+    private static async Task SaveInApp(Harness harness, FeedbackEntry entry)
+        => await harness.Sut.UpdateInAppFeedbackAsync(entry.Upn, _ => entry);
 
     // ── General (help-menu feedback) ────────────────────────────────────────
 
@@ -311,7 +393,7 @@ public class TableFeedbackRepositoryTests
         await Save(Upn, now.AddHours(-24));               // exactly at the window start → counted
         await Save(Upn, now.AddHours(-25));               // outside
         await Save("bob@fabrikam.invalid", now.AddHours(-1));
-        await harness.Sut.SaveInAppFeedbackAsync(new FeedbackEntry
+        await SaveInApp(harness, new FeedbackEntry
         {
             Upn = Upn, TenantId = TenantId, DisplayName = "x", Rating = 5, Submitted = true, InteractedAt = now,
         });
@@ -345,6 +427,23 @@ public class TableFeedbackRepositoryTests
         /// <summary>Filter of the last QueryAsync call (the mock itself ignores it and returns every row).</summary>
         public string? LastFilter { get; private set; }
 
+        /// <summary>Runs once just before the next Add/Update — a concurrent writer between read and write.</summary>
+        public Action? BeforeNextWrite { get; set; }
+
+        /// <summary>Stores a row as another writer would (fresh ETag).</summary>
+        public void Seed(TableEntity entity)
+        {
+            entity.ETag = new ETag(Guid.NewGuid().ToString("N"));
+            _store[(entity.PartitionKey, entity.RowKey)] = entity;
+        }
+
+        private void RunBeforeWrite()
+        {
+            var hook = BeforeNextWrite;
+            BeforeNextWrite = null;
+            hook?.Invoke();
+        }
+
         public Harness()
         {
             var mockTableClient = new Mock<TableClient>();
@@ -353,9 +452,24 @@ public class TableFeedbackRepositoryTests
                 .Setup(c => c.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
                 .Returns<TableEntity, CancellationToken>((e, _) =>
                 {
+                    RunBeforeWrite();
                     if (_store.ContainsKey((e.PartitionKey, e.RowKey)))
                         throw new RequestFailedException(409, "Conflict", "EntityAlreadyExists", null);
-                    _store[(e.PartitionKey, e.RowKey)] = e;
+                    Seed(e);
+                    return Task.FromResult(new Mock<Response>().Object);
+                });
+
+            mockTableClient
+                .Setup(c => c.UpdateEntityAsync(
+                    It.IsAny<TableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+                .Returns<TableEntity, ETag, TableUpdateMode, CancellationToken>((e, ifMatch, _, _) =>
+                {
+                    RunBeforeWrite();
+                    if (!_store.TryGetValue((e.PartitionKey, e.RowKey), out var current))
+                        throw new RequestFailedException(404, "NotFound", "ResourceNotFound", null);
+                    if (current.ETag != ifMatch)
+                        throw new RequestFailedException(412, "Precondition Failed", "UpdateConditionNotSatisfied", null);
+                    Seed(e);
                     return Task.FromResult(new Mock<Response>().Object);
                 });
 

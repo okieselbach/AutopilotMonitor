@@ -45,7 +45,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
 
         /// <summary>
         /// Checks whether the current user is eligible to see the feedback bubble.
-        /// Evaluates: kill-switch, role, tenant age, session existence, cooldown.
+        /// Evaluates: kill-switch, role, tenant age, session existence, and the ask rules
+        /// (<see cref="FeedbackPromptRules"/>: at most two asks, never after a rating).
         /// </summary>
         [Function("GetFeedbackStatus")]
         public async Task<HttpResponseData> GetStatus(
@@ -101,18 +102,9 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 if (sessionPage.Items.Count == 0)
                     return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
-                // 6. Cooldown check
-                var feedbackEntry = feedbackTask.Result;
-                if (feedbackEntry?.InteractedAt != null)
-                {
-                    // Cooldown = 0 means single wave only
-                    if (adminConfig.FeedbackCooldownDays == 0)
-                        return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
-
-                    var daysSinceInteraction = (DateTime.UtcNow - feedbackEntry.InteractedAt.Value).TotalDays;
-                    if (daysSinceInteraction < adminConfig.FeedbackCooldownDays)
-                        return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
-                }
+                // 6. Ask at most twice: a rating ends it, the second ask waits for the pause.
+                if (!FeedbackPromptRules.IsEligible(feedbackTask.Result, adminConfig.FeedbackCooldownDays, DateTime.UtcNow))
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = true });
             }
@@ -130,9 +122,9 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         }
 
         /// <summary>
-        /// Submits user feedback or records a dismissal.
-        /// On submit: stores feedback and sends Telegram notification.
-        /// On dismiss: stores dismissal so the bubble is not shown again (until cooldown).
+        /// Records one answer to the rating bubble (<see cref="FeedbackPromptRules"/>).
+        /// A rating is stored once per person and pinged to Telegram; a dismissal is counted.
+        /// After a rating the person's row is final: further answers change nothing.
         /// </summary>
         [Function("SubmitFeedback")]
         public async Task<HttpResponseData> Submit(
@@ -162,27 +154,18 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 if (comment?.Length > Constants.SubmissionLimits.FeedbackTextMaxChars)
                     comment = comment.Substring(0, Constants.SubmissionLimits.FeedbackTextMaxChars);
 
-                // Upsert feedback record
-                await _feedbackRepo.SaveInAppFeedbackAsync(new FeedbackEntry
-                {
-                    Upn = upn,
-                    TenantId = tenantId,
-                    DisplayName = displayName,
-                    Rating = body.Dismissed ? null : body.Rating,
-                    Comment = body.Dismissed ? null : comment,
-                    Dismissed = body.Dismissed,
-                    Submitted = !body.Dismissed,
-                    InteractedAt = DateTime.UtcNow
-                });
+                var answer = new FeedbackAnswer(upn, tenantId, displayName, body.Dismissed, body.Rating, comment);
+                var stored = await _feedbackRepo.UpdateInAppFeedbackAsync(
+                    upn, current => FeedbackPromptRules.Apply(current, answer, DateTime.UtcNow));
 
-                // Telegram notification — only for actual submissions, fire-and-forget
-                if (!body.Dismissed && body.Rating is int rating && rating > 0)
+                // Telegram only for a rating that was actually recorded, fire-and-forget.
+                if (stored is { Submitted: true } && stored.Rating is int rating)
                 {
                     _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
                 }
 
                 _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
-                    body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
+                    stored == null ? "unchanged" : body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
 
                 return await WriteJson(req, new SuccessOnlyResponse { Success = true });
             }
@@ -221,6 +204,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                     DomainName = e.DomainName,
                     FeedbackId = e.FeedbackId,
                     ContactEmail = e.ContactEmail,
+                    DismissCount = e.Type == FeedbackEntryType.InApp ? e.DismissCount : null,
                 }).ToList();
 
                 return await WriteJson(req, new FeedbackListResponse { Feedback = entries });

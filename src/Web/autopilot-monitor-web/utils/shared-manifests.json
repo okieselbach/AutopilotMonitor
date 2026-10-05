@@ -1425,7 +1425,7 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Cooldown in days after a user interacts with the feedback prompt before they are prompted again. 0 = never re-prompt (single wave only). Default: 60 days."
+          "doc": "Pause in days before the rating prompt asks a second time, counted from the first dismissal. A person is asked at most twice and never again after a rating. 0 = ask only once. Default: 60 days."
         },
         {
           "name": "diagnosticsGlobalLogPathsJson",
@@ -8646,6 +8646,15 @@
           },
           "optional": true,
           "doc": "Reply address a general-feedback sender entered; absent when none was given."
+        },
+        {
+          "name": "dismissCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "How often a rating prompt was dismissed (0 to 2); absent on the other kinds."
         }
       ]
     },

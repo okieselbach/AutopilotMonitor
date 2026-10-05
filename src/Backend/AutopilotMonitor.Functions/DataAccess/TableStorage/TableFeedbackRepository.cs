@@ -48,17 +48,40 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task SaveInAppFeedbackAsync(FeedbackEntry entry)
+        public async Task<FeedbackEntry?> UpdateInAppFeedbackAsync(string upn, Func<FeedbackEntry?, FeedbackEntry?> decide)
         {
-            entry.Type = FeedbackEntryType.InApp;
-            try
+            var rowKey = upn.ToLowerInvariant();
+            for (var attempt = 1; ; attempt++)
             {
-                await _tableClient.UpsertEntityAsync(StoreInApp(entry), TableUpdateMode.Replace);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving in-app feedback for {Upn}", entry.Upn);
-                throw;
+                TableEntity? stored = null;
+                try
+                {
+                    stored = (await _tableClient.GetEntityAsync<TableEntity>(FeedbackEntryType.InApp, rowKey)).Value;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                }
+
+                var next = decide(stored == null ? null : MapInApp(stored));
+                if (next == null)
+                    return null;
+
+                next.Type = FeedbackEntryType.InApp;
+                next.Upn = rowKey;
+                try
+                {
+                    // Conditional on what was read: two tabs answering at once must not let a dismissal
+                    // replace a rating — the loser decides again on the winner's row.
+                    if (stored == null)
+                        await _tableClient.AddEntityAsync(StoreInApp(next));
+                    else
+                        await _tableClient.UpdateEntityAsync(StoreInApp(next), stored.ETag, TableUpdateMode.Replace);
+                    return next;
+                }
+                catch (RequestFailedException ex) when ((ex.Status == 409 || ex.Status == 412) && attempt < 3)
+                {
+                    _logger.LogInformation("In-app feedback for {Upn} changed concurrently; deciding again", rowKey);
+                }
             }
         }
 
@@ -184,21 +207,29 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["Comment"] = e.Comment,
                 ["Dismissed"] = e.Dismissed,
                 ["Submitted"] = e.Submitted,
+                ["DismissCount"] = e.DismissCount,
                 ["InteractedAt"] = e.InteractedAt,
             };
 
-        private static FeedbackEntry MapInApp(TableEntity e) => new()
+        private static FeedbackEntry MapInApp(TableEntity e)
         {
-            Type = FeedbackEntryType.InApp,
-            Upn = e.RowKey,
-            TenantId = e.GetString("TenantId") ?? string.Empty,
-            DisplayName = e.GetString("DisplayName") ?? string.Empty,
-            Rating = e.GetInt32("Rating"),
-            Comment = e.GetString("Comment"),
-            Dismissed = e.GetBoolean("Dismissed") ?? false,
-            Submitted = e.GetBoolean("Submitted") ?? false,
-            InteractedAt = e.GetDateTime("InteractedAt"),
-        };
+            var dismissed = e.GetBoolean("Dismissed") ?? false;
+            var submitted = e.GetBoolean("Submitted") ?? false;
+            return new FeedbackEntry
+            {
+                Type = FeedbackEntryType.InApp,
+                Upn = e.RowKey,
+                TenantId = e.GetString("TenantId") ?? string.Empty,
+                DisplayName = e.GetString("DisplayName") ?? string.Empty,
+                Rating = e.GetInt32("Rating"),
+                Comment = e.GetString("Comment"),
+                Dismissed = dismissed,
+                Submitted = submitted,
+                // Rows from before the count existed: one recorded dismissal at most.
+                DismissCount = e.GetInt32("DismissCount") ?? (dismissed && !submitted ? 1 : 0),
+                InteractedAt = e.GetDateTime("InteractedAt"),
+            };
+        }
 
         private static TableEntity StoreOffboarding(FeedbackEntry e) =>
             new(FeedbackEntryType.Offboarding, e.HistoryRowKey!)
