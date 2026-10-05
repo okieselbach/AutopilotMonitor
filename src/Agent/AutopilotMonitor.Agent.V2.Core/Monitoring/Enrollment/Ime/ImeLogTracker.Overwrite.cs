@@ -62,6 +62,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             public long Offset;
             public int Length;
             public ulong Hash;
+            /// <summary>
+            /// When these bytes were last seen as they are (read, seeded or verified unchanged): bytes found different
+            /// at this position later were written after it. Not part of the identity.
+            /// </summary>
+            public DateTime SeenUtc;
 
             // Identity is (offset, hash): a tail first read unterminated and later completed
             // keeps its hash but grows by its terminator.
@@ -100,11 +105,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return idx < Entries.Count ? Entries[idx].Offset : -1;
             }
 
-            public void Record(AssembledEntry e)
+            public void Record(AssembledEntry e, DateTime seenUtc)
             {
                 var idx = IndexOfFirstAtOrAfter(e.Offset);
                 if (idx < Entries.Count) Entries.RemoveRange(idx, Entries.Count - idx);
-                Entries.Add(new LedgerEntry { Offset = e.Offset, Length = e.Length, Hash = e.Hash });
+                Entries.Add(new LedgerEntry { Offset = e.Offset, Length = e.Length, Hash = e.Hash, SeenUtc = seenUtc });
             }
 
             /// <summary>Drops everything from <paramref name="offset"/> on and returns it — the entries a rewind must not process twice.</summary>
@@ -197,7 +202,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 ledger.Seeded = true;
                 if (ledger.Entries.Count == 0 && bookmark > 0)
-                    await SeedLedgerAsync(filePath, ledger, bookmark, token).ConfigureAwait(false);
+                    await SeedLedgerAsync(filePath, ledger, bookmark, nowUtc, token).ConfigureAwait(false);
             }
 
             var due = ledger.VerifyRequested || (InContention(nowUtc) && nowUtc >= ledger.NextCadenceVerifyUtc);
@@ -213,7 +218,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             long divergence;
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                divergence = await FindOverwriteAsync(stream, ledger, from, bookmark, token).ConfigureAwait(false);
+                divergence = await FindOverwriteAsync(stream, ledger, from, bookmark, nowUtc, token).ConfigureAwait(false);
             if (token.IsCancellationRequested) return -1;
 
             ledger.VerifyRequested = false;
@@ -228,8 +233,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// Re-reads [fromOffset, toOffset) with the read loop's assembler and compares against the
         /// ledger. Returns the offset of the first entry whose bytes changed — a ledger entry not
         /// reproduced, or an entry the ledger never had — or -1 when everything reads as before.
+        /// Every entry found unchanged is stamped seen at <paramref name="nowUtc"/>.
         /// </summary>
-        private async Task<long> FindOverwriteAsync(FileStream stream, FileLedger ledger, long fromOffset, long toOffset, CancellationToken token)
+        private async Task<long> FindOverwriteAsync(FileStream stream, FileLedger ledger, long fromOffset, long toOffset, DateTime nowUtc, CancellationToken token)
         {
             var entries = ledger.Entries;
             var idx = ledger.IndexOfFirstAtOrAfter(fromOffset);
@@ -255,6 +261,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 if (idx < entries.Count && entries[idx].Offset == e.Offset)
                 {
                     if (entries[idx].Hash != e.Hash) return e.Offset;
+                    var confirmed = entries[idx];
+                    confirmed.SeenUtc = nowUtc;
+                    entries[idx] = confirmed;
                     idx++;
                     continue;
                 }
@@ -265,7 +274,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>After a restart the ledger is empty: fingerprint the entries just behind the persisted bookmark without processing them.</summary>
-        private async Task SeedLedgerAsync(string filePath, FileLedger ledger, long bookmark, CancellationToken token)
+        private async Task SeedLedgerAsync(string filePath, FileLedger ledger, long bookmark, DateTime nowUtc, CancellationToken token)
         {
             var from = Math.Max(0, bookmark - RestartSeedBytes);
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -288,7 +297,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     if (assembler.Feed(line, reader.LastLineStart, reader.Position, reader.LastLineTruncated, reader.LastLineHash, out e)
                             == CmTraceEntryAssembler.Outcome.Entry
                         && e.Offset + e.Length <= bookmark)
-                        ledger.Record(e);
+                        ledger.Record(e, nowUtc);
                 }
             }
         }
@@ -300,12 +309,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         private sealed class RewindState
         {
-            public RewindState(string fileName, HashSet<LedgerEntry> unchanged, List<InvocationMarker> markers, InvocationMarker lastPlatformMarker)
+            public RewindState(string fileName, HashSet<LedgerEntry> unchanged, List<InvocationMarker> markers, InvocationMarker lastPlatformMarker, long rewindTo)
             {
                 FileName = fileName;
                 Unchanged = unchanged;
                 Markers = markers;
                 LastPlatformMarker = lastPlatformMarker;
+                foreach (var replaced in unchanged)
+                {
+                    if (replaced.Offset == rewindTo) EntryAtRewindPointReplaced = true;
+                    if (!OldestReplacedSeenUtc.HasValue || replaced.SeenUtc < OldestReplacedSeenUtc.Value) OldestReplacedSeenUtc = replaced.SeenUtc;
+                }
             }
 
             public string FileName { get; }
@@ -315,8 +329,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             /// <summary>The tracker-wide last platform marker, when it was among the set-aside ones.</summary>
             public InvocationMarker LastPlatformMarker { get; }
             public int Next { get; set; }
+            /// <summary>The ledger held the entry at the rewind point: the changed bytes lie where something was seen before.</summary>
+            public bool EntryAtRewindPointReplaced { get; }
+            /// <summary>The earliest time any of the replaced bytes was last seen as it was: every changed byte was written after it.</summary>
+            public DateTime? OldestReplacedSeenUtc { get; }
 
             public bool IsUnchanged(AssembledEntry entry) => Unchanged.Contains(new LedgerEntry { Offset = entry.Offset, Hash = entry.Hash });
+        }
+
+        /// <summary>
+        /// Whether an entry a rewind re-processes (it reads differently than before) is fresh. Its bytes were written after
+        /// the bytes it replaced were last seen as they were — IME stamps a line when it writes it — so when that was at
+        /// most <see cref="FreshLineMaxAge"/> ago the entry's age is bounded like an appended line's and it may anchor
+        /// itself (session d29e27e3: recovered result lines fell back to the agent's stale zone and lost their duration).
+        /// Not fresh when the pass is not (the first pass after a restart never anchors), when the divergence lies in bytes
+        /// the ledger never held (nothing dates them), or when the clock stepped back since.
+        /// </summary>
+        internal static bool RewoundEntryIsFresh(bool passLinesAreFresh, bool entryAtRewindPointReplaced, DateTime? oldestReplacedSeenUtc, DateTime passNowUtc)
+        {
+            if (!passLinesAreFresh || !entryAtRewindPointReplaced || !oldestReplacedSeenUtc.HasValue) return false;
+            var sinceSeen = passNowUtc - oldestReplacedSeenUtc.Value;
+            return sinceSeen >= TimeSpan.Zero && sinceSeen <= FreshLineMaxAge;
         }
 
         /// <summary>Moves the bookmark back to the first changed entry; returns what the re-read needs to skip and to give back.</summary>
@@ -341,7 +374,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 _logger.Debug(message);
             }
-            return new RewindState(fileName, removed, markers, tookLastPlatformMarker ? lastPlatformMarker : null);
+            return new RewindState(fileName, removed, markers, tookLastPlatformMarker ? lastPlatformMarker : null, rewindTo);
         }
 
         private long RetentionFloor(string fileName, long bookmark)

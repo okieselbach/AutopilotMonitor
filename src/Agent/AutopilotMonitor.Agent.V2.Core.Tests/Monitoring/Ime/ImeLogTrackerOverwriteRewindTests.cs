@@ -502,6 +502,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         public async Task Ime_result_line_hidden_by_an_executor_start_line_is_recovered_from_the_ime_log()
         {
             using var h = new Harness("IntuneManagementExtension.log", ScriptPatterns());
+            // Seen empty first: the start lines are fresh and anchor themselves like the recovered result line will,
+            // so start and result sit on one timeline whatever the host's own zone is.
+            h.Append(string.Empty);
+            await h.Pass();
             h.Append(Entry(GeneratedLine, "17") + Entry("Launch powershell executor in user session", "17") + Entry("process id = 10608", "17"));
             await h.Pass();
             var servicePosition = h.Length;

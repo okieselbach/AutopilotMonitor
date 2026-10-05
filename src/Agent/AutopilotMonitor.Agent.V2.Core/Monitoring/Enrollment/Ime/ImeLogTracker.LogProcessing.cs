@@ -123,8 +123,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var ledger = IsMultiWriterLogFile(fileName) ? GetLedger(fileName) : null;
 
             // Set by a rewind: entries that still read unchanged behind the old bookmark are
-            // skipped (their invocation markers are given back), and nothing below the old
-            // bookmark is fresh or a calibration anchor.
+            // skipped (their invocation markers are given back); a changed entry below the old
+            // bookmark is fresh only when the bytes it replaced were seen moments ago, and never a
+            // calibration anchor.
             RewindState rewind = null;
             long oldBookmark = -1;
             var writerBoundaries = IsWriterBoundaryLogFile(fileName);
@@ -171,12 +172,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     var guardFrom = ledger.OffsetOfEntryAtOrAfter(startPos - OverwriteGuardBytes);
                     if (guardFrom >= 0 && guardFrom < startPos)
                     {
-                        var divergence = await FindOverwriteAsync(stream, ledger, guardFrom, startPos, token);
+                        var divergence = await FindOverwriteAsync(stream, ledger, guardFrom, startPos, passNowUtc, token);
                         _verifiedBytes += startPos - guardFrom;
                         if (divergence >= 0)
                         {
                             // The guard saw only the tail of the ledger; the block may start earlier.
-                            var earliest = await FindOverwriteAsync(stream, ledger, ledger.StartOffset, startPos, token);
+                            var earliest = await FindOverwriteAsync(stream, ledger, ledger.StartOffset, startPos, passNowUtc, token);
                             _verifiedBytes += startPos - ledger.StartOffset;
                             _verifyPasses++;
                             if (earliest >= 0) divergence = earliest;
@@ -271,7 +272,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         }
                     }
 
-                    if (ledger != null) ledger.Record(entry);
+                    if (ledger != null) ledger.Record(entry, passNowUtc);
                     var unchanged = rewind != null && rewind.IsUnchanged(entry);
                     if (unchanged) RestoreInvocationMarkers(rewind, entry.Offset);
 
@@ -287,7 +288,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                     if (unchanged) continue; // unchanged behind the old bookmark — processed before the rewind
 
-                    _currentPassLinesAreFresh = passLinesAreFresh && entry.Offset >= oldBookmark;
+                    // Behind the old bookmark only changed entries arrive here: fresh when the bytes they replaced
+                    // were seen moments ago (RewoundEntryIsFresh), never a calibration anchor.
+                    _currentPassLinesAreFresh = entry.Offset >= oldBookmark
+                        ? passLinesAreFresh
+                        : rewind != null && RewoundEntryIsFresh(passLinesAreFresh, rewind.EntryAtRewindPointReplaced, rewind.OldestReplacedSeenUtc, passNowUtc);
 
                     // --- Normal processing (single-line or completed multiline) ---
                     CmTraceLogEntry parsed;
