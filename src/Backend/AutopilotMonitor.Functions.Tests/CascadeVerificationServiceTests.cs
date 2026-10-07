@@ -372,6 +372,9 @@ public class CascadeVerificationServiceTests
         public Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, CancellationToken ct = default)
             => Task.FromResult<TableEntity?>(null);
 
+        public Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, IEnumerable<string> select, CancellationToken ct = default)
+            => Task.FromResult<TableEntity?>(null);
+
         public Task<TableEntity?> GetSessionsIndexRowAsync(string tenantId, string indexRowKey, CancellationToken ct = default)
             => Task.FromResult<TableEntity?>(null);
 

@@ -33,6 +33,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<SessionSummary?> GetSessionAsync(string tenantId, string sessionId)
             => _storage.GetSessionAsync(tenantId, sessionId);
 
+        public Task<SessionIngestSnapshot?> GetSessionIngestSnapshotAsync(string tenantId, string sessionId)
+            => _storage.GetSessionIngestSnapshotAsync(tenantId, sessionId);
+
         public Task<string?> ResolveSessionTenantIdAsync(string sessionId)
             => _storage.ResolveSessionTenantIdAsync(sessionId);
 
@@ -146,7 +149,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<ServerAction>> FetchAndClearPendingActionsAsync(string tenantId, string sessionId)
             => _storage.FetchAndClearPendingActionsAsync(tenantId, sessionId);
 
-        public Task<SessionSummary?> IncrementSessionEventCountAsync(
+        public Task<SessionIngestSnapshot?> IncrementSessionEventCountAsync(
             string tenantId, string sessionId, int increment,
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,

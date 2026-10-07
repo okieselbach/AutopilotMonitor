@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
@@ -80,6 +82,26 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         public async Task<TableEntity?> EnsureWritableAndGetRowAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
         {
             var sessionRow = await _reader.GetSessionRowAsync(tenantId, sessionId, cancellationToken);
+            return await GuardRowAsync(sessionRow, tenantId, sessionId, callerContext, cancellationToken);
+        }
+
+        /// <summary>Columns the guard reads off the row itself; a projected read adds them to the caller's list.</summary>
+        public static readonly string[] LockColumns = { "DeletionState", "PendingDeletionManifestId" };
+
+        /// <summary>
+        /// <see cref="EnsureWritableAndGetRowAsync(string, string, string, CancellationToken)"/> with the
+        /// row projected to <paramref name="select"/> plus <see cref="LockColumns"/> — the agent hot
+        /// path's form (see <c>SessionRowProjections.GuardRow</c>). The returned row carries only
+        /// those columns.
+        /// </summary>
+        public async Task<TableEntity?> EnsureWritableAndGetRowAsync(string tenantId, string sessionId, string callerContext, IReadOnlyCollection<string> select, CancellationToken cancellationToken = default)
+        {
+            var sessionRow = await _reader.GetSessionRowAsync(tenantId, sessionId, select.Concat(LockColumns).Distinct(), cancellationToken);
+            return await GuardRowAsync(sessionRow, tenantId, sessionId, callerContext, cancellationToken);
+        }
+
+        private async Task<TableEntity?> GuardRowAsync(TableEntity? sessionRow, string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken)
+        {
             if (sessionRow != null)
             {
                 ThrowIfLocked(sessionRow, callerContext);

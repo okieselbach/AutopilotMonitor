@@ -21,6 +21,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task UpdateSessionOwnerAsync(string tenantId, string sessionId, SessionOwner owner);
         Task<SessionSummary?> GetSessionAsync(string tenantId, string sessionId);
         /// <summary>
+        /// The ingest slice of the session row (<see cref="SessionIngestSnapshot"/>), read projected
+        /// to its columns; null when the row is missing or unreadable. The signal-only upload reads
+        /// its control signals (AdminMarkedAction, pending ServerActions) through this instead of a
+        /// full <see cref="GetSessionAsync"/>.
+        /// </summary>
+        Task<SessionIngestSnapshot?> GetSessionIngestSnapshotAsync(string tenantId, string sessionId);
+        /// <summary>
         /// Resolves the tenantId owning <paramref name="sessionId"/> — point-read on the
         /// SessionTenantLookup table with a legacy SessionsIndex-scan fallback that self-heals
         /// the lookup row. Null when the session is unknown. Used for global-scope cross-tenant
@@ -111,14 +118,15 @@ namespace AutopilotMonitor.Shared.DataAccess
             string? failureSnapshotJson = null, bool allowTerminalReclassification = false,
             bool espSoftFailure = false, string? completionSource = null);
         /// <summary>
-        /// Increments per-session counters via read-modify-write. Returns the post-merge session
-        /// snapshot (the RMW read with the applied increments) so hot-path callers can skip a
-        /// follow-up <see cref="GetSessionAsync"/>; null when the row is missing or the update
-        /// could not be applied (caller falls back to its own read).
+        /// Increments per-session counters via read-modify-write. The read is projected to the
+        /// ingest slice of the row and its post-merge values come back as a
+        /// <see cref="SessionIngestSnapshot"/> (the RMW read with the applied increments) so
+        /// hot-path callers can skip a follow-up read; null when the row is missing or the update
+        /// could not be applied (caller falls back to its own <see cref="GetSessionAsync"/>).
         /// <paramref name="upload"/> (the batch's stored events) feeds the session's server-time
         /// tracker in the same write (StartedAtServer / ResumedAtServer while the session runs).
         /// </summary>
-        Task<SessionSummary?> IncrementSessionEventCountAsync(
+        Task<SessionIngestSnapshot?> IncrementSessionEventCountAsync(
             string tenantId, string sessionId, int increment,
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,

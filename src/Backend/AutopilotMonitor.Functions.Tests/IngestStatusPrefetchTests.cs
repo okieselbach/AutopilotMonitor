@@ -1,4 +1,4 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.Models;
 using Azure.Data.Tables;
 using Xunit;
@@ -26,14 +26,14 @@ public class IngestStatusPrefetchTests
     [InlineData("succeeded", SessionStatus.Succeeded)] // mapper parses case-insensitively — mirror it
     public void StringStatus_TheActualWireFormat_IsParsed(string stored, SessionStatus expected)
     {
-        Assert.Equal(expected, IngestTelemetryFunction.TryReadSessionStatus(Row(stored)));
+        Assert.Equal(expected, SessionRowProjections.TryReadStatus(Row(stored)));
     }
 
     [Fact]
     public void IntStatus_LegacyDefensiveFallback_IsCast()
     {
         var defined = (int)SessionStatus.Stalled;
-        Assert.Equal(SessionStatus.Stalled, IngestTelemetryFunction.TryReadSessionStatus(Row(defined)));
+        Assert.Equal(SessionStatus.Stalled, SessionRowProjections.TryReadStatus(Row(defined)));
     }
 
     [Theory]
@@ -41,13 +41,13 @@ public class IngestStatusPrefetchTests
     [InlineData("")]
     public void UnparseableStatus_ReturnsNull_SoCallerFallsBackToOwnRead(string stored)
     {
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(Row(stored)));
+        Assert.Null(SessionRowProjections.TryReadStatus(Row(stored)));
     }
 
     [Fact]
     public void MissingStatusOrRow_ReturnsNull()
     {
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(Row(status: null)));
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(null));
+        Assert.Null(SessionRowProjections.TryReadStatus(Row(status: null)));
+        Assert.Null(SessionRowProjections.TryReadStatus(null));
     }
 }

@@ -252,6 +252,9 @@ public class TableLifecycleBucketTests
         public Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult<TableEntity?>(new TableEntity(tenantId, sessionId) { ["IndexRowKey"] = IndexRowKey });
 
+        public Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, IEnumerable<string> select, CancellationToken cancellationToken = default)
+            => GetSessionRowAsync(tenantId, sessionId, cancellationToken);
+
         public Task<TableEntity?> GetSessionsIndexRowAsync(string tenantId, string indexRowKey, CancellationToken cancellationToken = default)
             => Task.FromResult<TableEntity?>(new TableEntity(tenantId, indexRowKey) { ["SessionId"] = SessionId });
 

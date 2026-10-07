@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using AutopilotMonitor.Shared.Pagination;
@@ -1688,6 +1689,26 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// The ingest slice of the session row, read projected to
+        /// <see cref="SessionRowProjections.IngestSnapshot"/> (the signal-only upload's control
+        /// signals). Null when the row is missing; fail-soft like <see cref="GetSessionAsync"/>.
+        /// </summary>
+        public async Task<SessionIngestSnapshot?> GetSessionIngestSnapshotAsync(string tenantId, string sessionId)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var entity = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId, select: SessionRowProjections.IngestSnapshot);
+                return entity.HasValue ? MapToIngestSnapshot(entity.Value!) : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get the ingest snapshot of session {sessionId}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Open (non-terminal) sessions of the same physical device within one tenant: Pending,
         /// InProgress, Stalled or AwaitingUser rows matching the SerialNumber. Server-side
         /// filtered partition query with a narrow projection — SerialNumber is not a key column,
@@ -2570,8 +2591,10 @@ namespace AutopilotMonitor.Functions.Services
         /// Uses Merge mode to safely handle concurrent updates.
         /// The caller provides earliestEventTimestamp from the current batch;
         /// no redundant Events-table scan is performed here.
-        /// Returns the post-merge snapshot (RMW read + applied increments) so the ingest hot path
-        /// can skip its follow-up GetSessionAsync; null on missing row / exhausted retries / error.
+        /// The read is projected to <see cref="SessionRowProjections.IngestSnapshot"/> (the hot
+        /// path never pays for the whole row) and the post-merge values of that slice come back as
+        /// a <see cref="SessionIngestSnapshot"/> so the ingest hot path can skip its follow-up read;
+        /// null on missing row / exhausted retries / error.
         /// <para>
         /// Retry semantics: these read-modify-write increments are NOT idempotent under the
         /// agent's at-least-once retry (rows dedupe, counters double). EventCount and RebootCount
@@ -2584,7 +2607,7 @@ namespace AutopilotMonitor.Functions.Services
         /// tracker in the same write, see <see cref="StageServerTimeUpload"/>.
         /// </para>
         /// </summary>
-        public async Task<SessionSummary?> IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0, IReadOnlyList<EnrollmentEvent>? upload = null)
+        public async Task<SessionIngestSnapshot?> IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0, IReadOnlyList<EnrollmentEvent>? upload = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -2597,7 +2620,7 @@ namespace AutopilotMonitor.Functions.Services
                 try
                 {
                     var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
-                    var entityResponse = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId);
+                    var entityResponse = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId, select: SessionRowProjections.IngestSnapshot);
                     if (!entityResponse.HasValue)
                     {
                         _logger.LogWarning("Session {SessionId} not found when incrementing event count — session may have been cleaned up or not yet registered", sessionId);
@@ -2672,15 +2695,15 @@ namespace AutopilotMonitor.Functions.Services
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
                     await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, safeEarliestEventTimestamp);
 
-                    // Apply the merged fields onto the RMW read and map it through the shared
-                    // mapper — the post-merge snapshot the caller would otherwise re-read.
+                    // Apply the merged fields onto the projected RMW read and map the ingest slice —
+                    // the post-merge snapshot the caller would otherwise re-read.
                     foreach (var kvp in update)
                     {
                         if (kvp.Key is "PartitionKey" or "RowKey" or "Timestamp" or "odata.etag")
                             continue;
                         entity[kvp.Key] = kvp.Value;
                     }
-                    return MapToSessionSummary(entity);
+                    return MapToIngestSnapshot(entity);
                 }
                 catch (Azure.RequestFailedException ex) when (ex.Status == 412)
                 {
@@ -3550,6 +3573,43 @@ namespace AutopilotMonitor.Functions.Services
         // internal (not private) so UsageMetricsProjectionEquivalenceTests can pin that a Sessions
         // row carrying only UsageMetricsSessionProjection maps to the same usage-relevant fields
         // as a full row.
+        /// <summary>Stored Status (a string; "InProgress" when absent); Unknown, with a warning, when it does not parse.</summary>
+        private SessionStatus ParseStoredStatus(TableEntity entity, string sessionId)
+        {
+            var statusString = entity.GetString("Status") ?? "InProgress";
+            if (Enum.TryParse<SessionStatus>(statusString, ignoreCase: true, out var status))
+                return status;
+            _logger.LogWarning($"Failed to parse status '{statusString}' for session {sessionId}, defaulting to Unknown");
+            return SessionStatus.Unknown;
+        }
+
+        /// <summary>
+        /// The ingest slice of a Sessions row (<see cref="SessionIngestSnapshot"/>): read with
+        /// <see cref="SessionRowProjections.IngestSnapshot"/>, mapped exactly as
+        /// <see cref="MapToSessionSummary(TableEntity)"/> maps the same fields (pinned by
+        /// SessionRowProjectionTests).
+        /// </summary>
+        internal SessionIngestSnapshot MapToIngestSnapshot(TableEntity entity)
+        {
+            var startedAt = SafeGetDateTime(entity, "StartedAt") ?? DateTime.UtcNow;
+            var completedAt = SafeGetDateTime(entity, "CompletedAt");
+            var status = ParseStoredStatus(entity, entity.RowKey);
+            return new SessionIngestSnapshot(
+                status,
+                SafeGetInt32(entity, "CurrentPhase") ?? 0,
+                entity.GetString("CurrentPhaseDetail") ?? string.Empty,
+                entity.GetString("FailureReason") ?? string.Empty,
+                SafeGetInt32(entity, "EventCount") ?? 0,
+                ComputeEffectiveDuration(entity, status, startedAt, completedAt),
+                completedAt,
+                entity.GetString("DiagnosticsBlobName"),
+                entity.GetBoolean("IsPreProvisioned") ?? false,
+                entity.GetString("AdminMarkedAction"),
+                entity.GetString("PendingActionsJson") ?? string.Empty,
+                entity.GetString("AgentVersion") ?? string.Empty,
+                entity.GetString("ImeAgentVersion") ?? string.Empty);
+        }
+
         internal SessionSummary MapToSessionSummary(TableEntity entity)
             => MapToSessionSummary(entity, entity.RowKey);
 
@@ -3566,13 +3626,7 @@ namespace AutopilotMonitor.Functions.Services
             var startedAt = SafeGetDateTime(entity, "StartedAt") ?? DateTime.UtcNow;
             var completedAt = SafeGetDateTime(entity, "CompletedAt");
 
-            // Parse status with error handling and case-insensitivity
-            var statusString = entity.GetString("Status") ?? "InProgress";
-            if (!Enum.TryParse<SessionStatus>(statusString, ignoreCase: true, out var status))
-            {
-                _logger.LogWarning($"Failed to parse status '{statusString}' for session {sessionId}, defaulting to Unknown");
-                status = SessionStatus.Unknown;
-            }
+            var status = ParseStoredStatus(entity, sessionId);
 
             return new SessionSummary
             {

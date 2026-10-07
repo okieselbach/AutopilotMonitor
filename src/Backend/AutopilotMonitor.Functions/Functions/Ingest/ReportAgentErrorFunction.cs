@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
@@ -467,7 +468,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             if (deletionLocked)
                 return new(OpsEventSeverity.Info, false, false, "deleting", "session is being deleted — nothing written");
 
-            var status = IngestTelemetryFunction.TryReadSessionStatus(sessionRow);
+            var status = SessionRowProjections.TryReadStatus(sessionRow);
             var statusText = status?.ToString() ?? "unknown";
             return status.HasValue && Helpers.DeviceJourneyCalculator.IsTerminal(status.Value)
                 ? new(OpsEventSeverity.Info, true, true, statusText, $"late cleanup — session already {statusText} when the break arrived")

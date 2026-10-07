@@ -167,7 +167,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             try
             {
                 guardSessionRow = await _deletionGuard.EnsureWritableAndGetRowAsync(
-                    registration.TenantId, registration.SessionId, "RegisterSession");
+                    registration.TenantId, registration.SessionId, "RegisterSession", SessionRowProjections.GuardRow);
             }
             catch (SessionDeletionLockedException locked)
             {
@@ -180,14 +180,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 };
             }
 
-            // Pre-read the session row so we can distinguish three lifecycle entries:
-            //   - existing == null      → first-time registration (fresh enrollment)
-            //   - existing.Pending      → WhiteGlove Part 2 resume (user-driven phase)
-            //   - everything else       → agent restart / terminal re-register (no start signal)
+            // The guard's row (projected to SessionRowProjections.GuardRow) distinguishes three
+            // lifecycle entries — no second read of the Sessions row:
+            //   - row absent          → first-time registration (fresh enrollment)
+            //   - row Pending         → WhiteGlove Part 2 resume (user-driven phase)
+            //   - everything else     → agent restart / terminal re-register (no start signal)
             // Used below to scope the opt-in "enrollment started" webhook to real start events.
-            var preExistingSession = await _sessionRepo.GetSessionAsync(registration.TenantId, registration.SessionId);
-            bool isFreshRegistration = preExistingSession == null;
-            bool isWhiteGloveResume = preExistingSession?.Status == SessionStatus.Pending;
+            bool isFreshRegistration = guardSessionRow == null;
+            bool isWhiteGloveResume = SessionRowProjections.TryReadStatus(guardSessionRow) == SessionStatus.Pending;
 
             // SESSION-OWNER-BINDING: compare the caller's validated identity against the owner
             // already on the row (reusing the guard's read). A foreign identity is refused with

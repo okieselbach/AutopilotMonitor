@@ -219,14 +219,15 @@ namespace AutopilotMonitor.Functions.Services
                 || classification.EspFailureEvent != null
                 || classification.GatherCompletionEvent != null;
 
-            // The increment's post-merge snapshot serves as the "updatedSession" for the common
-            // case (non-terminal batch, no diagnostics upload) — it already reflects this batch's
-            // status transition (written above) plus the counter merge, saving the follow-up
-            // GetSessionAsync that used to run on every batch.
-            SessionSummary? updatedSession = null;
+            // The increment's post-merge snapshot (the ingest slice of the row, read projected —
+            // SessionRowProjections.IngestSnapshot) serves the common case (non-terminal batch, no
+            // transition, no diagnostics upload): it already reflects this batch's status transition
+            // (written above) plus the counter merge. The whole row is read only below, where a
+            // consumer needs it.
+            SessionIngestSnapshot? snapshot = null;
             if (processedCount > 0)
             {
-                updatedSession = await _sessionRepo.IncrementSessionEventCountAsync(
+                snapshot = await _sessionRepo.IncrementSessionEventCountAsync(
                     request.TenantId,
                     request.SessionId,
                     processedCount,
@@ -253,7 +254,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (patternHitsEvent.Data!.TryGetValue("imeVersion", out var imeVersionObj))
                     hitsImeVersion = imeVersionObj?.ToString();
                 if (string.IsNullOrWhiteSpace(hitsImeVersion))
-                    hitsImeVersion = updatedSession?.ImeAgentVersion;
+                    hitsImeVersion = snapshot?.ImeAgentVersion;
 
                 _ = _imePatternHealth.RecordSessionHitsAsync(hitsImeVersion, patternHitsEvent.Data, request.TenantId, request.SessionId);
             }
@@ -274,7 +275,7 @@ namespace AutopilotMonitor.Functions.Services
                 // tripwire must not. Fail-soft: ingest stays a 200 no matter what.
                 if (skewScan != null && (statusTransitioned || whiteGloveStatusTransitioned))
                     await TryFireCmTraceSkewTripwireAsync(request.TenantId, request.SessionId,
-                        updatedSession?.AgentVersion, skewScan);
+                        snapshot?.AgentVersion, skewScan);
             }
 
             // Observation end: the batch carrying agent_shutting_down is the agent's last word.
@@ -284,10 +285,10 @@ namespace AutopilotMonitor.Functions.Services
             // and the agent keeps watching after enrollment_complete). Non-terminal sessions
             // (reboot shutdown, WhiteGlove part 1) keep their rows open. Idempotent + fail-soft.
             if (classification.AgentShutdownEvent != null
-                && updatedSession != null
-                && (updatedSession.Status == SessionStatus.Succeeded
-                    || updatedSession.Status == SessionStatus.Failed
-                    || updatedSession.Status == SessionStatus.Incomplete))
+                && snapshot != null
+                && (snapshot.Status == SessionStatus.Succeeded
+                    || snapshot.Status == SessionStatus.Failed
+                    || snapshot.Status == SessionStatus.Incomplete))
             {
                 await _metricsRepo.CloseOpenAppInstallsForSessionAsync(request.TenantId, request.SessionId);
             }
@@ -430,12 +431,18 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            // Re-read only when a write AFTER the increment made the snapshot stale: terminal
-            // batches (ReconcileSessionCountersAsync) and diagnostics uploads (blob fields) —
-            // or when no increment ran / it returned null (missing row, exhausted ETag retries).
-            if (isTerminalBatch || classification.DiagnosticsUploadedEvent != null)
-                updatedSession = null;
-            updatedSession ??= await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+            // The whole row is read only where a consumer needs it: terminal batches
+            // (ReconcileSessionCountersAsync wrote after the increment), diagnostics uploads (blob
+            // fields), status or WhiteGlove transitions (webhooks, SLA) — and when no increment ran
+            // or it returned null (missing row, exhausted ETag retries). Every other batch works off
+            // the projected snapshot; here it is derived from the full read so both paths agree.
+            SessionSummary? updatedSession = null;
+            if (isTerminalBatch || classification.DiagnosticsUploadedEvent != null
+                || statusTransitioned || whiteGloveStatusTransitioned || snapshot == null)
+            {
+                updatedSession = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+                snapshot = updatedSession != null ? SessionIngestSnapshot.From(updatedSession) : null;
+            }
 
             // NOTE: long-running InProgress sessions are handled authoritatively by
             // MaintenanceService.MarkStalledSessionsAsTimedOutAsync (Stalled at 2h agent-silence,
@@ -443,13 +450,13 @@ namespace AutopilotMonitor.Functions.Services
             // here was pure observability noise (fired on every ingest of a >4h session, strictly
             // later than maintenance's first action) and was removed.
 
-            if (classification.WhiteGloveEvent != null && updatedSession?.IsPreProvisioned != true)
+            if (classification.WhiteGloveEvent != null && snapshot?.IsPreProvisioned != true)
             {
                 _logger.LogError(
                     "{SessionPrefix} WhiteGlove status update not persisted after retries and fallback. " +
                     "IsPreProvisioned={IsPreProvisioned}, Status={Status}. " +
                     "Proceeding with 200 to allow agent spool drain.",
-                    sessionPrefix, updatedSession?.IsPreProvisioned, updatedSession?.Status);
+                    sessionPrefix, snapshot?.IsPreProvisioned, snapshot?.Status);
             }
 
             await SendWebhookNotificationsAsync(
@@ -468,7 +475,7 @@ namespace AutopilotMonitor.Functions.Services
             // fired falsely for every post-completion agent event (agent_shutting_down,
             // diagnostics_uploaded, enrollment_summary_shown) — making the agent believe an
             // admin had clicked Mark-Succeeded after its own completion.
-            string? adminAction = updatedSession?.AdminMarkedAction;
+            string? adminAction = snapshot?.AdminMarkedAction;
             if (!string.IsNullOrEmpty(adminAction))
             {
                 _logger.LogInformation(
@@ -477,7 +484,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             List<ServerAction>? pendingActions = null;
-            if (updatedSession != null && !string.IsNullOrEmpty(updatedSession.PendingActionsJson))
+            if (snapshot != null && !string.IsNullOrEmpty(snapshot.PendingActionsJson))
             {
                 var fetched = await _sessionRepo.FetchAndClearPendingActionsAsync(request.TenantId, request.SessionId);
                 if (fetched.Count > 0)
@@ -502,7 +509,7 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            var signalRMessages = BuildSignalRMessages(request, updatedSession, processedCount, newRuleResults);
+            var signalRMessages = BuildSignalRMessages(request, snapshot, processedCount, newRuleResults);
 
             return new EventIngestResult
             {

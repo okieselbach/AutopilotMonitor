@@ -56,6 +56,20 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        public virtual async Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, IEnumerable<string> select, CancellationToken cancellationToken = default)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.Sessions);
+            try
+            {
+                var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId, select: select, cancellationToken: cancellationToken);
+                return response.Value;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+        }
+
         public async Task<TableEntity?> GetSessionsIndexRowAsync(string tenantId, string indexRowKey, CancellationToken cancellationToken = default)
         {
             var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionsIndex);

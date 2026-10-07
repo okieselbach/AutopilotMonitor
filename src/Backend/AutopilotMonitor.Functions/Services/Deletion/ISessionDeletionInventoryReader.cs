@@ -21,6 +21,13 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// <see cref="GetSessionRowAsync(string, string, CancellationToken)"/> projected to
+        /// <paramref name="select"/> — the hot-path form (the agent routes read the guard's row this
+        /// way, see <c>SessionRowProjections.GuardRow</c>). Returns null when the row does not exist.
+        /// </summary>
+        Task<TableEntity?> GetSessionRowAsync(string tenantId, string sessionId, IEnumerable<string> select, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Loads a SessionsIndex row by its (tenantId, indexRowKey) coordinate. Used for the
         /// FINAL tombstone step's row dump. Returns null when missing (treated as already-gone).
         /// </summary>

@@ -237,7 +237,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 Azure.Data.Tables.TableEntity? guardSessionRow;
                 try
                 {
-                    guardSessionRow = await _deletionGuard.EnsureWritableAndGetRowAsync(bodyTenantId, sessionId, "V2.IngestTelemetry");
+                    guardSessionRow = await _deletionGuard.EnsureWritableAndGetRowAsync(bodyTenantId, sessionId, "V2.IngestTelemetry", SessionRowProjections.GuardRow);
                 }
                 catch (SessionDeletionLockedException locked)
                 {
@@ -262,9 +262,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         return AsOutput(await WriteDeviceBlockedAsync(req, rowSerialVerdict));
                 }
 
-                // Reuse the guard's full-row read: its Status feeds the stall-heal check inside
-                // EventIngestProcessor, saving one Sessions point-read per batch.
-                var preFetchedStatus = TryReadSessionStatus(guardSessionRow);
+                // Reuse the guard's row (projected to SessionRowProjections.GuardRow): its Status feeds
+                // the stall-heal check inside EventIngestProcessor, saving one Sessions point-read per batch.
+                var preFetchedStatus = SessionRowProjections.TryReadStatus(guardSessionRow);
 
                 // SESSION-OWNER-BINDING: is the device behind this certificate/token the device this
                 // session belongs to? Same guard row, zero extra reads. A foreign identity gets 403
@@ -450,26 +450,6 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// Extracts <c>Status</c> from a Sessions row the deletion guard already loaded. Sessions
-        /// writes Status as a STRING (<c>status.ToString()</c> in UpdateSessionStatusAsync — never
-        /// an int), so this mirrors the canonical mapper's parse: <c>Enum.TryParse</c>,
-        /// case-insensitive. Returns null for missing/unparseable values (incl. a defensive int
-        /// fallback for any legacy numeric shape) — callers then fall back to their own read.
-        /// </summary>
-        internal static SessionStatus? TryReadSessionStatus(Azure.Data.Tables.TableEntity? sessionRow)
-        {
-            if (sessionRow == null || !sessionRow.TryGetValue("Status", out var statusValue))
-                return null;
-
-            return statusValue switch
-            {
-                string s when Enum.TryParse<SessionStatus>(s, ignoreCase: true, out var parsed) => parsed,
-                int i when Enum.IsDefined(typeof(SessionStatus), i) => (SessionStatus)i,
-                _ => null,
-            };
-        }
-
-        /// <summary>
         /// Routes every item of the batch by <see cref="TelemetryItemDto.Kind"/> into its storage
         /// shape. Pure and total: an item whose Kind is not a <see cref="TelemetryItemKind"/> name
         /// or whose payload the parser cannot use lands in <see cref="PartitionedBatch.Rejected"/>
@@ -596,7 +576,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private async Task<(string? adminAction, List<ServerAction>? pendingActions)>
             ReadControlSignalsAsync(string tenantId, string sessionId)
         {
-            var session = await _sessionRepo.GetSessionAsync(tenantId, sessionId);
+            var session = await _sessionRepo.GetSessionIngestSnapshotAsync(tenantId, sessionId);
             if (session == null) return (null, null);
 
             // AdminAction carries the portal-button signal only. The old logic (Status ==

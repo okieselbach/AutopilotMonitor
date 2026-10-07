@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.DataAccess;
 using System.Linq;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.Models;
@@ -134,19 +135,21 @@ namespace AutopilotMonitor.Functions.Services
             });
 
         private SignalRMessageAction[] BuildSignalRMessages(
-            IngestEventsRequest request, SessionSummary? updatedSession, int processedCount,
+            IngestEventsRequest request, SessionIngestSnapshot? snapshot, int processedCount,
             List<RuleResult> newRuleResults)
         {
-            object? sessionDelta = updatedSession != null ? new {
-                updatedSession.CurrentPhase,
-                updatedSession.CurrentPhaseDetail,
-                updatedSession.Status,
-                updatedSession.FailureReason,
-                updatedSession.EventCount,
-                updatedSession.DurationSeconds,
-                updatedSession.CompletedAt,
-                updatedSession.DiagnosticsBlobName,
-                updatedSession.IsPreProvisioned
+            // The delta's member names are the portal's live-update contract (sessionUpdate); the
+            // snapshot carries exactly these fields, projected off the row.
+            object? sessionDelta = snapshot != null ? new {
+                snapshot.CurrentPhase,
+                snapshot.CurrentPhaseDetail,
+                snapshot.Status,
+                snapshot.FailureReason,
+                snapshot.EventCount,
+                snapshot.DurationSeconds,
+                snapshot.CompletedAt,
+                snapshot.DiagnosticsBlobName,
+                snapshot.IsPreProvisioned
             } : null;
 
             var summaryMessage = new SignalRMessageAction(Constants.SignalRMessages.NewEvents)

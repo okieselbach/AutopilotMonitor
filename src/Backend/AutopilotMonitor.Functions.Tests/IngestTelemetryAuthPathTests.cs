@@ -2,6 +2,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Functions.Ingest;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -37,7 +38,7 @@ namespace AutopilotMonitor.Functions.Tests;
 ///   <c>OrdinalIgnoreCase</c> equality Run performs (Run L169-180).</item>
 ///   <item>session deletion locked → 410: the real <see cref="SessionDeletionGuard"/> throwing
 ///   <see cref="SessionDeletionLockedException"/> (Run L205-213), plus the unique
-///   <see cref="IngestTelemetryFunction.TryReadSessionStatus"/> that consumes the guard's row.</item>
+///   <see cref="SessionRowProjections.TryReadStatus"/> that consumes the guard's row.</item>
 ///   <item>kill-switch / device-blocked → 200-block: NOT duplicated here. The verdict Run() routes
 ///   on (<c>IsBlocked</c>/<c>IsKill</c>/<c>UnblockAt</c>) is produced by
 ///   <see cref="Functions.Services.KillSwitchEvaluator"/> and is already exhaustively covered at the
@@ -138,7 +139,7 @@ public class IngestTelemetryAuthPathTests
     public async Task DeletionUnlocked_guard_returns_row_that_feeds_the_status_prefetch()
     {
         // Run L205-217: on an unlocked session the guard hands back the loaded row, and Run reads
-        // Status off it via TryReadSessionStatus to seed the stall-heal prefetch (no second read).
+        // Status off it via SessionRowProjections.TryReadStatus to seed the stall-heal prefetch (no second read).
         var guard = NewGuard(out var reader);
         var row = new TableEntity(TenantId, SessionId)
         {
@@ -151,10 +152,10 @@ public class IngestTelemetryAuthPathTests
         var returned = await guard.EnsureWritableAndGetRowAsync(TenantId, SessionId, callerContext: "V2.IngestTelemetry");
 
         Assert.Same(row, returned);
-        Assert.Equal(SessionStatus.Succeeded, IngestTelemetryFunction.TryReadSessionStatus(returned));
+        Assert.Equal(SessionStatus.Succeeded, SessionRowProjections.TryReadStatus(returned));
     }
 
-    // ============================================================ TryReadSessionStatus (unique helper)
+    // ============================================================ TryReadStatus (unique helper)
 
     [Theory]
     [InlineData("InProgress", SessionStatus.InProgress)]
@@ -164,27 +165,27 @@ public class IngestTelemetryAuthPathTests
     public void TryReadSessionStatus_parses_string_status_case_insensitively(string stored, SessionStatus expected)
     {
         var row = new TableEntity(TenantId, SessionId) { ["Status"] = stored };
-        Assert.Equal(expected, IngestTelemetryFunction.TryReadSessionStatus(row));
+        Assert.Equal(expected, SessionRowProjections.TryReadStatus(row));
     }
 
     [Fact]
     public void TryReadSessionStatus_returns_null_for_null_row()
     {
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(null));
+        Assert.Null(SessionRowProjections.TryReadStatus(null));
     }
 
     [Fact]
     public void TryReadSessionStatus_returns_null_when_status_column_absent()
     {
         var row = new TableEntity(TenantId, SessionId); // no Status column
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(row));
+        Assert.Null(SessionRowProjections.TryReadStatus(row));
     }
 
     [Fact]
     public void TryReadSessionStatus_returns_null_for_unparseable_status()
     {
         var row = new TableEntity(TenantId, SessionId) { ["Status"] = "NotARealStatus" };
-        Assert.Null(IngestTelemetryFunction.TryReadSessionStatus(row));
+        Assert.Null(SessionRowProjections.TryReadStatus(row));
     }
 
     // ============================================================ Harness (mirrors SessionDeletionGuardTests)
