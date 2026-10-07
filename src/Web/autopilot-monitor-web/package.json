@@ -51,6 +51,6 @@
   "overrides": {
     "postcss": "^8.5.12",
     "@nevware21/ts-utils": "^0.14.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   }
 }
