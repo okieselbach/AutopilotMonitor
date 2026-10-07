@@ -119,8 +119,78 @@ namespace AutopilotMonitor.Shared
         public static string PortalSessionUrl(string sessionId) =>
             $"{PortalBaseUrl}/sessions?id={System.Uri.EscapeDataString(sessionId ?? string.Empty)}";
 
+        /// <summary>
+        /// The pairing link shown as QR code and typed into the receiver app. The code travels in the
+        /// fragment (never reaches a server log); the trailing slash matches the static export.
+        /// </summary>
+        public static string PortalPushPairUrl(string code) =>
+            $"{PortalBaseUrl}/push/pair/#p={System.Uri.EscapeDataString(code ?? string.Empty)}";
+
+        /// <summary>Deep link into the receiver app's history (the notification's navigate target).</summary>
+        public static string PortalPushHistoryUrl(string entryId) =>
+            $"{PortalBaseUrl}/push/#e/{System.Uri.EscapeDataString(entryId ?? string.Empty)}";
+
         /// <summary>Public marketing/product website.</summary>
         public const string WebsiteBaseUrl = "https://www.autopilotmonitor.com";
+
+        /// <summary>
+        /// Web Push channel (plan push-relay): the wire-visible shapes the receiver app and the
+        /// backend agree on. Everything else about push lives in the backend.
+        /// </summary>
+        public static class Push
+        {
+            /// <summary>Header carrying the device token on the receiver's own routes — never a query or path segment (both land in telemetry).</summary>
+            public const string DeviceTokenHeader = "X-Push-Device-Token";
+
+            /// <summary>Scope key of the platform (operator) partition in PushDevices/PushSessionWatches; a tenant scope uses its GUID.</summary>
+            public const string PlatformScope = "platform";
+
+            /// <summary>
+            /// Pairing codes: 11 Crockford-base32 characters = 55 bits. The alphabet has no I/L/O/U, so a
+            /// code is typeable without ambiguity and can never contain the substrings MSAL,
+            /// the auth hint and the host guard react to in a URL fragment ("code=", "state=", "error").
+            /// </summary>
+            public const string CodeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+            public const int CodeLength = 11;
+
+            /// <summary>A grant may be redeemed within this window; a redeemed-but-unconfirmed device expires with it.</summary>
+            public const int PairingGrantMinutes = 10;
+
+            /// <summary>Failed redeem attempts after which a code is burnt (counted on the grant row).</summary>
+            public const int MaxRedeemFailures = 5;
+
+            /// <summary>Caps on the free text the anonymous redeem body may carry.</summary>
+            public const int MaxLabelLength = 40;
+            public const int MaxAppVersionLength = 32;
+
+            /// <summary>Closed list of receiver platforms the receiver reports; anything else is stored as "other".</summary>
+            public static readonly string[] Platforms =
+            {
+                "ios-homescreen", "android-chrome", "windows-chromium", "macos-safari", "firefox", "other",
+            };
+
+            /// <summary>
+            /// Device states. Only Active devices receive alerts. A revoked device has no state: the
+            /// wipe push goes out and the row is deleted.
+            /// </summary>
+            public static class DeviceStatus
+            {
+                public const string Pending = "Pending";
+                public const string Active = "Active";
+                public const string Paused = "Paused";
+                public const string Stale = "Stale";
+            }
+
+            /// <summary>Pairing grant states as the PC-side poll reports them.</summary>
+            public static class PairingStatus
+            {
+                public const string Pending = "Pending";
+                public const string Redeemed = "Redeemed";
+                public const string Confirmed = "Confirmed";
+                public const string Rejected = "Rejected";
+                public const string Expired = "Expired";
+            }
+        }
 
         /// <summary>Published customer documentation.</summary>
         public const string DocsBaseUrl = "https://docs.autopilotmonitor.com";
@@ -314,6 +384,22 @@ namespace AutopilotMonitor.Shared
 
             // ── MCP quota (McpQuotaEnforcementMiddleware) ──
             public const string QuotaExceeded = "QuotaExceeded";
+
+            // ── Web Push pairing + devices (Functions/Push) ──
+            /// <summary>404 on the anonymous redeem routes: unknown, expired AND already-used codes share this one answer.</summary>
+            public const string PairingCodeInvalid = "PairingCodeInvalid";
+            /// <summary>409: a concurrent redeem of the same code won the one-shot write.</summary>
+            public const string PairingCodeUsed = "PairingCodeUsed";
+            /// <summary>400: endpoint not a known push service, or keys of the wrong shape.</summary>
+            public const string InvalidSubscription = "InvalidSubscription";
+            /// <summary>401: the device token does not match a device row.</summary>
+            public const string InvalidDeviceToken = "InvalidDeviceToken";
+            /// <summary>404: the device row is gone (revoked, expired, offboarded) — the receiver must re-pair.</summary>
+            public const string DeviceNotFound = "DeviceNotFound";
+            /// <summary>409: pairing or watching needs an enabled Push channel in this scope first.</summary>
+            public const string PushChannelRequired = "PushChannelRequired";
+            /// <summary>403: the caller holds no table-backed Admin/Operator (tenant) or GlobalAdmin (platform) role.</summary>
+            public const string PushNotEligible = "PushNotEligible";
 
             /// <summary>413: an upload or download exceeds the configured size cap.</summary>
             public const string PayloadTooLarge = "PayloadTooLarge";
@@ -1581,6 +1667,27 @@ namespace AutopilotMonitor.Shared
             // NOT in the critical-backup set.
             public const string SessionTenantLookup = "SessionTenantLookup";
 
+            // Web Push channel (plan push-relay). PushDevices and PushPairingGrants are credentials
+            // (CredentialBearing: denied on the raw table surface, TableQueryFunction); none of the
+            // four is in the critical-table backup (re-pairing is the recovery path) and none
+            // carries anything the portal did not already show the owner.
+            //   PushDevices       PK = scope ("platform" or tenantId), RK = deviceId. One paired
+            //                     device: endpoint + keys (RFC 8291), owner (UPN/oid/home tenant),
+            //                     hashed device secret, VAPID kid, status, delivery + flood counters.
+            //   PushOwners        PK = owner's HOME tenant, RK = oid. LastSignInUtc stamped once per
+            //                     portal sign-in — the freshness source that retires devices of
+            //                     people who stopped signing in (roles are app-internal, never
+            //                     Entra-synchronized). Never pruned on its own.
+            //   PushPairingGrants PK = "grant", RK = SHA-256(code). Ten-minute one-shot pairing
+            //                     codes; TenantId property for the offboarding property wipe;
+            //                     expired lazily on redeem and by the maintenance sweep.
+            //   PushSessionWatches PK = tenantId, RK = "{sessionId}_{oid}". "Notify me when this
+            //                     session ends"; consumed at the terminal status.
+            public const string PushDevices = "PushDevices";
+            public const string PushOwners = "PushOwners";
+            public const string PushPairingGrants = "PushPairingGrants";
+            public const string PushSessionWatches = "PushSessionWatches";
+
             /// <summary>
             /// Returns all table names for initialization
             /// </summary>
@@ -1653,6 +1760,21 @@ namespace AutopilotMonitor.Shared
                 ConfigurationBackups,
                 SessionAnnotations,
                 SessionTenantLookup,
+                PushDevices,
+                PushOwners,
+                PushPairingGrants,
+                PushSessionWatches,
+            };
+
+            /// <summary>
+            /// Tables whose rows are credentials (push endpoints, key material, hashed secrets).
+            /// Denied on the raw table surface (GET global/raw/tables, MCP query_table) so a
+            /// Global Admin's AI assistant can never receive a send capability for someone's phone.
+            /// </summary>
+            public static readonly string[] CredentialBearing = new[]
+            {
+                PushDevices,
+                PushPairingGrants,
             };
         }
 

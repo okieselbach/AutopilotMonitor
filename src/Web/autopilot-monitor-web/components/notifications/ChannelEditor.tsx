@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NotificationChannel } from "@/app/settings/types";
+import { PUSH_PROVIDER } from "@/lib/pushPortal";
 
 /**
  * Shared channel editor card, used by BOTH the tenant Notifications section and the platform
@@ -13,11 +14,15 @@ import { NotificationChannel } from "@/app/settings/types";
 const GENERIC_PROVIDER = 20;
 const TELEGRAM_PROVIDER = 40;
 
+/** Default destination sentence of a Push channel (tenant scope); the ops card passes its own. */
+export const PUSH_DESTINATION_HINT_TENANT =
+  "Delivers to the devices that Admins and Operators of this tenant pair under Notifications › Push devices. Preview: Global Administrators only.";
+
 export const PROVIDERS: {
   value: number;
   label: string;
   placeholder: string;
-  /** Offered only to Global Admins (platform-owned transport). */
+  /** Offered only to Global Admins (platform-owned transport: Telegram, Push). */
   gaOnly?: boolean;
 }[] = [
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/..." },
@@ -29,6 +34,10 @@ export const PROVIDERS: {
   // not a control). An already-configured Telegram channel stays visible and readable either
   // way, so saving unrelated changes cannot silently drop it.
   { value: TELEGRAM_PROVIDER, label: "Telegram (mobile push)", placeholder: "-1003785642894", gaOnly: true },
+  // Web Push to the devices paired in this scope (plan push-relay). No destination: the
+  // recipients are the scope's paired devices, so the URL field gives way to one sentence.
+  // GA-only like Telegram until the customer release (K4: one gate until then).
+  { value: PUSH_PROVIDER, label: "Push to paired devices", placeholder: "", gaOnly: true },
 ];
 
 const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: string }[] = [
@@ -148,6 +157,7 @@ export function ChannelEditor({
   testResult,
   showTelegramProvider = false,
   showEventToggles = true,
+  pushDestinationHint = PUSH_DESTINATION_HINT_TENANT,
 }: {
   channel: NotificationChannel;
   onChange: (next: NotificationChannel) => void;
@@ -155,14 +165,18 @@ export function ChannelEditor({
   onTest: () => void;
   testing: boolean;
   testResult: { success: boolean; message: string } | null;
-  /** Global Admin: may pick the platform-bot Telegram provider. */
+  /** Global Admin: may pick the platform-owned providers (Telegram bot, Web Push). */
   showTelegramProvider?: boolean;
   /** Tenant channels subscribe to event kinds here; ops channels are targeted by rules instead. */
   showEventToggles?: boolean;
+  /** The sentence shown in place of the URL field for a Push channel (names the host's own devices panel). */
+  pushDestinationHint?: string;
 }) {
   const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
-  const isActive = channel.enabled && (channel.url ?? "").length > 0;
   const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
+  const isPush = channel.providerType === PUSH_PROVIDER;
+  // A Push channel has no destination, so it is configured by being enabled alone.
+  const isActive = channel.enabled && (isPush || (channel.url ?? "").length > 0);
   // Keep the channel's own provider listed even when gated, so a GA-created Telegram channel
   // does not silently render as a different provider for a tenant admin.
   const providerOptions = PROVIDERS.filter(
@@ -211,9 +225,12 @@ export function ChannelEditor({
             // Custom headers and the signing secret are generic-only; clear them when leaving the
             // generic provider so a later switch back can't revive stale secrets and persist them
             // to a new endpoint.
+            // A Push channel must not carry a URL (the backend refuses one), so the destination
+            // is cleared on the way in; switching back to a webhook provider starts empty.
             onChange({
               ...channel,
               providerType: next,
+              url: next === PUSH_PROVIDER ? "" : channel.url,
               customHeadersJson: next === GENERIC_PROVIDER ? channel.customHeadersJson : undefined,
               signingSecret: next === GENERIC_PROVIDER ? channel.signingSecret : undefined,
             });
@@ -228,7 +245,20 @@ export function ChannelEditor({
         </select>
       </div>
 
+      {/* Destination: a Push channel has none — one sentence says where it delivers. */}
+      {isPush && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-gray-500 flex-1 min-w-0">{pushDestinationHint}</p>
+          {isActive && (
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
+              Active
+            </span>
+          )}
+        </div>
+      )}
+
       {/* URL */}
+      {!isPush && (
       <div>
         <label className="block">
           <span className="text-gray-700 font-medium text-sm">{isTelegram ? "Chat ID" : "Webhook URL"}</span>
@@ -261,6 +291,7 @@ export function ChannelEditor({
           </div>
         </label>
       </div>
+      )}
 
       {/* Custom Headers (generic provider only) */}
       {channel.providerType === GENERIC_PROVIDER && (

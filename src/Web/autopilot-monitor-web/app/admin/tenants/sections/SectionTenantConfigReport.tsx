@@ -35,6 +35,7 @@ const WEBHOOK_PROVIDERS: Record<number, string> = {
   20: 'Generic JSON',
   30: 'Discord',
   40: 'Telegram',
+  50: 'Push',
 };
 
 const SOURCE_LABELS: Record<RuntimeSource, string> = {

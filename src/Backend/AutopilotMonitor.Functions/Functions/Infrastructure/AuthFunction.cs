@@ -38,6 +38,7 @@ public class AuthFunction
     private readonly ISignalRNotificationService _signalRService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly IOffboardingAuditRepository _offboardingRepo;
+    private readonly IPushDeviceRepository? _pushRepo;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -55,9 +56,11 @@ public class AuthFunction
         AdminIdentityResolver identityResolver,
         ISignalRNotificationService signalRService,
         AdminConfigurationService adminConfigService,
-        IOffboardingAuditRepository offboardingRepo)
+        IOffboardingAuditRepository offboardingRepo,
+        IPushDeviceRepository? pushRepo = null)
     {
         _logger = logger;
+        _pushRepo = pushRepo;
         _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
@@ -612,6 +615,21 @@ public class AuthFunction
             .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                 "Fire-and-forget RecordUserLoginAsync failed"),
                 TaskContinuationOptions.OnlyOnFaulted);
+
+        // Push freshness stamp (K3): one upsert per portal sign-in, keyed by the person (home
+        // tenant + oid), so paired devices of someone who stopped signing in pause after the
+        // inactivity window. Awaited — a lost stamp is an early pause; fail-soft — never a 500.
+        if (_pushRepo != null && !string.IsNullOrEmpty(objectId))
+        {
+            try
+            {
+                await _pushRepo.StampOwnerSignInAsync(tenantId, objectId, upn, DateTime.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Push owner sign-in stamp failed for tenant {TenantId}", tenantId);
+            }
+        }
     }
 
     /// <summary>

@@ -10,39 +10,52 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     /// (enrollment, SLA, analyze rules, ops alerts) goes through here, so a new provider is added
     /// in exactly one place.
     /// <para>
-    /// Two transports today: <see cref="WebhookProviderType.Telegram"/> goes to
+    /// Three transports: <see cref="WebhookProviderType.Telegram"/> goes to
     /// <see cref="TelegramNotificationService"/> (plain text through the platform bot, the channel's
-    /// Url field carrying the chat ID); everything else is a rendered webhook POST via
-    /// <see cref="WebhookNotificationService"/>. Telegram is deliberately NOT a renderer — it has no
-    /// endpoint URL of its own and must never reach the SSRF-guarded webhook path.
+    /// Url field carrying the chat ID); <see cref="WebhookProviderType.Push"/> goes to the
+    /// <see cref="IPushChannelSender"/> (encrypted Web Push to the paired devices of the
+    /// <see cref="NotificationScope"/>, the channel carrying no destination at all); everything
+    /// else is a rendered webhook POST via <see cref="WebhookNotificationService"/>. Neither
+    /// Telegram nor Push is a renderer — they have no caller-supplied endpoint and must never
+    /// reach the SSRF-guarded webhook path.
     /// </para>
     /// </summary>
     public class NotificationChannelDispatcher
     {
         private readonly WebhookNotificationService _webhook;
         private readonly TelegramNotificationService _telegram;
+        private readonly IPushChannelSender _push;
 
         public NotificationChannelDispatcher(
             WebhookNotificationService webhook,
-            TelegramNotificationService telegram)
+            TelegramNotificationService telegram,
+            IPushChannelSender push)
         {
             _webhook = webhook;
             _telegram = telegram;
+            _push = push;
         }
 
         /// <summary>
         /// Sends a notification to every channel in <paramref name="channels"/> (callers pre-filter
         /// by <see cref="NotificationChannel.Enabled"/> and the relevant NotifyOn* toggle, or by
-        /// rule-level channel ids). Channels are dispatched sequentially and independently — a
-        /// failing destination only logs a warning and never blocks the remaining channels or the
-        /// caller's pipeline.
+        /// rule-level channel ids) on behalf of <paramref name="scope"/>. Channels are dispatched
+        /// sequentially and independently — a failing destination only logs a warning and never
+        /// blocks the remaining channels or the caller's pipeline.
         /// </summary>
-        public virtual async Task SendToChannelsAsync(IEnumerable<NotificationChannel> channels, NotificationAlert alert)
+        public virtual async Task SendToChannelsAsync(
+            IEnumerable<NotificationChannel> channels, NotificationAlert alert, NotificationScope scope)
         {
             foreach (var channel in channels)
             {
-                if (channel == null || string.IsNullOrEmpty(channel.Url))
+                if (channel == null || !channel.HasDestination())
                     continue;
+
+                if (channel.ProviderType == (int)WebhookProviderType.Push)
+                {
+                    await _push.SendAsync(scope, alert);
+                    continue;
+                }
 
                 if (channel.ProviderType == (int)WebhookProviderType.Telegram)
                 {
@@ -63,10 +76,14 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// Sends to a single channel and REPORTS the outcome — the "send test notification"
         /// endpoints. Not fire-and-forget; never throws.
         /// </summary>
-        public virtual async Task<WebhookTestResult> SendWithResultAsync(NotificationChannel channel, NotificationAlert alert)
+        public virtual async Task<WebhookTestResult> SendWithResultAsync(
+            NotificationChannel channel, NotificationAlert alert, NotificationScope scope)
         {
-            if (channel == null || string.IsNullOrWhiteSpace(channel.Url))
+            if (channel == null || !channel.HasDestination())
                 return new WebhookTestResult { Success = false, Message = "This channel has no destination configured." };
+
+            if (channel.ProviderType == (int)WebhookProviderType.Push)
+                return await _push.SendWithResultAsync(scope, alert);
 
             if (channel.ProviderType == (int)WebhookProviderType.Telegram)
                 return await _telegram.SendAlertWithResultAsync(channel.Url!, alert);

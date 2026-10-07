@@ -67,3 +67,47 @@ export interface DependencyItemLike {
 export function shouldDropDependency(item: DependencyItemLike, patterns: readonly RegExp[]): boolean {
   return [item.target, item.data].some((url) => typeof url === "string" && /^https?:\/\//i.test(url) && isExcludedRequest(url, patterns));
 }
+
+// --- Page-view URLs: the fragment never leaves the browser ---------------------------------------
+//
+// The SDK records the document URL on page views (`pageViews.url`, from `baseData.uri`, plus the
+// previous URL in `refUri` for auto route tracking) and on the page-load timings
+// (`browserTimings.url`, same field). It copies `location.href` with the fragment, and the push
+// receiver carries a one-shot pairing code in its fragment (`/push/pair/#p=<code>`, K8) — a
+// secret that must not reach telemetry. The telemetry initializer below cuts every fragment off
+// those two item kinds; no page of this app keys anything on a fragment that telemetry needs.
+
+/** `baseType` of the SDK items whose `baseData.uri`/`refUri` carry the document URL. */
+export const PAGE_VIEW_BASE_TYPES: readonly string[] = ["PageviewData", "PageviewPerformanceData"];
+
+/** The URL up to (excluding) its first `#`; a URL without a fragment is returned unchanged. */
+export function stripUrlFragment(url: string): string {
+  const hash = url.indexOf("#");
+  return hash >= 0 ? url.slice(0, hash) : url;
+}
+
+/** The fields of an ITelemetryItem this initializer reads and writes. */
+export interface PageViewEnvelopeLike {
+  baseType?: string;
+  baseData?: Record<string, unknown>;
+}
+
+/**
+ * For `addTelemetryInitializer`: removes the fragment from `uri` and `refUri` of a page view or
+ * page-view-performance item, in place. Other item kinds and missing fields are left alone.
+ * Returns true when something was cut, for the tests.
+ */
+export function stripPageViewFragments(envelope: PageViewEnvelopeLike): boolean {
+  if (!envelope.baseType || !PAGE_VIEW_BASE_TYPES.includes(envelope.baseType) || !envelope.baseData) return false;
+  let changed = false;
+  for (const field of ["uri", "refUri"]) {
+    const value = envelope.baseData[field];
+    if (typeof value !== "string") continue;
+    const stripped = stripUrlFragment(value);
+    if (stripped !== value) {
+      envelope.baseData[field] = stripped;
+      changed = true;
+    }
+  }
+  return changed;
+}

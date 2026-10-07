@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- BCL only: RFC 8291 (aes128gcm) and RFC 8292 (VAPID) need nothing beyond
+         System.Security.Cryptography, so this library carries no package, logging or
+         hosting dependency and returns results instead of logging. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AutopilotMonitor.Push.Tests" />
+  </ItemGroup>
+
+</Project>

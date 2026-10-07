@@ -57,7 +57,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     ? channels.FirstOrDefault(c => string.Equals(c.Id, channelId, StringComparison.OrdinalIgnoreCase))
                     : channels.FirstOrDefault();
 
-                if (channel == null || string.IsNullOrEmpty(channel.Url))
+                if (channel == null || !channel.HasDestination())
                 {
                     // 200 with success=false on purpose: a missing channel is a configuration state the
                     // UI renders inline, not a failed request.
@@ -71,7 +71,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
-                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert);
+                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert, NotificationScope.Tenant(requestCtx.TargetTenantId));
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new TestWebhookNotificationResponse

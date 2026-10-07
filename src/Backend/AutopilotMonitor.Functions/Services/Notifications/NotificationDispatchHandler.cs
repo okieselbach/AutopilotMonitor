@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 return;
             }
 
-            await _dispatcher.SendToChannelsAsync(targets, envelope.Alert).ConfigureAwait(false);
+            await _dispatcher.SendToChannelsAsync(targets, envelope.Alert, NotificationScope.Tenant(envelope.TenantId)).ConfigureAwait(false);
         }
     }
 }

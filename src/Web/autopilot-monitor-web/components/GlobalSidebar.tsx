@@ -12,6 +12,7 @@ import { deriveNavFlags, filterExpandableNavGroups, isNavGroupVisible } from "..
 import { useAdminMode } from "../hooks/useAdminMode";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { DOCS_URL } from "@/utils/config";
+import { isPushAppPath } from "@/lib/push/pushAppPath";
 
 // Sidebar pixel widths
 export const SIDEBAR_PX: Record<CollapseState, number> = {
@@ -209,8 +210,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     }
   }
 
-  // Landing page: never show sidebar
-  if (pathname === "/") {
+  // Landing page and the push receiver (its own shell): never show sidebar
+  if (pathname === "/" || isPushAppPath(pathname)) {
     return <>{children}</>;
   }
 

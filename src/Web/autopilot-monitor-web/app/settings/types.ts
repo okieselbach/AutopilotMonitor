@@ -9,8 +9,9 @@ export interface NotificationChannel {
   /** Stable id (UUID, generated on creation). Rules reference channels by this id. */
   id: string;
   name: string;
-  /** 2=Teams Workflow, 10=Slack, 20=Generic JSON, 30=Discord, 40=Telegram */
+  /** 2=Teams Workflow, 10=Slack, 20=Generic JSON, 30=Discord, 40=Telegram, 50=Push (paired devices) */
   providerType: number;
+  /** Webhook URL, or the chat id for Telegram; absent/empty for Push (the backend refuses a destination on it). */
   url?: string;
   /** JSON object string { "Header-Name": "value" }; generic provider only. */
   customHeadersJson?: string;

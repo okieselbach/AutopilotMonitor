@@ -143,6 +143,24 @@ describe("staticwebapp.config.json guard", () => {
     }
   });
 
+  it("serves the push receiver's worker, core module and manifest revalidated (K26)", () => {
+    // A cached service worker would keep an old handler contract alive for up to a day
+    // (the browser's SW update check honours Cache-Control up to 24 h); the manifest is read
+    // at install time. `no-cache` revalidates every fetch — never `immutable`, never `no-store`
+    // (the worker must still be installable offline from the HTTP cache).
+    const byRoute = Object.fromEntries(config.routes.map((r) => [r.route, r]));
+    for (const route of ["/push/sw.js", "/push/sw-core.js", "/push/manifest.webmanifest"]) {
+      expect(byRoute[route]?.headers?.["Cache-Control"], `${route} must be no-cache`).toBe("no-cache");
+    }
+  });
+
+  it("CSP names worker-src and manifest-src explicitly for the push receiver (K26)", () => {
+    const csp = config.globalHeaders["Content-Security-Policy"];
+    const directives = csp.split(";").map((d) => d.trim());
+    expect(directives).toContain("worker-src 'self'");
+    expect(directives).toContain("manifest-src 'self'");
+  });
+
   it("has a 404 responseOverride to the exported 404 page", () => {
     expect(config.responseOverrides?.["404"]?.rewrite).toBe("/404.html");
   });

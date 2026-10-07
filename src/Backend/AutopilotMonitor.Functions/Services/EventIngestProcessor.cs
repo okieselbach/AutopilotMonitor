@@ -49,6 +49,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly Ime.IImeMsiArchiveProducer _imeMsiArchiveProducer;
         private readonly IConfiguration _configuration;
         private readonly Ime.ImePatternHealthService _imePatternHealth;
+        private readonly Push.IPushSessionWatchNotifier? _pushWatchNotifier;
 
         /// <summary>App setting kill switch: set to "true" to skip the CMTrace skew tripwire entirely. Fail-open — the tripwire only notifies, it never mutates data.</summary>
         internal const string CmTraceSkewTripwireKillSwitchSetting = "CmTraceSkewTripwireDisabled";
@@ -71,8 +72,10 @@ namespace AutopilotMonitor.Functions.Services
             IVulnerabilityCorrelateProducer vulnProducer,
             Ime.IImeMsiArchiveProducer imeMsiArchiveProducer,
             IConfiguration configuration,
-            Ime.ImePatternHealthService imePatternHealth)
+            Ime.ImePatternHealthService imePatternHealth,
+            Push.IPushSessionWatchNotifier? pushWatchNotifier = null)
         {
+            _pushWatchNotifier = pushWatchNotifier;
             _imePatternHealth = imePatternHealth;
             _logger = logger;
             _sessionRepo = sessionRepo;

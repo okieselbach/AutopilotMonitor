@@ -29,6 +29,8 @@ const PRIVATE_PATHS = [
   "/admin/",
   "/settings",
   "/activation",
+  // The push receiver (installable, code-paired): nothing to index.
+  "/push",
 ];
 
 // Crawlers behind AI answer engines (training, search index, and on-demand

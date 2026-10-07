@@ -1160,6 +1160,27 @@ namespace AutopilotMonitor.Functions.Services
                 new { alertRule, monitorCondition, azureSeverity, monitoringService, targetResource, metricValue });
         }
 
+        /// <summary>
+        /// The push sender got a configuration-class answer (400/401/403) from a push service, or a
+        /// device's VAPID kid matches no configured key. Error. Deduplicated to one per cause and
+        /// hour by the caller; details carry the service, status and kid — never an endpoint.
+        /// </summary>
+        public virtual Task RecordPushDeliveryFailedAsync(string service, int? statusCode, string kid, string reason)
+            => WriteAsync(OpsEventCategory.Platform, OpsEventTypes.PushDeliveryFailed, OpsEventSeverity.Error,
+                $"Push delivery to {service} failed: {reason}" + (statusCode is int s ? $" (HTTP {s})" : string.Empty),
+                null, "System.Push",
+                new { service, statusCode, kid, reason, portalPath = "/admin/settings/alerts" });
+
+        /// <summary>
+        /// A pairing or re-subscribe named an endpoint outside the push-service allow-list. Warning;
+        /// the hostname is the only endpoint-derived value recorded (the endpoint is a credential).
+        /// </summary>
+        public virtual Task RecordPushEndpointRefusedAsync(string host, string scopeKind)
+            => WriteAsync(OpsEventCategory.Platform, OpsEventTypes.PushEndpointRefused, OpsEventSeverity.Warning,
+                $"Push subscription refused: {host} is not a known push service",
+                null, "System.Push",
+                new { host, scope = scopeKind });
+
         // ── Core write method ──────────────────────────────────────────────────
 
         private async Task WriteAsync(string category, string eventType, string severity,

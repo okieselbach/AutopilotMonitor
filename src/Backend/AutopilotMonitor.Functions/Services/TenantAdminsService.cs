@@ -38,6 +38,30 @@ public class TenantAdminsService
     }
 
     /// <summary>
+    /// The container picks this (longest satisfiable) constructor; the three-argument one stays
+    /// for the tests that mock the service with positional arguments (Moq does not fill optional
+    /// parameters).
+    /// </summary>
+    public TenantAdminsService(
+        IAdminRepository adminRepo,
+        IMemoryCache cache,
+        ILogger<TenantAdminsService> logger,
+        Push.IPushDeviceRevoker pushRevoker)
+        : this(adminRepo, cache, logger)
+    {
+        _pushRevoker = pushRevoker;
+    }
+
+    private readonly Push.IPushDeviceRevoker? _pushRevoker;
+
+    /// <summary>
+    /// Role-loss hook (K6): a member who is removed, disabled or demoted below Operator loses the
+    /// paired push devices of this tenant — wipe push first, then the rows. Fail-soft.
+    /// </summary>
+    private Task RevokePushDevicesAsync(string tenantId, string upn, string reason)
+        => _pushRevoker?.RevokeOwnerAsync(Notifications.NotificationScope.Tenant(tenantId), upn, reason) ?? Task.CompletedTask;
+
+    /// <summary>
     /// Checks if a UPN is a Tenant Admin for a specific tenant
     /// Uses caching for performance
     /// </summary>
@@ -117,6 +141,7 @@ public class TenantAdminsService
         await _adminRepo.RemoveTenantMemberAsync(tenantId, upn);
 
         InvalidateMemberCache(tenantId, upn);
+        await RevokePushDevicesAsync(tenantId, upn, "member_removed");
 
         _logger.LogInformation($"Removed Tenant Admin: {upn} from tenant {tenantId}");
     }
@@ -132,6 +157,7 @@ public class TenantAdminsService
         await _adminRepo.SetTenantMemberEnabledAsync(tenantId, upn, false);
 
         InvalidateMemberCache(tenantId, upn);
+        await RevokePushDevicesAsync(tenantId, upn, "member_disabled");
 
         _logger.LogInformation($"Disabled Tenant Admin: {upn} for tenant {tenantId}");
     }
@@ -289,6 +315,8 @@ public class TenantAdminsService
         if (result)
         {
             InvalidateMemberCache(tenantId, upn);
+            if (role != Constants.TenantRoles.Admin && role != Constants.TenantRoles.Operator)
+                await RevokePushDevicesAsync(tenantId, upn, "role_lost");
             _logger.LogInformation("Updated member permissions: {Upn} -> role={Role}, canManageBootstrap={CanManageBootstrap} in tenant {TenantId}", upn, role, canManageBootstrapTokens, tenantId);
         }
 

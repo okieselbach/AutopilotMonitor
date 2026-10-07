@@ -37,11 +37,11 @@ public class TelegramChannelProviderTests
     {
         var webhook = WebhookMock();
         var telegram = TelegramMock();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>());
         var alert = new NotificationAlert { Title = "t", Summary = "s" };
 
         await dispatcher.SendToChannelsAsync(
-            new[] { Channel((int)WebhookProviderType.Telegram, "-1003785642894") }, alert);
+            new[] { Channel((int)WebhookProviderType.Telegram, "-1003785642894") }, alert, NotificationScope.Platform);
 
         telegram.Verify(t => t.SendOpsAlertAsync("-1003785642894", alert), Times.Once);
         webhook.Verify(w => w.SendNotificationAsync(
@@ -54,11 +54,11 @@ public class TelegramChannelProviderTests
     {
         var webhook = WebhookMock();
         var telegram = TelegramMock();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>());
         var alert = new NotificationAlert { Title = "t", Summary = "s" };
 
         await dispatcher.SendToChannelsAsync(
-            new[] { Channel((int)WebhookProviderType.Slack, "https://hooks.slack.example/x") }, alert);
+            new[] { Channel((int)WebhookProviderType.Slack, "https://hooks.slack.example/x") }, alert, NotificationScope.Platform);
 
         webhook.Verify(w => w.SendNotificationAsync(
             "https://hooks.slack.example/x", WebhookProviderType.Slack, alert,
@@ -71,14 +71,14 @@ public class TelegramChannelProviderTests
     {
         var webhook = WebhookMock();
         var telegram = TelegramMock();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>());
         var alert = new NotificationAlert { Title = "t", Summary = "s" };
 
         await dispatcher.SendToChannelsAsync(new[]
         {
             Channel((int)WebhookProviderType.Telegram, "-100123", "tg"),
             Channel((int)WebhookProviderType.GenericJson, "https://sales.example/hook", "sales"),
-        }, alert);
+        }, alert, NotificationScope.Platform);
 
         telegram.Verify(t => t.SendOpsAlertAsync("-100123", alert), Times.Once);
         webhook.Verify(w => w.SendNotificationAsync(
@@ -91,13 +91,13 @@ public class TelegramChannelProviderTests
     {
         var webhook = WebhookMock();
         var telegram = TelegramMock();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>());
 
         await dispatcher.SendToChannelsAsync(new[]
         {
             Channel((int)WebhookProviderType.Telegram, null, "tg"),
             Channel((int)WebhookProviderType.Slack, "", "slack"),
-        }, new NotificationAlert { Title = "t", Summary = "s" });
+        }, new NotificationAlert { Title = "t", Summary = "s" }, NotificationScope.Platform);
 
         telegram.Verify(t => t.SendOpsAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
         webhook.Verify(w => w.SendNotificationAsync(
@@ -112,11 +112,11 @@ public class TelegramChannelProviderTests
         var telegram = TelegramMock();
         telegram.Setup(t => t.SendAlertWithResultAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
             .ReturnsAsync(new WebhookTestResult { Success = true, Message = "ok" });
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>());
 
         var result = await dispatcher.SendWithResultAsync(
             Channel((int)WebhookProviderType.Telegram, "@salesdesk"),
-            new NotificationAlert { Title = "t", Summary = "s" });
+            new NotificationAlert { Title = "t", Summary = "s" }, NotificationScope.Platform);
 
         Assert.True(result.Success);
         telegram.Verify(t => t.SendAlertWithResultAsync("@salesdesk", It.IsAny<NotificationAlert>()), Times.Once);

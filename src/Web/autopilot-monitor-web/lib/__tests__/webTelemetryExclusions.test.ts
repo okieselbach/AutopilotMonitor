@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildOwnOriginNonApiPatterns, isExcludedRequest, shouldDropDependency } from "../webTelemetryExclusions";
+import {
+  buildOwnOriginNonApiPatterns,
+  isExcludedRequest,
+  PAGE_VIEW_BASE_TYPES,
+  shouldDropDependency,
+  stripPageViewFragments,
+  stripUrlFragment,
+} from "../webTelemetryExclusions";
 
 const PORTAL = "https://portal.example.test";
 const WWW = "https://www.example.test";
@@ -65,5 +72,38 @@ describe("web telemetry dependency exclusions", () => {
     ])("keeps %s", (_name, item) => {
       expect(shouldDropDependency(item, patterns)).toBe(false);
     });
+  });
+});
+
+describe("page-view fragment stripping (the pairing code never reaches pageViews.url)", () => {
+  const PAIR = `${PORTAL}/push/pair/#p=7Q3MK9T2XH4`;
+
+  it("cuts the fragment and keeps the rest of the URL", () => {
+    expect(stripUrlFragment(PAIR)).toBe(`${PORTAL}/push/pair/`);
+    expect(stripUrlFragment(`${PORTAL}/push/#e/abc`)).toBe(`${PORTAL}/push/`);
+    expect(stripUrlFragment(`${PORTAL}/sessions?id=1#x#y`)).toBe(`${PORTAL}/sessions?id=1`);
+    expect(stripUrlFragment(`${PORTAL}/sessions?id=1`)).toBe(`${PORTAL}/sessions?id=1`);
+    expect(stripUrlFragment("")).toBe("");
+  });
+
+  it.each(PAGE_VIEW_BASE_TYPES.map((t) => [t]))("strips uri and refUri of a %s item in place", (baseType) => {
+    const envelope = { baseType, baseData: { name: "Pair", uri: PAIR, refUri: `${PORTAL}/push/#e/abc`, duration: 12 } };
+    expect(stripPageViewFragments(envelope)).toBe(true);
+    expect(envelope.baseData).toEqual({ name: "Pair", uri: `${PORTAL}/push/pair/`, refUri: `${PORTAL}/push/`, duration: 12 });
+  });
+
+  it("reports no change for a page view without a fragment and never touches other fields", () => {
+    const envelope = { baseType: "PageviewData", baseData: { uri: `${PORTAL}/dashboard/`, name: "Dashboard#1" } };
+    expect(stripPageViewFragments(envelope)).toBe(false);
+    expect(envelope.baseData).toEqual({ uri: `${PORTAL}/dashboard/`, name: "Dashboard#1" });
+  });
+
+  it("leaves other item kinds and malformed items alone", () => {
+    const dependency = { baseType: "RemoteDependencyData", baseData: { uri: PAIR, target: PAIR } };
+    expect(stripPageViewFragments(dependency)).toBe(false);
+    expect(dependency.baseData.uri).toBe(PAIR);
+    expect(stripPageViewFragments({ baseType: "PageviewData" })).toBe(false);
+    expect(stripPageViewFragments({ baseData: { uri: PAIR } })).toBe(false);
+    expect(stripPageViewFragments({ baseType: "PageviewData", baseData: { uri: 42, refUri: null } })).toBe(false);
   });
 });

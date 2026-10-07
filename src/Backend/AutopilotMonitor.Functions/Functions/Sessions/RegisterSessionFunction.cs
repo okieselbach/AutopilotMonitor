@@ -408,7 +408,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     isResume: isResume,
                     sessionUrl: sessionUrl);
 
-                await _channelDispatcher.SendToChannelsAsync(startChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(startChannels, alert, NotificationScope.Tenant(tenantId));
             }
             catch (Exception ex)
             {

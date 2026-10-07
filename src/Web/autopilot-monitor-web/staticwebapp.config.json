@@ -26,6 +26,9 @@
     { "route": "/landing/*", "headers": { "Cache-Control": "public, max-age=86400" } },
     { "route": "/version.json", "headers": { "Cache-Control": "no-store" } },
     { "route": "/whats-new.json", "headers": { "Cache-Control": "public, max-age=300" } },
+    { "route": "/push/sw.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/push/sw-core.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/push/manifest.webmanifest", "headers": { "Cache-Control": "no-cache" } },
 
     { "route": "/sessions/index.txt", "rewrite": "/sessions/index.txt" },
     { "route": "/sessions/network-timeline/index.txt", "rewrite": "/sessions/network-timeline/index.txt" },
@@ -60,6 +63,6 @@
     "Permissions-Policy": "unload=()",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; font-src 'self'; connect-src 'self' https://autopilotmonitor-api-eu.azurewebsites.net https://autopilotmonitoreu.blob.core.windows.net https://login.microsoftonline.com https://graph.microsoft.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com; frame-ancestors 'none'"
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; font-src 'self'; worker-src 'self'; manifest-src 'self'; connect-src 'self' https://autopilotmonitor-api-eu.azurewebsites.net https://autopilotmonitoreu.blob.core.windows.net https://login.microsoftonline.com https://graph.microsoft.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com; frame-ancestors 'none'"
   }
 }

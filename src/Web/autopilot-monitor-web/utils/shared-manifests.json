@@ -473,7 +473,8 @@
     "Slack": 10,
     "GenericJson": 20,
     "Discord": 30,
-    "Telegram": 40
+    "Telegram": 40,
+    "Push": 50
   },
   "annotationLanes": [
     "operator",
@@ -662,7 +663,9 @@
     "SlaBreachNotification",
     "SlaConsecutiveFailures",
     "SlaEvaluationCompleted",
-    "AzureMonitorAlert"
+    "AzureMonitorAlert",
+    "PushDeliveryFailed",
+    "PushEndpointRefused"
   ],
   "logSources": [
     "backend",
@@ -688,6 +691,13 @@
     "TenantSuspended",
     "ClientAppNotRegistered",
     "QuotaExceeded",
+    "PairingCodeInvalid",
+    "PairingCodeUsed",
+    "InvalidSubscription",
+    "InvalidDeviceToken",
+    "DeviceNotFound",
+    "PushChannelRequired",
+    "PushNotEligible",
     "PayloadTooLarge",
     "TelemetryItemsRejected",
     "SessionOwnerMismatch",
@@ -5057,6 +5067,40 @@
         }
       ]
     },
+    "BeginPairRequest": {
+      "kind": "object",
+      "doc": "POST push/pair/begin — the receiver validates its code before asking for notification permission.",
+      "fields": [
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "BeginPairResponse": {
+      "kind": "object",
+      "doc": "The VAPID application server key the receiver must subscribe with, and its identity.",
+      "fields": [
+        {
+          "name": "kid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "vapidPublicKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Uncompressed P-256 point, base64url — pushManager.subscribe({applicationServerKey})."
+        }
+      ]
+    },
     "BlockDeviceRequest": {
       "kind": "object",
       "doc": "Body of POST devices/block (Global Admin).",
@@ -5818,6 +5862,19 @@
         }
       ]
     },
+    "ConfirmPairingResponse": {
+      "kind": "object",
+      "doc": "POST push/pairings/{pairingId}/confirm — the device is Active from now on.",
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "CpeMappingItem": {
       "kind": "object",
       "doc": "One CPE mapping row (seed, custom, or community) as browsed by the Admin UI.",
@@ -6125,6 +6182,43 @@
           "type": {
             "kind": "ref",
             "name": "McpClientRegistrationItem"
+          }
+        }
+      ]
+    },
+    "CreatePairingResponse": {
+      "kind": "object",
+      "doc": "POST push/pairings · POST global/push/pairings — a fresh pairing code for the caller's own person.",
+      "fields": [
+        {
+          "name": "pairingId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Handle for the PC-side status poll and the confirm/reject calls."
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The 11-character code to type into the receiver app."
+        },
+        {
+          "name": "url",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The same code as the pairing link (QR payload): …/push/pair/#p=<code>."
+        },
+        {
+          "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]
@@ -14561,6 +14655,62 @@
         }
       ]
     },
+    "PairingDeviceDto": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "platform",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "redeemedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "PairingStatusResponse": {
+      "kind": "object",
+      "doc": "GET push/pairings/{pairingId} — what the receiver has done with the code so far.",
+      "fields": [
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Pending · Redeemed (a device waits for confirmation) · Confirmed · Rejected · Expired."
+        },
+        {
+          "name": "device",
+          "type": {
+            "kind": "ref",
+            "name": "PairingDeviceDto"
+          },
+          "optional": true,
+          "doc": "The redeeming device, present from Redeemed on."
+        }
+      ]
+    },
     "PatchAdminConfigurationRequest": {
       "kind": "object",
       "doc": "Body of PATCH global/config: { \"fields\": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type.",
@@ -15312,6 +15462,189 @@
         }
       ]
     },
+    "PushDeviceDto": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "platform",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "pairedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "confirmedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastDeliveredUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastOpenedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "ownerUpn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "isOwn",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True for the caller's own devices."
+        }
+      ]
+    },
+    "PushDeviceListResponse": {
+      "kind": "object",
+      "doc": "GET push/devices · GET global/push/devices — own devices (everyone) plus every device of the scope (admins).",
+      "fields": [
+        {
+          "name": "devices",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "PushDeviceDto"
+            }
+          }
+        }
+      ]
+    },
+    "PushDeviceStatusResponse": {
+      "kind": "object",
+      "doc": "GET/PUT push/device — the receiver's own view of its registration.",
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Pending · Active · Paused · Stale (a revoked device is gone: the token answers 401)."
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "platform",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "pairedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "confirmedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastDeliveredUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "ownerUpn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The owner's UPN — this is the owner's own device."
+        },
+        {
+          "name": "scopeName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Tenant display name, or \"Platform operator\" for the platform scope."
+        }
+      ]
+    },
     "QueryBackendLogsErrorResponse": {
       "kind": "object",
       "doc": "Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query.",
@@ -15985,6 +16318,110 @@
         }
       ]
     },
+    "RedeemPairRequest": {
+      "kind": "object",
+      "doc": "POST push/pair — the receiver hands over its subscription; the device is created Pending.",
+      "fields": [
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "endpoint",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "p256dh",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "auth",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "platform",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "appVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "RedeemPairResponse": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "deviceToken",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"{scope}.{deviceId}.{secret}\" — the receiver's only credential; header X-Push-Device-Token."
+        },
+        {
+          "name": "deviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Always Pending here; the PC confirms."
+        },
+        {
+          "name": "pollSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Suggested interval for the receiver's status poll while Pending."
+        }
+      ]
+    },
     "RegisterSessionRequest": {
       "kind": "object",
       "doc": "Request to register a new session",
@@ -16608,6 +17045,40 @@
           },
           "optional": true,
           "doc": "Optional free-text justification, persisted into the deletion_restored audit row's reason detail. Trimmed and capped at 1024 chars by the endpoint."
+        }
+      ]
+    },
+    "ResubscribeRequest": {
+      "kind": "object",
+      "doc": "PUT push/device — a changed or re-created subscription (same device, same owner).",
+      "fields": [
+        {
+          "name": "endpoint",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "p256dh",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "auth",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       ]
     },
@@ -20292,6 +20763,27 @@
             "kind": "enum",
             "name": "TimeAttributionFlags"
           }
+        }
+      ]
+    },
+    "SessionWatchResponse": {
+      "kind": "object",
+      "doc": "PUT sessions/{sessionId}/watch — \"notify my devices when this session ends\".",
+      "fields": [
+        {
+          "name": "watching",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
         }
       ]
     },

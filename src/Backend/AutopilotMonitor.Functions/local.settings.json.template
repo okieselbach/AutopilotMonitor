@@ -9,6 +9,14 @@
     "// DataStorage": "Connection the [QueueTrigger] functions under Functions/Queue bind to (Constants.QueueNames.TriggerConnection). Locally a connection string; in Azure the identity form 'DataStorage__queueServiceUri=https://<data-account>.queue.core.windows.net'. The Functions host resolves it, so it cannot be derived from AzureStorageAccountName in code.",
     "DataStorage": "UseDevelopmentStorage=true",
 
+    "// Web Push channel": "Optional. Without Push__Vapid__ActiveKey the Push notification provider is off (pairing refuses, sends are skipped). ActiveKey = the 96-byte base64url form from infra/scripts/push/New-VapidKeys.ps1 (generated once; rotating it invalidates every paired device, see plan push-relay K17); RetiredKeys = ';'-separated older keys devices may still reference; Subject = VAPID contact (mailto: or https://, default: the product website); OwnerInactivityDays = devices pause when their owner has not signed in for this long (default 30); PausedDeviceRetentionDays = paused devices are deleted this long after the owner's last sign-in (default 90); StaleDeviceRetentionDays = devices whose endpoint is gone are deleted after this long (default 14).",
+    "Push__Vapid__ActiveKey": "",
+    "Push__Vapid__RetiredKeys": "",
+    "Push__Vapid__Subject": "",
+    "Push__OwnerInactivityDays": "30",
+    "Push__PausedDeviceRetentionDays": "90",
+    "Push__StaleDeviceRetentionDays": "14",
+
     "// SignalR quota watcher": "Optional. Set to the full Azure resource id of the SignalR Service to enable hourly OpsEvents when the plan limits are approached (defaults: Standard S1 x1 unit = 1000 connections / 1M messages per day; override the limits when adding units or changing tier). Function App's managed identity needs 'Monitoring Reader' on this resource. Leave unset to skip the watcher.",
     "SignalRResourceId": "",
     "SignalRConnectionLimit": "1000",

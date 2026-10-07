@@ -149,6 +149,18 @@ describe("hostRouting public/portal guard", () => {
     expect(isPublicPath("/aboutx")).toBe(false);
   });
 
+  it("the push receiver is portal surface and never public (K24)", () => {
+    // /push/ has no sign-in, but it pairs against the portal origin: its service worker scope,
+    // manifest id and hand-off cookie are bound to that host. Listing it as public would
+    // install the receiver on www and leave every pairing link on the wrong origin.
+    for (const r of ["/push", "/push/", "/push/pair", "/push/pair/", "/push/status/", "/push/sw.js", "/push/manifest.webmanifest"]) {
+      expect(isPublicPath(r), `${r} must be portal`).toBe(false);
+    }
+    expect(pageByRoute.get("/push")?.isProtected, "/push renders no ProtectedRoute (it has no sign-in)").toBe(false);
+    expect(pageByRoute.get("/push/pair")?.isProtected).toBe(false);
+    expect(pageByRoute.get("/push/status")?.isProtected).toBe(false);
+  });
+
   /**
    * Pins the HostRoutingGuard safety rules (prod incident 2026-07-30: sign-ins
    * landed back on the www landing page). The guard's effect can run before
@@ -186,6 +198,18 @@ describe("hostRouting public/portal guard", () => {
       expect(decideHostBounce({ ...www, ...anon, pathname: "/dashboard" })).toBe("to-portal");
       expect(
         decideHostBounce({ ...www, ...anon, pathname: "/dashboard", isAuthLoading: true }),
+      ).toBe("to-portal");
+    });
+
+    it("the push receiver stays on portal, signed in or not (K24)", () => {
+      // Anonymous on the portal host: the receiver renders where it is.
+      expect(decideHostBounce({ ...portal, ...anon, pathname: "/push/" })).toBeNull();
+      expect(decideHostBounce({ ...portal, ...anon, pathname: "/push/pair/", isAuthLoading: true })).toBeNull();
+      // A pairing link that reaches www is sent to portal, with its #p= fragment intact (the guard keeps the hash).
+      expect(decideHostBounce({ ...www, ...anon, pathname: "/push/pair/" })).toBe("to-portal");
+      // The pairing fragment is not an auth response: it must not suppress the www → portal bounce.
+      expect(
+        decideHostBounce({ ...www, ...anon, pathname: "/push/pair/", hasAuthResponse: /[#&](code|state|error)=/.test("#p=7Q3MK9T2XH4") }),
       ).toBe("to-portal");
     });
 

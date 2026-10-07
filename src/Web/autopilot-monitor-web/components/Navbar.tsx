@@ -20,6 +20,7 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { WhatsNewCountBadge, WhatsNewIconBadge } from "./WhatsNewPanel";
 import { openFeedbackDialog } from "@/lib/feedbackDialogStore";
+import { isPushAppPath } from "@/lib/push/pushAppPath";
 
 export default function Navbar() {
   const { isAuthenticated, user, hasGlobalScope, logout } = useAuth();
@@ -74,8 +75,8 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Don't render navbar on landing page (root route)
-  if (pathname === '/') {
+  // Don't render navbar on landing page (root route) or in the push receiver (its own shell)
+  if (pathname === '/' || isPushAppPath(pathname)) {
     return null;
   }
 

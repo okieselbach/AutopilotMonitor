@@ -41,6 +41,7 @@ import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
 import ReportSessionModal, { type ReportSubmission } from "./components/ReportSessionModal";
 import CollectLogsButton from "./components/CollectLogsButton";
+import SessionWatchButton from "./components/SessionWatchButton";
 import SessionAnnotationsCard from "./components/SessionAnnotationsCard";
 import { usePageSections } from "../../hooks/usePageSections";
 import { PageSectionItem } from "../../contexts/SidebarContext";
@@ -569,6 +570,17 @@ function SessionDetailContent() {
                 </svg>
                 Report Session
               </button>
+            )}
+            {/* "Notify me when done" (plan push-relay): same Admin/Operator/GA gate as Report Session; the
+                component hides itself once the session is terminal. */}
+            {!isReadOnlyView && canReportSession && (
+              <SessionWatchButton
+                sessionId={sessionId}
+                effectiveTenantId={sessionTenantId || tenantId}
+                sessionStatus={session?.status}
+                getAccessToken={getAccessToken}
+                addNotification={addNotification}
+              />
             )}
             <DocsLink path={DOCS_PATHS.sessionDetails} label="Docs" />
           </div>

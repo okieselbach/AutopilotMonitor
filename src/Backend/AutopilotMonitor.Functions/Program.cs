@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Functions.Services.Push;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -503,6 +504,30 @@ builder.Services.AddTransient<IEmailService>(sp => sp.GetRequiredService<EmailSe
 builder.Services.AddTransient<IOffboardFarewellEmailSender>(sp => sp.GetRequiredService<EmailService>());
 builder.Services.AddSingleton<GlobalNotificationService>();
 builder.Services.AddSingleton<TenantNotificationService>();
+
+// Web Push channel (plan push-relay). Settings are read once (an invalid or missing VAPID key
+// turns the channel off with a startup warning); the sender is a singleton over the SSRF-gated
+// "push" client; the delivery service is the dispatcher's Push transport AND the role-loss
+// revoker; OpsEventService is reached lazily because the ops alert path leads back into the
+// dispatcher (OpsEventService → OpsAlertDispatchService → dispatcher → push sender).
+builder.Services.AddSingleton(sp => AutopilotMonitor.Functions.Services.Push.PushSettings.Load(
+    builder.Configuration, sp.GetRequiredService<ILoggerFactory>().CreateLogger("Push")));
+builder.Services.AddPushSender();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushEligibility>();
+builder.Services.AddSingleton(sp => new Lazy<OpsEventService>(() => sp.GetRequiredService<OpsEventService>()));
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushDeliveryService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Notifications.IPushChannelSender>(
+    sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Push.PushDeliveryService>());
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushDeviceRevoker>(
+    sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Push.PushDeliveryService>());
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushPairingService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushMaintenanceService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushSessionWatchService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushSessionWatchNotifier>(
+    sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Push.PushSessionWatchService>());
+// Push endpoints are per-device send capabilities: the dependency rows for the push services
+// keep scheme + host only (K20).
+builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.PushDependencyRedactionProcessor>();
 
 var app = builder.Build();
 

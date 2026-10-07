@@ -547,7 +547,7 @@ namespace AutopilotMonitor.Functions.Services
             var slaChannels = GetSlaChannels(config);
             if (slaChannels.Count > 0)
             {
-                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert, Notifications.NotificationScope.Tenant(config.TenantId));
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -590,7 +590,7 @@ namespace AutopilotMonitor.Functions.Services
             var slaChannels = GetSlaChannels(config);
             if (slaChannels.Count > 0)
             {
-                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert, Notifications.NotificationScope.Tenant(config.TenantId));
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -678,7 +678,7 @@ namespace AutopilotMonitor.Functions.Services
                     var slaChannels = GetSlaChannels(config);
                     if (slaChannels.Count > 0)
                     {
-                        await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
+                        await _channelDispatcher.SendToChannelsAsync(slaChannels, alert, Notifications.NotificationScope.Tenant(config.TenantId));
                     }
 
                     await _tenantNotificationService.CreateNotificationAsync(

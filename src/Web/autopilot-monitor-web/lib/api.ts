@@ -5,6 +5,7 @@
 import { API_BASE_URL } from "@/utils/config";
 import type { BackupOutcome } from "@/utils/wire-types.generated";
 import { appInstallSourceParam } from "@/lib/appInstallSources";
+import type { PushScope } from "@/lib/pushPortal";
 
 function qs(params: Record<string, string | undefined>): string {
   const p = new URLSearchParams();
@@ -13,6 +14,11 @@ function qs(params: Record<string, string | undefined>): string {
   }
   const str = p.toString();
   return str ? `?${str}` : "";
+}
+
+/** Route prefix of the two Web Push families; anything but "platform" is the own-tenant family. */
+function pushRoot(scope: PushScope): string {
+  return scope === "platform" ? "global/push" : "push";
 }
 
 export const api = {
@@ -74,6 +80,11 @@ export const api = {
     // PUT { verdict, note } — upserts one lane; both fields null/empty clears it.
     annotation: (sessionId: string, lane: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/annotations/${encodeURIComponent(lane)}${qs({ tenantId })}`,
+    // GET/PUT/DELETE — "notify my paired devices when this session ends" (plan push-relay).
+    // TenantAdminOrOperator with query-param tenant scoping like the annotations route, so the
+    // session's tenant travels as ?tenantId= exactly as the page passes it there.
+    watch: (sessionId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/watch${qs({ tenantId })}`,
     quickSearch: (q: string) =>
       `${API_BASE_URL}/api/search/quick${qs({ q })}`,
     // Server-side free-text search (dashboard search box) — substring across the same
@@ -831,6 +842,32 @@ export const api = {
   health: {
     detailed: () => `${API_BASE_URL}/api/health/detailed`,
     mcp: () => `${API_BASE_URL}/api/health/mcp`,
+  },
+
+  // ── Web Push (paired devices, plan push-relay) ────────────────────────────
+  // Two route families with one shape: `push/…` is the caller's OWN tenant (JWT scope,
+  // TenantAdminOrOperator), `global/push/…` the platform scope (GlobalAdminOnly). The scope
+  // picks the prefix; every id is a path segment and goes through encodeURIComponent.
+  push: {
+    /** POST → 201 CreatePairingResponse; 409 PushChannelRequired without an enabled Push channel. */
+    pairings: (scope: PushScope) => `${API_BASE_URL}/api/${pushRoot(scope)}/pairings`,
+    /** GET → PairingStatusResponse (Pending · Redeemed · Confirmed · Rejected · Expired). */
+    pairing: (scope: PushScope, pairingId: string) =>
+      `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}`,
+    /** POST → ConfirmPairingResponse; 409 when the pairing is not waiting for confirmation. */
+    confirmPairing: (scope: PushScope, pairingId: string) =>
+      `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}/confirm`,
+    /** POST → 204. */
+    rejectPairing: (scope: PushScope, pairingId: string) =>
+      `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}/reject`,
+    /** GET → PushDeviceListResponse (own devices; scope admins see every device, isOwn marks the caller's). */
+    devices: (scope: PushScope) => `${API_BASE_URL}/api/${pushRoot(scope)}/devices`,
+    /** DELETE → 204 (own device, or any for scope admins; the wipe push goes out first). */
+    device: (scope: PushScope, deviceId: string) =>
+      `${API_BASE_URL}/api/${pushRoot(scope)}/devices/${encodeURIComponent(deviceId)}`,
+    /** POST → TestWebhookNotificationResponse. */
+    testDevice: (scope: PushScope, deviceId: string) =>
+      `${API_BASE_URL}/api/${pushRoot(scope)}/devices/${encodeURIComponent(deviceId)}/test`,
   },
 
   // ── Realtime (SignalR) ────────────────────────────────────────────────────

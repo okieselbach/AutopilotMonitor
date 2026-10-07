@@ -477,7 +477,8 @@ export const SHARED_MANIFEST = {
     "Slack": 10,
     "GenericJson": 20,
     "Discord": 30,
-    "Telegram": 40
+    "Telegram": 40,
+    "Push": 50
   },
   "annotationLanes": [
     "operator",
@@ -666,7 +667,9 @@ export const SHARED_MANIFEST = {
     "SlaBreachNotification",
     "SlaConsecutiveFailures",
     "SlaEvaluationCompleted",
-    "AzureMonitorAlert"
+    "AzureMonitorAlert",
+    "PushDeliveryFailed",
+    "PushEndpointRefused"
   ],
   "logSources": [
     "backend",
@@ -692,6 +695,13 @@ export const SHARED_MANIFEST = {
     "TenantSuspended",
     "ClientAppNotRegistered",
     "QuotaExceeded",
+    "PairingCodeInvalid",
+    "PairingCodeUsed",
+    "InvalidSubscription",
+    "InvalidDeviceToken",
+    "DeviceNotFound",
+    "PushChannelRequired",
+    "PushNotEligible",
     "PayloadTooLarge",
     "TelemetryItemsRejected",
     "SessionOwnerMismatch",

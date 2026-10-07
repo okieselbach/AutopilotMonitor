@@ -43,6 +43,22 @@ const config = [
       "@typescript-eslint/no-require-imports": "off",
     },
   },
+  {
+    // The push receiver's service worker and its shared core are ES modules
+    // served verbatim from public/; they run in the worker global scope.
+    files: ["public/push/**/*.js"],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        self: "readonly",
+        indexedDB: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
+      },
+    },
+  },
 ];
 
 export default config;

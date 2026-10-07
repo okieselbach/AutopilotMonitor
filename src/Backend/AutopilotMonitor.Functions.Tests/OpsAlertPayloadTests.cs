@@ -1,5 +1,7 @@
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Newtonsoft.Json.Linq;
 
@@ -7,7 +9,8 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Ops-event payload delivery: the structured Details object reaches outbound channels, both as
-/// readable facts (card + Telegram formats) and verbatim under "data" (generic JSON consumers).
+/// readable facts (card + Telegram formats) and verbatim under "data" (generic JSON consumers),
+/// and only the channels whose rule opted in get it — on the platform scope, like every ops send.
 /// Before this, an alert carried only category/event/severity and a tenant GUID.
 /// </summary>
 public class OpsAlertPayloadTests
@@ -131,5 +134,40 @@ public class OpsAlertPayloadTests
 
         Assert.Contains("Domain Name: contoso.example", text);
         Assert.Contains("Pro trial started", text);
+    }
+
+    // ── Through DispatchAsync ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_PayloadReachesOnlyTheOptedInChannel_OnThePlatformScope()
+    {
+        const string subjectTenant = "11111111-1111-1111-1111-111111111111";
+        const string details = """{"domainName":"contoso.invalid","selfService":true}""";
+        var h = new OpsNotificationChannelsTests.DispatchHarness(
+            new[]
+            {
+                new OpsAlertRule { EventType = "TenantTrialStarted", MinSeverity = OpsEventSeverity.Info, NotifyChannelIds = new List<string> { "ops" } },
+                new OpsAlertRule { EventType = "TenantTrialStarted", MinSeverity = OpsEventSeverity.Info, NotifyChannelIds = new List<string> { "sales" }, IncludePayload = true },
+            },
+            new[]
+            {
+                new NotificationChannel { Id = "ops", Name = "ops", ProviderType = 20, Url = "https://ops.example.invalid/hook", Enabled = true },
+                new NotificationChannel { Id = "sales", Name = "sales", ProviderType = 20, Url = "https://sales.example.invalid/hook", Enabled = true },
+            });
+
+        await h.Sut.DispatchAsync(OpsEventCategory.Tenant, "TenantTrialStarted", OpsEventSeverity.Info,
+            "Pro trial started", subjectTenant, details);
+
+        Assert.Equal(2, h.Sends.Count);
+        var plain = h.Sends.Single(s => s.Channels.Any(c => c.Id == "ops"));
+        var withPayload = h.Sends.Single(s => s.Channels.Any(c => c.Id == "sales"));
+
+        Assert.Null(plain.Alert.DataJson);
+        Assert.DoesNotContain(plain.Alert.Facts, f => f.Name == "Domain Name");
+
+        Assert.Equal(details, withPayload.Alert.DataJson);
+        Assert.Contains(withPayload.Alert.Facts, f => f.Name == "Domain Name" && f.Value == "contoso.invalid");
+        // The with-payload send is as platform-scoped as the plain one: the subject tenant owns no ops channel.
+        Assert.Equal(NotificationScope.Platform, withPayload.Scope);
     }
 }

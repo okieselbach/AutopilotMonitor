@@ -32,6 +32,11 @@ const cases: Case[] = [
   { name: "signed-in browser on a public page: AuthGate is not there to lift the overlay", pathname: "/about/", hash: "", hostname: "www.autopilotmonitor.com", storage: { "msal.2.account.keys": '["abc-def"]' }, expected: false },
   { name: "auth response hash on a non-root path", pathname: "/plans/", hash: "#code=abc&state=y", hostname: "www.autopilotmonitor.com", storage: {}, expected: false },
   { name: "portal host, non-root path", pathname: "/dashboard/", hash: "", hostname: PORTAL_HOSTNAME, storage: {}, expected: false },
+  // Push receiver fragments (K8): a pairing code or a history deep link is never an auth response,
+  // even on the root path where the hint applies.
+  { name: "push pairing fragment is not an auth response", hash: "#p=ABCDEFGHJKM", hostname: "www.autopilotmonitor.com", storage: {}, expected: false },
+  { name: "push history deep link is not an auth response", hash: "#e/123", hostname: "www.autopilotmonitor.com", storage: {}, expected: false },
+  { name: "push pairing fragment on the pair page", pathname: "/push/pair/", hash: "#p=ABCDEFGHJKM", hostname: "www.autopilotmonitor.com", storage: {}, expected: false },
 ];
 
 function runInlineScript(c: Case): boolean {

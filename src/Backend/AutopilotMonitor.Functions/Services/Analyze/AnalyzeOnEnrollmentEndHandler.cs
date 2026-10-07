@@ -216,7 +216,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                     var alert = Notifications.NotificationAlertBuilder.BuildRuleFiredAlert(
                         result, session?.DeviceName, session?.SerialNumber, sessionUrl);
 
-                    await _channelDispatcher.SendToChannelsAsync(targets, alert).ConfigureAwait(false);
+                    await _channelDispatcher.SendToChannelsAsync(targets, alert, Notifications.NotificationScope.Tenant(envelope.TenantId)).ConfigureAwait(false);
 
                     _logger.LogInformation(
                         "{Prefix} Rule-notify: {RuleId} → {ChannelCount} channel(s)",

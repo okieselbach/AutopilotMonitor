@@ -49,6 +49,28 @@ public class GlobalAdminService
     }
 
     /// <summary>
+    /// The container picks this (longest satisfiable) constructor; the four-argument one stays
+    /// for the tests that mock the service with positional arguments (Moq does not fill optional
+    /// parameters).
+    /// </summary>
+    public GlobalAdminService(
+        IAdminRepository adminRepo,
+        AdminIdentityBindingService bindings,
+        IMemoryCache cache,
+        ILogger<GlobalAdminService> logger,
+        Push.IPushDeviceRevoker pushRevoker)
+        : this(adminRepo, bindings, cache, logger)
+    {
+        _pushRevoker = pushRevoker;
+    }
+
+    private readonly Push.IPushDeviceRevoker? _pushRevoker;
+
+    /// <summary>Role-loss hook (K6): a removed or disabled Global Admin loses the platform-scope push devices. Fail-soft.</summary>
+    private Task RevokePushDevicesAsync(string upn, string reason)
+        => _pushRevoker?.RevokeOwnerAsync(Notifications.NotificationScope.Platform, upn, reason) ?? Task.CompletedTask;
+
+    /// <summary>
     /// Checks whether the caller is a Global Admin (the GlobalAdmin platform role, identity-bound).
     /// </summary>
     /// <param name="identity">The caller's validated identity; null (missing upn/tid/oid) ⇒ false.</param>
@@ -148,6 +170,7 @@ public class GlobalAdminService
 
         // Invalidate cache
         _cache.Remove($"global-role:{upn}");
+        await RevokePushDevicesAsync(upn, "global_admin_removed");
     }
 
     /// <summary>
@@ -161,6 +184,7 @@ public class GlobalAdminService
 
         // Invalidate cache
         _cache.Remove($"global-role:{upn}");
+        await RevokePushDevicesAsync(upn, "global_admin_disabled");
     }
 
     /// <summary>

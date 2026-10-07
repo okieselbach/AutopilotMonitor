@@ -20,6 +20,21 @@ namespace AutopilotMonitor.Functions.Services
             SessionSummary? updatedSession, bool statusTransitioned, bool whiteGloveStatusTransitioned, string? failureReason,
             List<RuleResult> ruleResults)
         {
+            // A failure alert requires an actual failure-ish verdict: an agent_timeout
+            // enrollment_failed can honestly classify to AwaitingUser or even Succeeded
+            // (ApplyAgentGaveUpVerdictAsync), in which case failureReason stays null and no
+            // failure notification must go out for a session that did not fail.
+            var failureVerdictApplies = c.FailureEvent != null && failureReason != null;
+            var reachedTerminalStatus = statusTransitioned && (c.CompletionEvent != null || failureVerdictApplies);
+
+            // Session watches ("notify me when this session ends") fire on the same terminal gate
+            // as the enrollment alert, independent of any channel configuration. Fail-soft inside.
+            if (reachedTerminalStatus && _pushWatchNotifier != null)
+            {
+                await _pushWatchNotifier.NotifyAsync(request.TenantId, request.SessionId, c.CompletionEvent != null,
+                    updatedSession?.DeviceName, updatedSession?.SerialNumber).ConfigureAwait(false);
+            }
+
             var tenantConfig = await _configService.GetConfigurationAsync(request.TenantId);
             // Per-channel routing: each enabled channel opts into event kinds via its NotifyOn*
             // toggles. Legacy single-webhook tenants get one synthesized channel with their
@@ -40,12 +55,7 @@ namespace AutopilotMonitor.Functions.Services
                 ? Constants.PortalSessionUrl(request.SessionId)
                 : null;
 
-            // A failure alert requires an actual failure-ish verdict: an agent_timeout
-            // enrollment_failed can honestly classify to AwaitingUser or even Succeeded
-            // (ApplyAgentGaveUpVerdictAsync), in which case failureReason stays null and no
-            // failure notification must go out for a session that did not fail.
-            var failureVerdictApplies = c.FailureEvent != null && failureReason != null;
-            if (statusTransitioned && (c.CompletionEvent != null || failureVerdictApplies))
+            if (reachedTerminalStatus)
             {
                 var isSuccess = c.CompletionEvent != null;
                 var targets = isSuccess ? successChannels : failureChannels;

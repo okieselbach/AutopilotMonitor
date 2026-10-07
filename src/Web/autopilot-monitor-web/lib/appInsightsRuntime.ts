@@ -7,7 +7,7 @@ import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from "web-vitals";
 import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/utils/config";
 import type { TelemetryContext } from "./appInsights";
 import { normalizeRoute, toWebVitalTelemetry } from "./webVitals";
-import { buildOwnOriginNonApiPatterns, shouldDropDependency } from "./webTelemetryExclusions";
+import { buildOwnOriginNonApiPatterns, shouldDropDependency, stripPageViewFragments } from "./webTelemetryExclusions";
 
 /**
  * The App Insights SDK and the Web Vitals reporter. Reached only through the dynamic import in
@@ -71,6 +71,12 @@ export function createAppInsights(connectionString: string, context: TelemetryCo
     envelope.data["isGlobalAdmin"] = context.isGlobalAdmin;
     envelope.data["theme"] = context.theme;
     envelope.data["sidebarState"] = context.sidebarState;
+  });
+  // Page views and page-load timings copy location.href including the fragment; the push
+  // receiver's pairing code travels there (/push/pair/#p=<code>), so the fragment is cut off
+  // before the item leaves the browser. Returning nothing keeps the item.
+  appInsights.addTelemetryInitializer((envelope) => {
+    stripPageViewFragments(envelope);
   });
 
   appInsights.loadAppInsights();

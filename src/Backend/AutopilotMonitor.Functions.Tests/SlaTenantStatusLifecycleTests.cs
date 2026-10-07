@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Notifications;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
@@ -20,12 +21,36 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Lifecycle tests for <see cref="SlaBreachEvaluationService"/> + <see cref="SlaTenantStatus"/>.
 /// Locks the persistent-state semantics: one row per tenant; per-breach-type fields drive
 /// throttle + resolve detection; cooldown comes from AdminConfiguration.SlaNotificationCooldownHours.
+/// Every channel send (breach, resolve, inline consecutive failures) runs on the evaluated
+/// tenant's scope — the Push transport trusts it, so it is pinned here.
 /// </summary>
 public class SlaTenantStatusLifecycleTests
 {
     private const string TenantId = "tenant-aaa-bbb-ccc";
 
     // ── Fakes / helpers ─────────────────────────────────────────────────────
+
+    private sealed record ChannelSend(IReadOnlyList<NotificationChannel> Channels, NotificationAlert Alert, NotificationScope Scope);
+
+    /// <summary>A dispatcher that records every send with its scope instead of reaching a transport.</summary>
+    private static NotificationChannelDispatcher RecordingDispatcher(List<ChannelSend> sink)
+    {
+        var dispatcher = new Mock<NotificationChannelDispatcher>(null!, null!, null!);
+        dispatcher.Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>(), It.IsAny<NotificationScope>()))
+            .Callback<IEnumerable<NotificationChannel>, NotificationAlert, NotificationScope>((c, a, s) => sink.Add(new ChannelSend(c.ToList(), a, s)))
+            .Returns(Task.CompletedTask);
+        return dispatcher.Object;
+    }
+
+    /// <summary>Attaches one enabled SLA channel so the breach/resolve path reaches the dispatcher.</summary>
+    private static TenantConfiguration WithSlaChannel(TenantConfiguration config)
+    {
+        config.NotificationChannelsJson = NotificationChannel.SerializeList(new[]
+        {
+            new NotificationChannel { Id = "sla", Name = "sla", ProviderType = 20, Url = "https://hooks.example.invalid/sla", Enabled = true, NotifyOnSlaEvents = true },
+        });
+        return config;
+    }
 
     private sealed class InMemorySlaStatusRepository : ISlaTenantStatusRepository
     {
@@ -136,6 +161,8 @@ public class SlaTenantStatusLifecycleTests
         private readonly Mock<AdminConfigurationService> _adminConfig;
 
         public List<(string Type, string Title, string Message, string? Href)> NotificationsSent { get; } = new();
+        /// <summary>Every dispatcher send, with the scope the service passed.</summary>
+        public List<ChannelSend> ChannelSends { get; } = new();
 
         public Harness(int cooldownHours = 24, DateTime? clock = null)
         {
@@ -167,8 +194,7 @@ public class SlaTenantStatusLifecycleTests
             var opsRepo = new Mock<IOpsEventRepository>();
             opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
 
-            var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-            var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+            var channelDispatcher = RecordingDispatcher(ChannelSends);
             var alertDispatch = TestNotifications.InertOpsAlertDispatch(_adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
@@ -469,9 +495,11 @@ public class SlaTenantStatusLifecycleTests
 
     // Builds an inline-path SlaBreachEvaluationService wired to the shared StatusRepo, a
     // TenantConfigurationService backed by `config`, and a session page of `recentPage`.
-    // Returns the service plus the captured in-app notification types for assertions.
+    // Returns the service plus the captured in-app notification types for assertions; channel
+    // sends (with their scope) land in `channelSends` when one is passed.
     private static (SlaBreachEvaluationService Service, List<string> Captured) BuildInlineService(
-        InMemorySlaStatusRepository statusRepo, TenantConfiguration config, List<SessionSummary> recentPage)
+        InMemorySlaStatusRepository statusRepo, TenantConfiguration config, List<SessionSummary> recentPage,
+        List<ChannelSend>? channelSends = null)
     {
         var memCache = new MemoryCache(new MemoryCacheOptions());
         var configRepoMock = new Mock<IConfigRepository>();
@@ -493,8 +521,7 @@ public class SlaTenantStatusLifecycleTests
         sessionRepo.Setup(r => r.GetSessionsPageAsync(TenantId, It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>()))
             .ReturnsAsync(new RawPage<SessionSummary>(recentPage, null));
 
-        var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-        var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+        var channelDispatcher = RecordingDispatcher(channelSends ?? new List<ChannelSend>());
         var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminCfg.Object);
         var opsRepo = new Mock<IOpsEventRepository>();
         opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
@@ -986,7 +1013,7 @@ public class SlaTenantStatusLifecycleTests
                 .Returns(Task.CompletedTask);
 
             var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-            var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+            var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance), Mock.Of<IPushChannelSender>());
             var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
@@ -1061,5 +1088,54 @@ public class SlaTenantStatusLifecycleTests
         Assert.False(row!.AppInstall_IsActive);
         Assert.NotNull(row.AppInstall_ResolvedAt);
         Assert.Single(h.NotificationsSent, n => n.Type == "sla_resolved");
+    }
+
+    // ── Channel dispatch scope ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task BreachChannelSend_RunsOnTheEvaluatedTenantsScope()
+    {
+        var h = new Harness();
+        h.SetTenants(WithSlaChannel(CreateConfig(successRate: true)));
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 8, failed: 4)); // 66.7% < 95%
+
+        await h.Service.EvaluateAllTenantsAsync();
+
+        var send = Assert.Single(h.ChannelSends);
+        Assert.Equal("sla_breach", send.Alert.EventType);
+        Assert.Equal("sla", Assert.Single(send.Channels).Id);
+        Assert.Equal(NotificationScope.Tenant(TenantId), send.Scope);
+    }
+
+    [Fact]
+    public async Task ResolvedChannelSend_RunsOnTheEvaluatedTenantsScope()
+    {
+        var h = new Harness();
+        h.SetTenants(WithSlaChannel(CreateConfig(successRate: true)));
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 8, failed: 4));
+        await h.Service.EvaluateAllTenantsAsync();
+        h.ChannelSends.Clear();
+
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 12, failed: 0));
+        await h.Service.EvaluateAllTenantsAsync();
+
+        var send = Assert.Single(h.ChannelSends);
+        Assert.Equal("sla_resolved", send.Alert.EventType);
+        Assert.Equal(NotificationScope.Tenant(TenantId), send.Scope);
+    }
+
+    [Fact]
+    public async Task ConsecutiveFailures_InlinePath_ChannelSend_RunsOnTheTenantsScope()
+    {
+        var h = new Harness();
+        var sends = new List<ChannelSend>();
+        var (svc, _) = BuildInlineService(h.StatusRepo, WithSlaChannel(CreateConfig(consecutive: true, consecThreshold: 3)), FailedPage(3), sends);
+        var failedSession = new SessionSummary { TenantId = TenantId, SessionId = "s3", Status = SessionStatus.Failed, DeviceName = "DEV-01", FailureReason = "timeout" };
+
+        await svc.EvaluateSessionCompletionAsync(TenantId, failedSession);
+
+        var send = Assert.Single(sends);
+        Assert.Equal("consecutive_failures", send.Alert.EventType);
+        Assert.Equal(NotificationScope.Tenant(TenantId), send.Scope);
     }
 }

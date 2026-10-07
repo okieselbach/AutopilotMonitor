@@ -21,7 +21,8 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// What's new → channel digest: feed parsing, watermark semantics (baseline on first run, diff by
-/// entry key, claim-then-send with ETag CAS), per-channel opt-in routing, and the digest shape.
+/// entry key, claim-then-send with ETag CAS), per-channel opt-in routing, the per-tenant dispatch
+/// scope (the Push transport trusts it), and the digest shape.
 /// </summary>
 public class WhatsNewNotificationServiceTests
 {
@@ -79,6 +80,8 @@ public class WhatsNewNotificationServiceTests
         public Mock<IConfigRepository> ConfigRepo { get; } = new();
         public Mock<NotificationChannelDispatcher> Dispatcher { get; }
         public List<(List<NotificationChannel> Channels, NotificationAlert Alert)> Sent { get; } = new();
+        /// <summary>The scope of every dispatch, in send order (parallel to <see cref="Sent"/>).</summary>
+        public List<NotificationScope> Scopes { get; } = new();
         public WhatsNewNotificationService Service { get; }
         public DateTime Now { get; } = new(2026, 9, 8, 12, 0, 0, DateTimeKind.Utc);
 
@@ -86,12 +89,13 @@ public class WhatsNewNotificationServiceTests
         {
             var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
             var telegram = new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance);
-            Dispatcher = new Mock<NotificationChannelDispatcher>(webhook, telegram);
+            Dispatcher = new Mock<NotificationChannelDispatcher>(webhook, telegram, Mock.Of<IPushChannelSender>());
             Dispatcher
-                .Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>()))
-                .Returns<IEnumerable<NotificationChannel>, NotificationAlert>((channels, alert) =>
+                .Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>(), It.IsAny<NotificationScope>()))
+                .Returns<IEnumerable<NotificationChannel>, NotificationAlert, NotificationScope>((channels, alert, scope) =>
                 {
                     Sent.Add((channels.ToList(), alert));
+                    Scopes.Add(scope);
                     return Task.CompletedTask;
                 });
 
@@ -288,6 +292,7 @@ public class WhatsNewNotificationServiceTests
         var (channels, alert) = Assert.Single(h.Sent);
         Assert.Equal("yes", Assert.Single(channels).Id);
         Assert.Equal("whats_new", alert.EventType);
+        Assert.Equal(NotificationScope.Tenant("opted-in"), Assert.Single(h.Scopes));
         Assert.Equal(2, alert.Sections.Count);
         Assert.Contains("2 new updates", alert.Summary);
         Assert.Contains("1 platform, 1 agent", alert.Summary);
@@ -297,6 +302,23 @@ public class WhatsNewNotificationServiceTests
         Assert.Equal(new[] { "agent:c", "platform:a", "platform:b" }, state.KnownEntryKeys.OrderBy(k => k));
         Assert.Equal(h.Now, state.LastNotifiedUtc);
         Assert.Equal(2, state.LastNotifiedEntryCount);
+    }
+
+    [Fact]
+    public async Task Run_NewEntries_DispatchesEachDigestOnTheTenantsOwnScope()
+    {
+        const string first = "11111111-1111-1111-1111-111111111111";
+        const string second = "22222222-2222-2222-2222-222222222222";
+        var h = new Harness();
+        h.StateRepo.Seed("platform:a");
+        h.SetFeed(Feed(Entry("platform", "a"), Entry("platform", "b")));
+        h.SetTenants(Tenant(first, Channel("c1", whatsNew: true)), Tenant(second, Channel("c2", whatsNew: true)));
+
+        var result = await h.Service.RunAsync();
+
+        // One digest per tenant, each on that tenant's scope — a Push channel resolves its devices from it.
+        Assert.Equal(2, result.TenantsNotified);
+        Assert.Equal(new[] { NotificationScope.Tenant(first), NotificationScope.Tenant(second) }, h.Scopes);
     }
 
     [Fact]

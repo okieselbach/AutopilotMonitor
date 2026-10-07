@@ -1,14 +1,20 @@
+using System.Text.Json;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Platform (ops) notification channels: legacy-slot synthesis so the pre-channels dispatch
-/// behavior survives the migration untouched, per-rule channel routing, and redaction of the
+/// behavior survives the migration untouched, per-rule channel routing, the platform dispatch
+/// scope (an ops alert's tenant is its subject, never the channel owner), and redaction of the
 /// new secret-bearing field.
 /// </summary>
 public class OpsNotificationChannelsTests
@@ -265,5 +271,59 @@ public class OpsNotificationChannelsTests
         var candidate = NotificationChannel.SerializeList(new[] { Channel("sales") });
 
         Assert.Equal(candidate, NotificationChannel.RestoreRedactedList(candidate, ""));
+    }
+
+    // ── Dispatch scope ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_BothSends_UseThePlatformScope_NeverTheEventsTenant()
+    {
+        // The event is ABOUT a customer tenant; a Push channel among the ops channels must still
+        // reach the operators' devices only. Plain and payload sends alike.
+        const string subjectTenant = "11111111-1111-1111-1111-111111111111";
+        var h = new DispatchHarness(
+            new[] { Rule("TenantTrialStarted", "ops"), PayloadRule("TenantTrialStarted", "sales") },
+            new[] { Channel("ops"), Channel("sales") });
+
+        await h.Sut.DispatchAsync(OpsEventCategory.Tenant, "TenantTrialStarted", OpsEventSeverity.Info,
+            "Pro trial started", subjectTenant, """{"selfService":true}""");
+
+        Assert.Equal(2, h.Sends.Count);
+        Assert.Contains(h.Sends, s => s.Alert.DataJson == null);   // the plain send
+        Assert.Contains(h.Sends, s => s.Alert.DataJson != null);   // the with-payload send
+        Assert.All(h.Sends, s => Assert.Equal(NotificationScope.Platform, s.Scope));
+        Assert.DoesNotContain(h.Sends, s => s.Scope == NotificationScope.Tenant(subjectTenant));
+        // The tenant still travels — as the alert's subject, in a fact.
+        Assert.All(h.Sends, s => Assert.Contains(s.Alert.Facts, f => f.Name == "Tenant" && f.Value == subjectTenant));
+    }
+
+    /// <summary>
+    /// <see cref="OpsAlertDispatchService.DispatchAsync"/> against a recorded dispatcher: the admin
+    /// configuration carries the given rules and channels, every send is captured with its scope.
+    /// </summary>
+    internal sealed class DispatchHarness
+    {
+        public List<(IReadOnlyList<NotificationChannel> Channels, NotificationAlert Alert, NotificationScope Scope)> Sends { get; } = new();
+        public OpsAlertDispatchService Sut { get; }
+
+        public DispatchHarness(IEnumerable<OpsAlertRule> rules, IEnumerable<NotificationChannel> channels)
+        {
+            var config = new AdminConfiguration
+            {
+                UpdatedBy = "test",
+                OpsAlertRulesJson = JsonSerializer.Serialize(rules),
+                OpsNotificationChannelsJson = NotificationChannel.SerializeList(channels),
+            };
+            var adminConfig = new Mock<AdminConfigurationService>(
+                Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()));
+            adminConfig.Setup(a => a.GetConfigurationAsync()).ReturnsAsync(config);
+
+            var dispatcher = new Mock<NotificationChannelDispatcher>(null!, null!, null!);
+            dispatcher.Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>(), It.IsAny<NotificationScope>()))
+                .Callback<IEnumerable<NotificationChannel>, NotificationAlert, NotificationScope>((c, a, s) => Sends.Add((c.ToList(), a, s)))
+                .Returns(Task.CompletedTask);
+
+            Sut = new OpsAlertDispatchService(adminConfig.Object, dispatcher.Object, NullLogger<OpsAlertDispatchService>.Instance);
+        }
     }
 }
