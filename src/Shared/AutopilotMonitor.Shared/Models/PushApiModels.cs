@@ -94,6 +94,14 @@ namespace AutopilotMonitor.Shared.Models
         public string OwnerUpn { get; set; } = default!;
         /// <summary>Tenant display name, or "Platform operator" for the platform scope.</summary>
         public string ScopeName { get; set; } = default!;
+        /// <summary>
+        /// The platform's current VAPID key id. Differs from <see cref="Kid"/> after a key rotation:
+        /// the receiver then subscribes again with <see cref="ActiveVapidPublicKey"/> and PUTs the
+        /// new subscription with this kid — no re-pairing. Empty while the channel is unconfigured.
+        /// </summary>
+        public string ActiveKid { get; set; } = default!;
+        /// <summary>Uncompressed P-256 point, base64url, of the current key (what to subscribe with).</summary>
+        public string ActiveVapidPublicKey { get; set; } = default!;
     }
 
     /// <summary>PUT push/device — a changed or re-created subscription (same device, same owner).</summary>

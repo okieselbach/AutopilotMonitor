@@ -166,7 +166,10 @@ export type ReconcileResult =
  * `pushsubscriptionchange` never fires on iOS, so this is the only repair path there.
  * The decision itself is pure (decideReconcileAction); this function carries it out: a Stale
  * row means the held subscription is dead, so it is replaced and the new keys are PUT whatever
- * the endpoint comparison says — the server re-arms a Stale row only on PUT.
+ * the endpoint comparison says — the server re-arms a Stale row only on PUT. A rotated platform
+ * key (device.activeKid differs from the stored kid, B-y4z) is carried out the same way with the
+ * server's active key: subscribe again, PUT with the active kid, store key and kid — a
+ * re-registration on the next open, never a re-pair; the device token stays as it is.
  */
 export async function reconcileDevice(): Promise<ReconcileResult> {
   const meta = await readMeta().catch(() => ({}) as Record<string, string>);
@@ -189,27 +192,43 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
     const registration = (await getPushRegistration()) ?? (isPushSupported() ? await registerPushWorker() : null);
     if (registration) {
       let subscription = await registration.pushManager.getSubscription();
+      const permission = notificationPermission();
       const vapidPublicKey = meta[META_KEYS.vapidPublicKey];
+      // Empty while the channel is unconfigured; absent from a server older than B-y4z.
+      const activeVapidPublicKey = device.activeVapidPublicKey || "";
       const action = decideReconcileAction({
         serverStatus: device.status,
         heldEndpoint: subscription?.endpoint ?? null,
         metaEndpoint: meta[META_KEYS.endpoint] ?? null,
-        permission: notificationPermission(),
-        canSubscribe: Boolean(vapidPublicKey),
+        permission,
+        canSubscribe: Boolean(vapidPublicKey || activeVapidPublicKey),
+        metaKid: meta[META_KEYS.kid] ?? null,
+        activeKid: device.activeKid || null,
+        canRekey: Boolean(activeVapidPublicKey) && permission === "granted",
       });
-      if (action === "resubscribe") {
-        // The held one is dead (Stale) or absent; a failed subscribe() below leaves none.
+      // A fresh subscription uses the server's active key after a rotation, and also when the
+      // stored key is lost; otherwise the stored key, which is what the server's row expects.
+      const useActiveKey = action === "rekey" || (action === "resubscribe" && !vapidPublicKey);
+      const kid = useActiveKey ? device.activeKid : (meta[META_KEYS.kid] ?? device.kid);
+      if (action === "rekey" || action === "resubscribe") {
+        // The held one is dead (Stale), absent or made with a retired key; a failed subscribe() below leaves none.
         const held = subscription;
         subscription = null;
         if (held) await held.unsubscribe().catch(() => false);
-        subscription = await subscribeToPush(registration, vapidPublicKey);
+        subscription = await subscribeToPush(registration, useActiveKey ? activeVapidPublicKey : vapidPublicKey);
       }
       if (subscription) {
         subscriptionPresent = true;
-        if (action === "put" || action === "resubscribe") {
+        if (action === "put" || action === "resubscribe" || action === "rekey") {
           const keys = subscriptionKeys(subscription);
-          device = await updateDeviceSubscription(token, { ...keys, kid: meta[META_KEYS.kid] ?? device.kid });
-          await writeMeta({ [META_KEYS.endpoint]: keys.endpoint });
+          device = await updateDeviceSubscription(token, { ...keys, kid });
+          const written: Record<string, string> = useActiveKey
+            ? { [META_KEYS.endpoint]: keys.endpoint, [META_KEYS.kid]: kid, [META_KEYS.vapidPublicKey]: activeVapidPublicKey }
+            : { [META_KEYS.endpoint]: keys.endpoint };
+          await writeMeta(written);
+          // The result carries what is stored now, not the snapshot read before the repair —
+          // the status page's "Server key" row compares the kid in it with the active one.
+          Object.assign(meta, written);
         }
       }
     }

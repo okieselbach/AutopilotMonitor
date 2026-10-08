@@ -12,12 +12,15 @@ import {
   GENERIC_TITLE,
   HISTORY_MAX_AGE_MS,
   HISTORY_MAX_ENTRIES,
+  HISTORY_RETENTION_DEFAULT_DAYS,
+  HISTORY_RETENTION_MAX_DAYS,
   isIosDevice,
   isValidPairingCode,
   isWipeCommand,
   LABEL_MAX_CHARS,
   normalizePairingCode,
   normalizePayload,
+  normalizeRetentionDays,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   parseFragment,
@@ -204,6 +207,41 @@ describe("pruneHistory", () => {
     const copy = [...input];
     pruneHistory(input, NOW);
     expect(input).toEqual(copy);
+  });
+
+  it("honours the user's retention: 7 days drops week-old entries, 365 keeps them, 0 keeps everything up to the cap", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const recent = entry("recent", new Date(NOW - 3 * dayMs).toISOString());
+    const weekOld = entry("week", new Date(NOW - 8 * dayMs).toISOString());
+    const yearOld = entry("year", new Date(NOW - 400 * dayMs).toISOString());
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 7).map((e) => e.id)).toEqual(["recent"]);
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 365).map((e) => e.id)).toEqual(["recent", "week"]);
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 0).map((e) => e.id)).toEqual(["recent", "week", "year"]);
+    const many = Array.from({ length: 250 }, (_, i) => entry(`m${i}`, new Date(NOW - i * 10 * dayMs).toISOString()));
+    expect(pruneHistory(many, NOW, 0).length).toBe(HISTORY_MAX_ENTRIES);
+  });
+
+  it("falls back to the 30-day default for an invalid retention value", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const old = entry("old", new Date(NOW - 31 * dayMs).toISOString());
+    expect(pruneHistory([old], NOW, Number.NaN)).toEqual([]);
+    expect(pruneHistory([old], NOW, 400)).toEqual([]);
+  });
+});
+
+describe("normalizeRetentionDays", () => {
+  it("accepts integers 0–365 as numbers or stored strings", () => {
+    expect(normalizeRetentionDays(0)).toBe(0);
+    expect(normalizeRetentionDays("0")).toBe(0);
+    expect(normalizeRetentionDays(7)).toBe(7);
+    expect(normalizeRetentionDays("365")).toBe(HISTORY_RETENTION_MAX_DAYS);
+  });
+
+  it("maps absent, blank, fractional, negative and out-of-range values to the default, never to forever", () => {
+    expect(HISTORY_RETENTION_DEFAULT_DAYS).toBe(30);
+    for (const value of [undefined, null, "", " ", "abc", 1.5, -1, 366, "1e3", Number.POSITIVE_INFINITY]) {
+      expect(normalizeRetentionDays(value), String(value)).toBe(HISTORY_RETENTION_DEFAULT_DAYS);
+    }
   });
 });
 
