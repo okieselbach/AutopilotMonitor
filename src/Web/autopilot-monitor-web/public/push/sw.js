@@ -133,33 +133,48 @@ function handlePush(event, raw) {
   event.waitUntil(Promise.all([show(entry), persist(entry)]));
 }
 
+// Declarative Web Push with "mutable": true (Push API draft; Safari / iOS ≥ 18.4, verified on a
+// device 2026-10-08): the regular push event carries the proposed Notification in
+// event.notification and event.data is null. The worker shows the same content itself, so the
+// proposed notification is dropped and exactly one appears, and the history gets its entry at
+// arrival instead of only after a tap. Every other browser hands the raw JSON as event.data.
 self.addEventListener("push", (event) => {
-  handlePush(event, safeParse(event.data));
+  const declared = event.notification ?? null;
+  handlePush(event, declared ?? safeParse(event.data));
 });
 
-// Safari / iOS ≥ 18.4: Declarative Web Push with "mutable": true wakes the worker with the
-// proposed notification instead of a payload (event name verified at interop, K25).
+// The earlier WebKit shape of the same mechanism: a separate pushnotification event with the
+// proposed notification (kept until no supported Safari fires it).
 self.addEventListener("pushnotification", (event) => {
   const proposed = event.notification ?? event.proposedNotification ?? null;
   handlePush(event, proposed ?? safeParse(event.data ?? null));
 });
 
+/**
+ * The history entry behind a clicked notification: the one the push handler attached, or —
+ * for a notification the platform displayed straight from the declarative JSON, without the
+ * worker running — rebuilt from the Notification itself (its data is the payload's data member).
+ * @param {Notification} notification
+ * @returns {import("./sw-core.js").HistoryEntry | null}
+ */
+function entryFromClicked(notification) {
+  const data = notification.data ?? {};
+  if (data.entry && typeof data.entry === "object") return data.entry;
+  if (typeof data.id !== "string") return null;
+  return normalizePayload({ title: notification.title, body: notification.body, tag: notification.tag, data }, Date.now());
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const data = event.notification.data ?? {};
-  const id = typeof data.id === "string" ? data.id : null;
-  const entry = data.entry && typeof data.entry === "object" ? data.entry : null;
+  const entry = entryFromClicked(event.notification);
+  const id = entry ? entry.id : null;
   const target = new URL("/push/" + (id ? entryFragment(id) : ""), self.location.origin).toString();
   event.waitUntil(
     (async () => {
-      // The push handler may have lost the race against IndexedDB; the click writes the entry if missing.
-      if (entry) {
-        try {
-          await writeHistoryEntry(entry);
-        } catch {
-          // Display already happened; the history is best effort.
-        }
-      }
+      // The push handler may have lost the race against IndexedDB, or never ran: the click writes
+      // the entry if missing — bounded like every history write, so a stuck database cannot keep
+      // the tap from opening the page.
+      if (entry) await persist(entry);
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const client of windows) {
         if (!new URL(client.url).pathname.startsWith("/push")) continue;
