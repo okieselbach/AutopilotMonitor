@@ -20,19 +20,22 @@ namespace AutopilotMonitor.Functions.Functions.Rules.Submissions
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly TelegramNotificationService _telegram;
         private readonly GlobalNotificationService _globalNotifications;
+        private readonly OpsEventService? _opsEvents;
 
         public SubmitRuleSubmissionsFunction(
             ILogger<SubmitRuleSubmissionsFunction> logger,
             RuleSubmissionService service,
             IMaintenanceRepository maintenanceRepo,
             TelegramNotificationService telegram,
-            GlobalNotificationService globalNotifications)
+            GlobalNotificationService globalNotifications,
+            OpsEventService? opsEvents = null)
         {
             _logger = logger;
             _service = service;
             _maintenanceRepo = maintenanceRepo;
             _telegram = telegram;
             _globalNotifications = globalNotifications;
+            _opsEvents = opsEvents;
         }
 
         [Function("SubmitRuleSubmissions")]
@@ -108,6 +111,9 @@ namespace AutopilotMonitor.Functions.Functions.Rules.Submissions
                 // Operator notifications — best effort, one per rule so every id has its own deep link.
                 foreach (var s in created)
                 {
+                    // Ops event (routable through alert rules, Push included) — written before the response, never throws
+                    if (_opsEvents != null)
+                        await _opsEvents.RecordRuleSubmissionReceivedAsync(request.TenantId, userIdentifier, s.SubmissionId, s.RuleKind, s.SourceRuleId);
                     _ = _telegram.SendRuleSubmissionAsync(s.SubmissionId, request.TenantId, userIdentifier, s.RuleKind, s.SourceRuleId, s.Title, s.Comment ?? string.Empty);
                     _ = _globalNotifications.CreateNotificationAsync(
                         "rule_submission",

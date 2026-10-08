@@ -32,6 +32,7 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
     private readonly Mock<TenantAdminsService> _tenantAdminsMock;
     private readonly Mock<TelegramNotificationService> _telegramMock;
+    private readonly Mock<OpsEventService> _opsEventsMock;
     private readonly Mock<GlobalNotificationService> _globalNotificationMock;
     private readonly Mock<IMetricsRepository> _metricsRepoMock;
     private readonly Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer> _autoApproveEnqueuerMock;
@@ -96,6 +97,9 @@ public class AuthFunctionSideEffectTests
         _autoApproveEnqueuerMock = new Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer>();
 
         _signalR = new FakeSignalRNotificationService();
+        _opsEventsMock = new Mock<OpsEventService>(null!, null!, null!) { CallBase = false };
+        _opsEventsMock.Setup(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
         _sut = new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
             globalAdminMock.Object,
@@ -115,7 +119,8 @@ public class AuthFunctionSideEffectTests
                 _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object,
             _signalR,
             adminConfigService.Object,
-            _offboardingRepo);
+            _offboardingRepo,
+            opsEvents: _opsEventsMock.Object);
 
         // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
         // a brand-new tenant). Default: all fire-and-forget calls succeed.
@@ -234,6 +239,7 @@ public class AuthFunctionSideEffectTests
         Assert.Equal(CurrentDpa, written.DpaVersion);
         Assert.Equal("auth", source);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), Times.Once);   // the routable record next to the ping
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Tenant Signup",
             It.Is<string>(m => m.Contains(TenantId) && m.Contains("contoso.com") && m.Contains(Upn)),

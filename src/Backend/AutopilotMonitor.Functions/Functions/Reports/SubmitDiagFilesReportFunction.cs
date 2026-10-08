@@ -24,19 +24,22 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly TelegramNotificationService _telegramNotificationService;
         private readonly GlobalNotificationService _globalNotificationService;
+        private readonly OpsEventService? _opsEvents;
 
         public SubmitDiagFilesReportFunction(
             ILogger<SubmitDiagFilesReportFunction> logger,
             SessionReportService sessionReportService,
             IMaintenanceRepository maintenanceRepo,
             TelegramNotificationService telegramNotificationService,
-            GlobalNotificationService globalNotificationService)
+            GlobalNotificationService globalNotificationService,
+            OpsEventService? opsEvents = null)
         {
             _logger = logger;
             _sessionReportService = sessionReportService;
             _maintenanceRepo = maintenanceRepo;
             _telegramNotificationService = telegramNotificationService;
             _globalNotificationService = globalNotificationService;
+            _opsEvents = opsEvents;
         }
 
         [Function("SubmitDiagFilesReport")]
@@ -109,6 +112,10 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         }
                     );
                 }
+
+                // Ops event (routable through alert rules, Push included) — written before the response, never throws
+                if (_opsEvents != null)
+                    await _opsEvents.RecordDiagFilesReportSubmittedAsync(request.TenantId, userIdentifier, metadata.ReportId);
 
                 // Telegram notification — best effort
                 _ = _telegramNotificationService.SendDiagFilesReportAsync(

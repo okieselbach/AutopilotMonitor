@@ -1181,6 +1181,32 @@ namespace AutopilotMonitor.Functions.Services
                 null, "System.Push",
                 new { host, scope = scopeKind });
 
+        // ── Tenant: customer-initiated submissions (plan push-relay, Phase 0) ─────
+        // Info events next to the direct Telegram pings, so an alert rule can route them to any
+        // channel. Like FeedbackReceived, message and details carry ids only — never the submitter
+        // or a comment; the portal page behind portalPath has them. The user id column keeps the
+        // submitter for the admin view and never reaches a channel.
+
+        public virtual Task RecordTenantSignupAsync(string tenantId, string upn)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantSignup, OpsEventSeverity.Info,
+                "New tenant signed up", tenantId, upn,
+                new { portalPath = "/admin/tenants" });
+
+        public virtual Task RecordSessionReportSubmittedAsync(string tenantId, string submittedBy, string sessionId, string reportId)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.SessionReportSubmitted, OpsEventSeverity.Info,
+                "Session report submitted", tenantId, submittedBy,
+                new { sessionId, reportId, portalPath = $"/admin/reports/session-reports?reportId={Uri.EscapeDataString(reportId)}" });
+
+        public virtual Task RecordDiagFilesReportSubmittedAsync(string tenantId, string submittedBy, string reportId)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.DiagFilesReportSubmitted, OpsEventSeverity.Info,
+                "Diagnostic files submitted", tenantId, submittedBy,
+                new { reportId, portalPath = $"/admin/reports/session-reports?reportId={Uri.EscapeDataString(reportId)}" });
+
+        public virtual Task RecordRuleSubmissionReceivedAsync(string tenantId, string submittedBy, string submissionId, string ruleKind, string ruleId)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.RuleSubmissionReceived, OpsEventSeverity.Info,
+                "Rule submission received", tenantId, submittedBy,
+                new { submissionId, ruleKind, ruleId, portalPath = $"/admin/reports/rule-submissions?submissionId={Uri.EscapeDataString(submissionId)}" });
+
         // ── Core write method ──────────────────────────────────────────────────
 
         private async Task WriteAsync(string category, string eventType, string severity,

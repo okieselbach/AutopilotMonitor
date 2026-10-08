@@ -157,6 +157,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // FeedbackReceived — a member sent feedback from the help menu. Info-tier; carries no text
     // and no sender, the feedback itself is read under Reports → User Feedback.
     "FeedbackReceived",
+    "TenantSignup",
+    "SessionReportSubmitted",
+    "DiagFilesReportSubmitted",
+    "RuleSubmissionReceived",
     // TenantTrialStarted — the conversion moment, fired by PlanManagementFunction from BOTH
     // plan write paths (self-service POST trial and a GA grant via PATCH plan). Info-tier;
     // the payload carries domain, contact address and who granted it, so a sales/support

@@ -39,6 +39,7 @@ public class AuthFunction
     private readonly AdminConfigurationService _adminConfigService;
     private readonly IOffboardingAuditRepository _offboardingRepo;
     private readonly IPushDeviceRepository? _pushRepo;
+    private readonly OpsEventService? _opsEvents;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -57,10 +58,12 @@ public class AuthFunction
         ISignalRNotificationService signalRService,
         AdminConfigurationService adminConfigService,
         IOffboardingAuditRepository offboardingRepo,
-        IPushDeviceRepository? pushRepo = null)
+        IPushDeviceRepository? pushRepo = null,
+        OpsEventService? opsEvents = null)
     {
         _logger = logger;
         _pushRepo = pushRepo;
+        _opsEvents = opsEvents;
         _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
@@ -469,6 +472,11 @@ public class AuthFunction
         _logger.LogInformation("Seeded domain name for tenant {TenantId}: {Domain}", tenantId, domain);
         // This login's view follows what was just stored.
         Seed(tenantConfig);
+
+        // The ops event is the routable record (alert rules → any channel, Push included); it is
+        // written before the response and never throws. The Telegram ping below stays until retired.
+        if (_opsEvents != null)
+            await _opsEvents.RecordTenantSignupAsync(tenantId, upn);
 
         // Fire-and-forget: Telegram
         _ = _telegramNotificationService.SendNewTenantSignupAsync(tenantId, upn)

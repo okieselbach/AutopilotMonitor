@@ -94,6 +94,18 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// the portal (User Feedback), so a channel bound to this rule receives no personal data.
         /// </summary>
         public const string FeedbackReceived              = "FeedbackReceived";
+        /// <summary>
+        /// A new tenant signed up: its first sign-in seeded the domain (<c>auth/me</c>). Info. Recorded
+        /// next to the direct Telegram ping until that is retired (plan push-relay, Phase 0); message and
+        /// details carry no personal data — the Tenants page has the rest.
+        /// </summary>
+        public const string TenantSignup                  = "TenantSignup";
+        /// <summary>A member submitted a session report. Info; details name the session and report id only.</summary>
+        public const string SessionReportSubmitted        = "SessionReportSubmitted";
+        /// <summary>A member submitted logs without a session (Submit Logs). Info; details name the report id only.</summary>
+        public const string DiagFilesReportSubmitted      = "DiagFilesReportSubmitted";
+        /// <summary>A member submitted a gather or analyze rule for review. Info; details name submission, kind and source rule id only.</summary>
+        public const string RuleSubmissionReceived        = "RuleSubmissionReceived";
         public const string TenantOffboarded              = "TenantOffboarded";
         public const string TenantOffboardingFailed       = "TenantOffboardingFailed";
         public const string TenantAutoApproved            = "TenantAutoApproved";
@@ -168,7 +180,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen,
-            OffboardingFeedbackReceived, FeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
+            OffboardingFeedbackReceived, FeedbackReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert, PushDeliveryFailed, PushEndpointRefused,
