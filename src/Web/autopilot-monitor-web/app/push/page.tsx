@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLatest } from "@/hooks/useLatest";
+import { sameHistory } from "@/lib/push/historyList";
 import { createLongPress } from "@/lib/push/longPress";
+import { createPullToRefresh, type PullState } from "@/lib/push/pullToRefresh";
 import {
   deleteHistoryEntry,
   entryFragment,
@@ -26,11 +28,19 @@ interface WorkerMessage {
   id?: unknown;
 }
 
+/** The history is re-read from IndexedDB this often while the page is visible — cheap, local, and the one path that needs no message from the worker. */
+const HISTORY_POLL_MS = 5000;
+/** A refresh shows its indicator at least this long, so a fast read still reads as "done". */
+const REFRESH_MIN_MS = 500;
+
 /**
  * The local history, like a chat log (F12): newest first, kept for the retention chosen on the
  * status page (30 days by default) and capped at 200 entries, written by the service worker and
- * read here. Every open reconciles the device with the server (K14). A long press (or right-click)
- * on an entry opens its actions; a delete stays on the device.
+ * read here. New entries show up by themselves: the worker's message, a poll every few seconds
+ * while visible, and the tab/app coming back all re-read the store; a pull from the top refreshes
+ * on demand (a home-screen app has no native gesture). Every open reconciles the device with the
+ * server (K14). A long press (or right-click) on an entry opens its actions; a delete stays on
+ * the device.
  */
 export default function PushHistoryPage() {
   const router = useRouter();
@@ -42,6 +52,7 @@ export default function PushHistoryPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [now, setNow] = useState(() => 0);
   const [sheet, setSheet] = useState<HistoryEntry | null>(null);
+  const [pull, setPull] = useState<PullState>({ pulling: false, distance: 0, armed: false, refreshing: false });
 
   const target = parseFragment(hash);
   const focusId = target?.kind === "entry" ? target.id : null;
@@ -50,28 +61,28 @@ export default function PushHistoryPage() {
   const [expanded, setExpanded] = useState<{ focusId: string | null; id: string | null }>({ focusId: null, id: null });
   if (expanded.focusId !== focusId) setExpanded({ focusId, id: focusId });
 
-  // Load (prune on open); re-runs whenever the worker, the returning tab or a delete asks for it.
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      let list: HistoryEntry[] = [];
-      try {
-        await pruneStoredHistory();
-        list = await readHistory();
-      } catch {
-        // No IndexedDB (private mode): an empty history is the honest state.
-      }
-      if (cancelled) return;
-      setEntries(list);
-      setNow(Date.now());
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [historyKey]);
+  // One read of the store (prune first). An unchanged list keeps its identity so a poll never re-renders for nothing.
+  const loadHistory = useCallback(async () => {
+    let list: HistoryEntry[] = [];
+    try {
+      await pruneStoredHistory();
+      list = await readHistory();
+    } catch {
+      // No IndexedDB (private mode): an empty history is the honest state.
+    }
+    setEntries((prev) => (sameHistory(prev, list) ? prev : list));
+    setNow(Date.now());
+  }, []);
 
-  // Keep in step with the worker and with the tab coming back.
+  // Load on open; re-runs whenever the worker, the returning tab, a delete or a pull asks for it.
+  useEffect(() => {
+    const run = async () => {
+      await loadHistory();
+    };
+    void run();
+  }, [historyKey, loadHistory]);
+
+  // Keep in step with the worker, with the tab or app coming back, and — while visible — with a poll.
   useEffect(() => {
     const onMessage = (event: MessageEvent<WorkerMessage>) => {
       if (event.data?.channel !== "am-push") return;
@@ -81,20 +92,45 @@ export default function PushHistoryPage() {
       setHistoryKey((k) => k + 1);
       if (event.data.type === "wiped") setReloadKey((k) => k + 1);
     };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        setHistoryKey((k) => k + 1);
-        setReloadKey((k) => k + 1);
-      }
+    const onBack = () => {
+      if (document.visibilityState !== "visible") return;
+      setHistoryKey((k) => k + 1);
+      setReloadKey((k) => k + 1);
     };
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadHistory();
+    }, HISTORY_POLL_MS);
     const worker = "serviceWorker" in navigator ? navigator.serviceWorker : null;
     worker?.addEventListener("message", onMessage);
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    window.addEventListener("pageshow", onBack);
     return () => {
+      window.clearInterval(poll);
       worker?.removeEventListener("message", onMessage);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+      window.removeEventListener("pageshow", onBack);
     };
-  }, []);
+  }, [loadHistory]);
+
+  // Pull from the top to refresh: the history is re-read and the device reconciled; the
+  // indicator stays visible for a moment so a fast read still reads as "done".
+  const refresh = useLatest(async () => {
+    const started = Date.now();
+    setReloadKey((k) => k + 1);
+    await loadHistory();
+    const remaining = REFRESH_MIN_MS - (Date.now() - started);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  });
+  const [puller] = useState(() =>
+    createPullToRefresh({
+      getScrollTop: () => window.scrollY,
+      onRefresh: () => refresh.current(),
+      onChange: setPull,
+    }),
+  );
+  useEffect(() => () => puller.dispose(), [puller]);
 
   // Reconcile with the server; an unpaired device holding a Safari hand-off cookie continues to pairing.
   useEffect(() => {
@@ -135,53 +171,76 @@ export default function PushHistoryPage() {
     setHistoryKey((k) => k + 1);
   };
 
+  const pullLabel = pull.refreshing ? "Refreshing…" : pull.armed ? "Release to refresh" : "Pull to refresh";
+
   return (
-    <div className="space-y-4">
-      <DeviceChip device={device} />
+    <div onTouchStart={puller.onTouchStart} onTouchMove={puller.onTouchMove} onTouchEnd={puller.onTouchEnd} onTouchCancel={puller.onTouchCancel}>
+      <div
+        className="overflow-hidden flex items-end justify-center text-xs text-gray-500"
+        style={{ height: pull.distance, transition: pull.pulling ? "none" : "height 150ms ease-out" }}
+        aria-live="polite"
+      >
+        {pull.distance > 0 && (
+          <span className="pb-2 inline-flex items-center gap-1.5">
+            {pull.refreshing ? (
+              <span className="inline-block w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" aria-hidden="true" />
+            ) : (
+              <span className="inline-block transition-transform" style={{ transform: pull.armed ? "rotate(180deg)" : "none" }} aria-hidden="true">
+                ↓
+              </span>
+            )}
+            {pullLabel}
+          </span>
+        )}
+      </div>
 
-      {device?.state === "gone" && (
-        <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
-          <p className="text-sm font-medium text-gray-900">This device is no longer paired.</p>
-          <p className="text-sm text-gray-600 mt-1">The alerts stop here until you pair it again from the portal.</p>
-          <Link href="/push/pair" className="inline-block mt-3 text-sm font-medium text-green-700 hover:underline">
-            Pair this device again
-          </Link>
-        </div>
-      )}
+      <div className="space-y-4">
+        <DeviceChip device={device} />
 
-      {isClient && entries !== null && entries.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-6 text-center">
-          <p className="text-sm text-gray-600">No alerts yet.</p>
-          {device?.state === "unpaired" ? (
-            <p className="text-sm text-gray-600 mt-2">
-              Pair this device from the portal to receive alerts here.{" "}
-              <Link href="/push/pair" className="font-medium text-green-700 hover:underline">
-                Pair this device
-              </Link>
-            </p>
-          ) : (
-            <p className="text-sm text-gray-500 mt-2">New alerts appear here as they arrive.</p>
-          )}
-        </div>
-      )}
+        {device?.state === "gone" && (
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+            <p className="text-sm font-medium text-gray-900">This device is no longer paired.</p>
+            <p className="text-sm text-gray-600 mt-1">The alerts stop here until you pair it again from the portal.</p>
+            <Link href="/push/pair" className="inline-block mt-3 text-sm font-medium text-green-700 hover:underline">
+              Pair this device again
+            </Link>
+          </div>
+        )}
 
-      {entries && entries.length > 0 && (
-        <ul className="space-y-2">
-          {entries.map((entry) => (
-            <EntryCard
-              key={entry.id}
-              entry={entry}
-              open={expanded.id === entry.id}
-              focused={focusId === entry.id}
-              now={now}
-              onToggle={toggle}
-              onActions={setSheet}
-            />
-          ))}
-        </ul>
-      )}
+        {isClient && entries !== null && entries.length === 0 && (
+          <div className="bg-white rounded-lg shadow p-6 text-center">
+            <p className="text-sm text-gray-600">No alerts yet.</p>
+            {device?.state === "unpaired" ? (
+              <p className="text-sm text-gray-600 mt-2">
+                Pair this device from the portal to receive alerts here.{" "}
+                <Link href="/push/pair" className="font-medium text-green-700 hover:underline">
+                  Pair this device
+                </Link>
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mt-2">New alerts appear here as they arrive.</p>
+            )}
+          </div>
+        )}
 
-      {sheet && <EntryActionSheet entry={sheet} onDelete={() => void deleteEntry(sheet)} onClose={() => setSheet(null)} />}
+        {entries && entries.length > 0 && (
+          <ul className="space-y-2">
+            {entries.map((entry) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                open={expanded.id === entry.id}
+                focused={focusId === entry.id}
+                now={now}
+                onToggle={toggle}
+                onActions={setSheet}
+              />
+            ))}
+          </ul>
+        )}
+
+        {sheet && <EntryActionSheet entry={sheet} onDelete={() => void deleteEntry(sheet)} onClose={() => setSheet(null)} />}
+      </div>
     </div>
   );
 }
