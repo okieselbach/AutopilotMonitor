@@ -4507,10 +4507,12 @@ export interface SessionTimeBreakdown {
   qualityFlags: TimeAttributionFlags;
 }
 
-/** PUT sessions/{sessionId}/watch — "notify my devices when this session ends". */
+/** GET/PUT/DELETE sessions/{sessionId}/watch — "notify my devices when this session ends". */
 export interface SessionWatchResponse {
   watching: boolean;
   expiresUtc?: string;
+  /** Whether this caller can watch at all: an enabled Push channel in one of the caller's own scopes (home tenant; the platform for a Global Admin) where the caller holds an Admin or Operator role. False hides the portal's button instead of letting a click fail. */
+  available: boolean;
 }
 
 /** Response of PATCH global/mcp-users/{upn}/usage-plan: the UPN and the plan now in effect ("(inherit)" when cleared to the tenant default). */

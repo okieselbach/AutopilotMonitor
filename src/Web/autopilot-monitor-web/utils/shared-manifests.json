@@ -20784,7 +20784,7 @@
     },
     "SessionWatchResponse": {
       "kind": "object",
-      "doc": "PUT sessions/{sessionId}/watch — \"notify my devices when this session ends\".",
+      "doc": "GET/PUT/DELETE sessions/{sessionId}/watch — \"notify my devices when this session ends\".",
       "fields": [
         {
           "name": "watching",
@@ -20800,6 +20800,14 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "available",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether this caller can watch at all: an enabled Push channel in one of the caller's own scopes (home tenant; the platform for a Global Admin) where the caller holds an Admin or Operator role. False hides the portal's button instead of letting a click fail."
         }
       ]
     },

@@ -23,10 +23,12 @@ interface SessionWatchButtonProps {
  * "Notify me when done" (plan push-relay): registers a watch that pushes to the caller's own
  * paired devices when this session reaches a terminal status. Hidden once the session is
  * terminal; the host gates it to Admins/Operators (and Global Admins) like Report Session.
- * Whether the tenant has a Push channel is not known cheaply here, so the PUT's 409 explains.
+ * The GET says whether watching is possible for this person at all (a Push channel in one of
+ * their own scopes); without that the button stays hidden instead of letting a click fail.
  */
 export default function SessionWatchButton({ sessionId, effectiveTenantId, sessionStatus, getAccessToken, addNotification }: SessionWatchButtonProps) {
   const [watching, setWatching] = useState<boolean | null>(null);
+  const [available, setAvailable] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const active = sessionId.length > 0 && !!sessionStatus && !TERMINAL_STATUSES.has(sessionStatus);
@@ -37,7 +39,9 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
     const run = async () => {
       try {
         const result = await getSessionWatch(sessionId, effectiveTenantId, getAccessToken);
-        if (!cancelled) setWatching(result.watching);
+        if (cancelled) return;
+        setWatching(result.watching);
+        setAvailable(result.available !== false);
       } catch {
         // Best effort: an unknown state renders as "not watching"; the click reports the real error.
         if (!cancelled) setWatching(false);
@@ -49,7 +53,7 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
     };
   }, [active, sessionId, effectiveTenantId, getAccessToken]);
 
-  if (!active) return null;
+  if (!active || !available) return null;
 
   const toggle = async () => {
     if (busy || watching === null) return;

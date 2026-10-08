@@ -64,6 +64,8 @@ export const META_KEYS = /** @type {const} */ ({
   apiBaseUrl: "apiBaseUrl",
   /** Days the history is kept (string of an integer 0–365; 0 = until the entry cap; absent = default). */
   historyRetentionDays: "historyRetentionDays",
+  /** The history page's chosen filter key ("all" or "<group>:<kind>"); absent = all. */
+  historyFilter: "historyFilter",
 });
 
 /** @typedef {(typeof PLATFORMS)[number]} Platform */

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useLatest } from "@/hooks/useLatest";
+import { ALL_FILTER, applyHistoryFilter, buildFilterOptions, hasFilterOption, isFilterUseful, normalizeFilterKey } from "@/lib/push/historyFilter";
 import { sameHistory } from "@/lib/push/historyList";
 import { createLongPress } from "@/lib/push/longPress";
 import { createPullToRefresh, type PullState } from "@/lib/push/pullToRefresh";
@@ -14,6 +15,8 @@ import {
   parseFragment,
   pruneStoredHistory,
   readHistory,
+  readMeta,
+  writeMeta,
   type HistoryEntry,
 } from "@/lib/push/pushCore";
 import { readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
@@ -53,6 +56,7 @@ export default function PushHistoryPage() {
   const [now, setNow] = useState(() => 0);
   const [sheet, setSheet] = useState<HistoryEntry | null>(null);
   const [pull, setPull] = useState<PullState>({ pulling: false, distance: 0, armed: false, refreshing: false });
+  const [filter, setFilter] = useState(ALL_FILTER);
 
   const target = parseFragment(hash);
   const focusId = target?.kind === "entry" ? target.id : null;
@@ -132,6 +136,42 @@ export default function PushHistoryPage() {
   );
   useEffect(() => () => puller.dispose(), [puller]);
 
+  // The filter is a per-device preference, stored next to the retention; a stale key keeps everything.
+  useEffect(() => {
+    const run = async () => {
+      try {
+        setFilter(normalizeFilterKey((await readMeta())[META_KEYS.historyFilter]));
+      } catch {
+        // No IndexedDB: the default "all" stands.
+      }
+    };
+    void run();
+  }, []);
+  const chooseFilter = (key: string) => {
+    setFilter(key);
+    writeMeta({ [META_KEYS.historyFilter]: key }).catch(() => {});
+  };
+
+  const groups = buildFilterOptions(entries ?? []);
+  const filterShown = isFilterUseful(groups);
+  const selected = hasFilterOption(groups, filter) ? filter : ALL_FILTER;
+  const visible = entries ? applyHistoryFilter(entries, selected, groups) : null;
+
+  // A deep link to an entry the filter hides shows everything (adjust-during-render, once per link).
+  const [filterAdjust, setFilterAdjust] = useState<string | null>(null);
+  if (
+    focusId &&
+    filterAdjust !== focusId &&
+    entries &&
+    visible &&
+    selected !== ALL_FILTER &&
+    entries.some((e) => e.id === focusId) &&
+    !visible.some((e) => e.id === focusId)
+  ) {
+    setFilterAdjust(focusId);
+    chooseFilter(ALL_FILTER);
+  }
+
   // Reconcile with the server; an unpaired device holding a Safari hand-off cookie continues to pairing.
   useEffect(() => {
     let cancelled = false;
@@ -207,6 +247,56 @@ export default function PushHistoryPage() {
           </div>
         )}
 
+        {filterShown && entries && visible && (
+          <div className="flex items-center gap-2 text-sm">
+            <label htmlFor="history-filter" className="sr-only">
+              Filter alerts
+            </label>
+            <select
+              id="history-filter"
+              value={selected}
+              onChange={(event) => chooseFilter(event.target.value)}
+              className="flex-1 min-w-0 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+            >
+              <option value={ALL_FILTER}>All alerts ({entries.length})</option>
+              {groups.map((group) => (
+                <optgroup key={group.group} label={group.label}>
+                  {group.options.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label} ({option.count})
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {selected !== ALL_FILTER && (
+              <>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {visible.length} of {entries.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => chooseFilter(ALL_FILTER)}
+                  aria-label="Clear filter"
+                  title="Show all alerts"
+                  className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:text-gray-900"
+                >
+                  ×
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {entries && visible && entries.length > 0 && visible.length === 0 && (
+          <div className="bg-white rounded-lg shadow p-6 text-center">
+            <p className="text-sm text-gray-600">No alerts match this filter.</p>
+            <button type="button" onClick={() => chooseFilter(ALL_FILTER)} className="mt-2 text-sm font-medium text-green-700 hover:underline">
+              Show all alerts
+            </button>
+          </div>
+        )}
+
         {isClient && entries !== null && entries.length === 0 && (
           <div className="bg-white rounded-lg shadow p-6 text-center">
             <p className="text-sm text-gray-600">No alerts yet.</p>
@@ -223,9 +313,9 @@ export default function PushHistoryPage() {
           </div>
         )}
 
-        {entries && entries.length > 0 && (
+        {visible && visible.length > 0 && (
           <ul className="space-y-2">
-            {entries.map((entry) => (
+            {visible.map((entry) => (
               <EntryCard
                 key={entry.id}
                 entry={entry}

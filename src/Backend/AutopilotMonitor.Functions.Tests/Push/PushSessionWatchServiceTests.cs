@@ -201,6 +201,42 @@ public class PushSessionWatchServiceTests
     }
 
     [Fact]
+    public async Task Get_says_watching_is_available_when_an_own_scope_has_a_channel_and_the_caller_is_eligible()
+    {
+        var h = new Harness();
+
+        var status = await h.Sut.GetAsync(HomeTenantId, SessionId, Admin);
+
+        Assert.False(status.Watching);
+        Assert.True(status.Available);
+    }
+
+    [Fact]
+    public async Task Get_says_watching_is_unavailable_without_a_push_channel_or_without_eligibility()
+    {
+        var noChannel = new Harness();
+        noChannel.Eligibility.Setup(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>())).ReturnsAsync(false);
+        Assert.False((await noChannel.Sut.GetAsync(HomeTenantId, SessionId, Admin)).Available);
+
+        var notEligible = new Harness();
+        notEligible.Eligibility.Setup(e => e.IsEligibleAsync(It.IsAny<NotificationScope>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        Assert.False((await notEligible.Sut.GetAsync(HomeTenantId, SessionId, Admin)).Available);
+    }
+
+    [Fact]
+    public async Task Get_keeps_an_active_watch_available_so_it_can_still_be_switched_off()
+    {
+        var h = new Harness();
+        h.AddWatch(HomeTenantId, SessionId, Admin, HomeTenantId);
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>())).ReturnsAsync(false);
+
+        var status = await h.Sut.GetAsync(HomeTenantId, SessionId, Admin);
+
+        Assert.True(status.Watching);
+        Assert.True(status.Available);
+    }
+
+    [Fact]
     public async Task Unwatch_deletes_the_callers_row_only()
     {
         var h = new Harness();

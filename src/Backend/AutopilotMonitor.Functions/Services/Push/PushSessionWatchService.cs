@@ -98,20 +98,42 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
             ExpiresUtc = now + WatchLifetime,
         };
         await _repo.UpsertWatchAsync(watch).ConfigureAwait(false);
-        return PushOpResult<SessionWatchResponse>.Success(new SessionWatchResponse { Watching = true, ExpiresUtc = watch.ExpiresUtc });
+        return PushOpResult<SessionWatchResponse>.Success(new SessionWatchResponse { Watching = true, ExpiresUtc = watch.ExpiresUtc, Available = true });
     }
 
     public async Task<SessionWatchResponse> UnwatchAsync(string tenantId, string sessionId, PushCaller caller)
     {
         await _repo.DeleteWatchAsync(tenantId, sessionId, caller.ObjectId).ConfigureAwait(false);
-        return new SessionWatchResponse { Watching = false };
+        return new SessionWatchResponse { Watching = false, Available = await IsAvailableAsync(caller).ConfigureAwait(false) };
     }
 
     public async Task<SessionWatchResponse> GetAsync(string tenantId, string sessionId, PushCaller caller)
     {
         var watch = await _repo.GetWatchAsync(tenantId, sessionId, caller.ObjectId).ConfigureAwait(false);
         var active = watch != null && watch.ExpiresUtc >= DateTime.UtcNow;
-        return new SessionWatchResponse { Watching = active, ExpiresUtc = active ? watch!.ExpiresUtc : null };
+        return new SessionWatchResponse
+        {
+            Watching = active,
+            ExpiresUtc = active ? watch!.ExpiresUtc : null,
+            Available = active || await IsAvailableAsync(caller).ConfigureAwait(false),
+        };
+    }
+
+    /// <summary>
+    /// Whether watching is possible for this person at all: an enabled Push channel in one of the
+    /// caller's own scopes where the caller is eligible. A device is not required here — the PUT
+    /// says "pair a device first" — so the portal can show the button as soon as the channel exists.
+    /// </summary>
+    private async Task<bool> IsAvailableAsync(PushCaller caller)
+    {
+        foreach (var scope in OwnScopes(caller))
+        {
+            if (!await _eligibility.HasPushChannelAsync(scope).ConfigureAwait(false))
+                continue;
+            if (await _eligibility.IsEligibleAsync(scope, caller.Upn, caller.ObjectId, caller.HomeTenantId).ConfigureAwait(false))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Fail-soft: a watch push must never cost the ingest path anything.</summary>

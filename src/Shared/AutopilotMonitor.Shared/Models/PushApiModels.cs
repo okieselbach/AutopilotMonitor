@@ -135,10 +135,16 @@ namespace AutopilotMonitor.Shared.Models
         public bool IsOwn { get; set; }
     }
 
-    /// <summary>PUT sessions/{sessionId}/watch — "notify my devices when this session ends".</summary>
+    /// <summary>GET/PUT/DELETE sessions/{sessionId}/watch — "notify my devices when this session ends".</summary>
     public class SessionWatchResponse : IApiResponse
     {
         public bool Watching { get; set; }
         public DateTime? ExpiresUtc { get; set; }
+        /// <summary>
+        /// Whether this caller can watch at all: an enabled Push channel in one of the caller's own
+        /// scopes (home tenant; the platform for a Global Admin) where the caller holds an Admin or
+        /// Operator role. False hides the portal's button instead of letting a click fail.
+        /// </summary>
+        public bool Available { get; set; }
     }
 }
