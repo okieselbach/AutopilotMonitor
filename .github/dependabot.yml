@@ -65,7 +65,7 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  # Validator tooling for rules/ (ajv-cli); combine-rules.yml installs it from this
+  # Validator tooling for rules/ (ajv for validate.js); combine-rules.yml installs it from this
   # lockfile with contents:write in hand, so the pins must not go stale.
   - package-ecosystem: npm
     directory: /rules/scripts

@@ -32,41 +32,18 @@ jobs:
 
       # Lockfile and no lifecycle scripts: this job holds contents:write and pushes to
       # main, so an install-time script from a hijacked package would run with a token that
-      # can rewrite the repository. rules/scripts/package-lock.json pins ajv-cli, ajv-formats
+      # can rewrite the repository. rules/scripts/package-lock.json pins ajv, ajv-formats
       # and every transitive package (Dependabot keeps it current); ajv is pure JS and
       # needs no install hooks.
-      - name: Install ajv-cli from the lockfile
+      - name: Install the rules validator from the lockfile
         working-directory: rules/scripts
-        run: |
-          npm ci --ignore-scripts
-          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+        run: npm ci --ignore-scripts
 
-      - name: Validate Gather Rules
-        run: |
-          for f in rules/gather/*.json; do
-            echo "Validating $f..."
-            ajv validate -s rules/schema/gather-rule.schema.json -d "$f" --spec=draft2020 -c ajv-formats
-          done
-
-      - name: Validate Analyze Rules
-        run: |
-          for f in rules/analyze/*.json; do
-            echo "Validating $f..."
-            ajv validate -s rules/schema/analyze-rule.schema.json -d "$f" --spec=draft2020 -c ajv-formats
-          done
-
-      - name: Validate IME Log Patterns
-        run: |
-          for f in rules/ime-log-patterns/*.json; do
-            echo "Validating $f..."
-            ajv validate -s rules/schema/ime-log-pattern.schema.json -d "$f" --spec=draft2020 -c ajv-formats
-          done
-
-      # guardrails.json values are baked verbatim into generated TypeScript that is
-      # auto-committed to main and shipped to the portal - the schema forbids control
-      # and line-terminator characters so a "data" PR can never become code.
-      - name: Validate Guardrails
-        run: ajv validate -s rules/schema/guardrails.schema.json -d rules/guardrails.json --spec=draft2020 -c ajv-formats
+      # Gather, analyze and IME log pattern files plus guardrails.json, each against its
+      # schema; the guardrails schema is what keeps a "data" PR from becoming code in the
+      # generated TypeScript (see validate.js).
+      - name: Validate rules and guardrails against their schemas
+        run: node rules/scripts/validate.js
 
       - name: Combine rules into dist/
         run: node rules/scripts/combine.js
