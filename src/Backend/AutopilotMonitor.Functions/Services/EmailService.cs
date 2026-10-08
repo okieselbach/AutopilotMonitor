@@ -25,6 +25,16 @@ namespace AutopilotMonitor.Functions.Services;
 /// <c>Email:FromName</c> (default <see cref="DefaultFromName"/>).
 /// </para>
 /// </summary>
+/// <summary>
+/// What the provider answered for one message: accepted (sent/queued/scheduled) or not, its
+/// status word, its message id (to look the mail up in the provider's activity log) and the
+/// rejection reason when it refused.
+/// </summary>
+public sealed record EmailSendOutcome(bool Accepted, string? Status, string? ProviderId, string? RejectReason)
+{
+    public static readonly EmailSendOutcome NotSent = new(false, null, null, null);
+}
+
 public class EmailService : IEmailService, IOffboardFarewellEmailSender
 {
     public const string ApiKeyConfigKey = "Email:ApiKey";
@@ -75,12 +85,12 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             return false;
         }
 
-        var sent = await SendViaMandrillAsync(
+        var sent = (await SendViaMandrillAsync(
             toEmail,
             EmailTemplates.PreviewApprovedSubject,
             await _templates.GetHtmlAsync(EmailTemplateKind.Welcome, domainName, ct),
             tag: "welcome",
-            ct);
+            ct)).Accepted;
 
         if (sent)
         {
@@ -119,12 +129,12 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             return false;
         }
 
-        var sent = await SendViaMandrillAsync(
+        var sent = (await SendViaMandrillAsync(
             toEmail,
             EmailTemplates.OffboardingFarewellSubject,
             await _templates.GetHtmlAsync(EmailTemplateKind.Farewell, domainName, ct),
             tag: "offboarding-farewell",
-            ct);
+            ct)).Accepted;
 
         if (sent)
         {
@@ -149,7 +159,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             ? await _templates.GetHtmlAsync(kind, domainName, ct)
             : EmailTemplateService.Render(draftHtml, domainName);
 
-        var sent = await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, tag: "test", ct);
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, tag: "test", ct)).Accepted;
         if (sent)
             _logger.LogInformation("{Kind} test email sent to {ToEmail} (draft={IsDraft})", kind, toEmail, draftHtml is not null);
         return sent;
@@ -163,15 +173,15 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     /// (<see cref="Notifications.EmailNotificationService"/>) on the same provider path as the
     /// transactional mails. Returns true when the provider accepted it. Never throws.
     /// </summary>
-    public virtual async Task<bool> SendMessageAsync(string toEmail, string subject, string html, string tag, CancellationToken ct = default)
+    public virtual async Task<EmailSendOutcome> SendMessageAsync(string toEmail, string subject, string html, string tag, CancellationToken ct = default)
     {
         if (!IsConfigured)
         {
             _logger.LogWarning("{ConfigKey} not configured — skipping {Tag} mail", ApiKeyConfigKey, tag);
-            return false;
+            return EmailSendOutcome.NotSent;
         }
         if (string.IsNullOrWhiteSpace(toEmail))
-            return false;
+            return EmailSendOutcome.NotSent;
         return await SendViaMandrillAsync(toEmail, subject, html, tag, ct);
     }
 
@@ -179,9 +189,10 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     /// The only provider-specific code path. Posts a Mandrill <c>messages/send</c> request and
     /// interprets the per-recipient result array: <c>sent</c>/<c>queued</c>/<c>scheduled</c>
     /// count as success, <c>rejected</c>/<c>invalid</c> as failure (with the provider's
-    /// <c>reject_reason</c> in the warning). Never throws.
+    /// <c>reject_reason</c> in the warning). Never throws; the outcome carries the provider's status
+    /// word and message id so a mail that never arrived can be looked up in its activity log.
     /// </summary>
-    private async Task<bool> SendViaMandrillAsync(string toEmail, string subject, string html, string tag, CancellationToken ct)
+    private async Task<EmailSendOutcome> SendViaMandrillAsync(string toEmail, string subject, string html, string tag, CancellationToken ct)
     {
         try
         {
@@ -210,7 +221,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 _logger.LogWarning(
                     "Email provider returned {StatusCode} for {Tag} mail to {ToEmail}: {Body}",
                     (int)response.StatusCode, tag, toEmail, Truncate(body));
-                return false;
+                return EmailSendOutcome.NotSent;
             }
 
             var results = JsonSerializer.Deserialize<MandrillSendResult[]>(body, JsonOptions);
@@ -220,7 +231,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 _logger.LogWarning(
                     "Email provider returned an empty result for {Tag} mail to {ToEmail}: {Body}",
                     tag, toEmail, Truncate(body));
-                return false;
+                return EmailSendOutcome.NotSent;
             }
 
             if (!IsAcceptedStatus(result.Status))
@@ -228,15 +239,15 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 _logger.LogWarning(
                     "Email provider did not accept {Tag} mail to {ToEmail}: status={Status} reason={Reason}",
                     tag, toEmail, result.Status, result.RejectReason ?? "n/a");
-                return false;
+                return new EmailSendOutcome(false, result.Status, result.Id, result.RejectReason);
             }
 
-            return true;
+            return new EmailSendOutcome(true, result.Status, result.Id, null);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send {Tag} mail to {ToEmail}", tag, toEmail);
-            return false;
+            return EmailSendOutcome.NotSent;
         }
     }
 

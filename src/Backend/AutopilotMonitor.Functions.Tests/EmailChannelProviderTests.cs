@@ -182,7 +182,7 @@ public class EmailChannelProviderTests
         var result = await service.SendAlertWithResultAsync("ops@example.invalid; second@example.invalid", Alert());
 
         Assert.True(result.Success);
-        Assert.Equal("Sent to 2 recipient(s).", result.Message);
+        Assert.Equal("Sent to 2 recipient(s). Provider status: sent, id abc,abc.", result.Message);
         Assert.Equal(2, handler.Bodies.Count);
         Assert.Contains("\"to\":[{\"email\":\"ops@example.invalid\"", handler.Bodies[0]);
         Assert.Contains("\"subject\":\"[Autopilot Monitor] Error: Ops Alert: Platform/PushDeliveryFailed\"", handler.Bodies[0]);
@@ -198,6 +198,7 @@ public class EmailChannelProviderTests
         var rejected = await service.SendAlertWithResultAsync("ops@example.invalid", Alert());
         Assert.False(rejected.Success);
         Assert.Contains("accepted 0 of 1", rejected.Message);
+        Assert.Contains("Provider status: rejected", rejected.Message);
 
         var (unconfigured, _) = Sender(new StubHandler(), apiKey: "");
         var skipped = await unconfigured.SendAlertWithResultAsync("ops@example.invalid", Alert());

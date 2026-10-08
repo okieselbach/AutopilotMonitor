@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
@@ -73,28 +74,31 @@ public class EmailNotificationService : IEmailChannelSender
 
         var subject = EmailAlertRenderer.Subject(alert);
         var html = EmailAlertRenderer.Html(alert);
-        var accepted = 0;
+        var outcomes = new List<EmailSendOutcome>();
         foreach (var address in addresses.Take(MaxRecipients))
-        {
-            if (await _email.SendMessageAsync(address, subject, html, Tag).ConfigureAwait(false))
-                accepted++;
-        }
+            outcomes.Add(await _email.SendMessageAsync(address, subject, html, Tag).ConfigureAwait(false));
 
-        var attempted = Math.Min(addresses.Count, MaxRecipients);
-        Track(accepted == attempted ? "delivered" : accepted == 0 ? "failed" : "partial", attempted, accepted);
+        var attempted = outcomes.Count;
+        var accepted = outcomes.Count(o => o.Accepted);
+        // The provider's status word and message ids: "queued" (deferred by the provider) is not
+        // "sent", and the id is what its activity log is searched by when a mail never arrives.
+        var statuses = string.Join(",", outcomes.Where(o => o.Status != null).Select(o => o.Status!).Distinct());
+        var ids = string.Join(",", outcomes.Where(o => o.ProviderId != null).Select(o => o.ProviderId!));
+        Track(accepted == attempted ? "delivered" : accepted == 0 ? "failed" : "partial", attempted, accepted, statuses, ids);
         if (accepted < attempted)
             _logger.LogWarning("E-mail alert {EventType}: provider accepted {Accepted} of {Attempted} recipient(s)", alert.EventType, accepted, attempted);
 
+        var detail = statuses.Length > 0 ? $" Provider status: {statuses}{(ids.Length > 0 ? $", id {ids}" : string.Empty)}." : string.Empty;
         return new WebhookTestResult
         {
             Success = accepted > 0,
-            Message = accepted == attempted
+            Message = (accepted == attempted
                 ? $"Sent to {accepted} recipient(s)."
-                : $"The e-mail provider accepted {accepted} of {attempted} recipient(s) — see the backend log for the rejection.",
+                : $"The e-mail provider accepted {accepted} of {attempted} recipient(s) — see the backend log for the rejection.") + detail,
         };
     }
 
-    private void Track(string outcome, int attempted, int accepted)
+    private void Track(string outcome, int attempted, int accepted, string statuses = "", string ids = "")
     {
         try
         {
@@ -103,6 +107,8 @@ public class EmailNotificationService : IEmailChannelSender
                 ["outcome"] = outcome,
                 ["attempted"] = attempted.ToString(),
                 ["accepted"] = accepted.ToString(),
+                ["status"] = statuses,
+                ["providerIds"] = ids,
             });
         }
         catch
