@@ -71,12 +71,14 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>
         /// Providers a tenant admin may not create or retarget: they send through PLATFORM-owned
-        /// infrastructure (the Telegram bot; the push sender and its VAPID key). Enforced server-side
-        /// in TenantConfigValidation, mirrored by the <c>gaOnly</c> flag in the web ChannelEditor.
+        /// infrastructure (the Telegram bot; the push sender and its VAPID key; the platform's e-mail
+        /// sender). Enforced server-side in TenantConfigValidation, mirrored by the <c>gaOnly</c> flag
+        /// in the web ChannelEditor.
         /// </summary>
         public static bool IsGlobalAdminOnlyProvider(int providerType)
             => providerType == (int)WebhookProviderType.Telegram
-               || providerType == (int)WebhookProviderType.Push;
+               || providerType == (int)WebhookProviderType.Push
+               || providerType == (int)WebhookProviderType.Email;
 
         /// <summary>
         /// Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }), applied

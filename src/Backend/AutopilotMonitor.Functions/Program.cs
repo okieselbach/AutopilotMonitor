@@ -478,6 +478,11 @@ builder.Services.AddHttpClient<TelegramNotificationService>()
 // Channel-level send API — routes each NotificationChannel to its transport (webhook renderer
 // vs. the platform Telegram bot). Transient: both transports are typed HttpClients.
 builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelDispatcher>();
+// E-mail as a channel provider (GA-gated): renders the alert and sends through EmailService's
+// provider path. Transient like the dispatcher; EmailService is a typed HttpClient.
+builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.EmailNotificationService>();
+builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.IEmailChannelSender>(
+    sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Notifications.EmailNotificationService>());
 // What's new → channel digest (hourly timer). The feed client is a typed HttpClient reading the
 // portal's static whats-new.json; the service is transient because the dispatcher it wraps is.
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.WhatsNew.IWhatsNewFeedClient,

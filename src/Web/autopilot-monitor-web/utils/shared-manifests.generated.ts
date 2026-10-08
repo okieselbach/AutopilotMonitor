@@ -478,7 +478,8 @@ export const SHARED_MANIFEST = {
     "GenericJson": 20,
     "Discord": 30,
     "Telegram": 40,
-    "Push": 50
+    "Push": 50,
+    "Email": 60
   },
   "annotationLanes": [
     "operator",

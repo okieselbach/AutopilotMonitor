@@ -363,6 +363,8 @@ namespace AutopilotMonitor.Functions.Helpers
                         ? ValidateTelegramChatId(channel.Url)
                     : channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push
                         ? ValidatePushDestination(channel.Url)
+                    : channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Email
+                        ? ValidateEmailDestination(channel.Url)
                         : SsrfGuard.ValidateWebhookUrlFormat(channel.Url);
                 if (destinationError != null)
                     return $"channel \"{label}\": {destinationError}";
@@ -425,12 +427,37 @@ namespace AutopilotMonitor.Functions.Helpers
         internal static string? ValidatePushDestination(string? url)
             => string.IsNullOrWhiteSpace(url) ? null : "a Push channel has no destination — leave the URL empty.";
 
+        public const int MaxEmailRecipients = 5;
+
+        /// <summary>
+        /// An e-mail channel's destination: one to five plain addresses (no display names), separated
+        /// by ';' or ','. Returns an error message, or null when valid. Not a URL, so the SSRF gate does
+        /// not apply — the platform's provider sends, the caller only names recipients.
+        /// </summary>
+        internal static string? ValidateEmailDestination(string? recipients)
+        {
+            var addresses = Services.Notifications.EmailNotificationService.ParseRecipients(recipients);
+            if (addresses.Count == 0)
+                return "an e-mail channel needs at least one recipient address.";
+            if (addresses.Count > MaxEmailRecipients)
+                return $"an e-mail channel may name at most {MaxEmailRecipients} recipients.";
+            foreach (var address in addresses)
+            {
+                if (address.Length > 254
+                    || !System.Net.Mail.MailAddress.TryCreate(address, out var parsed)
+                    || !string.Equals(parsed.Address, address, StringComparison.Ordinal)
+                    || !parsed.Host.Contains('.'))
+                    return $"\"{address}\" is not a valid e-mail address.";
+            }
+            return null;
+        }
+
         /// <summary>
         /// Global-Admin gate for the providers that send through PLATFORM-owned infrastructure
         /// (<see cref="Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider"/>):
         /// Telegram through the platform bot (the token lives in PreviewConfig, not in tenant
-        /// config), Push through the platform's push sender and VAPID key, GA-only until the
-        /// customer release. A tenant admin must not be able to create or retarget one — hiding
+        /// config), Push through the platform's push sender and VAPID key, E-mail through the
+        /// platform's sender identity and provider key — GA-only until the customer release. A tenant admin must not be able to create or retarget one — hiding
         /// the provider in the UI is not a control.
         /// <para>
         /// Compares against the stored config so a non-GA caller can still save unrelated changes
@@ -463,7 +490,12 @@ namespace AutopilotMonitor.Functions.Helpers
                     || !string.Equals(stored.Url ?? string.Empty, channel.Url ?? string.Empty, StringComparison.Ordinal)
                     || stored.Enabled != channel.Enabled)
                 {
-                    var provider = channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push ? "Push" : "Telegram";
+                    var provider = channel.ProviderType switch
+                    {
+                        (int)Shared.Models.Notifications.WebhookProviderType.Push => "Push",
+                        (int)Shared.Models.Notifications.WebhookProviderType.Email => "E-mail",
+                        _ => "Telegram",
+                    };
                     return $"{provider} channels can only be configured by a Global Administrator.";
                 }
             }

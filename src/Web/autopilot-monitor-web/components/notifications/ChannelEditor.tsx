@@ -13,6 +13,7 @@ import { PUSH_PROVIDER } from "@/lib/pushPortal";
 
 const GENERIC_PROVIDER = 20;
 const TELEGRAM_PROVIDER = 40;
+const EMAIL_PROVIDER = 60;
 
 /** Default destination sentence of a Push channel (tenant scope); the ops card passes its own. */
 export const PUSH_DESTINATION_HINT_TENANT =
@@ -38,6 +39,9 @@ export const PROVIDERS: {
   // recipients are the scope's paired devices, so the URL field gives way to one sentence.
   // GA-only like Telegram until the customer release (K4: one gate until then).
   { value: PUSH_PROVIDER, label: "Push to paired devices", placeholder: "", gaOnly: true },
+  // E-mail through the platform's own sender (noreply@autopilotmonitor.com) and provider key —
+  // GA-only like Telegram and Push; the destination is one to five recipient addresses.
+  { value: EMAIL_PROVIDER, label: "E-mail (from noreply@autopilotmonitor.com)", placeholder: "ops@example.com; second@example.com", gaOnly: true },
 ];
 
 const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: string }[] = [
@@ -165,7 +169,7 @@ export function ChannelEditor({
   onTest: () => void;
   testing: boolean;
   testResult: { success: boolean; message: string } | null;
-  /** Global Admin: may pick the platform-owned providers (Telegram bot, Web Push). */
+  /** Global Admin: may pick the platform-owned providers (Telegram bot, Web Push, e-mail). */
   showTelegramProvider?: boolean;
   /** Tenant channels subscribe to event kinds here; ops channels are targeted by rules instead. */
   showEventToggles?: boolean;
@@ -175,6 +179,7 @@ export function ChannelEditor({
   const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
   const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
   const isPush = channel.providerType === PUSH_PROVIDER;
+  const isEmail = channel.providerType === EMAIL_PROVIDER;
   // A Push channel has no destination, so it is configured by being enabled alone.
   const isActive = channel.enabled && (isPush || (channel.url ?? "").length > 0);
   // Keep the channel's own provider listed even when gated, so a GA-created Telegram channel
@@ -261,7 +266,7 @@ export function ChannelEditor({
       {!isPush && (
       <div>
         <label className="block">
-          <span className="text-gray-700 font-medium text-sm">{isTelegram ? "Chat ID" : "Webhook URL"}</span>
+          <span className="text-gray-700 font-medium text-sm">{isTelegram ? "Chat ID" : isEmail ? "Recipients" : "Webhook URL"}</span>
           <p className="text-xs text-gray-500 mb-1">
             {channel.providerType === 2
               ? "Create a Workflow in Teams (Channel → Manage channel → Workflows → \"Post to a channel when a webhook request is received\") and paste the URL here."
@@ -273,11 +278,13 @@ export function ChannelEditor({
               ? "Create a webhook in your Discord channel (Channel settings → Integrations → Webhooks) and paste the URL here."
               : isTelegram
               ? "Telegram chat or channel ID (negative number for groups), or an @username. Messages are delivered by the platform bot — add it to the chat first."
+              : isEmail
+              ? "One to five addresses, separated by semicolons. Each alert is sent as one e-mail per recipient from noreply@autopilotmonitor.com."
               : ""}
           </p>
           <div className="flex items-center gap-2">
             <input
-              type={isTelegram ? "text" : "url"}
+              type={isTelegram || isEmail ? "text" : "url"}
               value={channel.url ?? ""}
               onChange={(e) => onChange({ ...channel, url: e.target.value })}
               placeholder={placeholder}

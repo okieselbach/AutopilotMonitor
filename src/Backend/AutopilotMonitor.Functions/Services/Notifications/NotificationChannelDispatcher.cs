@@ -10,7 +10,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     /// (enrollment, SLA, analyze rules, ops alerts) goes through here, so a new provider is added
     /// in exactly one place.
     /// <para>
-    /// Three transports: <see cref="WebhookProviderType.Telegram"/> goes to
+    /// Four transports: <see cref="WebhookProviderType.Email"/> goes to the
+    /// <see cref="IEmailChannelSender"/> (the platform's own sender, recipients in the channel's
+    /// Url); <see cref="WebhookProviderType.Telegram"/> goes to
     /// <see cref="TelegramNotificationService"/> (plain text through the platform bot, the channel's
     /// Url field carrying the chat ID); <see cref="WebhookProviderType.Push"/> goes to the
     /// <see cref="IPushChannelSender"/> (encrypted Web Push to the paired devices of the
@@ -25,6 +27,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         private readonly WebhookNotificationService _webhook;
         private readonly TelegramNotificationService _telegram;
         private readonly IPushChannelSender _push;
+        private readonly IEmailChannelSender? _email;
 
         public NotificationChannelDispatcher(
             WebhookNotificationService webhook,
@@ -34,6 +37,17 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             _webhook = webhook;
             _telegram = telegram;
             _push = push;
+        }
+
+        /// <summary>With the e-mail transport (DI picks this one); the shorter overload stays for the existing mocks.</summary>
+        public NotificationChannelDispatcher(
+            WebhookNotificationService webhook,
+            TelegramNotificationService telegram,
+            IPushChannelSender push,
+            IEmailChannelSender email)
+            : this(webhook, telegram, push)
+        {
+            _email = email;
         }
 
         /// <summary>
@@ -54,6 +68,13 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 if (channel.ProviderType == (int)WebhookProviderType.Push)
                 {
                     await _push.SendAsync(scope, alert);
+                    continue;
+                }
+
+                if (channel.ProviderType == (int)WebhookProviderType.Email)
+                {
+                    if (_email != null)
+                        await _email.SendOpsAlertAsync(channel.Url!, alert);
                     continue;
                 }
 
@@ -84,6 +105,13 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             if (channel.ProviderType == (int)WebhookProviderType.Push)
                 return await _push.SendWithResultAsync(scope, alert);
+
+            if (channel.ProviderType == (int)WebhookProviderType.Email)
+            {
+                return _email == null
+                    ? new WebhookTestResult { Success = false, Message = "The e-mail transport is not registered." }
+                    : await _email.SendAlertWithResultAsync(channel.Url!, alert);
+            }
 
             if (channel.ProviderType == (int)WebhookProviderType.Telegram)
                 return await _telegram.SendAlertWithResultAsync(channel.Url!, alert);

@@ -155,6 +155,26 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         return sent;
     }
 
+    /// <summary>True when an API key is configured; otherwise every send is a logged no-op.</summary>
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
+
+    /// <summary>
+    /// A rendered message to one recipient — the notification-channel provider
+    /// (<see cref="Notifications.EmailNotificationService"/>) on the same provider path as the
+    /// transactional mails. Returns true when the provider accepted it. Never throws.
+    /// </summary>
+    public virtual async Task<bool> SendMessageAsync(string toEmail, string subject, string html, string tag, CancellationToken ct = default)
+    {
+        if (!IsConfigured)
+        {
+            _logger.LogWarning("{ConfigKey} not configured — skipping {Tag} mail", ApiKeyConfigKey, tag);
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(toEmail))
+            return false;
+        return await SendViaMandrillAsync(toEmail, subject, html, tag, ct);
+    }
+
     /// <summary>
     /// The only provider-specific code path. Posts a Mandrill <c>messages/send</c> request and
     /// interprets the per-recipient result array: <c>sent</c>/<c>queued</c>/<c>scheduled</c>

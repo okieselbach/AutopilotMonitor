@@ -51,5 +51,14 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// reserved for this provider even if it were ever retired.
         /// </summary>
         Push = 50,
+
+        /// <summary>
+        /// E-mail through the platform's own sender (the same provider path as the welcome and
+        /// farewell mails, <c>noreply@autopilotmonitor.com</c>). Not a webhook: <c>Url</c> carries
+        /// the recipients — one to five addresses, ';' or ',' separated — and the message is rendered
+        /// by the backend. Global-Admin only (same gate as Telegram and Push, enforced in
+        /// TenantConfigValidation) because it sends under the platform's identity and API key.
+        /// </summary>
+        Email = 60,
     }
 }
