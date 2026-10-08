@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -124,7 +124,7 @@ jobs:
 
       # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
       - name: Setup .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -464,7 +464,7 @@ jobs:
       # Skipped on runs that publish nothing -- no log entry for bytes nobody receives.
       - name: Attest build provenance
         if: inputs.upload_blob || inputs.create_release
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             ${{ steps.artifact.outputs.versioned_zip_release }}
@@ -472,13 +472,13 @@ jobs:
             staging/agent/AutopilotMonitor.SummaryDialog.exe
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}
           path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload version metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: version-metadata
           path: ${{ env.MANIFEST_NAME }}
