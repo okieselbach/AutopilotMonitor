@@ -24,6 +24,8 @@ import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   parseFragment,
+  planSubscriptionKeys,
+  META_KEYS,
   PLATFORMS,
   pruneHistory,
   pushApiRequest,
@@ -226,6 +228,28 @@ describe("pruneHistory", () => {
     const old = entry("old", new Date(NOW - 31 * dayMs).toISOString());
     expect(pruneHistory([old], NOW, Number.NaN)).toEqual([]);
     expect(pruneHistory([old], NOW, 400)).toEqual([]);
+  });
+});
+
+describe("planSubscriptionKeys (worker repair after a browser-side subscription change)", () => {
+  const stored = { [META_KEYS.kid]: "k1", [META_KEYS.vapidPublicKey]: "key-1" };
+
+  it("uses the stored key while the server's active key matches or is unknown", () => {
+    expect(planSubscriptionKeys(stored, { activeKid: "k1", activeVapidPublicKey: "key-1" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys(stored, null)).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys(stored, { activeKid: "", activeVapidPublicKey: "" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+  });
+
+  it("switches to the server's active key after a rotation, and when the stored key is missing", () => {
+    expect(planSubscriptionKeys(stored, { activeKid: "k2", activeVapidPublicKey: "key-2" })).toEqual({ kid: "k2", publicKey: "key-2", rekey: true });
+    expect(planSubscriptionKeys({ [META_KEYS.kid]: "k1" }, { activeKid: "k1", activeVapidPublicKey: "key-1" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys({}, { activeKid: "k2", activeVapidPublicKey: "key-2" })).toEqual({ kid: "k2", publicKey: "key-2", rekey: true });
+  });
+
+  it("subscribes with nothing when neither a stored key nor a usable active key exists", () => {
+    expect(planSubscriptionKeys({}, null)).toBeNull();
+    expect(planSubscriptionKeys({ [META_KEYS.kid]: "k1" }, null)).toBeNull();
+    expect(planSubscriptionKeys({}, { activeKid: "k2", activeVapidPublicKey: 7 })).toBeNull();
   });
 });
 

@@ -158,7 +158,14 @@ export async function unpairDevice(): Promise<void> {
 export type ReconcileResult =
   | { state: "unpaired" }
   | { state: "gone" }
-  | { state: "ok"; device: PushDeviceResponse; meta: Record<string, string>; subscriptionPresent: boolean }
+  | {
+      state: "ok";
+      device: PushDeviceResponse;
+      meta: Record<string, string>;
+      subscriptionPresent: boolean;
+      /** Why the subscription repair (subscribe or PUT) failed on this open, or null — the status page shows it; it is retried on the next open. */
+      repairError: string | null;
+    }
   | { state: "error"; message: string; meta: Record<string, string> };
 
 /**
@@ -188,6 +195,7 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
   }
 
   let subscriptionPresent = false;
+  let repairError: string | null = null;
   try {
     const registration = (await getPushRegistration()) ?? (isPushSupported() ? await registerPushWorker() : null);
     if (registration) {
@@ -237,9 +245,11 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
       await wipeLocalDevice().catch(() => {});
       return { state: "gone" };
     }
-    // Subscription repair is best effort; the status page shows "subscription: no".
+    // Subscription repair is best effort: the device keeps working on what the server knows,
+    // and the status page names the failure so a wrong key or a refused endpoint is not silent.
+    repairError = describePushError(error);
   }
-  return { state: "ok", device, meta, subscriptionPresent };
+  return { state: "ok", device, meta, subscriptionPresent, repairError };
 }
 
 function isGone(error: unknown): boolean {

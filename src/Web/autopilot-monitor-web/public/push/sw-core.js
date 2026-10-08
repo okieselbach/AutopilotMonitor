@@ -445,6 +445,27 @@ export const DEVICE_TOKEN_HEADER = "X-Push-Device-Token";
  * @param {{ method?: string, token?: string | null, body?: unknown }} [options]
  * @returns {PushApiRequest}
  */
+/**
+ * Which key the worker subscribes with when the browser rotates the subscription
+ * (pushsubscriptionchange; the pages' reconcile has the same rule in decideReconcileAction):
+ * the server's active key when it is known and differs from the stored kid, or when no stored
+ * key exists; otherwise the stored key; null when there is nothing to subscribe with.
+ * @param {Record<string, string>} meta the stored meta (kid, vapidPublicKey)
+ * @param {{ activeKid?: unknown, activeVapidPublicKey?: unknown } | null} status GET push/device, or null when it failed
+ * @returns {{ kid: string, publicKey: string, rekey: boolean } | null}
+ */
+export function planSubscriptionKeys(meta, status) {
+  const storedKid = typeof meta[META_KEYS.kid] === "string" ? meta[META_KEYS.kid] : "";
+  const storedKey = typeof meta[META_KEYS.vapidPublicKey] === "string" ? meta[META_KEYS.vapidPublicKey] : "";
+  const activeKid = status && typeof status.activeKid === "string" ? status.activeKid : "";
+  const activeKey = status && typeof status.activeVapidPublicKey === "string" ? status.activeVapidPublicKey : "";
+  if (activeKid !== "" && activeKey !== "" && (activeKid !== storedKid || storedKey === "")) {
+    return { kid: activeKid, publicKey: activeKey, rekey: activeKid !== storedKid };
+  }
+  if (storedKid !== "" && storedKey !== "") return { kid: storedKid, publicKey: storedKey, rekey: false };
+  return null;
+}
+
 export function pushApiRequest(apiBaseUrl, path, options = {}) {
   /** @type {Record<string, string>} */
   const headers = { Accept: "application/json" };

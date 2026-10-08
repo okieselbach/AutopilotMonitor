@@ -152,9 +152,17 @@ export default function PushStatusPage() {
         <h2 className="text-base font-semibold text-gray-900">On this device</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
           <Row name="Notifications" value={permission === "unsupported" ? "not supported" : permission} />
-          <Row name="Subscription" value={result.state === "ok" ? (result.subscriptionPresent ? "present" : "missing") : "—"} />
+          <Row
+            name="Subscription"
+            value={result.state === "ok" ? (result.subscriptionPresent ? (result.repairError ? "present, server not updated" : "present") : "missing") : "—"}
+          />
           <Row name="Persistent storage" value={persisted === null ? "unknown" : persisted ? "granted" : "not granted"} />
         </dl>
+        {result.state === "ok" && result.repairError && (
+          <p className="text-xs text-red-700 dark:text-red-400">
+            The subscription could not be registered with the server: {result.repairError} It is retried the next time this app is opened.
+          </p>
+        )}
         {result.state === "ok" && !result.subscriptionPresent && permission !== "granted" && (
           <p className="text-xs text-gray-500">Without notification permission the browser holds no push subscription; alerts cannot arrive.</p>
         )}
