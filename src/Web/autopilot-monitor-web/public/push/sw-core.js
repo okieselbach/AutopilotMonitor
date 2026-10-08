@@ -295,7 +295,16 @@ export function normalizePayload(input, nowMs) {
  * @returns {HistoryEntry | null} null when nothing identifies the notification as ours
  */
 export function entryFromNotification(notification, nowMs) {
-  const data = isRecord(notification.data) ? notification.data : null;
+  let raw = notification.data;
+  if (typeof raw === "string") {
+    // A data member handed back as its JSON text is read as JSON; unreadable text is foreign.
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = null;
+    }
+  }
+  const data = isRecord(raw) ? raw : null;
   if (data && isRecord(data.entry) && typeof data.entry.id === "string") return /** @type {HistoryEntry} */ (data.entry);
   if (!data || typeof data.id !== "string") return null;
   return normalizePayload({ title: notification.title, body: notification.body, tag: notification.tag, data }, nowMs);

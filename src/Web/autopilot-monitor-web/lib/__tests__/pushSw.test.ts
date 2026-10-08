@@ -175,6 +175,23 @@ describe("push service worker glue (K25)", () => {
     expect(env.sequence).toEqual(["showNotification", "indexedDB.open", "indexedDB.open"]);
   });
 
+  it("settles waitUntil and still writes the history when showNotification throws (iOS inside a declarative push event)", async () => {
+    const env = await loadWorker(erroringIndexedDb);
+    env.showNotification.mockImplementation(async () => {
+      env.sequence.push("showNotification");
+      throw new Error("NotAllowedError");
+    });
+    const event = fakeEvent({ data: null, notification: { title: "Enrollment finished", body: "b", data: { id: "srv-9", type: "session_watch" } } });
+
+    env.handlers.get("push")!(event);
+
+    // Resolves, never rejects: a rejected waitUntil would end the event with the write in flight.
+    await expect(event.waited).resolves.toBeDefined();
+    // Both attempts (the entry, then the generic fallback) threw; the history write started regardless.
+    expect(env.showNotification).toHaveBeenCalledTimes(2);
+    expect(env.sequence.slice(0, 2)).toEqual(["showNotification", "indexedDB.open"]);
+  });
+
   it("shows a readable payload with its own title and still never waits for IndexedDB", async () => {
     const env = await loadWorker(hangingIndexedDb);
     const payload = { notification: { title: "Enrollment failed", body: "DESKTOP-1234", data: { id: "abc", type: "enrollment_failed" } } };

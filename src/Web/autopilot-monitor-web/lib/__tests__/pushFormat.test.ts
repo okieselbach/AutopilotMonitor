@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateTime, formatRelativeTime, formatTraceRecord } from "../push/pushFormat";
+import { describeNotificationData, formatDateTime, formatRelativeTime, formatTraceRecord } from "../push/pushFormat";
 
 const NOW = Date.parse("2026-10-07T12:00:00Z");
 
@@ -30,5 +30,16 @@ describe("formatTraceRecord", () => {
       "push · data · error: QuotaExceededError · display fallback",
     );
     expect(formatTraceRecord({ at: "not a date", event: "activate" })).toBe("— · activate");
+  });
+});
+
+describe("describeNotificationData", () => {
+  it("names the shape the import can or cannot use", () => {
+    expect(describeNotificationData(undefined)).toBe("no data");
+    expect(describeNotificationData(null)).toBe("data null");
+    expect(describeNotificationData('{"id":"x"}')).toBe('data string(10) {"id":"x"}');
+    expect(describeNotificationData({ id: "x", entry: {} })).toBe("data object{id,entry}");
+    expect(describeNotificationData([1])).toBe("data array(1)");
+    expect(describeNotificationData(7)).toBe("data number");
   });
 });

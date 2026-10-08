@@ -477,3 +477,16 @@ describe("worker trace (appendTraceRecord / parseTrace)", () => {
     expect(parseTrace("\"a string\"")).toEqual([]);
   });
 });
+
+describe("entryFromNotification with a JSON-string data member", () => {
+  it("reads the string as JSON and treats unreadable or non-object text as foreign", () => {
+    const AT = Date.UTC(2026, 9, 8, 18, 9, 27);
+    const entry = entryFromNotification(
+      { title: "Enrollment finished", body: "b", tag: "session_watch", data: JSON.stringify({ id: "srv-7", type: "session_watch", ts: "2026-10-08T18:09:24Z" }) },
+      AT,
+    )!;
+    expect(entry).toMatchObject({ id: "srv-7", type: "session_watch", title: "Enrollment finished", tag: "session_watch", ts: "2026-10-08T18:09:24.000Z" });
+    expect(entryFromNotification({ title: "x", body: "", data: "{not json" }, AT)).toBeNull();
+    expect(entryFromNotification({ title: "x", body: "", data: "\"plain\"" }, AT)).toBeNull();
+  });
+});

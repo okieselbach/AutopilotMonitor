@@ -268,9 +268,14 @@ export default function PushStatusPage() {
           {diag && diag.displayed && diag.displayed.length > 0 && (
             <ul className="text-xs text-gray-700 space-y-0.5">
               {diag.displayed.map((n, i) => (
-                <li key={i} className="truncate">
+                <li key={i} className="break-words">
                   {n.title}
-                  {n.id ? "" : " (not ours)"}
+                  {" · "}
+                  {n.tag ? `tag ${n.tag}` : "no tag"}
+                  {" · "}
+                  {n.data}
+                  {n.timestamp ? ` · ${formatDateTime(n.timestamp)}` : ""}
+                  {n.id ? " · ours" : " · not recognised"}
                 </li>
               ))}
             </ul>

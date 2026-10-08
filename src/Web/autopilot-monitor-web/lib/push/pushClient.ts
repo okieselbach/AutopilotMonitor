@@ -27,6 +27,7 @@ import {
   updateDeviceSubscription,
   type PushDeviceResponse,
 } from "./pushApi";
+import { describeNotificationData } from "./pushFormat";
 import { decideReconcileAction } from "./pushReconcile";
 
 export const SW_URL = "/push/sw.js";
@@ -162,9 +163,14 @@ export async function importDisplayedNotifications(): Promise<number> {
 }
 
 export interface DisplayedNotification {
-  /** The history id behind the notification, or null when it is not one of ours. */
+  /** The history id behind the notification, or null when the entry rule does not recognise it. */
   id: string | null;
   title: string;
+  tag: string | null;
+  /** The shape of the Notification's data member (describeNotificationData) — what an import could work with. */
+  data: string;
+  /** The Notification's own timestamp as ISO, when the browser exposes one. */
+  timestamp: string | null;
 }
 
 /** What the status page shows under Diagnostics: the local facts behind a push that did or did not reach the history. */
@@ -197,7 +203,11 @@ export async function collectPushDiagnostics(): Promise<PushDiagnostics> {
   if (registration && typeof registration.getNotifications === "function") {
     try {
       const now = Date.now();
-      displayed = (await registration.getNotifications()).map((n) => ({ id: entryFromNotification(n, now)?.id ?? null, title: n.title }));
+      displayed = (await registration.getNotifications()).map((n) => {
+        const stamped = n as Notification & { timestamp?: unknown };
+        const timestamp = typeof stamped.timestamp === "number" && Number.isFinite(stamped.timestamp) ? new Date(stamped.timestamp).toISOString() : null;
+        return { id: entryFromNotification(n, now)?.id ?? null, title: n.title, tag: n.tag || null, data: describeNotificationData(n.data), timestamp };
+      });
     } catch {
       displayed = null;
     }

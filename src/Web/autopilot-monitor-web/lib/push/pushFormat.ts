@@ -45,3 +45,16 @@ export function formatTraceRecord(record: TraceRecord): string {
   if (record.id) parts.push(`#${record.id.slice(0, 8)}`);
   return parts.join(" · ");
 }
+
+/** A Notification's data member in one short phrase: its type and, for an object, its keys — the import needs an object with an id. */
+export function describeNotificationData(value: unknown): string {
+  if (value === undefined) return "no data";
+  if (value === null) return "data null";
+  if (typeof value === "string") return `data string(${value.length}) ${value.slice(0, 40)}`.trimEnd();
+  if (Array.isArray(value)) return `data array(${value.length})`;
+  if (typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>);
+    return `data object{${keys.slice(0, 6).join(",")}${keys.length > 6 ? ",…" : ""}}`;
+  }
+  return `data ${typeof value}`;
+}

@@ -7,7 +7,10 @@
  * Contract (K25): display never waits for IndexedDB — `waitUntil(Promise.all([show, persist]))`
  * with persist failures swallowed and persist bounded in time; a payload that cannot be read
  * still shows the generic title, because a silent push costs the subscription on iOS after
- * three occurrences. lib/__tests__/pushSw.test.ts pins the order and the settling.
+ * three occurrences. On iOS the worker's showNotification throws inside a declarative push
+ * event and the platform shows the proposed notification itself (worker trace, 2026-10-08), so
+ * show() never rejects: a rejected waitUntil ended the event with the history write still in
+ * flight, and entries were lost. lib/__tests__/pushSw.test.ts pins the order and the settling.
  */
 import {
   base64UrlToUint8Array,
@@ -75,15 +78,21 @@ async function notifyWindows(type, detail = {}) {
 
 /**
  * @param {import("./sw-core.js").HistoryEntry} entry
- * @returns {Promise<"shown" | "fallback">} how the notification went up, for the trace
+ * @returns {Promise<string>} "shown", "fallback" or "failed: <error>" for the trace — never rejects
  */
 async function show(entry) {
   try {
     await self.registration.showNotification(entry.title, toNotificationOptions(entry));
     return "shown";
-  } catch {
-    await self.registration.showNotification(GENERIC_TITLE, { body: GENERIC_BODY });
-    return "fallback";
+  } catch (error) {
+    try {
+      await self.registration.showNotification(GENERIC_TITLE, { body: GENERIC_BODY });
+      return "fallback";
+    } catch (second) {
+      const first = describeError(error);
+      const again = describeError(second);
+      return "failed: " + (again === first ? first : first + " / " + again);
+    }
   }
 }
 
@@ -122,7 +131,7 @@ function describeError(error) {
  * never answers, the missing record is the evidence the status page shows.
  * @param {import("./sw-core.js").HistoryEntry} entry
  * @param {Record<string, unknown>} fields the record's fields besides id, type, result and shown
- * @param {Promise<string>} [shown] the display outcome — already in flight, awaited only for the record
+ * @param {Promise<string>} [shown] the display outcome — already in flight and never rejecting, awaited only for the record
  * @returns {Promise<void>}
  */
 function persist(entry, fields, shown) {
