@@ -26,7 +26,7 @@ jobs:
     name: Build and Deploy MCP Server
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -38,7 +38,7 @@ jobs:
       # re-run actually rolls a new revision). /health reports the SHA captured
       # below so that staleness is checkable.
       - name: Check out documentation bundle
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: autopilotmonitor/autopilotmonitor-docs

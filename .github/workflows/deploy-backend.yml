@@ -19,7 +19,7 @@ jobs:
     name: Build and Deploy Backend
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -31,7 +31,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -67,7 +67,7 @@ jobs:
         run: dotnet publish ${{ env.CSPROJ_PATH }} --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
 
       - name: Deploy to Azure Functions
-        uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1
+        uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1.5.7
         with:
           app-name: ${{ env.FUNCTION_APP }}
           package: ./publish

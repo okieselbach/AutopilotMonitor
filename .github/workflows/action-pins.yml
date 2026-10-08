@@ -26,7 +26,10 @@ name: Workflow gates
 #
 # The pins are not maintained by hand — .github/dependabot.yml opens a monthly grouped
 # PR that rewrites both the SHA and the trailing version comment. The comment is
-# therefore required too: it is what makes a pinned line reviewable.
+# therefore required too: it is what makes a pinned line reviewable. It names the exact
+# release tag (# v7.0.1), never the floating major (# v7): a major tag moves with every
+# upstream release, after which the comment no longer names the pinned commit and
+# zizmor's ref-version-mismatch flags every line that carries it.
 
 on:
   push:
@@ -45,7 +48,7 @@ jobs:
     name: Verify action pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -59,13 +62,15 @@ jobs:
             # nothing to pin.
             case "$ref" in ./*|\$/*) continue ;; esac
 
-            if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*[^[:space:]] ]]; then
+            if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v?[0-9]+\.[0-9]+\.[0-9]+([[:space:]]|$) ]]; then
               printf 'ok  %s:%s  %s\n' "$file" "$line" "$ref"
               continue
             fi
 
             if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]*$ ]]; then
-              echo "::error file=$file,line=$line::Pinned but the version comment is missing: '$ref'. Write 'owner/action@<sha> # vN' so the line stays reviewable."
+              echo "::error file=$file,line=$line::Pinned but the version comment is missing: '$ref'. Write 'owner/action@<sha> # vX.Y.Z' so the line stays reviewable."
+            elif [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]+# ]]; then
+              echo "::error file=$file,line=$line::The version comment must name the exact release tag the SHA resolves to ('# vX.Y.Z'), not a floating major: '$ref'. Find it with: gh api repos/<owner>/<action>/git/matching-refs/tags/vN"
             else
               echo "::error file=$file,line=$line::Action '$ref' is not pinned to a commit SHA. Tags are mutable -- resolve it with: gh api repos/<owner>/<action>/git/ref/tags/<tag>"
             fi
@@ -89,7 +94,7 @@ jobs:
       security-events: write   # SARIF upload: findings land in the Code scanning tab next to CodeQL
       actions: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
