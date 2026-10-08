@@ -40,24 +40,24 @@ export default function PushStatusPage() {
   const [retention, setRetention] = useState<number | null>(null);
   const [retentionInput, setRetentionInput] = useState<string | null>(null);
   const [retentionNote, setRetentionNote] = useState<RetentionNote>({ kind: "idle" });
-  // Diagnostics (null: not collected yet) and the feedback line of the manual import.
+  // Diagnostics: collapsed by default and collected the first time the section is opened
+  // (null: not collected yet); plus the feedback line of the manual import.
+  const [diagOpen, setDiagOpen] = useState(false);
   const [diag, setDiag] = useState<PushDiagnostics | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const [reconciled, storage, days, diagnostics] = await Promise.all([
+      const [reconciled, storage, days] = await Promise.all([
         reconcileDevice(),
         isStoragePersisted(),
         readRetentionDays().catch(() => null),
-        collectPushDiagnostics().catch(() => null),
       ]);
       if (cancelled) return;
       setResult(reconciled);
       setPersisted(storage);
       setRetention(days);
-      setDiag(diagnostics);
     };
     void run();
     return () => {
@@ -72,6 +72,20 @@ export default function PushStatusPage() {
     const timer = setTimeout(() => setRetentionNote({ kind: "idle" }), SAVED_NOTE_MS);
     return () => clearTimeout(timer);
   }, [savedAt]);
+
+  // The diagnostics are collected when the section is first opened, not on every visit.
+  useEffect(() => {
+    if (!diagOpen || diag !== null) return;
+    let cancelled = false;
+    const run = async () => {
+      const collected = await collectPushDiagnostics().catch(() => null);
+      if (!cancelled) setDiag(collected);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [diagOpen, diag]);
 
   const retentionText = retentionInput ?? (retention === null ? "" : String(retention));
 
@@ -254,59 +268,92 @@ export default function PushStatusPage() {
       {paired && (
         <section className="bg-white rounded-lg shadow p-5 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-gray-900">Diagnostics</h2>
-            <button type="button" onClick={() => void refreshDiagnostics()} className="text-sm font-medium text-gray-600 hover:text-gray-900">
-              Refresh
-            </button>
+            <h2 className="text-base font-semibold text-gray-900">
+              <button
+                type="button"
+                onClick={() => setDiagOpen((open) => !open)}
+                aria-expanded={diagOpen}
+                aria-controls="push-diagnostics"
+                className="inline-flex items-center gap-2"
+              >
+                Diagnostics
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className={`h-4 w-4 text-gray-500 transition-transform ${diagOpen ? "rotate-180" : ""}`}
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </h2>
+            {diagOpen && (
+              <button type="button" onClick={() => void refreshDiagnostics()} className="text-sm font-medium text-gray-600 hover:text-gray-900">
+                Refresh
+              </button>
+            )}
           </div>
-          <p className="text-sm text-gray-600">What this device knows about the last pushes. Nothing here leaves the device.</p>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-            <Row name="Worker" value={diag ? `${diag.worker}${diag.controlled ? ", controls this page" : ""}` : "—"} />
-            <Row name="Displayed" value={diag ? (diag.displayed === null ? "unknown" : String(diag.displayed.length)) : "—"} />
-            <Row name="History" value={diag ? (diag.historyCount === null ? "unreadable" : String(diag.historyCount)) : "—"} />
-          </dl>
-          {diag && diag.displayed && diag.displayed.length > 0 && (
-            <ul className="text-xs text-gray-700 space-y-0.5">
-              {diag.displayed.map((n, i) => (
-                <li key={i} className="break-words">
-                  {n.title}
-                  {" · "}
-                  {n.tag ? `tag ${n.tag}` : "no tag"}
-                  {" · "}
-                  {n.data}
-                  {n.timestamp ? ` · ${formatDateTime(n.timestamp)}` : ""}
-                  {n.id ? " · ours" : " · not recognised"}
-                </li>
-              ))}
-            </ul>
+          {!diagOpen && <p className="text-sm text-gray-600">For troubleshooting: what this device knows about the last pushes.</p>}
+          {diagOpen && (
+            <div id="push-diagnostics" className="space-y-3">
+              <p className="text-sm text-gray-600">What this device knows about the last pushes. Nothing here leaves the device.</p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+                <Row name="Worker" value={diag ? `${diag.worker}${diag.controlled ? ", controls this page" : ""}` : "—"} />
+                <Row name="Displayed" value={diag ? (diag.displayed === null ? "unknown" : String(diag.displayed.length)) : "—"} />
+                <Row name="History" value={diag ? (diag.historyCount === null ? "unreadable" : String(diag.historyCount)) : "—"} />
+              </dl>
+              {diag && diag.displayed && diag.displayed.length > 0 && (
+                <ul className="text-xs text-gray-700 space-y-0.5">
+                  {diag.displayed.map((n, i) => (
+                    <li key={i} className="break-words">
+                      {n.title}
+                      {" · "}
+                      {n.tag ? `tag ${n.tag}` : "no tag"}
+                      {" · "}
+                      {n.data}
+                      {n.timestamp ? ` · ${formatDateTime(n.timestamp)}` : ""}
+                      {n.id ? " · ours" : " · not recognised"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void importDisplayed()}
+                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                >
+                  Import displayed notifications
+                </button>
+                {importNote && (
+                  <span role="status" className="text-sm text-gray-600">
+                    {importNote}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">
+                The import reads the notifications still in the notification centre and adds the ones the history lacks — the same
+                catch-up the history page runs on every open.
+              </p>
+              <div className="pt-3 border-t border-gray-100 space-y-1">
+                <h3 className="text-sm font-medium text-gray-900">Worker trace</h3>
+                {diag && diag.trace.length === 0 && <p className="text-xs text-gray-500">The worker has not recorded anything yet.</p>}
+                {diag && diag.trace.length > 0 && (
+                  <ul className="text-xs font-mono text-gray-700 space-y-0.5">
+                    {diag.trace.slice(0, TRACE_ROWS).map((record, i) => (
+                      <li key={i} className="break-words">
+                        {formatTraceRecord(record)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           )}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => void importDisplayed()}
-              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-            >
-              Import displayed notifications
-            </button>
-            {importNote && (
-              <span role="status" className="text-sm text-gray-600">
-                {importNote}
-              </span>
-            )}
-          </div>
-          <div className="pt-3 border-t border-gray-100 space-y-1">
-            <h3 className="text-sm font-medium text-gray-900">Worker trace</h3>
-            {diag && diag.trace.length === 0 && <p className="text-xs text-gray-500">The worker has not recorded anything yet.</p>}
-            {diag && diag.trace.length > 0 && (
-              <ul className="text-xs font-mono text-gray-700 space-y-0.5">
-                {diag.trace.slice(0, TRACE_ROWS).map((record, i) => (
-                  <li key={i} className="break-words">
-                    {formatTraceRecord(record)}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </section>
       )}
 
