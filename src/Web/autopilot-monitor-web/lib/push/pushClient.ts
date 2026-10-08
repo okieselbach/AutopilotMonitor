@@ -11,8 +11,11 @@ import {
   entryFromNotification,
   META_KEYS,
   PAIR_COOKIE_NAME,
+  readHistory,
   readMeta,
+  readTrace,
   type PlatformInput,
+  type TraceRecord,
   writeHistoryEntry,
   writeMeta,
 } from "./pushCore";
@@ -156,6 +159,57 @@ export async function importDisplayedNotifications(): Promise<number> {
     }
   }
   return added;
+}
+
+export interface DisplayedNotification {
+  /** The history id behind the notification, or null when it is not one of ours. */
+  id: string | null;
+  title: string;
+}
+
+/** What the status page shows under Diagnostics: the local facts behind a push that did or did not reach the history. */
+export interface PushDiagnostics {
+  /** Registration state: active, installing, waiting, registered (no worker yet), none or unsupported. */
+  worker: string;
+  /** Whether the worker controls this page (its "history" message can reach it). */
+  controlled: boolean;
+  /** The notifications still in the notification centre, or null when the browser does not answer. */
+  displayed: DisplayedNotification[] | null;
+  /** Rows in the local history, or null when IndexedDB is not readable. */
+  historyCount: number | null;
+  /** The worker's own trace, newest first; empty when unreadable. */
+  trace: TraceRecord[];
+}
+
+export async function collectPushDiagnostics(): Promise<PushDiagnostics> {
+  if (!isPushSupported()) return { worker: "unsupported", controlled: false, displayed: null, historyCount: null, trace: [] };
+  const registration = await getPushRegistration().catch(() => null);
+  const worker = !registration
+    ? "none"
+    : registration.active
+      ? "active"
+      : registration.installing
+        ? "installing"
+        : registration.waiting
+          ? "waiting"
+          : "registered";
+  let displayed: DisplayedNotification[] | null = null;
+  if (registration && typeof registration.getNotifications === "function") {
+    try {
+      const now = Date.now();
+      displayed = (await registration.getNotifications()).map((n) => ({ id: entryFromNotification(n, now)?.id ?? null, title: n.title }));
+    } catch {
+      displayed = null;
+    }
+  }
+  const [historyCount, trace] = await Promise.all([
+    readHistory().then(
+      (entries) => entries.length,
+      () => null,
+    ),
+    readTrace().catch((): TraceRecord[] => []),
+  ]);
+  return { worker, controlled: navigator.serviceWorker.controller !== null, displayed, historyCount, trace };
 }
 
 /** Drops the subscription and every local trace; used by unpair, the wipe command and "device gone". */

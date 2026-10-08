@@ -26,6 +26,7 @@ import {
   toNotificationOptions,
   writeHistoryEntry,
   writeMeta,
+  writeTrace,
 } from "./sw-core.js";
 
 const CHANNEL = "am-push";
@@ -43,7 +44,7 @@ self.addEventListener("install", () => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(Promise.all([self.clients.claim(), settleWithin(writeTrace({ event: "activate" }))]));
 });
 
 /**
@@ -74,34 +75,71 @@ async function notifyWindows(type, detail = {}) {
 
 /**
  * @param {import("./sw-core.js").HistoryEntry} entry
+ * @returns {Promise<"shown" | "fallback">} how the notification went up, for the trace
  */
 async function show(entry) {
   try {
     await self.registration.showNotification(entry.title, toNotificationOptions(entry));
+    return "shown";
   } catch {
     await self.registration.showNotification(GENERIC_TITLE, { body: GENERIC_BODY });
+    return "fallback";
   }
 }
 
 /**
- * Best-effort history write, bounded in time; never rejects (see PERSIST_TIMEOUT_MS).
- * @param {import("./sw-core.js").HistoryEntry} entry
+ * Runs the work for at most PERSIST_TIMEOUT_MS; resolves either way, never rejects.
+ * @param {Promise<unknown>} work
  * @returns {Promise<void>}
  */
-function persist(entry) {
+function settleWithin(work) {
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let timer;
-  const write = (async () => {
-    const added = await writeHistoryEntry(entry);
-    if (added) await notifyWindows("history");
-  })();
   /** @type {Promise<void>} */
   const timeout = new Promise((resolve) => {
     timer = setTimeout(resolve, PERSIST_TIMEOUT_MS);
   });
-  return Promise.race([write, timeout])
-    .catch(() => {})
+  return Promise.race([work, timeout])
+    .then(
+      () => undefined,
+      () => undefined,
+    )
     .finally(() => clearTimeout(timer));
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function describeError(error) {
+  if (error instanceof Error) return error.name + (error.message ? ": " + error.message : "");
+  return String(error);
+}
+
+/**
+ * Best-effort history write plus its trace record, bounded in time as one; never rejects. The
+ * record says what became of the entry ("added", "duplicate", "error: …"); when the database
+ * never answers, the missing record is the evidence the status page shows.
+ * @param {import("./sw-core.js").HistoryEntry} entry
+ * @param {Record<string, unknown>} fields the record's fields besides id, type, result and shown
+ * @param {Promise<string>} [shown] the display outcome — already in flight, awaited only for the record
+ * @returns {Promise<void>}
+ */
+function persist(entry, fields, shown) {
+  return settleWithin(
+    (async () => {
+      /** @type {string} */
+      let result;
+      try {
+        result = (await writeHistoryEntry(entry)) ? "added" : "duplicate";
+      } catch (error) {
+        result = "error: " + describeError(error);
+      }
+      if (result === "added") await notifyWindows("history").catch(() => {});
+      const display = shown ? await shown.catch(() => "failed") : undefined;
+      await writeTrace({ ...fields, id: entry.id, type: entry.type, result, shown: display });
+    })(),
+  );
 }
 
 /** The wipe command: forget the device locally and drop the subscription. */
@@ -119,8 +157,9 @@ async function wipe() {
 /**
  * @param {ExtendableEvent} event
  * @param {unknown} raw
+ * @param {string} source which event member carried the payload (for the trace)
  */
-function handlePush(event, raw) {
+function handlePush(event, raw, source) {
   const entry = normalizePayload(raw, Date.now());
   if (isWipeCommand(entry)) {
     const shown = {
@@ -132,7 +171,8 @@ function handlePush(event, raw) {
     return;
   }
   // show() is called first and synchronously reaches showNotification; persist() cannot delay it.
-  event.waitUntil(Promise.all([show(entry), persist(entry)]));
+  const shown = show(entry);
+  event.waitUntil(Promise.all([shown, persist(entry, { event: "push", source }, shown)]));
 }
 
 // Declarative Web Push with "mutable": true (Push API draft; Safari / iOS ≥ 18.4, verified on a
@@ -142,14 +182,14 @@ function handlePush(event, raw) {
 // arrival instead of only after a tap. Every other browser hands the raw JSON as event.data.
 self.addEventListener("push", (event) => {
   const declared = event.notification ?? null;
-  handlePush(event, declared ?? safeParse(event.data));
+  handlePush(event, declared ?? safeParse(event.data), declared ? "notification" : event.data ? "data" : "none");
 });
 
 // The earlier WebKit shape of the same mechanism: a separate pushnotification event with the
 // proposed notification (kept until no supported Safari fires it).
 self.addEventListener("pushnotification", (event) => {
   const proposed = event.notification ?? event.proposedNotification ?? null;
-  handlePush(event, proposed ?? safeParse(event.data ?? null));
+  handlePush(event, proposed ?? safeParse(event.data ?? null), proposed ? "pushnotification" : event.data ? "data" : "none");
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -162,7 +202,7 @@ self.addEventListener("notificationclick", (event) => {
       // The push handler may have lost the race against IndexedDB, or never ran: the click writes
       // the entry if missing — bounded like every history write, so a stuck database cannot keep
       // the tap from opening the page.
-      if (entry) await persist(entry);
+      await (entry ? persist(entry, { event: "click" }) : settleWithin(writeTrace({ event: "click", result: "no entry" })));
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const client of windows) {
         if (!new URL(client.url).pathname.startsWith("/push")) continue;
@@ -211,36 +251,51 @@ async function fetchDeviceStatus(apiBaseUrl, token) {
 self.addEventListener("pushsubscriptionchange", (event) => {
   event.waitUntil(
     (async () => {
-      const meta = await readMeta();
-      const token = meta[META_KEYS.deviceToken];
-      const apiBaseUrl = meta[META_KEYS.apiBaseUrl];
-      if (!token || !apiBaseUrl) return;
-      const plan = planSubscriptionKeys(meta, await fetchDeviceStatus(apiBaseUrl, token));
-      if (!plan) return;
-      // The browser's replacement subscription was made with the old key; after a rotation it is dropped.
-      let subscription = plan.rekey ? null : (event.newSubscription ?? null);
-      if (plan.rekey && event.newSubscription) await event.newSubscription.unsubscribe().catch(() => false);
-      if (!subscription) {
-        subscription = await self.registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: base64UrlToUint8Array(plan.publicKey),
-        });
+      /** @type {string} */
+      let result;
+      try {
+        result = await repairSubscription(event);
+      } catch (error) {
+        result = "error: " + describeError(error);
       }
-      const body = {
-        endpoint: subscription.endpoint,
-        p256dh: bufferToBase64Url(subscription.getKey("p256dh")),
-        auth: bufferToBase64Url(subscription.getKey("auth")),
-        kid: plan.kid,
-      };
-      const { url, init } = pushApiRequest(apiBaseUrl, "/api/push/device", { method: "PUT", token, body });
-      const response = await fetch(url, bounded(init));
-      if (response.ok) {
-        await writeMeta({
-          [META_KEYS.endpoint]: subscription.endpoint,
-          [META_KEYS.kid]: plan.kid,
-          [META_KEYS.vapidPublicKey]: plan.publicKey,
-        });
-      }
+      await settleWithin(writeTrace({ event: "subscriptionchange", result }));
     })(),
   );
 });
+
+/**
+ * @param {PushSubscriptionChangeEvent} event
+ * @returns {Promise<string>} what happened, for the trace
+ */
+async function repairSubscription(event) {
+  const meta = await readMeta();
+  const token = meta[META_KEYS.deviceToken];
+  const apiBaseUrl = meta[META_KEYS.apiBaseUrl];
+  if (!token || !apiBaseUrl) return "not paired";
+  const plan = planSubscriptionKeys(meta, await fetchDeviceStatus(apiBaseUrl, token));
+  if (!plan) return "no key";
+  // The browser's replacement subscription was made with the old key; after a rotation it is dropped.
+  let subscription = plan.rekey ? null : (event.newSubscription ?? null);
+  if (plan.rekey && event.newSubscription) await event.newSubscription.unsubscribe().catch(() => false);
+  if (!subscription) {
+    subscription = await self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToUint8Array(plan.publicKey),
+    });
+  }
+  const body = {
+    endpoint: subscription.endpoint,
+    p256dh: bufferToBase64Url(subscription.getKey("p256dh")),
+    auth: bufferToBase64Url(subscription.getKey("auth")),
+    kid: plan.kid,
+  };
+  const { url, init } = pushApiRequest(apiBaseUrl, "/api/push/device", { method: "PUT", token, body });
+  const response = await fetch(url, bounded(init));
+  if (!response.ok) return "server " + response.status;
+  await writeMeta({
+    [META_KEYS.endpoint]: subscription.endpoint,
+    [META_KEYS.kid]: plan.kid,
+    [META_KEYS.vapidPublicKey]: plan.publicKey,
+  });
+  return plan.rekey ? "rekeyed" : "updated";
+}

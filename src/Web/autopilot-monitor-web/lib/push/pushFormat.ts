@@ -1,3 +1,5 @@
+import type { TraceRecord } from "./pushCore";
+
 /** "just now", "5m ago", "3h ago", "2d ago"; falls back to the date for anything older than a week. */
 export function formatRelativeTime(iso: string, nowMs: number): string {
   const time = Date.parse(iso);
@@ -31,4 +33,15 @@ export function describeDeviceStatus(status: string): string {
     default:
       return "";
   }
+}
+
+/** One worker trace record as one line: when, what, and the fields that explain the outcome. */
+export function formatTraceRecord(record: TraceRecord): string {
+  const parts = [formatDateTime(record.at), record.event];
+  for (const key of ["source", "type", "result"]) {
+    if (record[key]) parts.push(record[key]);
+  }
+  if (record.shown && record.shown !== "shown") parts.push(`display ${record.shown}`);
+  if (record.id) parts.push(`#${record.id.slice(0, 8)}`);
+  return parts.join(" · ");
 }

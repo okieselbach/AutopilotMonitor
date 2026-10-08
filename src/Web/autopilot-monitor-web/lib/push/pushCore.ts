@@ -12,4 +12,5 @@ export type {
   PlatformInput,
   PushApiRequest,
   Severity,
+  TraceRecord,
 } from "../../public/push/sw-core.js";

@@ -171,7 +171,8 @@ describe("push service worker glue (K25)", () => {
     await expect(event.waited).resolves.toBeDefined();
     expect(env.showNotification).toHaveBeenCalledTimes(1);
     expect(env.showNotification.mock.calls[0][0]).toBe(GENERIC_TITLE);
-    expect(env.sequence).toEqual(["showNotification", "indexedDB.open"]);
+    // The failed write is followed by one more open: the trace record of the failure.
+    expect(env.sequence).toEqual(["showNotification", "indexedDB.open", "indexedDB.open"]);
   });
 
   it("shows a readable payload with its own title and still never waits for IndexedDB", async () => {
@@ -274,7 +275,8 @@ describe("push service worker glue (K25)", () => {
       env.handlers.get("notificationclick")!(event);
       await expect(event.waited).resolves.toBeUndefined();
 
-      expect(env.indexedDbOpen).toHaveBeenCalledTimes(1);
+      // The history write and, after it failed, the trace record of the click.
+      expect(env.indexedDbOpen).toHaveBeenCalledTimes(2);
       expect(env.clients.openWindow).toHaveBeenCalledTimes(1);
       expect(String(env.clients.openWindow.mock.calls[0][0])).toContain("srv-2");
     });

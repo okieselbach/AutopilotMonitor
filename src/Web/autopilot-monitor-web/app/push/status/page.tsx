@@ -4,8 +4,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HISTORY_MAX_ENTRIES, META_KEYS, readRetentionDays, writeRetentionDays } from "@/lib/push/pushCore";
 import { describePushError } from "@/lib/push/pushApi";
-import { isStoragePersisted, reconcileDevice, unpairDevice, type ReconcileResult } from "@/lib/push/pushClient";
-import { describeDeviceStatus, formatDateTime } from "@/lib/push/pushFormat";
+import {
+  collectPushDiagnostics,
+  importDisplayedNotifications,
+  isStoragePersisted,
+  reconcileDevice,
+  unpairDevice,
+  type PushDiagnostics,
+  type ReconcileResult,
+} from "@/lib/push/pushClient";
+import { describeDeviceStatus, formatDateTime, formatTraceRecord } from "@/lib/push/pushFormat";
 import { describeRetention, parseRetentionInput } from "@/lib/push/retentionInput";
 import { useIsClient, useNotificationPermission } from "../pushEnvironment";
 import { DEVICE_STATUS_CHIP, NEUTRAL_CHIP } from "../pushStyles";
@@ -18,6 +26,9 @@ type RetentionNote = { kind: "idle" } | { kind: "working" } | { kind: "saved"; a
 /** How long "Saved." stays under the retention field. */
 const SAVED_NOTE_MS = 2000;
 
+/** Trace records the Diagnostics section lists (newest first); the worker keeps a few more. */
+const TRACE_ROWS = 15;
+
 /** Device status as the server sees it, plus the local facts that decide whether a push can arrive. */
 export default function PushStatusPage() {
   const isClient = useIsClient();
@@ -29,19 +40,24 @@ export default function PushStatusPage() {
   const [retention, setRetention] = useState<number | null>(null);
   const [retentionInput, setRetentionInput] = useState<string | null>(null);
   const [retentionNote, setRetentionNote] = useState<RetentionNote>({ kind: "idle" });
+  // Diagnostics (null: not collected yet) and the feedback line of the manual import.
+  const [diag, setDiag] = useState<PushDiagnostics | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const [reconciled, storage, days] = await Promise.all([
+      const [reconciled, storage, days, diagnostics] = await Promise.all([
         reconcileDevice(),
         isStoragePersisted(),
         readRetentionDays().catch(() => null),
+        collectPushDiagnostics().catch(() => null),
       ]);
       if (cancelled) return;
       setResult(reconciled);
       setPersisted(storage);
       setRetention(days);
+      setDiag(diagnostics);
     };
     void run();
     return () => {
@@ -86,6 +102,17 @@ export default function PushStatusPage() {
     } catch (error) {
       setUnpair({ kind: "error", message: describePushError(error) });
     }
+  };
+
+  const refreshDiagnostics = async () => {
+    setDiag(await collectPushDiagnostics().catch(() => null));
+  };
+
+  // The same import the history page runs on every load, here on demand and with its count shown.
+  const importDisplayed = async () => {
+    const added = await importDisplayedNotifications().catch(() => 0);
+    setImportNote(added === 1 ? "1 entry imported." : `${added} entries imported.`);
+    await refreshDiagnostics();
   };
 
   if (!isClient || result === null) {
@@ -223,6 +250,60 @@ export default function PushStatusPage() {
           </div>
         )}
       </section>
+
+      {paired && (
+        <section className="bg-white rounded-lg shadow p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-gray-900">Diagnostics</h2>
+            <button type="button" onClick={() => void refreshDiagnostics()} className="text-sm font-medium text-gray-600 hover:text-gray-900">
+              Refresh
+            </button>
+          </div>
+          <p className="text-sm text-gray-600">What this device knows about the last pushes. Nothing here leaves the device.</p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+            <Row name="Worker" value={diag ? `${diag.worker}${diag.controlled ? ", controls this page" : ""}` : "—"} />
+            <Row name="Displayed" value={diag ? (diag.displayed === null ? "unknown" : String(diag.displayed.length)) : "—"} />
+            <Row name="History" value={diag ? (diag.historyCount === null ? "unreadable" : String(diag.historyCount)) : "—"} />
+          </dl>
+          {diag && diag.displayed && diag.displayed.length > 0 && (
+            <ul className="text-xs text-gray-700 space-y-0.5">
+              {diag.displayed.map((n, i) => (
+                <li key={i} className="truncate">
+                  {n.title}
+                  {n.id ? "" : " (not ours)"}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void importDisplayed()}
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+            >
+              Import displayed notifications
+            </button>
+            {importNote && (
+              <span role="status" className="text-sm text-gray-600">
+                {importNote}
+              </span>
+            )}
+          </div>
+          <div className="pt-3 border-t border-gray-100 space-y-1">
+            <h3 className="text-sm font-medium text-gray-900">Worker trace</h3>
+            {diag && diag.trace.length === 0 && <p className="text-xs text-gray-500">The worker has not recorded anything yet.</p>}
+            {diag && diag.trace.length > 0 && (
+              <ul className="text-xs font-mono text-gray-700 space-y-0.5">
+                {diag.trace.slice(0, TRACE_ROWS).map((record, i) => (
+                  <li key={i} className="break-words">
+                    {formatTraceRecord(record)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
 
       {paired && (
         <section className="bg-white rounded-lg shadow p-5 space-y-3">

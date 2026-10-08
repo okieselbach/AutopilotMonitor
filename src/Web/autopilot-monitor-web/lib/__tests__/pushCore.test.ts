@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_VERSION,
+  appendTraceRecord,
   base64UrlToUint8Array,
   bufferToBase64Url,
   cleanLabel,
@@ -25,12 +26,15 @@ import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   parseFragment,
+  parseTrace,
   planSubscriptionKeys,
   META_KEYS,
   PLATFORMS,
   pruneHistory,
   pushApiRequest,
   toNotificationOptions,
+  TRACE_MAX_RECORDS,
+  TRACE_VALUE_MAX_CHARS,
   type HistoryEntry,
 } from "../push/pushCore";
 
@@ -434,5 +438,42 @@ describe("pushApiRequest", () => {
     expect(headers["Content-Type"]).toBeUndefined();
     expect(init.body).toBeUndefined();
     expect(init.method).toBe("GET");
+  });
+});
+
+describe("worker trace (appendTraceRecord / parseTrace)", () => {
+  const NOW = Date.UTC(2026, 9, 8, 17, 18, 42);
+
+  it("appends a record with its time, keeps the stored ones and reads them back oldest first", () => {
+    const first = appendTraceRecord(undefined, { event: "activate" }, NOW - 1000);
+    const second = appendTraceRecord(first, { event: "push", source: "notification", type: "session_watch", id: "abc", result: "added", shown: "shown" }, NOW);
+    expect(parseTrace(second)).toEqual([
+      { at: new Date(NOW - 1000).toISOString(), event: "activate" },
+      { at: new Date(NOW).toISOString(), event: "push", source: "notification", type: "session_watch", id: "abc", result: "added", shown: "shown" },
+    ]);
+  });
+
+  it("keeps only the newest TRACE_MAX_RECORDS", () => {
+    let stored: string | undefined;
+    for (let i = 0; i < TRACE_MAX_RECORDS + 5; i++) stored = appendTraceRecord(stored, { event: `e${i}` }, NOW + i);
+    const records = parseTrace(stored);
+    expect(records).toHaveLength(TRACE_MAX_RECORDS);
+    expect(records[0].event).toBe("e5");
+    expect(records[records.length - 1].event).toBe(`e${TRACE_MAX_RECORDS + 4}`);
+  });
+
+  it("starts fresh on garbage, drops undefined values, stringifies and caps the rest", () => {
+    const stored = appendTraceRecord("{not json", { event: "push", shown: undefined, result: new Error("DataError: x"), long: "y".repeat(500) }, NOW);
+    const [record] = parseTrace(stored);
+    expect(record.event).toBe("push");
+    expect(record).not.toHaveProperty("shown");
+    expect(record.result).toBe("Error: DataError: x");
+    expect(record.long).toHaveLength(TRACE_VALUE_MAX_CHARS);
+    expect(parseTrace(appendTraceRecord("[1, {\"at\": 1}, {\"at\": \"t\", \"event\": \"ok\", \"n\": 2}]", {}, NOW))).toEqual([
+      { at: "t", event: "ok" },
+      { at: new Date(NOW).toISOString(), event: "unknown" },
+    ]);
+    expect(parseTrace(null)).toEqual([]);
+    expect(parseTrace("\"a string\"")).toEqual([]);
   });
 });

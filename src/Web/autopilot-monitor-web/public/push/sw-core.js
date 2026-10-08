@@ -22,6 +22,11 @@ export const HISTORY_MAX_AGE_MS = HISTORY_RETENTION_DEFAULT_DAYS * 24 * 60 * 60 
 
 /** The backend caps the label at 40 characters (K13). */
 export const LABEL_MAX_CHARS = 40;
+
+/** The worker trace keeps this many records (newest last); one record per push or click. */
+export const TRACE_MAX_RECORDS = 25;
+/** Every trace value is cut to this length — an error's text, never a payload. */
+export const TRACE_VALUE_MAX_CHARS = 120;
 /** Sent as appVersion when pairing (≤ 32 characters, K13); bump when the worker contract changes. */
 export const APP_VERSION = "web-1";
 
@@ -66,6 +71,8 @@ export const META_KEYS = /** @type {const} */ ({
   historyRetentionDays: "historyRetentionDays",
   /** The history page's chosen filter key ("all" or "<group>:<kind>"); absent = all. */
   historyFilter: "historyFilter",
+  /** The worker's own record of what it did with the last pushes and clicks (JSON array, see appendTraceRecord). */
+  workerTrace: "workerTrace",
 });
 
 /** @typedef {(typeof PLATFORMS)[number]} Platform */
@@ -92,6 +99,13 @@ export const META_KEYS = /** @type {const} */ ({
  * @property {string | null} tag
  * @property {string} scope
  * @property {boolean} generic true when the payload could not be read and the generic text was used
+ */
+
+/**
+ * One record of the worker trace: what the worker did with one push, click or update, shown
+ * on the status page so a push that never reached the history leaves evidence. `at` is set on
+ * append; every other value is a short string (source, type, id, result, shown, …).
+ * @typedef {Record<string, string> & { at: string, event: string }} TraceRecord
  */
 
 /** @typedef {{ kind: "pair", code: string } | { kind: "entry", id: string }} FragmentTarget */
@@ -499,6 +513,61 @@ export function pushApiRequest(apiBaseUrl, path, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Worker trace (diagnostics on the status page; never leaves the device)
+// ---------------------------------------------------------------------------
+
+/**
+ * Appends one record to the trace the worker keeps in meta: a JSON array, newest last, capped
+ * at TRACE_MAX_RECORDS. Garbage in the stored value starts a fresh trace; every value is cut to
+ * a short string so the record stays small whatever an error object looked like.
+ * @param {unknown} storedJson the current meta value (a JSON string) or anything else
+ * @param {Record<string, unknown>} record at least `event`; `at` is set here
+ * @param {number} nowMs
+ * @returns {string} the new meta value
+ */
+export function appendTraceRecord(storedJson, record, nowMs) {
+  const records = parseTrace(storedJson);
+  /** @type {TraceRecord} */
+  const next = { at: new Date(nowMs).toISOString(), event: "" };
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "at" || value === undefined || value === null) continue;
+    const text = cleanText(String(value), TRACE_VALUE_MAX_CHARS);
+    if (text !== "") next[key] = text;
+  }
+  if (next.event === "") next.event = "unknown";
+  records.push(next);
+  return JSON.stringify(records.slice(-TRACE_MAX_RECORDS));
+}
+
+/**
+ * @param {unknown} storedJson
+ * @returns {TraceRecord[]} oldest first; an unreadable value is an empty trace
+ */
+export function parseTrace(storedJson) {
+  if (typeof storedJson !== "string") return [];
+  /** @type {unknown} */
+  let parsed;
+  try {
+    parsed = JSON.parse(storedJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  /** @type {TraceRecord[]} */
+  const records = [];
+  for (const item of parsed) {
+    if (!isRecord(item) || typeof item.at !== "string" || typeof item.event !== "string") continue;
+    /** @type {TraceRecord} */
+    const record = { at: item.at, event: item.event };
+    for (const [key, value] of Object.entries(item)) {
+      if (typeof value === "string") record[key] = value;
+    }
+    records.push(record);
+  }
+  return records;
+}
+
+// ---------------------------------------------------------------------------
 // IndexedDB (called from the pages and the worker, never at import time)
 // ---------------------------------------------------------------------------
 
@@ -597,6 +666,26 @@ export function writeMeta(values) {
       await requestToPromise(meta.put(value, key));
     }
   });
+}
+
+/**
+ * Appends one record to the worker trace (see appendTraceRecord). Best effort by contract: the
+ * callers bound it in time and swallow its errors.
+ * @param {Record<string, unknown>} record
+ * @returns {Promise<void>}
+ */
+export function writeTrace(record) {
+  return withStores("readwrite", async ({ meta }) => {
+    const stored = await requestToPromise(meta.get(META_KEYS.workerTrace));
+    await requestToPromise(meta.put(appendTraceRecord(stored, record, Date.now()), META_KEYS.workerTrace));
+  });
+}
+
+/**
+ * @returns {Promise<TraceRecord[]>} the worker trace, newest first
+ */
+export function readTrace() {
+  return withStores("readonly", async ({ meta }) => parseTrace(await requestToPromise(meta.get(META_KEYS.workerTrace))).reverse());
 }
 
 /**
