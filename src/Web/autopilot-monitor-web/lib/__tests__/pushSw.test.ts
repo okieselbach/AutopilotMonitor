@@ -141,7 +141,8 @@ describe("push service worker glue (K25)", () => {
     // been issued after it, and nothing waited for the database.
     expect(env.showNotification).toHaveBeenCalledTimes(1);
     expect(env.showNotification.mock.calls[0][0]).toBe(GENERIC_TITLE);
-    expect(env.showNotification.mock.calls[0][1]).toMatchObject({ body: GENERIC_BODY });
+    // A navigate URL even for the generic entry: WebKit rejects the call without one in a declarative push event.
+    expect(env.showNotification.mock.calls[0][1]).toMatchObject({ body: GENERIC_BODY, navigate: expect.stringMatching(/^https:\/\/portal\.example\.test\/push\/#e\/local-/) });
     expect(env.indexedDbOpen).toHaveBeenCalledTimes(1);
     expect(env.sequence).toEqual(["showNotification", "indexedDB.open"]);
     expect(event.waited).not.toBeNull();
@@ -189,6 +190,7 @@ describe("push service worker glue (K25)", () => {
     await expect(event.waited).resolves.toBeDefined();
     // Both attempts (the entry, then the generic fallback) threw; the history write started regardless.
     expect(env.showNotification).toHaveBeenCalledTimes(2);
+    expect(env.showNotification.mock.calls[1][1]).toMatchObject({ navigate: "https://portal.example.test/push/" });
     expect(env.sequence.slice(0, 2)).toEqual(["showNotification", "indexedDB.open"]);
   });
 
@@ -256,6 +258,7 @@ describe("push service worker glue (K25)", () => {
       expect(env.showNotification.mock.calls[0][1]).toMatchObject({
         body: "DESKTOP-4711 (…CDE9) finished enrollment.",
         tag: "session-x",
+        navigate: "https://portal.example.test/push/#e/srv-1",
         data: { id: "srv-1", entry: expect.objectContaining({ id: "srv-1", type: "session_watch", severity: "success", portalUrl: "https://portal.example.test/sessions?id=x", scope: "platform" }) },
       });
       expect(env.sequence).toEqual(["showNotification", "indexedDB.open"]);

@@ -13,6 +13,7 @@ import {
   GENERIC_BODY,
   GENERIC_TITLE,
   HISTORY_MAX_AGE_MS,
+  historyUrl,
   HISTORY_MAX_ENTRIES,
   HISTORY_RETENTION_DEFAULT_DAYS,
   HISTORY_RETENTION_MAX_DAYS,
@@ -185,6 +186,15 @@ describe("normalizePayload", () => {
     expect(options.body).toBe(entry.body);
     expect(options.data).toEqual({ id: entry.id, entry });
     expect(toNotificationOptions({ ...entry, tag: null }).tag).toBeUndefined();
+  });
+
+  it("always carries a navigate URL once the origin is known (WebKit rejects the call without one inside a declarative push event)", () => {
+    const entry = normalizePayload(FULL_PAYLOAD, NOW);
+    expect(toNotificationOptions(entry).navigate).toBe("https://portal.example.invalid/push/#e/11111111-1111-1111-1111-111111111111");
+    const generic = normalizePayload(null, NOW);
+    expect(toNotificationOptions(generic).navigate).toBeUndefined();
+    expect(toNotificationOptions(generic, "https://receiver.example.invalid").navigate).toBe(`https://receiver.example.invalid/push/#e/local-${NOW}`);
+    expect(historyUrl("https://receiver.example.invalid")).toBe("https://receiver.example.invalid/push/");
   });
 });
 

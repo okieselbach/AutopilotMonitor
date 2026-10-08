@@ -7,10 +7,11 @@
  * Contract (K25): display never waits for IndexedDB — `waitUntil(Promise.all([show, persist]))`
  * with persist failures swallowed and persist bounded in time; a payload that cannot be read
  * still shows the generic title, because a silent push costs the subscription on iOS after
- * three occurrences. On iOS the worker's showNotification throws inside a declarative push
- * event and the platform shows the proposed notification itself (worker trace, 2026-10-08), so
- * show() never rejects: a rejected waitUntil ended the event with the history write still in
- * flight, and entries were lost. lib/__tests__/pushSw.test.ts pins the order and the settling.
+ * three occurrences. Inside a declarative push event WebKit rejects a showNotification() whose
+ * options carry no valid navigate URL (TypeError, worker trace 2026-10-08) and shows the proposed
+ * notification itself; the options therefore always carry one, and show() never rejects: a
+ * rejected waitUntil ended the event with the history write still in flight, and entries were
+ * lost. lib/__tests__/pushSw.test.ts pins the order and the settling.
  */
 import {
   base64UrlToUint8Array,
@@ -20,6 +21,7 @@ import {
   entryFromNotification,
   GENERIC_BODY,
   GENERIC_TITLE,
+  historyUrl,
   isWipeCommand,
   META_KEYS,
   normalizePayload,
@@ -82,11 +84,11 @@ async function notifyWindows(type, detail = {}) {
  */
 async function show(entry) {
   try {
-    await self.registration.showNotification(entry.title, toNotificationOptions(entry));
+    await self.registration.showNotification(entry.title, toNotificationOptions(entry, self.location.origin));
     return "shown";
   } catch (error) {
     try {
-      await self.registration.showNotification(GENERIC_TITLE, { body: GENERIC_BODY });
+      await self.registration.showNotification(GENERIC_TITLE, { body: GENERIC_BODY, navigate: historyUrl(self.location.origin) });
       return "fallback";
     } catch (second) {
       const first = describeError(error);

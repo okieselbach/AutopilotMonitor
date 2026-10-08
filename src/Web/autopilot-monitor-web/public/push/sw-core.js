@@ -25,8 +25,8 @@ export const LABEL_MAX_CHARS = 40;
 
 /** The worker trace keeps this many records (newest last); one record per push or click. */
 export const TRACE_MAX_RECORDS = 25;
-/** Every trace value is cut to this length — an error's text, never a payload. */
-export const TRACE_VALUE_MAX_CHARS = 120;
+/** Every trace value is cut to this length — a whole error text, never a payload. */
+export const TRACE_VALUE_MAX_CHARS = 240;
 /** Sent as appVersion when pairing (≤ 32 characters, K13); bump when the worker contract changes. */
 export const APP_VERSION = "web-1";
 
@@ -320,19 +320,37 @@ export function isWipeCommand(entry) {
 
 /**
  * Options for `registration.showNotification(entry.title, …)`. The whole entry travels in
- * `data` so a click can re-persist it when the push handler could not.
+ * `data` so a click can re-persist it when the push handler could not. `navigate` is the
+ * payload's deep link, or the history entry's own URL built from the origin: WebKit rejects a
+ * showNotification() inside a declarative push event whose options carry no valid navigate URL
+ * (TypeError, seen in the worker trace 2026-10-08), and only a notification shown this way
+ * replaces the proposed one. Other browsers ignore the member.
  * @param {HistoryEntry} entry
- * @returns {NotificationOptions}
+ * @param {string} [origin] the worker's origin for the fallback navigate URL; without it the
+ * member is only set when the entry carries one
+ * @returns {NotificationOptions & { navigate?: string }}
  */
-export function toNotificationOptions(entry) {
-  /** @type {NotificationOptions} */
+export function toNotificationOptions(entry, origin) {
+  /** @type {NotificationOptions & { navigate?: string }} */
   const options = {
     body: entry.body,
     icon: "/push/icon-192.png",
     data: { id: entry.id, entry },
   };
   if (entry.tag) options.tag = entry.tag;
+  const navigate = entry.navigate ?? (origin ? historyUrl(origin, entry.id) : null);
+  if (navigate) options.navigate = navigate;
   return options;
+}
+
+/**
+ * The receiver's history URL on this origin, opened on the given entry when there is one.
+ * @param {string} origin
+ * @param {string} [entryId]
+ * @returns {string}
+ */
+export function historyUrl(origin, entryId) {
+  return new URL("/push/" + (entryId ? entryFragment(entryId) : ""), origin).toString();
 }
 
 // ---------------------------------------------------------------------------
