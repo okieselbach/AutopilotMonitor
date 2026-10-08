@@ -165,6 +165,66 @@ public class PushPairingServiceTests
     }
 
     [Fact]
+    public async Task A_rotated_key_is_a_re_registration_not_a_re_pair()
+    {
+        var h = new Harness();
+        var created = await h.Sut.CreateAsync(Tenant, Admin);
+        var redeemed = await h.Sut.RedeemAsync(h.RedeemRequest(created.Value!.Code));
+        await h.Sut.ConfirmAsync(Tenant, created.Value.PairingId, Admin);
+        var token = redeemed.Value!.DeviceToken;
+        var device = (await h.Sut.ResolveDeviceAsync(token))!;
+
+        // Before the rotation the status names the key the device subscribed with as the active one.
+        var before = await h.Sut.GetDeviceStatusAsync(device);
+        Assert.Equal(h.Keys.Active.Kid, before.Kid);
+        Assert.Equal(h.Keys.Active.Kid, before.ActiveKid);
+        Assert.Equal(h.Keys.Active.PublicKeyBase64Url, before.ActiveVapidPublicKey);
+
+        // Rotation: a new active key, the old one retired — the same device rows under the new ring.
+        var rotated = new Harness(new VapidKeyRing(VapidKey.Generate(), new[] { h.Keys.Active }), h.Repo);
+        var status = await rotated.Sut.GetDeviceStatusAsync(device);
+        Assert.Equal(h.Keys.Active.Kid, status.Kid);
+        Assert.Equal(rotated.Keys.Active.Kid, status.ActiveKid);
+        Assert.Equal(rotated.Keys.Active.PublicKeyBase64Url, status.ActiveVapidPublicKey);
+        Assert.NotEqual(status.Kid, status.ActiveKid);
+
+        // The receiver subscribes again with the new key and PUTs the new kid: the row moves over, no re-pair.
+        var moved = await rotated.Sut.ResubscribeAsync(device, new ResubscribeRequest
+        {
+            Endpoint = "https://web.push.apple.com/QF/rotated-token", P256dh = h.Subscription.P256dh, Auth = h.Subscription.Auth, Kid = rotated.Keys.Active.Kid,
+        });
+        Assert.True(moved.Ok);
+        Assert.Equal(rotated.Keys.Active.Kid, moved.Value!.Kid);
+        Assert.Equal(rotated.Keys.Active.Kid, h.Repo.Devices.Values.Single().VapidKid);
+        Assert.Equal(token.Split('.')[2], token.Split('.')[2]);   // the device token is untouched by the migration
+
+        // Once the old key left the ring, a row still on it is Stale (vapid_key_mismatch): the same PUT re-arms it,
+        // while a PUT that still names the retired kid is refused.
+        var withoutOld = new Harness(new VapidKeyRing(rotated.Keys.Active), h.Repo);
+        await h.Repo.MutateDeviceAsync(device.Scope, device.DeviceId, _ => new Dictionary<string, object?>
+        {
+            ["VapidKid"] = h.Keys.Active.Kid, ["Status"] = Constants.Push.DeviceStatus.Stale, ["StatusReason"] = "vapid_key_mismatch",
+        });
+        var staleRow = (await withoutOld.Sut.ResolveDeviceAsync(token))!;
+        Assert.Equal(Constants.Push.DeviceStatus.Stale, staleRow.Status);
+
+        var refused = await withoutOld.Sut.ResubscribeAsync(staleRow, new ResubscribeRequest
+        {
+            Endpoint = "https://web.push.apple.com/QF/rotated-token", P256dh = h.Subscription.P256dh, Auth = h.Subscription.Auth, Kid = h.Keys.Active.Kid,
+        });
+        Assert.Equal(PushOpError.InvalidSubscription, refused.Error);
+
+        var reArmed = await withoutOld.Sut.ResubscribeAsync(staleRow, new ResubscribeRequest
+        {
+            Endpoint = "https://web.push.apple.com/QF/rotated-token-2", P256dh = h.Subscription.P256dh, Auth = h.Subscription.Auth, Kid = withoutOld.Keys.Active.Kid,
+        });
+        Assert.True(reArmed.Ok);
+        Assert.Equal(Constants.Push.DeviceStatus.Active, reArmed.Value!.Status);
+        Assert.Equal(withoutOld.Keys.Active.Kid, h.Repo.Devices.Values.Single().VapidKid);
+        Assert.Null(h.Repo.Devices.Values.Single().StatusReason);
+    }
+
+    [Fact]
     public async Task Operators_see_only_their_own_devices_and_cannot_remove_others()
     {
         var h = new Harness();
@@ -264,8 +324,8 @@ public class PushPairingServiceTests
 
     internal sealed class Harness
     {
-        public InMemoryPushDeviceRepository Repo { get; } = new();
-        public VapidKeyRing Keys { get; } = new(VapidKey.Generate());
+        public InMemoryPushDeviceRepository Repo { get; }
+        public VapidKeyRing Keys { get; }
         public Mock<PushEligibility> Eligibility { get; }
         public Mock<OpsEventService> OpsEvents { get; }
         public RecordingHandler Http { get; } = new();
@@ -273,8 +333,12 @@ public class PushPairingServiceTests
         public PushDeliveryService Delivery { get; }
         public (string Endpoint, string P256dh, string Auth) Subscription { get; }
 
-        public Harness()
+        /// <param name="keys">The platform's key ring; a rotated ring for the key-migration tests.</param>
+        /// <param name="repo">A repository shared with another harness: the same device rows seen under a new ring.</param>
+        public Harness(VapidKeyRing? keys = null, InMemoryPushDeviceRepository? repo = null)
         {
+            Keys = keys ?? new VapidKeyRing(VapidKey.Generate());
+            Repo = repo ?? new InMemoryPushDeviceRepository();
             var settings = PushSettings.ForKeys(Keys);
             Eligibility = new Mock<PushEligibility>(null!, null!, null!, null!, null!) { CallBase = false };
             Eligibility.Setup(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>())).ReturnsAsync(true);

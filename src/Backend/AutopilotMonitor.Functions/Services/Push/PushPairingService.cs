@@ -324,7 +324,10 @@ public class PushPairingService
             _logger.LogWarning(ex, "LastOpenedUtc stamp failed for push device {DeviceId}", device.DeviceId);
         }
 
-        var scope = device.Scope == Constants.Push.PlatformScope ? NotificationScope.Platform : NotificationScope.Tenant(device.Scope);
+        var scope = NotificationScope.FromKey(device.Scope);
+        // The active key travels with every status answer so a rotated key is a re-registration
+        // on the receiver's next open (B-y4z), never a re-pair campaign.
+        var active = _settings.Keys?.Active;
         return new PushDeviceStatusResponse
         {
             DeviceId = device.DeviceId,
@@ -337,6 +340,8 @@ public class PushPairingService
             LastDeliveredUtc = device.LastDeliveredUtc,
             OwnerUpn = device.OwnerUpn,
             ScopeName = await ScopeNameAsync(scope).ConfigureAwait(false),
+            ActiveKid = active?.Kid ?? string.Empty,
+            ActiveVapidPublicKey = active?.PublicKeyBase64Url ?? string.Empty,
         };
     }
 

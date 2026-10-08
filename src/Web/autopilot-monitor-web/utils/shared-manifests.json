@@ -15642,6 +15642,22 @@
             "name": "string"
           },
           "doc": "Tenant display name, or \"Platform operator\" for the platform scope."
+        },
+        {
+          "name": "activeKid",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The platform's current VAPID key id. Differs from Kid after a key rotation: the receiver then subscribes again with ActiveVapidPublicKey and PUTs the new subscription with this kid — no re-pairing. Empty while the channel is unconfigured."
+        },
+        {
+          "name": "activeVapidPublicKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Uncompressed P-256 point, base64url, of the current key (what to subscribe with)."
         }
       ]
     },

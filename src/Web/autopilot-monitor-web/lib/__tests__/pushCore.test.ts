@@ -12,15 +12,20 @@ import {
   GENERIC_TITLE,
   HISTORY_MAX_AGE_MS,
   HISTORY_MAX_ENTRIES,
+  HISTORY_RETENTION_DEFAULT_DAYS,
+  HISTORY_RETENTION_MAX_DAYS,
   isIosDevice,
   isValidPairingCode,
   isWipeCommand,
   LABEL_MAX_CHARS,
   normalizePairingCode,
   normalizePayload,
+  normalizeRetentionDays,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   parseFragment,
+  planSubscriptionKeys,
+  META_KEYS,
   PLATFORMS,
   pruneHistory,
   pushApiRequest,
@@ -204,6 +209,63 @@ describe("pruneHistory", () => {
     const copy = [...input];
     pruneHistory(input, NOW);
     expect(input).toEqual(copy);
+  });
+
+  it("honours the user's retention: 7 days drops week-old entries, 365 keeps them, 0 keeps everything up to the cap", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const recent = entry("recent", new Date(NOW - 3 * dayMs).toISOString());
+    const weekOld = entry("week", new Date(NOW - 8 * dayMs).toISOString());
+    const yearOld = entry("year", new Date(NOW - 400 * dayMs).toISOString());
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 7).map((e) => e.id)).toEqual(["recent"]);
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 365).map((e) => e.id)).toEqual(["recent", "week"]);
+    expect(pruneHistory([yearOld, weekOld, recent], NOW, 0).map((e) => e.id)).toEqual(["recent", "week", "year"]);
+    const many = Array.from({ length: 250 }, (_, i) => entry(`m${i}`, new Date(NOW - i * 10 * dayMs).toISOString()));
+    expect(pruneHistory(many, NOW, 0).length).toBe(HISTORY_MAX_ENTRIES);
+  });
+
+  it("falls back to the 30-day default for an invalid retention value", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const old = entry("old", new Date(NOW - 31 * dayMs).toISOString());
+    expect(pruneHistory([old], NOW, Number.NaN)).toEqual([]);
+    expect(pruneHistory([old], NOW, 400)).toEqual([]);
+  });
+});
+
+describe("planSubscriptionKeys (worker repair after a browser-side subscription change)", () => {
+  const stored = { [META_KEYS.kid]: "k1", [META_KEYS.vapidPublicKey]: "key-1" };
+
+  it("uses the stored key while the server's active key matches or is unknown", () => {
+    expect(planSubscriptionKeys(stored, { activeKid: "k1", activeVapidPublicKey: "key-1" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys(stored, null)).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys(stored, { activeKid: "", activeVapidPublicKey: "" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+  });
+
+  it("switches to the server's active key after a rotation, and when the stored key is missing", () => {
+    expect(planSubscriptionKeys(stored, { activeKid: "k2", activeVapidPublicKey: "key-2" })).toEqual({ kid: "k2", publicKey: "key-2", rekey: true });
+    expect(planSubscriptionKeys({ [META_KEYS.kid]: "k1" }, { activeKid: "k1", activeVapidPublicKey: "key-1" })).toEqual({ kid: "k1", publicKey: "key-1", rekey: false });
+    expect(planSubscriptionKeys({}, { activeKid: "k2", activeVapidPublicKey: "key-2" })).toEqual({ kid: "k2", publicKey: "key-2", rekey: true });
+  });
+
+  it("subscribes with nothing when neither a stored key nor a usable active key exists", () => {
+    expect(planSubscriptionKeys({}, null)).toBeNull();
+    expect(planSubscriptionKeys({ [META_KEYS.kid]: "k1" }, null)).toBeNull();
+    expect(planSubscriptionKeys({}, { activeKid: "k2", activeVapidPublicKey: 7 })).toBeNull();
+  });
+});
+
+describe("normalizeRetentionDays", () => {
+  it("accepts integers 0–365 as numbers or stored strings", () => {
+    expect(normalizeRetentionDays(0)).toBe(0);
+    expect(normalizeRetentionDays("0")).toBe(0);
+    expect(normalizeRetentionDays(7)).toBe(7);
+    expect(normalizeRetentionDays("365")).toBe(HISTORY_RETENTION_MAX_DAYS);
+  });
+
+  it("maps absent, blank, fractional, negative and out-of-range values to the default, never to forever", () => {
+    expect(HISTORY_RETENTION_DEFAULT_DAYS).toBe(30);
+    for (const value of [undefined, null, "", " ", "abc", 1.5, -1, 366, "1e3", Number.POSITIVE_INFINITY]) {
+      expect(normalizeRetentionDays(value), String(value)).toBe(HISTORY_RETENTION_DEFAULT_DAYS);
+    }
   });
 });
 

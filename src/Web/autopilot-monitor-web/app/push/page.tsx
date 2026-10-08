@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useLatest } from "@/hooks/useLatest";
+import { createLongPress } from "@/lib/push/longPress";
 import {
+  deleteHistoryEntry,
   entryFragment,
   META_KEYS,
   parseFragment,
@@ -13,6 +16,7 @@ import {
 } from "@/lib/push/pushCore";
 import { readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
 import { formatDateTime, formatRelativeTime } from "@/lib/push/pushFormat";
+import { EntryActionSheet } from "./EntryActionSheet";
 import { useIsClient, useLocationHash } from "./pushEnvironment";
 import { DANGER_CHIP, DEVICE_STATUS_CHIP, NEUTRAL_CHIP, SEVERITY_ACCENT } from "./pushStyles";
 
@@ -23,8 +27,10 @@ interface WorkerMessage {
 }
 
 /**
- * The local history, like a chat log (F12): newest first, 30 days / 200 entries, written by the
- * service worker and read here. Every open reconciles the device with the server (K14).
+ * The local history, like a chat log (F12): newest first, kept for the retention chosen on the
+ * status page (30 days by default) and capped at 200 entries, written by the service worker and
+ * read here. Every open reconciles the device with the server (K14). A long press (or right-click)
+ * on an entry opens its actions; a delete stays on the device.
  */
 export default function PushHistoryPage() {
   const router = useRouter();
@@ -32,8 +38,10 @@ export default function PushHistoryPage() {
   const hash = useLocationHash();
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [device, setDevice] = useState<ReconcileResult | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [now, setNow] = useState(() => 0);
+  const [sheet, setSheet] = useState<HistoryEntry | null>(null);
 
   const target = parseFragment(hash);
   const focusId = target?.kind === "entry" ? target.id : null;
@@ -42,7 +50,7 @@ export default function PushHistoryPage() {
   const [expanded, setExpanded] = useState<{ focusId: string | null; id: string | null }>({ focusId: null, id: null });
   if (expanded.focusId !== focusId) setExpanded({ focusId, id: focusId });
 
-  // Load (prune on open), then keep in step with the worker and with the tab coming back.
+  // Load (prune on open); re-runs whenever the worker, the returning tab or a delete asks for it.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -58,18 +66,24 @@ export default function PushHistoryPage() {
       setNow(Date.now());
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyKey]);
 
+  // Keep in step with the worker and with the tab coming back.
+  useEffect(() => {
     const onMessage = (event: MessageEvent<WorkerMessage>) => {
       if (event.data?.channel !== "am-push") return;
       if (event.data.type === "open" && typeof event.data.id === "string") {
         window.location.hash = entryFragment(event.data.id);
       }
-      void load();
+      setHistoryKey((k) => k + 1);
       if (event.data.type === "wiped") setReloadKey((k) => k + 1);
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void load();
+        setHistoryKey((k) => k + 1);
         setReloadKey((k) => k + 1);
       }
     };
@@ -77,7 +91,6 @@ export default function PushHistoryPage() {
     worker?.addEventListener("message", onMessage);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      cancelled = true;
       worker?.removeEventListener("message", onMessage);
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -108,6 +121,19 @@ export default function PushHistoryPage() {
   }, [focusId, entries]);
 
   const toggle = (id: string) => setExpanded((prev) => ({ ...prev, id: prev.id === id ? null : id }));
+
+  // The delete never leaves the device. IndexedDB may refuse (private mode): the entry just stays.
+  const deleteEntry = async (entry: HistoryEntry) => {
+    setSheet(null);
+    try {
+      await deleteHistoryEntry(entry.id);
+    } catch {
+      return;
+    }
+    setExpanded((prev) => (prev.id === entry.id ? { ...prev, id: null } : prev));
+    if (focusId === entry.id) window.location.hash = "";
+    setHistoryKey((k) => k + 1);
+  };
 
   return (
     <div className="space-y-4">
@@ -141,68 +167,109 @@ export default function PushHistoryPage() {
 
       {entries && entries.length > 0 && (
         <ul className="space-y-2">
-          {entries.map((entry) => {
-            const open = expanded.id === entry.id;
-            return (
-              <li
-                key={entry.id}
-                id={`entry-${entry.id}`}
-                className={`bg-white rounded-lg shadow border-l-4 ${SEVERITY_ACCENT[entry.severity]} ${
-                  focusId === entry.id ? "ring-2 ring-sky-300 dark:ring-sky-700" : ""
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => toggle(entry.id)}
-                  aria-expanded={open}
-                  className="w-full text-left px-3 py-2.5"
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium text-gray-900 break-words min-w-0">{entry.title}</span>
-                    <time
-                      dateTime={entry.ts}
-                      title={formatDateTime(entry.ts)}
-                      className="text-xs text-gray-500 shrink-0"
-                    >
-                      {now ? formatRelativeTime(entry.ts, now) : ""}
-                    </time>
-                  </div>
-                  {entry.body && (
-                    <p className={`text-sm text-gray-600 mt-0.5 break-words ${open ? "" : "line-clamp-2"}`}>{entry.body}</p>
-                  )}
-                </button>
-                {open && (
-                  <div className="px-3 pb-3 space-y-2">
-                    {entry.facts.length > 0 && (
-                      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                        {entry.facts.map((fact) => (
-                          <FactRow key={`${fact.name}:${fact.value}`} name={fact.name} value={fact.value} />
-                        ))}
-                      </dl>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                      <span>{entry.type}</span>
-                      <span>{entry.scope}</span>
-                      <span>{formatDateTime(entry.ts)}</span>
-                    </div>
-                    {entry.portalUrl && (
-                      <a
-                        href={entry.portalUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block text-sm font-medium text-sky-700 dark:text-sky-400 hover:underline"
-                      >
-                        Open in the portal
-                      </a>
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
+          {entries.map((entry) => (
+            <EntryCard
+              key={entry.id}
+              entry={entry}
+              open={expanded.id === entry.id}
+              focused={focusId === entry.id}
+              now={now}
+              onToggle={toggle}
+              onActions={setSheet}
+            />
+          ))}
         </ul>
       )}
+
+      {sheet && <EntryActionSheet entry={sheet} onDelete={() => void deleteEntry(sheet)} onClose={() => setSheet(null)} />}
     </div>
+  );
+}
+
+interface EntryCardProps {
+  entry: HistoryEntry;
+  open: boolean;
+  focused: boolean;
+  now: number;
+  onToggle: (id: string) => void;
+  onActions: (entry: HistoryEntry) => void;
+}
+
+/**
+ * One history entry. A tap expands it; a long press or a right-click opens its actions. The
+ * card suppresses the browser's own text selection and the iOS callout so the press reads as
+ * a press, and it ignores the click that the release after a long press may produce.
+ */
+function EntryCard({ entry, open, focused, now, onToggle, onActions }: EntryCardProps) {
+  const openActions = useLatest(() => onActions(entry));
+  const [press] = useState(() => createLongPress({ onLongPress: () => openActions.current() }));
+  useEffect(() => () => press.dispose(), [press]);
+
+  return (
+    <li
+      id={`entry-${entry.id}`}
+      className={`bg-white rounded-lg shadow border-l-4 select-none ${SEVERITY_ACCENT[entry.severity]} ${
+        focused ? "ring-2 ring-sky-300 dark:ring-sky-700" : ""
+      }`}
+      style={{ WebkitTouchCallout: "none" }}
+      onPointerDown={press.onPointerDown}
+      onPointerMove={press.onPointerMove}
+      onPointerUp={press.onPointerUp}
+      onPointerCancel={press.onPointerCancel}
+      onPointerLeave={press.onPointerLeave}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onActions(entry);
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (!press.shouldSuppressClick()) onToggle(entry.id);
+        }}
+        aria-expanded={open}
+        className="w-full text-left px-3 py-2.5"
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm font-medium text-gray-900 break-words min-w-0">{entry.title}</span>
+          <time dateTime={entry.ts} title={formatDateTime(entry.ts)} className="text-xs text-gray-500 shrink-0">
+            {now ? formatRelativeTime(entry.ts, now) : ""}
+          </time>
+        </div>
+        {entry.body && (
+          <p className={`text-sm text-gray-600 mt-0.5 break-words ${open ? "" : "line-clamp-2"}`}>{entry.body}</p>
+        )}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {entry.facts.length > 0 && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              {entry.facts.map((fact) => (
+                <FactRow key={`${fact.name}:${fact.value}`} name={fact.name} value={fact.value} />
+              ))}
+            </dl>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+            <span>{entry.type}</span>
+            <span>{entry.scope}</span>
+            <span>{formatDateTime(entry.ts)}</span>
+          </div>
+          {entry.portalUrl && (
+            <a
+              href={entry.portalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => {
+                if (press.shouldSuppressClick()) event.preventDefault();
+              }}
+              className="inline-block text-sm font-medium text-sky-700 dark:text-sky-400 hover:underline"
+            >
+              Open in the portal
+            </a>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 

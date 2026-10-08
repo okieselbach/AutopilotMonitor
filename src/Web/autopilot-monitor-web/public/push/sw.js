@@ -19,6 +19,7 @@ import {
   isWipeCommand,
   META_KEYS,
   normalizePayload,
+  planSubscriptionKeys,
   pushApiRequest,
   readMeta,
   toNotificationOptions,
@@ -187,32 +188,72 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Chrome ≥ 138 and Firefox rotate subscriptions here; iOS never fires it (the pages reconcile on open).
+/** Network calls from the worker are bounded; a hanging push API must not pin the event. */
+const FETCH_TIMEOUT_MS = 10000;
+
+/**
+ * @param {RequestInit} init
+ * @returns {RequestInit}
+ */
+function bounded(init) {
+  return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
+    : init;
+}
+
+/**
+ * The device's status as the server sees it, or null when the server did not answer — the
+ * repair then falls back to the stored key.
+ * @param {string} apiBaseUrl
+ * @param {string} token
+ * @returns {Promise<{ activeKid?: unknown, activeVapidPublicKey?: unknown } | null>}
+ */
+async function fetchDeviceStatus(apiBaseUrl, token) {
+  try {
+    const { url, init } = pushApiRequest(apiBaseUrl, "/api/push/device", { method: "GET", token });
+    const response = await fetch(url, bounded(init));
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Chrome ≥ 138 and Firefox rotate subscriptions here; iOS never fires it (the pages reconcile on
+// open). The server's active key decides what to subscribe with — a key rotation may have
+// happened while no page was open — and the stored key is the fallback when the server is silent.
 self.addEventListener("pushsubscriptionchange", (event) => {
   event.waitUntil(
     (async () => {
       const meta = await readMeta();
       const token = meta[META_KEYS.deviceToken];
       const apiBaseUrl = meta[META_KEYS.apiBaseUrl];
-      const vapidPublicKey = meta[META_KEYS.vapidPublicKey];
       if (!token || !apiBaseUrl) return;
-      let subscription = event.newSubscription ?? null;
-      if (!subscription && vapidPublicKey) {
+      const plan = planSubscriptionKeys(meta, await fetchDeviceStatus(apiBaseUrl, token));
+      if (!plan) return;
+      // The browser's replacement subscription was made with the old key; after a rotation it is dropped.
+      let subscription = plan.rekey ? null : (event.newSubscription ?? null);
+      if (plan.rekey && event.newSubscription) await event.newSubscription.unsubscribe().catch(() => false);
+      if (!subscription) {
         subscription = await self.registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: base64UrlToUint8Array(vapidPublicKey),
+          applicationServerKey: base64UrlToUint8Array(plan.publicKey),
         });
       }
-      if (!subscription) return;
       const body = {
         endpoint: subscription.endpoint,
         p256dh: bufferToBase64Url(subscription.getKey("p256dh")),
         auth: bufferToBase64Url(subscription.getKey("auth")),
-        kid: meta[META_KEYS.kid] ?? "",
+        kid: plan.kid,
       };
       const { url, init } = pushApiRequest(apiBaseUrl, "/api/push/device", { method: "PUT", token, body });
-      const response = await fetch(url, init);
-      if (response.ok) await writeMeta({ [META_KEYS.endpoint]: subscription.endpoint });
+      const response = await fetch(url, bounded(init));
+      if (response.ok) {
+        await writeMeta({
+          [META_KEYS.endpoint]: subscription.endpoint,
+          [META_KEYS.kid]: plan.kid,
+          [META_KEYS.vapidPublicKey]: plan.publicKey,
+        });
+      }
     })(),
   );
 });

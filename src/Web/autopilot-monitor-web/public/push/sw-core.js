@@ -15,7 +15,10 @@ export const HISTORY_TS_INDEX = "ts";
 export const META_STORE = "meta";
 
 export const HISTORY_MAX_ENTRIES = 200;
-export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+/** Retention in days, chosen by the user on the status page; 0 keeps entries until the cap. */
+export const HISTORY_RETENTION_DEFAULT_DAYS = 30;
+export const HISTORY_RETENTION_MAX_DAYS = 365;
+export const HISTORY_MAX_AGE_MS = HISTORY_RETENTION_DEFAULT_DAYS * 24 * 60 * 60 * 1000;
 
 /** The backend caps the label at 40 characters (K13). */
 export const LABEL_MAX_CHARS = 40;
@@ -59,6 +62,8 @@ export const META_KEYS = /** @type {const} */ ({
   pairedAt: "pairedAt",
   /** The pages know the API origin from their build; the worker learns it from here. */
   apiBaseUrl: "apiBaseUrl",
+  /** Days the history is kept (string of an integer 0–365; 0 = until the entry cap; absent = default). */
+  historyRetentionDays: "historyRetentionDays",
 });
 
 /** @typedef {(typeof PLATFORMS)[number]} Platform */
@@ -300,14 +305,28 @@ export function toNotificationOptions(entry) {
  * @param {number} nowMs
  * @returns {HistoryEntry[]}
  */
-export function pruneHistory(entries, nowMs) {
-  const cutoff = nowMs - HISTORY_MAX_AGE_MS;
+export function pruneHistory(entries, nowMs, retentionDays = HISTORY_RETENTION_DEFAULT_DAYS) {
+  const days = normalizeRetentionDays(retentionDays);
+  const cutoff = days === 0 ? Number.NEGATIVE_INFINITY : nowMs - days * 24 * 60 * 60 * 1000;
   const kept = entries
     .map((entry) => ({ entry, time: Date.parse(entry.ts) }))
     .filter((item) => !Number.isNaN(item.time) && item.time >= cutoff)
     .sort((a, b) => b.time - a.time)
     .slice(0, HISTORY_MAX_ENTRIES);
   return kept.map((item) => item.entry);
+}
+
+/**
+ * The user's retention choice as the pages store it and the worker reads it: an integer 0–365
+ * (0 = keep until the entry cap). Anything else — absent, non-numeric, fractional, out of range —
+ * is the default, never a silent "forever".
+ * @param {unknown} value a number or the string stored in meta
+ * @returns {number}
+ */
+export function normalizeRetentionDays(value) {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+  if (!Number.isInteger(n) || n < 0 || n > HISTORY_RETENTION_MAX_DAYS) return HISTORY_RETENTION_DEFAULT_DAYS;
+  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +445,27 @@ export const DEVICE_TOKEN_HEADER = "X-Push-Device-Token";
  * @param {{ method?: string, token?: string | null, body?: unknown }} [options]
  * @returns {PushApiRequest}
  */
+/**
+ * Which key the worker subscribes with when the browser rotates the subscription
+ * (pushsubscriptionchange; the pages' reconcile has the same rule in decideReconcileAction):
+ * the server's active key when it is known and differs from the stored kid, or when no stored
+ * key exists; otherwise the stored key; null when there is nothing to subscribe with.
+ * @param {Record<string, string>} meta the stored meta (kid, vapidPublicKey)
+ * @param {{ activeKid?: unknown, activeVapidPublicKey?: unknown } | null} status GET push/device, or null when it failed
+ * @returns {{ kid: string, publicKey: string, rekey: boolean } | null}
+ */
+export function planSubscriptionKeys(meta, status) {
+  const storedKid = typeof meta[META_KEYS.kid] === "string" ? meta[META_KEYS.kid] : "";
+  const storedKey = typeof meta[META_KEYS.vapidPublicKey] === "string" ? meta[META_KEYS.vapidPublicKey] : "";
+  const activeKid = status && typeof status.activeKid === "string" ? status.activeKid : "";
+  const activeKey = status && typeof status.activeVapidPublicKey === "string" ? status.activeVapidPublicKey : "";
+  if (activeKid !== "" && activeKey !== "" && (activeKid !== storedKid || storedKey === "")) {
+    return { kid: activeKid, publicKey: activeKey, rekey: activeKid !== storedKid };
+  }
+  if (storedKid !== "" && storedKey !== "") return { kid: storedKid, publicKey: storedKey, rekey: false };
+  return null;
+}
+
 export function pushApiRequest(apiBaseUrl, path, options = {}) {
   /** @type {Record<string, string>} */
   const headers = { Accept: "application/json" };
@@ -544,9 +584,9 @@ export function writeMeta(values) {
  * @returns {Promise<HistoryEntry[]>} all entries, newest first, after applying the retention rule
  */
 export function readHistory() {
-  return withStores("readonly", async ({ history }) => {
+  return withStores("readonly", async ({ history, meta }) => {
     const all = /** @type {HistoryEntry[]} */ (await requestToPromise(history.getAll()));
-    return pruneHistory(all, Date.now());
+    return pruneHistory(all, Date.now(), await retentionDaysFrom(meta));
   });
 }
 
@@ -556,12 +596,23 @@ export function readHistory() {
  * @returns {Promise<boolean>} false when an entry with this id already existed
  */
 export function writeHistoryEntry(entry) {
-  return withStores("readwrite", async ({ history }) => {
+  return withStores("readwrite", async ({ history, meta }) => {
     const existing = await requestToPromise(history.get(entry.id));
     if (existing) return false;
     await requestToPromise(history.put(entry));
-    await pruneStore(history);
+    await pruneStore(history, meta);
     return true;
+  });
+}
+
+/**
+ * Removes one entry from the local history (the user's delete; nothing leaves the device).
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export function deleteHistoryEntry(id) {
+  return withStores("readwrite", async ({ history }) => {
+    await requestToPromise(history.delete(id));
   });
 }
 
@@ -570,16 +621,46 @@ export function writeHistoryEntry(entry) {
  * @returns {Promise<void>}
  */
 export function pruneStoredHistory() {
-  return withStores("readwrite", ({ history }) => pruneStore(history));
+  return withStores("readwrite", ({ history, meta }) => pruneStore(history, meta));
+}
+
+/**
+ * @returns {Promise<number>} the stored retention in days (default when unset or invalid)
+ */
+export function readRetentionDays() {
+  return withStores("readonly", ({ meta }) => retentionDaysFrom(meta));
+}
+
+/**
+ * Stores the user's retention choice and applies it at once.
+ * @param {number} days 0–365, 0 = keep until the entry cap
+ * @returns {Promise<number>} the value as stored
+ */
+export function writeRetentionDays(days) {
+  const value = normalizeRetentionDays(days);
+  return withStores("readwrite", async ({ history, meta }) => {
+    await requestToPromise(meta.put(String(value), META_KEYS.historyRetentionDays));
+    await pruneStore(history, meta);
+    return value;
+  });
+}
+
+/**
+ * @param {IDBObjectStore} meta
+ * @returns {Promise<number>}
+ */
+async function retentionDaysFrom(meta) {
+  return normalizeRetentionDays(await requestToPromise(meta.get(META_KEYS.historyRetentionDays)));
 }
 
 /**
  * @param {IDBObjectStore} history
+ * @param {IDBObjectStore} meta
  * @returns {Promise<void>}
  */
-async function pruneStore(history) {
+async function pruneStore(history, meta) {
   const all = /** @type {HistoryEntry[]} */ (await requestToPromise(history.getAll()));
-  const keep = new Set(pruneHistory(all, Date.now()).map((entry) => entry.id));
+  const keep = new Set(pruneHistory(all, Date.now(), await retentionDaysFrom(meta)).map((entry) => entry.id));
   for (const entry of all) {
     if (!keep.has(entry.id)) await requestToPromise(history.delete(entry.id));
   }

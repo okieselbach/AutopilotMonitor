@@ -3351,6 +3351,10 @@ export interface PushDeviceStatusResponse {
   ownerUpn: string;
   /** Tenant display name, or "Platform operator" for the platform scope. */
   scopeName: string;
+  /** The platform's current VAPID key id. Differs from Kid after a key rotation: the receiver then subscribes again with ActiveVapidPublicKey and PUTs the new subscription with this kid — no re-pairing. Empty while the channel is unconfigured. */
+  activeKid: string;
+  /** Uncompressed P-256 point, base64url, of the current key (what to subscribe with). */
+  activeVapidPublicKey: string;
 }
 
 /** Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query. */
