@@ -139,37 +139,58 @@ public class EmailChannelProviderTests
     // ── Rendering ─────────────────────────────────────────────────────────
 
     [Fact]
-    public void Renderer_builds_a_prefixed_subject_and_escaped_html_with_facts_sections_links_and_payload()
+    public void Renderer_reads_like_a_message_not_a_log_line()
     {
         var alert = Alert();
-        alert.DataJson = "{\"service\":\"apple\",\"statusCode\":401,\"note\":\"<script>\"}";
+        alert.DataJson = "{\"service\":\"apple\",\"statusCode\":401,\"note\":\"<script>\",\"nested\":{\"a\":1}}";
 
-        Assert.Equal("[Autopilot Monitor] Error: Ops Alert: Platform/PushDeliveryFailed", EmailAlertRenderer.Subject(alert));
+        // No brackets, no severity shouting, the event name as words, the category in parentheses.
+        Assert.Equal("Autopilot Monitor: Push delivery failed (Platform)", EmailAlertRenderer.Subject(alert));
 
         var html = EmailAlertRenderer.Html(alert);
-        Assert.Contains("Ops Alert: Platform/PushDeliveryFailed", html);
+        Assert.Contains("Autopilot Monitor raised an error in the Platform category.", html);   // one sentence first
+        Assert.Contains("<h1 style=\"font-size:18px;margin:0 0 8px 0;\">Push delivery failed</h1>", html);
+        Assert.DoesNotContain("Ops Alert: Platform/PushDeliveryFailed", html);                    // the machine title stays out
         Assert.Contains("A push service refused the platform key", html);
-        Assert.Contains("<td style=\"padding:3px 0;\">Platform</td>", html);
-        Assert.Contains("status 401 &lt;kid=abc&gt;", html);           // section text escaped
+        Assert.Contains("<td style=\"padding:3px 0;\">Platform</td>", html);                     // facts as a table
+        Assert.Contains("status 401 &lt;kid=abc&gt;", html);                                        // section text escaped
         Assert.DoesNotContain("<kid=abc>", html);
-        Assert.Contains("href=\"https://portal.example.invalid/admin/settings/alerts\"", html);
-        Assert.Contains("&lt;script&gt;", html);                        // payload escaped
-        Assert.DoesNotContain("<script>", html);
-        Assert.Contains("PushDeliveryFailed</p>", html);                // event type in the footer
+        Assert.Contains("<td style=\"padding:3px 0;\">&lt;script&gt;</td>", html);               // payload as rows, escaped
+        Assert.Contains("<td style=\"padding:3px 0;\">{&quot;a&quot;:1}</td>", html);             // nested values stay compact JSON
+        Assert.DoesNotContain("<pre", html);                                                        // no raw JSON block for an object
+        Assert.Contains("Open alerts: <a href=\"https://portal.example.invalid/admin/settings/alerts\"", html);   // visible link
+        Assert.Contains("sent automatically by Autopilot Monitor", html);
+
+        var text = EmailAlertRenderer.Text(alert);
+        Assert.StartsWith("Autopilot Monitor raised an error in the Platform category.", text);
+        Assert.Contains("Push delivery failed\n", text);
+        Assert.Contains("Category: Platform\n", text);
+        Assert.Contains("note: <script>\n", text);                                                 // text part is not HTML-escaped
+        Assert.Contains("Open alerts: https://portal.example.invalid/admin/settings/alerts", text);
     }
 
     [Fact]
-    public void Renderer_drops_non_http_links_caps_the_payload_and_survives_an_empty_alert()
+    public void Renderer_drops_non_http_links_caps_a_non_object_payload_and_survives_an_empty_alert()
     {
         var alert = new NotificationAlert { Title = "", Summary = "", DataJson = new string('x', EmailAlertRenderer.MaxPayloadChars + 100) };
         alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "bad", Url = "javascript:alert(1)" });
 
-        Assert.Equal("[Autopilot Monitor] Notification", EmailAlertRenderer.Subject(alert));
+        Assert.Equal("Autopilot Monitor: Notification", EmailAlertRenderer.Subject(alert));
         var html = EmailAlertRenderer.Html(alert);
         Assert.DoesNotContain("javascript:", html);
         Assert.Contains("(truncated)", html);
         Assert.True(html.Length < EmailAlertRenderer.MaxPayloadChars + 3000);
+        Assert.Equal("Autopilot Monitor: Hello world", EmailAlertRenderer.Subject(new NotificationAlert { Title = "Hello world", Summary = "" }));
     }
+
+    [Theory]
+    [InlineData("PushDeliveryFailed", "Push delivery failed")]
+    [InlineData("SlaBreachNotification", "Sla breach notification")]
+    [InlineData("SLAEvaluation", "SLA evaluation")]
+    [InlineData("enrollment_failed", "Enrollment failed")]
+    [InlineData("TenantSignup", "Tenant signup")]
+    public void Humanize_splits_event_names_into_words(string eventName, string expected)
+        => Assert.Equal(expected, EmailAlertRenderer.Humanize(eventName));
 
     // ── Sending through the provider path ─────────────────────────────────
 
@@ -185,9 +206,12 @@ public class EmailChannelProviderTests
         Assert.Equal("Sent to 2 recipient(s). Provider status: sent, id abc,abc.", result.Message);
         Assert.Equal(2, handler.Bodies.Count);
         Assert.Contains("\"to\":[{\"email\":\"ops@example.invalid\"", handler.Bodies[0]);
-        Assert.Contains("\"subject\":\"[Autopilot Monitor] Error: Ops Alert: Platform/PushDeliveryFailed\"", handler.Bodies[0]);
+        Assert.Contains("\"subject\":\"Autopilot Monitor: Push delivery failed (Platform)\"", handler.Bodies[0]);
         Assert.Contains("\"tags\":[\"alert\"]", handler.Bodies[0]);
         Assert.Contains("\"track_opens\":false", handler.Bodies[0]);
+        Assert.Contains("\"text\":\"Autopilot Monitor raised an error", handler.Bodies[0]);      // own text part
+        Assert.Contains("\"auto_text\":false", handler.Bodies[0]);
+        Assert.Contains("\"headers\":{\"Auto-Submitted\":\"auto-generated\",\"X-Auto-Response-Suppress\":\"All\"}", handler.Bodies[0]);
     }
 
     [Fact]

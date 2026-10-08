@@ -18,6 +18,16 @@ public class EmailNotificationService : IEmailChannelSender
     public const int MaxRecipients = 5;
     public const string Tag = "alert";
 
+    /// <summary>
+    /// Declares the mail as machine-generated (RFC 3834): auto-responders stay quiet, and filters
+    /// read it as a notification rather than as someone pretending to write a letter.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> Headers = new Dictionary<string, string>
+    {
+        ["Auto-Submitted"] = "auto-generated",
+        ["X-Auto-Response-Suppress"] = "All",
+    };
+
     private readonly EmailService _email;
     private readonly ILogger<EmailNotificationService> _logger;
     private readonly TelemetryClient? _telemetry;
@@ -74,9 +84,10 @@ public class EmailNotificationService : IEmailChannelSender
 
         var subject = EmailAlertRenderer.Subject(alert);
         var html = EmailAlertRenderer.Html(alert);
+        var text = EmailAlertRenderer.Text(alert);
         var outcomes = new List<EmailSendOutcome>();
         foreach (var address in addresses.Take(MaxRecipients))
-            outcomes.Add(await _email.SendMessageAsync(address, subject, html, Tag).ConfigureAwait(false));
+            outcomes.Add(await _email.SendMessageAsync(address, subject, html, Tag, text, Headers).ConfigureAwait(false));
 
         var attempted = outcomes.Count;
         var accepted = outcomes.Count(o => o.Accepted);

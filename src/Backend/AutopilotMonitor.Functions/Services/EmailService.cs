@@ -173,7 +173,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     /// (<see cref="Notifications.EmailNotificationService"/>) on the same provider path as the
     /// transactional mails. Returns true when the provider accepted it. Never throws.
     /// </summary>
-    public virtual async Task<EmailSendOutcome> SendMessageAsync(string toEmail, string subject, string html, string tag, CancellationToken ct = default)
+    public virtual async Task<EmailSendOutcome> SendMessageAsync(string toEmail, string subject, string html, string tag,
+        string? text = null, IReadOnlyDictionary<string, string>? headers = null, CancellationToken ct = default)
     {
         if (!IsConfigured)
         {
@@ -182,7 +183,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         }
         if (string.IsNullOrWhiteSpace(toEmail))
             return EmailSendOutcome.NotSent;
-        return await SendViaMandrillAsync(toEmail, subject, html, tag, ct);
+        return await SendViaMandrillAsync(toEmail, subject, html, tag, ct, text, headers);
     }
 
     /// <summary>
@@ -192,7 +193,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     /// <c>reject_reason</c> in the warning). Never throws; the outcome carries the provider's status
     /// word and message id so a mail that never arrived can be looked up in its activity log.
     /// </summary>
-    private async Task<EmailSendOutcome> SendViaMandrillAsync(string toEmail, string subject, string html, string tag, CancellationToken ct)
+    private async Task<EmailSendOutcome> SendViaMandrillAsync(string toEmail, string subject, string html, string tag, CancellationToken ct,
+        string? text = null, IReadOnlyDictionary<string, string>? headers = null)
     {
         try
         {
@@ -206,7 +208,11 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                     To = new[] { new MandrillRecipient { Email = toEmail, Type = "to" } },
                     Subject = subject,
                     Html = html,
-                    AutoText = true,
+                    // A text part of our own (the alert mails) beats the provider's derived one; the
+                    // templates still let the provider derive it.
+                    Text = text,
+                    AutoText = text is null,
+                    Headers = headers is { Count: > 0 } ? new Dictionary<string, string>(headers) : null,
                     TrackOpens = false,
                     TrackClicks = false,
                     Tags = new[] { tag },
@@ -275,7 +281,9 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         [JsonPropertyName("to")] public MandrillRecipient[] To { get; set; } = Array.Empty<MandrillRecipient>();
         [JsonPropertyName("subject")] public string Subject { get; set; } = string.Empty;
         [JsonPropertyName("html")] public string Html { get; set; } = string.Empty;
+        [JsonPropertyName("text")] public string? Text { get; set; }
         [JsonPropertyName("auto_text")] public bool AutoText { get; set; }
+        [JsonPropertyName("headers")] public Dictionary<string, string>? Headers { get; set; }
         [JsonPropertyName("track_opens")] public bool TrackOpens { get; set; }
         [JsonPropertyName("track_clicks")] public bool TrackClicks { get; set; }
         [JsonPropertyName("tags")] public string[] Tags { get; set; } = Array.Empty<string>();
