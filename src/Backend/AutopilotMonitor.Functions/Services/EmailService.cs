@@ -96,7 +96,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         }
 
         var html = await _templates.GetHtmlAsync(EmailTemplateKind.Welcome, domainName, ct);
-        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplates.PreviewApprovedSubject, html, "welcome", ct,
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplates.PreviewApprovedSubjectFor(domainName), html, "welcome", ct,
             HtmlToText.Convert(html), AutomatedHeaders)).Accepted;
 
         if (sent)
@@ -163,7 +163,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             ? await _templates.GetHtmlAsync(kind, domainName, ct)
             : EmailTemplateService.Render(draftHtml, domainName);
 
-        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, "test", ct,
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind, domainName), html, "test", ct,
             HtmlToText.Convert(html), AutomatedHeaders)).Accepted;
         if (sent)
             _logger.LogInformation("{Kind} test email sent to {ToEmail} (draft={IsDraft})", kind, toEmail, draftHtml is not null);

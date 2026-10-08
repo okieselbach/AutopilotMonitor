@@ -111,7 +111,7 @@ public sealed class EmailServiceTests
         Assert.Equal(EmailService.DefaultFromName, message.GetProperty("from_name").GetString());
         Assert.Equal("it@contoso.invalid", message.GetProperty("to")[0].GetProperty("email").GetString());
         Assert.Equal("to", message.GetProperty("to")[0].GetProperty("type").GetString());
-        Assert.Equal(EmailTemplates.PreviewApprovedSubject, message.GetProperty("subject").GetString());
+        Assert.Equal("Your Autopilot Monitor access for contoso.invalid is ready", message.GetProperty("subject").GetString());
         Assert.Contains("contoso.invalid", message.GetProperty("html").GetString());
         // A text part of our own (HtmlToText) instead of the provider's derived one, and the
         // RFC 3834 header on every automated mail.
@@ -258,7 +258,8 @@ public sealed class EmailServiceTests
         // The mail is sent from a noreply address after portal access is gone, so the
         // feedback pointers must be external channels the recipient can actually reach.
         Assert.Contains("https://github.com/okieselbach/AutopilotMonitor/issues", html);
-        Assert.Contains("linkedin.com", html);
+        Assert.Contains("github.com/okieselbach/AutopilotMonitor/issues", html);
+        Assert.DoesNotContain("linkedin.com", html);   // one feedback link only (user go 2026-10-08)
     }
 
     [Fact]

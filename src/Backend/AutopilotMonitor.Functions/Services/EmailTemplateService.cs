@@ -65,8 +65,12 @@ public class EmailTemplateService : IEmailTemplateProvider
 
     public static string KindKey(EmailTemplateKind kind) => kind == EmailTemplateKind.Welcome ? "welcome" : "farewell";
 
-    public static string Subject(EmailTemplateKind kind) => kind == EmailTemplateKind.Welcome
-        ? EmailTemplates.PreviewApprovedSubject
+    /// <summary>The subject as the editor shows it: the welcome one with the domain placeholder left in place.</summary>
+    public static string Subject(EmailTemplateKind kind) => Subject(kind, DomainPlaceholder);
+
+    /// <summary>The subject a mail to <paramref name="domainName"/> carries.</summary>
+    public static string Subject(EmailTemplateKind kind, string? domainName) => kind == EmailTemplateKind.Welcome
+        ? EmailTemplates.PreviewApprovedSubjectFor(domainName)
         : EmailTemplates.OffboardingFarewellSubject;
 
     /// <summary>Built-in template with the placeholder left in place (for the editor).</summary>

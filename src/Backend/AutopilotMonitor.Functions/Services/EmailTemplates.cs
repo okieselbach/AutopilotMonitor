@@ -9,16 +9,25 @@ namespace AutopilotMonitor.Functions.Services;
 /// </summary>
 public static class EmailTemplates
 {
-    public const string PreviewApprovedSubject = "Your Autopilot Monitor access is ready!";
+    /// <summary>
+    /// Welcome subject with the tenant's domain in place of <c>{domain}</c>: a concrete, calm subject
+    /// line (no exclamation mark, no generic "your access") is what a first mail to a new
+    /// organisation needs to stay out of the junk folder.
+    /// </summary>
+    public const string PreviewApprovedSubject = "Your Autopilot Monitor access for {domain} is ready";
+
+    public static string PreviewApprovedSubjectFor(string? domainName)
+        => PreviewApprovedSubject.Replace("{domain}", string.IsNullOrWhiteSpace(domainName) ? "your organization" : domainName.Trim());
 
     // ── Offboarding farewell email ────────────────────────────────────────────
     //
     // Sent once, after the offboarding worker finishes Phase 2 (post History terminal
     // write). Deliberately makes no claims about what data was or wasn't deleted —
     // custom rules are archived and the audit history row survives, so the only durable
-    // statement is "the offboarding is complete". Feedback pointers go to GitHub/LinkedIn
-    // (same channels as the welcome email) because this is a noreply sender and the
-    // in-app feedback widget is gone once the tenant is offboarded.
+    // statement is "the offboarding is complete". The feedback pointer goes to GitHub (same
+    // channel as the welcome email; a second, personal link domain only costs deliverability)
+    // because this is a noreply sender and the in-app feedback widget is gone once the
+    // tenant is offboarded.
 
     public const string OffboardingFarewellSubject = "Thank you for using Autopilot Monitor";
 
@@ -91,7 +100,6 @@ public static class EmailTemplates
 
             <ul style=""color:#374151; font-size:14px; line-height:1.8; margin:0 0 24px; padding-left:20px;"">
               <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Open a GitHub Issue</a></li>
-              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Connect on LinkedIn</a></li>
             </ul>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 24px;"">
@@ -100,7 +108,7 @@ public static class EmailTemplates
 
             <p style=""color:#6b7280; font-size:13px; line-height:1.6; margin:0;"">
               This is the last email you'll receive from us. This mailbox doesn't accept
-              replies &ndash; please use the links above if you'd like to get in touch.
+              replies &ndash; please use the link above if you'd like to get in touch.
             </p>
           </td>
         </tr>
@@ -169,10 +177,10 @@ public static class EmailTemplates
         <!-- Body -->
         <tr>
           <td style=""padding:40px;"">
-            <h2 style=""color:#111827; margin:0 0 16px; font-size:20px;"">Welcome to Autopilot Monitor!</h2>
+            <h2 style=""color:#111827; margin:0 0 16px; font-size:20px;"">Welcome to Autopilot Monitor</h2>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 16px;"">
-              Great news &ndash; access for <strong>{displayDomain}</strong> has been activated and is ready to use.
+              Access for <strong>{displayDomain}</strong> has been activated and is ready to use.
               You can now <a href=""{Constants.PortalBaseUrl}"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">sign in</a> and start monitoring your Windows Autopilot enrollments in real time.
             </p>
 
@@ -195,17 +203,15 @@ public static class EmailTemplates
 
             <!-- Feedback -->
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 12px;"">
-              Your feedback is incredibly valuable and helps shape the product. If you run into issues
-              or have ideas for improvements, please don't hesitate to reach out:
+              Questions, problems or ideas for improvements are welcome:
             </p>
 
             <ul style=""color:#374151; font-size:14px; line-height:1.8; margin:0 0 24px; padding-left:20px;"">
               <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Open a GitHub Issue</a></li>
-              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Connect on LinkedIn</a></li>
             </ul>
 
             <p style=""color:#6b7280; font-size:14px; line-height:1.6; margin:0;"">
-              Thanks for being part of the journey &ndash; enjoy Autopilot Monitor!
+              Thank you for using Autopilot Monitor.
             </p>
           </td>
         </tr>
