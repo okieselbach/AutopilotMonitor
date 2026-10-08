@@ -133,13 +133,7 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         }
 
         var now = DateTime.UtcNow;
-        var candidates = (await _repo.GetDevicesAsync(scope.Key).ConfigureAwait(false))
-            .Where(d => d.Status == Constants.Push.DeviceStatus.Active && d.Kind == "webpush")
-            .ToList();
-        if (candidates.Count == 0)
-            return stats;
-
-        var recipients = await FilterEligibleAsync(scope, candidates, now).ConfigureAwait(false);
+        var recipients = await ResolveRecipientsAsync(scope, now).ConfigureAwait(false);
         if (recipients.Count == 0)
             return stats;
 
@@ -176,6 +170,39 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         stats.Suppressed = suppressed;
         return stats;
     }
+
+    /// <summary>
+    /// The Active devices an alert in <paramref name="scope"/> reaches, role and freshness re-checked
+    /// per owner (D-327). A tenant scope additionally reaches the Active platform devices whose
+    /// owner's home tenant it is (D-334): a Global Admin's receiver holds one pairing, and in their
+    /// own tenant they are an admin like any other — those rows pass the platform eligibility rule,
+    /// and one endpoint is sent to once whichever scope its row lives in. No other tenant ever
+    /// reaches a platform device.
+    /// </summary>
+    internal async Task<List<PushDevice>> ResolveRecipientsAsync(NotificationScope scope, DateTime now)
+    {
+        var own = ActiveWebPush(await _repo.GetDevicesAsync(scope.Key).ConfigureAwait(false));
+        var recipients = own.Count == 0 ? new List<PushDevice>() : await FilterEligibleAsync(scope, own, now).ConfigureAwait(false);
+        if (scope.IsPlatform)
+            return recipients;
+
+        var homeTenantRows = ActiveWebPush(await _repo.GetDevicesAsync(NotificationScope.Platform.Key).ConfigureAwait(false))
+            .Where(d => string.Equals(d.OwnerHomeTenantId, scope.Key, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (homeTenantRows.Count == 0)
+            return recipients;
+
+        var endpoints = new HashSet<string>(recipients.Select(d => d.Endpoint), StringComparer.Ordinal);
+        foreach (var device in await FilterEligibleAsync(NotificationScope.Platform, homeTenantRows, now).ConfigureAwait(false))
+        {
+            if (endpoints.Add(device.Endpoint))
+                recipients.Add(device);
+        }
+        return recipients;
+    }
+
+    private static List<PushDevice> ActiveWebPush(List<PushDevice> devices)
+        => devices.Where(d => d.Status == Constants.Push.DeviceStatus.Active && d.Kind == "webpush").ToList();
 
     /// <summary>One push to one device, outside the flood window: test, paired, revoked, paused, session watch.</summary>
     public async Task<PushOutcome> SendSystemAsync(PushDevice device, PushPayload payload, TimeSpan? ttl = null)

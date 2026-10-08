@@ -38,7 +38,10 @@ public class PushDeliveryServiceTests
         var active = h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
         h.AddDevice("d2", Constants.Push.DeviceStatus.Pending);
         h.AddDevice("d3", Constants.Push.DeviceStatus.Paused);
-        h.AddDevice("d4", Constants.Push.DeviceStatus.Active, scope: Constants.Push.PlatformScope);
+        // Another org's Global Admin: a tenant alert never reaches a platform device unless this is the
+        // owner's home tenant (D-334, pinned below).
+        h.AddDevice("d4", Constants.Push.DeviceStatus.Active, scope: Constants.Push.PlatformScope)
+            .OwnerHomeTenantId = "22222222-2222-2222-2222-222222222222";
 
         var stats = await h.Sut.SendCoreAsync(Tenant, Alert());
 
@@ -503,6 +506,63 @@ public class PushDeliveryServiceTests
         public void Send(ITelemetry item) => Items.Add(item);
         public void Flush() { }
         public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task Tenant_alert_also_reaches_platform_devices_whose_owners_home_tenant_it_is()
+    {
+        var h = new Harness();
+        var own = h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
+        var ga = h.AddDevice("ga", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope);
+        h.AddDevice("ga-paused", Constants.Push.DeviceStatus.Paused, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope);
+        // Another Global Admin whose home tenant is a different one: never reached by this tenant.
+        h.AddDevice("other-ga", Constants.Push.DeviceStatus.Active, upn: "other@contoso.invalid", scope: Constants.Push.PlatformScope)
+            .OwnerHomeTenantId = "22222222-2222-2222-2222-222222222222";
+
+        var stats = await h.Sut.SendCoreAsync(Tenant, Alert());
+
+        Assert.Equal(2, stats.Targets);
+        Assert.Equal(2, stats.Delivered);
+        Assert.Equal(
+            new[] { own.Endpoint, ga.Endpoint }.OrderBy(x => x),
+            h.Http.Requests.Select(r => r.RequestUri!.ToString()).OrderBy(x => x));
+        // The tenant row passes the tenant rule, the platform row the platform rule.
+        h.Eligibility.Verify(e => e.IsEligibleAsync(Tenant, "admin@contoso.invalid", It.IsAny<string>(), TenantId), Times.Once);
+        h.Eligibility.Verify(e => e.IsEligibleAsync(NotificationScope.Platform, "ga@contoso.invalid", It.IsAny<string>(), TenantId), Times.Once);
+        h.Eligibility.Verify(e => e.IsEligibleAsync(Tenant, "ga@contoso.invalid", It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Former_global_admins_platform_device_gets_nothing_from_its_home_tenant_and_a_platform_alert_never_pulls_tenant_rows()
+    {
+        var h = new Harness();
+        var tenantRow = h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
+        var ga = h.AddDevice("ga", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope);
+        h.Eligibility.Setup(e => e.IsEligibleAsync(NotificationScope.Platform, "ga@contoso.invalid", It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+
+        var tenantStats = await h.Sut.SendCoreAsync(Tenant, Alert());
+        Assert.Equal(1, tenantStats.Targets);
+        Assert.Equal(tenantRow.Endpoint, Assert.Single(h.Http.Requests).RequestUri!.ToString());
+
+        h.Eligibility.Setup(e => e.IsEligibleAsync(NotificationScope.Platform, "ga@contoso.invalid", It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+        var platformStats = await h.Sut.SendCoreAsync(NotificationScope.Platform, Alert());
+        Assert.Equal(1, platformStats.Targets);
+        Assert.Equal(2, h.Http.Requests.Count);
+        Assert.Equal(ga.Endpoint, h.Http.Requests[1].RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task Same_endpoint_in_both_scopes_is_sent_to_once()
+    {
+        var h = new Harness();
+        var tenantRow = h.AddDevice("d1", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid");
+        h.AddDevice("ga", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope)
+            .Endpoint = tenantRow.Endpoint;
+
+        var stats = await h.Sut.SendCoreAsync(Tenant, Alert());
+
+        Assert.Equal(1, stats.Targets);
+        Assert.Single(h.Http.Requests);
     }
 
     private static NotificationAlert Alert() => new()

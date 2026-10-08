@@ -167,10 +167,21 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
               const confirming = confirmRemoveId === device.deviceId;
               const busy = removingId === device.deviceId || testingId === device.deviceId;
               const canTest = device.status !== "Pending";
+              // A Global Administrator's platform device shown in their home tenant (D-334): it receives
+              // this tenant's alerts without a second pairing and is managed on the platform side.
+              const viaPlatform = device.scope === "platform";
               return (
                 <li key={device.deviceId} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                   <span className="font-medium text-gray-900 min-w-0 break-words">{device.label || "Device"}</span>
                   <span className="text-gray-500">{platformLabel(device.platform)}</span>
+                  {viaPlatform && (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+                      title="A Global Administrator's platform device: this is the owner's home tenant, so it receives this tenant's alerts without a second pairing."
+                    >
+                      Platform
+                    </span>
+                  )}
                   <span
                     className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${CHIP_CLASSES[tone]}`}
                     title={describePortalDeviceStatus(device.status)}
@@ -184,49 +195,53 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
                     {/* The owner is named only for someone else's device — a scope admin's view. */}
                     {!device.isOwn ? ` · ${device.ownerUpn}` : ""}
                   </span>
-                  <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                    {confirming ? (
-                      <>
-                        <span className="text-xs text-gray-600">{`Remove ${device.label || "this device"}?`}</span>
-                        <button
-                          type="button"
-                          onClick={() => void remove(device)}
-                          disabled={busy}
-                          className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {removingId === device.deviceId ? "Removing…" : "Remove"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmRemoveId(null)}
-                          disabled={removingId === device.deviceId}
-                          className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => void sendTest(device)}
-                          disabled={busy || !canTest}
-                          title={canTest ? "Sends a test alert to this device." : "Only an active device can receive a test."}
-                          className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {testingId === device.deviceId ? "Sending…" : "Send test"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmRemoveId(device.deviceId)}
-                          disabled={busy}
-                          className="px-3 py-1 text-sm text-gray-600 hover:text-red-600 disabled:opacity-50 transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
-                  </span>
+                  {viaPlatform ? (
+                    <span className="text-xs text-gray-500 sm:ml-auto">Managed under Platform › Push devices</span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                      {confirming ? (
+                        <>
+                          <span className="text-xs text-gray-600">{`Remove ${device.label || "this device"}?`}</span>
+                          <button
+                            type="button"
+                            onClick={() => void remove(device)}
+                            disabled={busy}
+                            className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {removingId === device.deviceId ? "Removing…" : "Remove"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemoveId(null)}
+                            disabled={removingId === device.deviceId}
+                            className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void sendTest(device)}
+                            disabled={busy || !canTest}
+                            title={canTest ? "Sends a test alert to this device." : "Only an active device can receive a test."}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {testingId === device.deviceId ? "Sending…" : "Send test"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemoveId(device.deviceId)}
+                            disabled={busy}
+                            className="px-3 py-1 text-sm text-gray-600 hover:text-red-600 disabled:opacity-50 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </span>
+                  )}
                 </li>
               );
             })}

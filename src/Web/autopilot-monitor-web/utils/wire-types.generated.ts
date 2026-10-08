@@ -3331,6 +3331,8 @@ export interface PushDeviceDto {
   ownerUpn: string;
   /** True for the caller's own devices. */
   isOwn: boolean;
+  /** "tenant": paired in this scope. "platform": a Global Administrator's platform device, listed in their home tenant because it receives this tenant's alerts without a second pairing (D-334); the tenant routes do not act on it — it is managed under the platform's device list. */
+  scope: string;
 }
 
 /** GET push/devices · GET global/push/devices — own devices (everyone) plus every device of the scope (admins). */

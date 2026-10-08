@@ -133,6 +133,12 @@ namespace AutopilotMonitor.Shared.Models
         public string OwnerUpn { get; set; } = default!;
         /// <summary>True for the caller's own devices.</summary>
         public bool IsOwn { get; set; }
+        /// <summary>
+        /// "tenant": paired in this scope. "platform": a Global Administrator's platform device, listed
+        /// in their home tenant because it receives this tenant's alerts without a second pairing
+        /// (D-334); the tenant routes do not act on it — it is managed under the platform's device list.
+        /// </summary>
+        public string Scope { get; set; } = "tenant";
     }
 
     /// <summary>GET/PUT/DELETE sessions/{sessionId}/watch — "notify my devices when this session ends".</summary>

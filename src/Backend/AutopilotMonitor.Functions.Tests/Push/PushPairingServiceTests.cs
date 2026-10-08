@@ -388,6 +388,50 @@ public class PushPairingServiceTests
     }
 
     /// <summary>Records every request (and its body, read before the sender disposes it) and answers with a configurable status (201 by default).</summary>
+    [Fact]
+    public async Task Home_tenant_list_shows_a_global_admins_platform_device_which_the_tenant_routes_refuse()
+    {
+        var h = new Harness();
+        var ga = new PushCaller("ga@contoso.invalid", "aaaaaaaa-0000-0000-0000-00000000000a", TenantId, IsScopeAdmin: true, IsGlobalAdmin: true);
+        h.Repo.Devices[(Constants.Push.PlatformScope, "ga-phone")] = PlatformDevice("ga-phone", ga, TenantId, h.Keys.Active.Kid);
+        h.Repo.Devices[(Constants.Push.PlatformScope, "other-phone")] = PlatformDevice("other-phone",
+            new PushCaller("other@contoso.invalid", "aaaaaaaa-0000-0000-0000-00000000000b", "22222222-2222-2222-2222-222222222222", IsScopeAdmin: true, IsGlobalAdmin: true),
+            "22222222-2222-2222-2222-222222222222", h.Keys.Active.Kid);
+
+        // Scope admins see it (as somebody else's device), the owner as their own, an operator not at all.
+        var adminView = Assert.Single((await h.Sut.ListAsync(Tenant, Admin)).Devices);
+        Assert.Equal("ga-phone", adminView.DeviceId);
+        Assert.Equal("platform", adminView.Scope);
+        Assert.False(adminView.IsOwn);
+        Assert.True(Assert.Single((await h.Sut.ListAsync(Tenant, ga)).Devices).IsOwn);
+        Assert.Empty((await h.Sut.ListAsync(Tenant, Operator)).Devices);
+        // The platform list itself is untouched by the rule.
+        Assert.All((await h.Sut.ListAsync(NotificationScope.Platform, ga)).Devices, d => Assert.Equal("platform", d.Scope));
+
+        // Managed under the platform's device list: the tenant routes do not know the row.
+        Assert.Equal(PushOpError.NotFound, await h.Sut.DeleteAsync(Tenant, "ga-phone", Admin));
+        Assert.False((await h.Sut.TestAsync(Tenant, "ga-phone", Admin)).Ok);
+        Assert.Equal(2, h.Repo.Devices.Count);
+    }
+
+    private static PushDevice PlatformDevice(string id, PushCaller owner, string homeTenantId, string kid) => new()
+    {
+        Scope = Constants.Push.PlatformScope,
+        DeviceId = id,
+        OwnerUpn = owner.Upn,
+        OwnerObjectId = owner.ObjectId,
+        OwnerHomeTenantId = homeTenantId,
+        Endpoint = $"https://web.push.apple.com/QF/{id}",
+        P256dh = "p",
+        Auth = "a",
+        DeviceSecretHash = "hash",
+        VapidKid = kid,
+        Label = id,
+        Platform = "ios-homescreen",
+        Status = Constants.Push.DeviceStatus.Active,
+        PairedUtc = DateTime.UtcNow,
+    };
+
     internal sealed class RecordingHandler : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = new();

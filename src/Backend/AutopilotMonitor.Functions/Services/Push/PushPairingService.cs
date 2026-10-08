@@ -398,6 +398,14 @@ public class PushPairingService
     public async Task<PushDeviceListResponse> ListAsync(NotificationScope scope, PushCaller caller)
     {
         var devices = await _repo.GetDevicesAsync(scope.Key).ConfigureAwait(false);
+        // A Global Admin's platform device is listed in their home tenant as well: it receives this
+        // tenant's alerts without a second pairing (D-334), so it belongs where the recipients show.
+        // The tenant routes never act on it (DELETE/test look the id up in the tenant partition only).
+        if (!scope.IsPlatform)
+        {
+            devices.AddRange((await _repo.GetDevicesAsync(NotificationScope.Platform.Key).ConfigureAwait(false))
+                .Where(d => string.Equals(d.OwnerHomeTenantId, scope.Key, StringComparison.OrdinalIgnoreCase)));
+        }
         var items = devices
             .Where(d => d.Status != Constants.Push.DeviceStatus.Pending)
             .Where(d => caller.IsScopeAdmin || IsOwn(d, caller))
@@ -415,6 +423,7 @@ public class PushPairingService
                 LastOpenedUtc = d.LastOpenedUtc,
                 OwnerUpn = d.OwnerUpn,
                 IsOwn = IsOwn(d, caller),
+                Scope = d.Scope == Constants.Push.PlatformScope ? "platform" : "tenant",
             })
             .ToList();
         return new PushDeviceListResponse { Devices = items };
