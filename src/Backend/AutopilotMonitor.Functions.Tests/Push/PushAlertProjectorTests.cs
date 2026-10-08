@@ -188,4 +188,19 @@ public class PushAlertProjectorTests
         Assert.Null(PushAlertProjector.BuildTopic(Constants.PortalSessionUrl("sess-1"), null));
         Assert.Null(PushAlertProjector.BuildTopic(Constants.PortalBaseUrl, Encoding.UTF8.GetBytes("key")));
     }
+
+    [Fact]
+    public void System_messages_never_share_a_tag_so_none_replaces_an_earlier_notification()
+    {
+        var scope = NotificationScope.Tenant("11111111-1111-1111-1111-111111111111");
+        var now = new DateTime(2026, 10, 8, 18, 38, 40, DateTimeKind.Utc);
+        var first = PushAlertProjector.SystemMessage("session_watch", "Enrollment finished", "A finished.", "success", scope, now, Constants.PortalSessionUrl("sess-1"));
+        var second = PushAlertProjector.SystemMessage("session_watch", "Enrollment finished", "B finished.", "success", scope, now, Constants.PortalSessionUrl("sess-2"));
+
+        Assert.Equal(first.Id, first.Tag);
+        Assert.Equal(second.Id, second.Tag);
+        Assert.NotEqual(first.Tag, second.Tag);
+        using var json = JsonDocument.Parse(PushAlertProjector.ToJsonBytes(first));
+        Assert.Equal(first.Id, json.RootElement.GetProperty("notification").GetProperty("tag").GetString());
+    }
 }

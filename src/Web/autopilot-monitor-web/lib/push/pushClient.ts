@@ -70,6 +70,16 @@ export async function getPushRegistration(): Promise<ServiceWorkerRegistration |
   return registration ?? null;
 }
 
+/**
+ * Asks the browser to re-fetch the worker script. A home-screen app that is only resumed never
+ * navigates, and the browser checks for a new worker on navigation — the iPhone kept running the
+ * worker without the navigate fix through two opens (2026-10-08). Fire-and-forget: the new worker
+ * installs, skips waiting and claims the page on its own.
+ */
+export function checkForWorkerUpdate(registration: ServiceWorkerRegistration): void {
+  registration.update().catch(() => {});
+}
+
 export interface SubscriptionKeys {
   endpoint: string;
   p256dh: string;
@@ -293,6 +303,7 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
   try {
     const registration = (await getPushRegistration()) ?? (isPushSupported() ? await registerPushWorker() : null);
     if (registration) {
+      checkForWorkerUpdate(registration);
       let subscription = await registration.pushManager.getSubscription();
       const permission = notificationPermission();
       const vapidPublicKey = meta[META_KEYS.vapidPublicKey];

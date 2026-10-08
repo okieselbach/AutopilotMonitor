@@ -133,20 +133,29 @@ public static class PushAlertProjector
         };
     }
 
-    /// <summary>A system message to one device (test, paired, revoked, muted, paused, session watch).</summary>
+    /// <summary>
+    /// A system message to one device (test, paired, revoked, muted, paused, session watch). Its
+    /// tag is its id: a system message never replaces an earlier notification where the browser
+    /// honours tags, so two watched sessions finishing minutes apart stay two notifications
+    /// (alerts keep the per-session tag, so a later verdict for the same session replaces the
+    /// earlier one on the lock screen; the history keeps every push either way, keyed by id).
+    /// </summary>
     public static PushPayload SystemMessage(string type, string title, string body, string severity, NotificationScope scope, DateTime nowUtc, string? portalUrl = null)
-        => new()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        return new()
         {
-            Id = Guid.NewGuid().ToString("N"),
+            Id = id,
             Type = type,
             Title = Clean(title, MaxTitleLength),
             Body = Clean(body, MaxBodyLength),
             Severity = severity,
             PortalUrl = portalUrl,
-            Tag = type,
+            Tag = id,
             Scope = scope.IsPlatform ? "platform" : "tenant",
             TimestampUtc = nowUtc,
         };
+    }
 
     /// <summary>
     /// Declarative Web Push JSON (<c>web_push: 8030</c>): Safari ≥ 18.4 shows it without the
