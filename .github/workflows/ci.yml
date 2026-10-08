@@ -124,6 +124,9 @@ jobs:
       - name: Summary Dialog tests
         run: dotnet test src/Agent/AutopilotMonitor.SummaryDialog.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
 
+      - name: Push tests
+        run: dotnet test src/Push/AutopilotMonitor.Push.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
+
   web:
     name: Web (typecheck + tests)
     runs-on: ubuntu-latest

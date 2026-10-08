@@ -146,8 +146,21 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string SlaConsecutiveFailures = "SlaConsecutiveFailures";
         public const string SlaEvaluationCompleted = "SlaEvaluationCompleted";
 
-        // ── Platform ── Platform infrastructure alerts relayed from Azure Monitor.
+        // ── Platform ── Platform infrastructure alerts relayed from Azure Monitor, push channel health.
         public const string AzureMonitorAlert = "AzureMonitorAlert";
+        /// <summary>
+        /// The push sender got a configuration-class answer from a push service (400/401/403:
+        /// bad VAPID key, bad TTL) or a device's VAPID kid no longer matches the configured keys.
+        /// Error; at most one per hour per cause and instance (in-process cache). Details name
+        /// the service host, the status and the kid — never an endpoint.
+        /// </summary>
+        public const string PushDeliveryFailed = "PushDeliveryFailed";
+        /// <summary>
+        /// A pairing or re-subscribe named an endpoint outside the push-service allow-list. Warning;
+        /// details carry the hostname only, so a new browser push service shows up without the
+        /// endpoint (a credential) leaving the backend.
+        /// </summary>
+        public const string PushEndpointRefused = "PushEndpointRefused";
 
         /// <summary>Every declared type, declaration order (grouped by category).</summary>
         public static readonly IReadOnlyList<string> All = new[]
@@ -158,7 +171,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             OffboardingFeedbackReceived, FeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
-            AzureMonitorAlert,
+            AzureMonitorAlert, PushDeliveryFailed, PushEndpointRefused,
         };
     }
 }

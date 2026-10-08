@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { isPushAppPath } from "@/lib/push/pushAppPath";
 import { api } from "@/lib/api";
 import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/utils/wire-types.generated";
 import { fetchJson, fetchOk, jsonBody, nullOnApiError } from "@/lib/apiClient";
@@ -14,6 +16,9 @@ const FEEDBACK_MAX_CHARS = SHARED_MANIFEST.submissionLimits.feedbackTextMaxChars
 
 export default function FeedbackBubble() {
   const { isAuthenticated, user, getAccessToken } = useAuth();
+  const pathname = usePathname();
+  // The push receiver has its own shell; a signed-in admin opening it on the desktop gets no bubble.
+  const standDown = isPushAppPath(pathname);
   const [phase, setPhase] = useState<Phase>("loading");
   const [rating, setRating] = useState<number>(0);
   const [hoveredStar, setHoveredStar] = useState<number>(0);
@@ -22,7 +27,7 @@ export default function FeedbackBubble() {
 
   // Check eligibility shortly after mount
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
+    if (!isAuthenticated || !user || standDown) return;
 
     let cancelled = false;
 
@@ -52,7 +57,7 @@ export default function FeedbackBubble() {
     // used to compete with the page's own data fetches.
     const timer = setTimeout(() => { void checkEligibility(); }, 1500);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [isAuthenticated, user, getAccessToken]);
+  }, [isAuthenticated, user, getAccessToken, standDown]);
 
   const handleDismiss = useCallback(async () => {
     setPhase("hidden");
@@ -88,7 +93,7 @@ export default function FeedbackBubble() {
   }, [rating, comment, submitting, getAccessToken]);
 
   // Don't render anything while loading or hidden
-  if (phase === "loading" || phase === "hidden") return null;
+  if (standDown || phase === "loading" || phase === "hidden") return null;
 
   return (
     <div className="fixed bottom-20 right-6 z-40 sm:bottom-20 sm:right-6">

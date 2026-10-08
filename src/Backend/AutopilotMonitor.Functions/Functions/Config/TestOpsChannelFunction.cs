@@ -56,7 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     ? channels.FirstOrDefault(c => string.Equals(c.Id, channelId, StringComparison.OrdinalIgnoreCase))
                     : channels.FirstOrDefault();
 
-                if (channel == null || string.IsNullOrEmpty(channel.Url))
+                if (channel == null || !channel.HasDestination())
                 {
                     var notFound = req.CreateResponse(HttpStatusCode.OK);
                     await notFound.WriteAsJsonAsync(new TestWebhookNotificationResponse
@@ -70,7 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
-                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert);
+                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert, NotificationScope.Platform);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new TestWebhookNotificationResponse

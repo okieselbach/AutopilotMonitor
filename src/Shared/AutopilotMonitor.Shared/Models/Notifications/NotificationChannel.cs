@@ -44,7 +44,8 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// <summary>
         /// Provider type (int form of <see cref="WebhookProviderType"/>):
         /// 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord,
-        /// 40=Telegram (Global-Admin only — see the enum member).
+        /// 40=Telegram (Global-Admin only — see the enum member), 50=Push (paired devices, no
+        /// destination field; Global-Admin only until the customer release).
         /// </summary>
         public int ProviderType { get; set; }
 
@@ -53,9 +54,29 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// is the endpoint URL; for <see cref="WebhookProviderType.Telegram"/> it is the CHAT ID
         /// instead, because the endpoint (the bot) is platform-owned. Deliberately one field: the
         /// redaction and restore-by-id machinery already covers it, so Telegram needs no new
-        /// secret plumbing.
+        /// secret plumbing. Empty for <see cref="WebhookProviderType.Push"/> (see
+        /// <see cref="HasDestination"/>).
         /// </summary>
         public string? Url { get; set; }
+
+        /// <summary>
+        /// True when the channel can be dispatched to: a Push channel always (its recipients are
+        /// the scope's paired devices, resolved at send time), every other provider only with a
+        /// non-blank <see cref="Url"/>. The ONE rule behind the "no destination configured" skips
+        /// in the dispatcher, the test endpoints and the What's-new digest — a provider-aware
+        /// copy at each site is exactly how one of them would keep dropping Push channels.
+        /// </summary>
+        public bool HasDestination()
+            => ProviderType == (int)WebhookProviderType.Push || !string.IsNullOrWhiteSpace(Url);
+
+        /// <summary>
+        /// Providers a tenant admin may not create or retarget: they send through PLATFORM-owned
+        /// infrastructure (the Telegram bot; the push sender and its VAPID key). Enforced server-side
+        /// in TenantConfigValidation, mirrored by the <c>gaOnly</c> flag in the web ChannelEditor.
+        /// </summary>
+        public static bool IsGlobalAdminOnlyProvider(int providerType)
+            => providerType == (int)WebhookProviderType.Telegram
+               || providerType == (int)WebhookProviderType.Push;
 
         /// <summary>
         /// Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }), applied

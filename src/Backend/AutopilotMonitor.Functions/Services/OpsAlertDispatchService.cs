@@ -58,16 +58,20 @@ namespace AutopilotMonitor.Functions.Services
                 var (withPayload, plain) = ResolveTargets(matchingRules, channels);
                 if (withPayload.Count == 0 && plain.Count == 0) return;
 
+                // Always the platform scope: the event's tenantId is the SUBJECT of the alert, never
+                // the channel owner — a Push channel here reaches the operators' devices only.
                 if (plain.Count > 0)
                 {
                     await _channelDispatcher.SendToChannelsAsync(plain,
-                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson: null));
+                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson: null),
+                        NotificationScope.Platform);
                 }
 
                 if (withPayload.Count > 0)
                 {
                     await _channelDispatcher.SendToChannelsAsync(withPayload,
-                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson));
+                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson),
+                        NotificationScope.Platform);
                 }
 
                 _logger.LogInformation(

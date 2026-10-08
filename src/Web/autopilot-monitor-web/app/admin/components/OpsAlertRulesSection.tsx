@@ -8,6 +8,10 @@ import { toggleChannelBinding } from "./opsChannelRouting";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 
+/** Destination sentence of a platform Push channel (ChannelEditor shows it in place of the URL field). */
+const PUSH_DESTINATION_HINT_OPS =
+  "Delivers to the devices Global Administrators pair under Alerts › Push devices. The Payload option has no effect on Push.";
+
 // All known ops event types grouped by category
 const OPS_EVENT_TYPES: Record<string, string[]> = {
   Consent: [
@@ -251,6 +255,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // notifications carry the same mapped severity, so a rule here delivers recovery pings too.
     // Dual-register per memory feedback_ops_event_types_dual_register.
     "AzureMonitorAlert",
+    // Web Push channel (plan push-relay K15/K16). DeliveryFailed = a push service answered with
+    // a configuration error (400/401/403: VAPID or endpoint policy), raised at most hourly and
+    // deduplicated over a tracker row; EndpointRefused = a redeem or re-subscribe named an
+    // endpoint outside the allowed push-service hosts (carries the hostname only, never the
+    // endpoint). Dual-register per memory feedback_ops_event_types_dual_register.
+    "PushDeliveryFailed",
+    "PushEndpointRefused",
   ],
 };
 
@@ -576,6 +587,7 @@ export function OpsAlertRulesSection({
               testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
               showTelegramProvider
               showEventToggles={false}
+              pushDestinationHint={PUSH_DESTINATION_HINT_OPS}
             />
           ))}
 

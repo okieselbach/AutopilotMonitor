@@ -106,6 +106,12 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // Self-service delegation invitations + slot holds this tenant issued as a MANAGING tenant
             // (PK=home tenant id). Rows where it is the MANAGED tenant go via the property wipe below.
             Constants.TableNames.DelegationInvitations,
+            // Web Push channel: paired devices and session watches of the tenant scope (PK=tenantId;
+            // the "platform" partition never matches a tenant GUID) and the owner sign-in stamps
+            // homed in this tenant (PK=home tenant id).
+            Constants.TableNames.PushDevices,
+            Constants.TableNames.PushSessionWatches,
+            Constants.TableNames.PushOwners,
         };
 
         // Variant D — RowKey-anchored wipes for tables whose ROW key is the tenant id.
@@ -166,6 +172,8 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // Delegation invitation / hold rows where this tenant is the MANAGED side (TenantId property set on
             // accept). Pending rows carry no TenantId and belong to the managing tenant's partition.
             Constants.TableNames.DelegationInvitations,
+            // Push pairing grants are keyed by code hash (PK="grant"); TenantId carries the scope.
+            Constants.TableNames.PushPairingGrants,
         };
 
         // PR3.B plan §3 — Customs rules tables: archive each row to

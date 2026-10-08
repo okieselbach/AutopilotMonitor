@@ -932,6 +932,18 @@ export interface BackupTriggerResponse {
   statusUrl: string;
 }
 
+/** POST push/pair/begin — the receiver validates its code before asking for notification permission. */
+export interface BeginPairRequest {
+  code: string;
+}
+
+/** The VAPID application server key the receiver must subscribe with, and its identity. */
+export interface BeginPairResponse {
+  kid: string;
+  /** Uncompressed P-256 point, base64url — pushManager.subscribe({applicationServerKey}). */
+  vapidPublicKey: string;
+}
+
 /** Body of POST devices/block (Global Admin). */
 export interface BlockDeviceRequest {
   tenantId: string;
@@ -1111,6 +1123,11 @@ export interface ConfidenceFactor {
   weight: number;
 }
 
+/** POST push/pairings/{pairingId}/confirm — the device is Active from now on. */
+export interface ConfirmPairingResponse {
+  deviceId: string;
+}
+
 /** One CPE mapping row (seed, custom, or community) as browsed by the Admin UI. */
 export interface CpeMappingItem {
   normalizedVendor: string;
@@ -1183,6 +1200,17 @@ export interface CreateMcpClientRegistrationRequest {
 /** Response of POST tenants/{tenantId}/mcp-client-registrations: the stored registration. */
 export interface CreateMcpClientRegistrationResponse {
   registration: McpClientRegistrationItem;
+}
+
+/** POST push/pairings · POST global/push/pairings — a fresh pairing code for the caller's own person. */
+export interface CreatePairingResponse {
+  /** Handle for the PC-side status poll and the confirm/reject calls. */
+  pairingId: string;
+  /** The 11-character code to type into the receiver app. */
+  code: string;
+  /** The same code as the pairing link (QR payload): …/push/pair/#p=<code>. */
+  url: string;
+  expiresUtc: string;
 }
 
 /** Body of POST global/tenant-groups. */
@@ -3087,6 +3115,21 @@ export interface OsUpdateSpan {
   rebootCount: number;
 }
 
+export interface PairingDeviceDto {
+  deviceId: string;
+  label: string;
+  platform: string;
+  redeemedUtc: string;
+}
+
+/** GET push/pairings/{pairingId} — what the receiver has done with the code so far. */
+export interface PairingStatusResponse {
+  /** Pending · Redeemed (a device waits for confirmation) · Confirmed · Rejected · Expired. */
+  status: string;
+  /** The redeeming device, present from Redeemed on. */
+  device?: PairingDeviceDto;
+}
+
 /** Body of PATCH global/config: { "fields": { <fieldName>: <value>, ... } } with at least one field, keyed by the AdminConfiguration wire name. Only the fields sent are written; values take the field's own JSON type. */
 export interface PatchAdminConfigurationRequest {
   fields?: Record<string, unknown>;
@@ -3273,6 +3316,43 @@ export interface ProgressTenantStatusResponse {
   signedUpAt?: string;
 }
 
+export interface PushDeviceDto {
+  deviceId: string;
+  label: string;
+  platform: string;
+  status: string;
+  kid: string;
+  pairedUtc: string;
+  confirmedUtc?: string;
+  lastDeliveredUtc?: string;
+  lastOpenedUtc?: string;
+  ownerUpn: string;
+  /** True for the caller's own devices. */
+  isOwn: boolean;
+}
+
+/** GET push/devices · GET global/push/devices — own devices (everyone) plus every device of the scope (admins). */
+export interface PushDeviceListResponse {
+  devices: PushDeviceDto[];
+}
+
+/** GET/PUT push/device — the receiver's own view of its registration. */
+export interface PushDeviceStatusResponse {
+  deviceId: string;
+  /** Pending · Active · Paused · Stale (a revoked device is gone: the token answers 401). */
+  status: string;
+  label: string;
+  platform: string;
+  kid: string;
+  pairedUtc: string;
+  confirmedUtc?: string;
+  lastDeliveredUtc?: string;
+  /** The owner's UPN — this is the owner's own device. */
+  ownerUpn: string;
+  /** Tenant display name, or "Platform operator" for the platform scope. */
+  scopeName: string;
+}
+
 /** Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query. */
 export interface QueryBackendLogsErrorResponse {
   error: string;
@@ -3427,6 +3507,28 @@ export interface ReclassifyJobRunResponse {
   result: ReclassificationResult;
   triggeredBy: string;
   triggeredAt: string;
+}
+
+/** POST push/pair — the receiver hands over its subscription; the device is created Pending. */
+export interface RedeemPairRequest {
+  code: string;
+  kid: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  label?: string | null;
+  platform?: string | null;
+  appVersion?: string | null;
+}
+
+export interface RedeemPairResponse {
+  /** "{scope}.{deviceId}.{secret}" — the receiver's only credential; header X-Push-Device-Token. */
+  deviceToken: string;
+  deviceId: string;
+  /** Always Pending here; the PC confirms. */
+  status: string;
+  /** Suggested interval for the receiver's status poll while Pending. */
+  pollSeconds: number;
 }
 
 /** Request to register a new session */
@@ -3584,6 +3686,14 @@ export interface RestoreSessionRequest {
   tenantId?: string | null;
   /** Optional free-text justification, persisted into the deletion_restored audit row's reason detail. Trimmed and capped at 1024 chars by the endpoint. */
   reason?: string | null;
+}
+
+/** PUT push/device — a changed or re-created subscription (same device, same owner). */
+export interface ResubscribeRequest {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  kid: string;
 }
 
 /** Body of POST config/{tenantId}/revert. */
@@ -4391,6 +4501,12 @@ export interface SessionTimeBreakdown {
   /** Overlap-merged union of the blocking-app intervals clipped to the esp_apps spans — the critical-path occupancy. esp_apps total − occupancy = in-phase wait (provider stalls, settle, IME idle). Null when the blocking set is unknown (no lists observed): unknown, not zero. */
   espAppsOccupancySeconds?: number;
   qualityFlags: TimeAttributionFlags;
+}
+
+/** PUT sessions/{sessionId}/watch — "notify my devices when this session ends". */
+export interface SessionWatchResponse {
+  watching: boolean;
+  expiresUtc?: string;
 }
 
 /** Response of PATCH global/mcp-users/{upn}/usage-plan: the UPN and the plan now in effect ("(inherit)" when cleared to the tenant default). */

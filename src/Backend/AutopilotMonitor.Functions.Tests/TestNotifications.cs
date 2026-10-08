@@ -23,7 +23,8 @@ internal static class TestNotifications
         => new(
             new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance),
             new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(),
-                NullLogger<TelegramNotificationService>.Instance));
+                NullLogger<TelegramNotificationService>.Instance),
+            Mock.Of<IPushChannelSender>());
 
     internal static OpsAlertDispatchService InertOpsAlertDispatch(AdminConfigurationService adminConfigService)
         => new(adminConfigService, InertDispatcher(), NullLogger<OpsAlertDispatchService>.Instance);

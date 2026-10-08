@@ -210,6 +210,15 @@ public static class EndpointAccessPolicyCatalog
         // in constant time against the OpsAlertWebhookSecret app setting (fail-closed while
         // unset). See AzureMonitorAlertWebhookFunction.
         new("POST",   "ops/alert-webhook",          EndpointPolicy.PublicAnonymous),
+        // Web Push receiver (the phone never signs in — plan push-relay K8–K11). begin/pair are
+        // gated by the one-shot pairing code (hashed, ≥50 bits, 10 min, five-failure burn) plus a
+        // per-IP throttle; the device routes by the device token in X-Push-Device-Token, which
+        // authorizes nothing beyond the device's own registration. See PushReceiverFunctions.
+        new("POST",   "push/pair/begin",            EndpointPolicy.PublicAnonymous),
+        new("POST",   "push/pair",                  EndpointPolicy.PublicAnonymous),
+        new("GET",    "push/device",                EndpointPolicy.PublicAnonymous),
+        new("PUT",    "push/device",                EndpointPolicy.PublicAnonymous),
+        new("DELETE", "push/device",                EndpointPolicy.PublicAnonymous),
 
         // ── DeviceOrBootstrapAuth ───────────────────────────────────────
         new("POST",   "agent/register-session",    EndpointPolicy.DeviceOrBootstrapAuth),
@@ -708,6 +717,27 @@ public static class EndpointAccessPolicyCatalog
         // Dismiss endpoints stay TenantAdminOrGA: dismissal is currently tenant-shared (clearing for
         // one user clears for all). When per-user dismiss lands, dismiss can drop to MemberRead too.
         new("GET",    "notifications",                                   EndpointPolicy.MemberRead, TenantScoping.Jwt),
+        // Web Push pairing + devices, tenant scope (plan push-relay K5): Admin/Operator only (F10,
+        // no Viewer); the function re-checks the TABLE role because a Global Admin passes this tier
+        // by bypass without holding a tenant role. Watches: QueryParam like the annotations route.
+        new("POST",   "push/pairings",                                   EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("GET",    "push/pairings/{pairingId}",                       EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("POST",   "push/pairings/{pairingId}/confirm",               EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("POST",   "push/pairings/{pairingId}/reject",                EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("GET",    "push/devices",                                    EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("DELETE", "push/devices/{deviceId}",                         EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("POST",   "push/devices/{deviceId}/test",                    EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt),
+        new("GET",    "sessions/{sessionId}/watch",                      EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
+        new("PUT",    "sessions/{sessionId}/watch",                      EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
+        new("DELETE", "sessions/{sessionId}/watch",                      EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
+        // The platform-scope twin (operator devices, ops channels).
+        new("POST",   "global/push/pairings",                            EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/push/pairings/{pairingId}",                EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "global/push/pairings/{pairingId}/confirm",        EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "global/push/pairings/{pairingId}/reject",         EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/push/devices",                             EndpointPolicy.GlobalAdminOnly),
+        new("DELETE", "global/push/devices/{deviceId}",                  EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "global/push/devices/{deviceId}/test",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "notifications/dismiss-all",                       EndpointPolicy.TenantAdminOrGA, TenantScoping.Jwt),
         new("POST",   "notifications/{notificationId}/dismiss",          EndpointPolicy.TenantAdminOrGA, TenantScoping.Jwt),
         // ops-events is PLATFORM-OPERATIONAL data (Consent/Maintenance/Security/Tenant/Agent/SLA) for the

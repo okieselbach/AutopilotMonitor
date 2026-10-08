@@ -19,8 +19,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// The notification-dispatch consumer resolves channel ids against the tenant's CURRENT
 /// configuration — no URL or secret ever rides in the queue — and sends only to channels that
-/// are still enabled. Plus the wire contract: the envelope round-trips through Newtonsoft with
-/// the alert's facts, sections and severity intact.
+/// are still enabled, on the scope of the envelope's tenant (the Push transport trusts that
+/// scope, so it is pinned here). Plus the wire contract: the envelope round-trips through
+/// Newtonsoft with the alert's facts, sections and severity intact.
 /// </summary>
 public class NotificationDispatchHandlerTests
 {
@@ -41,6 +42,21 @@ public class NotificationDispatchHandlerTests
         var sent = Assert.Single(h.Sent);
         Assert.Equal(new[] { "teams" }, sent.Channels.Select(c => c.Id));
         Assert.Equal("enrollment_succeeded", sent.Alert.EventType);
+        Assert.Equal(NotificationScope.Tenant(Tenant), Assert.Single(h.Scopes));
+    }
+
+    [Fact]
+    public async Task Dispatch_runs_on_the_scope_of_the_envelopes_tenant()
+    {
+        var h = new Harness(new[] { Channel("teams", enabled: true) });
+
+        await h.Sut.HandleAsync(Envelope("teams"), CancellationToken.None);
+
+        // The scope comes from the envelope — trusted queue context — never from the alert's facts.
+        var scope = Assert.Single(h.Scopes);
+        Assert.Equal(NotificationScope.Tenant(Tenant), scope);
+        Assert.Equal(Tenant, scope.Key);
+        Assert.False(scope.IsPlatform);
     }
 
     [Fact]
@@ -112,6 +128,7 @@ public class NotificationDispatchHandlerTests
     private sealed class Harness
     {
         public List<(IReadOnlyList<NotificationChannel> Channels, NotificationAlert Alert)> Sent { get; } = new();
+        public List<NotificationScope> Scopes { get; } = new();
         public NotificationDispatchHandler Sut { get; }
 
         public Harness(IEnumerable<NotificationChannel>? channels)
@@ -138,9 +155,9 @@ public class NotificationDispatchHandlerTests
                     .ReturnsAsync((config, true));
             }
 
-            var dispatcher = new Mock<NotificationChannelDispatcher>(null!, null!);
-            dispatcher.Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>()))
-                .Callback<IEnumerable<NotificationChannel>, NotificationAlert>((c, a) => Sent.Add((c.ToList(), a)))
+            var dispatcher = new Mock<NotificationChannelDispatcher>(null!, null!, null!);
+            dispatcher.Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>(), It.IsAny<NotificationScope>()))
+                .Callback<IEnumerable<NotificationChannel>, NotificationAlert, NotificationScope>((c, a, s) => { Sent.Add((c.ToList(), a)); Scopes.Add(s); })
                 .Returns(Task.CompletedTask);
 
             Sut = new NotificationDispatchHandler(

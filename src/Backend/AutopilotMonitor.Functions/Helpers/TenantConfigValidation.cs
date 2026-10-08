@@ -355,10 +355,14 @@ namespace AutopilotMonitor.Functions.Helpers
 
                 // Telegram's destination is a chat ID, not a URL — the SSRF gate does not apply
                 // (there is no caller-supplied endpoint; the bot URL is platform-owned) and would
-                // reject every valid value. Format-check the chat ID instead.
+                // reject every valid value. Format-check the chat ID instead. A Push channel has
+                // no destination at all: a URL on it is refused so it can never fall through to
+                // the webhook path should a future branch forget the provider.
                 var destinationError =
                     channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram
                         ? ValidateTelegramChatId(channel.Url)
+                    : channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push
+                        ? ValidatePushDestination(channel.Url)
                         : SsrfGuard.ValidateWebhookUrlFormat(channel.Url);
                 if (destinationError != null)
                     return $"channel \"{label}\": {destinationError}";
@@ -415,13 +419,24 @@ namespace AutopilotMonitor.Functions.Helpers
         }
 
         /// <summary>
-        /// Global-Admin gate for Telegram channels. A Telegram channel sends through the PLATFORM's
-        /// bot (the token lives in PreviewConfig, not in tenant config), so a tenant admin must not
-        /// be able to create or retarget one — hiding the provider in the UI is not a control.
+        /// A Push channel carries no destination (its recipients are the scope's paired devices,
+        /// resolved at send time); a URL on it is refused rather than ignored.
+        /// </summary>
+        internal static string? ValidatePushDestination(string? url)
+            => string.IsNullOrWhiteSpace(url) ? null : "a Push channel has no destination — leave the URL empty.";
+
+        /// <summary>
+        /// Global-Admin gate for the providers that send through PLATFORM-owned infrastructure
+        /// (<see cref="Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider"/>):
+        /// Telegram through the platform bot (the token lives in PreviewConfig, not in tenant
+        /// config), Push through the platform's push sender and VAPID key, GA-only until the
+        /// customer release. A tenant admin must not be able to create or retarget one — hiding
+        /// the provider in the UI is not a control.
         /// <para>
         /// Compares against the stored config so a non-GA caller can still save unrelated changes
-        /// while a GA-created Telegram channel is present: only ADDING one, or changing an existing
-        /// one's destination/enabled state, is refused. Same shape as the retention-cap check.
+        /// while a GA-created gated channel is present: only ADDING one, changing an existing
+        /// one's provider, destination or enabled state is refused. Renames, NotifyOn* toggles and
+        /// deletion stay with the tenant admin. Same shape as the retention-cap check.
         /// </para>
         /// </summary>
         internal static string? ValidateTelegramChannelGate(string? candidateJson, string? existingJson, bool isGlobalAdmin)
@@ -430,24 +445,26 @@ namespace AutopilotMonitor.Functions.Helpers
                 return null;
 
             var candidates = Shared.Models.Notifications.NotificationChannel.ParseList(candidateJson)
-                .Where(c => c.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram)
+                .Where(c => Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider(c.ProviderType))
                 .ToList();
 
             if (candidates.Count == 0)
                 return null;
 
             var existingById = Shared.Models.Notifications.NotificationChannel.ParseList(existingJson)
-                .Where(c => c.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram)
+                .Where(c => Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider(c.ProviderType))
                 .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             foreach (var channel in candidates)
             {
                 if (!existingById.TryGetValue(channel.Id, out var stored)
-                    || !string.Equals(stored.Url, channel.Url, StringComparison.Ordinal)
+                    || stored.ProviderType != channel.ProviderType
+                    || !string.Equals(stored.Url ?? string.Empty, channel.Url ?? string.Empty, StringComparison.Ordinal)
                     || stored.Enabled != channel.Enabled)
                 {
-                    return "Telegram channels can only be configured by a Global Administrator.";
+                    var provider = channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push ? "Push" : "Telegram";
+                    return $"{provider} channels can only be configured by a Global Administrator.";
                 }
             }
 

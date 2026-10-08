@@ -171,13 +171,13 @@ namespace AutopilotMonitor.Functions.Services.WhatsNew
                 if (config.IsCurrentlyDisabled()) continue;
 
                 var targets = config.GetNotificationChannels()
-                    .Where(c => c.Enabled && c.NotifyOnWhatsNew && !string.IsNullOrEmpty(c.Url))
+                    .Where(c => c.Enabled && c.NotifyOnWhatsNew && c.HasDestination())
                     .ToList();
                 if (targets.Count == 0) continue;
 
                 try
                 {
-                    await _channelDispatcher.SendToChannelsAsync(targets, alert);
+                    await _channelDispatcher.SendToChannelsAsync(targets, alert, Notifications.NotificationScope.Tenant(config.TenantId));
                     tenants++;
                     channels += targets.Count;
                 }

@@ -61,6 +61,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\AutopilotMonitor.Shared\AutopilotMonitor.Shared.csproj" />
     <ProjectReference Include="..\..\Shared\AutopilotMonitor.DecisionCore\AutopilotMonitor.DecisionCore.csproj" />
+    <ProjectReference Include="..\..\Push\AutopilotMonitor.Push\AutopilotMonitor.Push.csproj" />
   </ItemGroup>
 
   <ItemGroup>

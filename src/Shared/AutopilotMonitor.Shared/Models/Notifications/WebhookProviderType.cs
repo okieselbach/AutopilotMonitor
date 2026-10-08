@@ -40,5 +40,16 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// dispatched by TelegramNotificationService instead of a renderer.
         /// </summary>
         Telegram = 40,
+
+        /// <summary>
+        /// Web Push to devices the channel's recipients paired in the portal (RFC 8030/8291/8292,
+        /// end-to-end encrypted per device). Not a webhook: the channel has NO destination of its
+        /// own — <c>Url</c> stays empty — because the recipients are resolved at send time from
+        /// the paired devices of the scope's Admin/Operator members (tenant channel) or of the
+        /// Global Admins (platform channel). Global-Admin only while the customer release is
+        /// pending (same gate as Telegram, enforced in TenantConfigValidation). Value 50 stays
+        /// reserved for this provider even if it were ever retired.
+        /// </summary>
+        Push = 50,
     }
 }

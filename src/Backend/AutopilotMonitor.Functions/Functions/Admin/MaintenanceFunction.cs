@@ -12,13 +12,16 @@ namespace AutopilotMonitor.Functions.Functions.Admin
     public class MaintenanceFunction
     {
         private readonly MaintenanceService _maintenanceService;
+        private readonly Services.Push.PushMaintenanceService _pushMaintenance;
         private readonly ILogger<MaintenanceFunction> _logger;
 
         public MaintenanceFunction(
             MaintenanceService maintenanceService,
+            Services.Push.PushMaintenanceService pushMaintenance,
             ILogger<MaintenanceFunction> logger)
         {
             _maintenanceService = maintenanceService;
+            _pushMaintenance = pushMaintenance;
             _logger = logger;
         }
 
@@ -35,6 +38,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         {
             _logger.LogInformation("Maintenance timer trigger fired");
             await _maintenanceService.RunAllAsync();
+            // Push channel retention rides on this timer (no timer of its own — K27); fail-soft inside.
+            await _pushMaintenance.RunAsync();
         }
     }
 }

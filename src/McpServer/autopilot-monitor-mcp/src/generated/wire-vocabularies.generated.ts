@@ -141,6 +141,8 @@ export const OPS_EVENT_TYPES = [
   "SlaConsecutiveFailures",
   "SlaEvaluationCompleted",
   "AzureMonitorAlert",
+  "PushDeliveryFailed",
+  "PushEndpointRefused",
 ] as const;
 export type OpsEventTypeName = (typeof OPS_EVENT_TYPES)[number];
 
@@ -221,6 +223,13 @@ export const API_ERROR_CODES = [
   "TenantSuspended",
   "ClientAppNotRegistered",
   "QuotaExceeded",
+  "PairingCodeInvalid",
+  "PairingCodeUsed",
+  "InvalidSubscription",
+  "InvalidDeviceToken",
+  "DeviceNotFound",
+  "PushChannelRequired",
+  "PushNotEligible",
   "PayloadTooLarge",
   "TelemetryItemsRejected",
   "SessionOwnerMismatch",

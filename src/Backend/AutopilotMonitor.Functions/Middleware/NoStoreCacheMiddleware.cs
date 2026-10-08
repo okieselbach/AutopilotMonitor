@@ -61,6 +61,8 @@ public class NoStoreCacheMiddleware : IFunctionsWorkerMiddleware
         "/api/config/",              // /api/config/{tenantId} + sub-routes
         "/api/sessions/",            // /api/sessions/{id} + sub-routes (events, signals, …)
         "/api/search/",              // /api/search/{quick,sessions,sessions-by-event,sessions-by-cve}
+        "/api/push/",                // pairing codes, device tokens, device lists (Web Push channel)
+        "/api/global/push/",         // the platform-scope twin
         "/api/global/raw/",          // GA cross-tenant raw event/session/table surfaces
         "/api/global/search/",       // GA cross-tenant search results
         "/api/global/session-reports/", // /download-url (SAS) + /{reportId}/note

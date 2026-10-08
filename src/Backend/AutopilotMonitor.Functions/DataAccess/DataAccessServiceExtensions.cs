@@ -64,6 +64,9 @@ namespace AutopilotMonitor.Functions.DataAccess
 
             // Graph add-on permission feature: per-tenant cache of Intune script display names.
             services.AddSingleton<IScriptNameCacheRepository, TableScriptNameCacheRepository>();
+
+            // Web Push channel: paired devices, pairing grants, owner sign-in stamps, session watches.
+            services.AddSingleton<IPushDeviceRepository, TablePushRepository>();
             return services;
         }
 

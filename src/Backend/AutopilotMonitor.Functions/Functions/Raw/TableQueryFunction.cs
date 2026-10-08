@@ -19,13 +19,13 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         private readonly ILogger<TableQueryFunction> _logger;
         private readonly TableStorageService _storage;
 
-        // Tables that must never be exposed (contain secrets)
-        // NOTE: Intentionally empty during preview — only Global Admin (single user) has access
-        // to this endpoint. Consider adding TenantConfiguration, AdminConfiguration, BootstrapSessions
-        // before GA release when more users may have Global Admin access.
-        private static readonly HashSet<string> _blacklistedTables = new(StringComparer.OrdinalIgnoreCase)
-        {
-        };
+        // Tables that must never be exposed: Constants.TableNames.CredentialBearing (push endpoints
+        // + key material + hashed secrets — together with the VAPID key a send capability for
+        // somebody's phone, and this surface feeds AI-assistant transcripts via MCP query_table).
+        // Consider adding TenantConfiguration, AdminConfiguration, BootstrapSessions before more
+        // users hold Global Admin; PushChannelRoutingTests pins the credential-bearing set.
+        internal static readonly HashSet<string> _blacklistedTables =
+            new(Constants.TableNames.CredentialBearing, StringComparer.OrdinalIgnoreCase);
 
         public TableQueryFunction(ILogger<TableQueryFunction> logger, TableStorageService storage)
         {

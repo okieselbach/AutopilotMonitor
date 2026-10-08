@@ -31,6 +31,7 @@ describe("api path ids are percent-encoded", () => {
       (id) => api.sessions.report(id),
       (id) => api.sessions.annotations(id),
       (id) => api.sessions.annotation(id, "lane"),
+      (id) => api.sessions.watch(id),
     ];
     for (const build of builders) {
       const url = build(HOSTILE);
@@ -50,6 +51,14 @@ describe("api path ids are percent-encoded", () => {
     const { api } = await apiPromise;
     expect(api.sessions.annotation("s", "a/b")).toBe("https://test.example/api/sessions/s/annotations/a%2Fb");
     expect(api.rules.gatherRule(HOSTILE)).toBe(`https://test.example/api/rules/gather/${ENCODED}`);
+  });
+
+  it("push ids stay inside their segment in both route families", async () => {
+    const { api } = await apiPromise;
+    expect(api.push.pairing("tenant", HOSTILE)).toBe(`https://test.example/api/push/pairings/${ENCODED}`);
+    expect(api.push.confirmPairing("platform", HOSTILE)).toBe(`https://test.example/api/global/push/pairings/${ENCODED}/confirm`);
+    expect(api.push.testDevice("platform", HOSTILE)).toBe(`https://test.example/api/global/push/devices/${ENCODED}/test`);
+    expect(api.sessions.watch(HOSTILE, "t")).toBe(`https://test.example/api/sessions/${ENCODED}/watch?tenantId=t`);
   });
 
   it("no path builder lets an id escape its segment", async () => {
