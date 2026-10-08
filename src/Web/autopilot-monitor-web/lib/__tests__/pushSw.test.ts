@@ -11,9 +11,16 @@ import { GENERIC_BODY, GENERIC_TITLE } from "../push/pushCore";
 
 type Handler = (event: unknown) => void;
 
+interface FakeClients {
+  claim: ReturnType<typeof vi.fn>;
+  matchAll: ReturnType<typeof vi.fn>;
+  openWindow: ReturnType<typeof vi.fn>;
+}
+
 interface FakeSelf {
   handlers: Map<string, Handler>;
   showNotification: ReturnType<typeof vi.fn>;
+  clients: FakeClients;
   /** Order of the side effects the contract cares about. */
   sequence: string[];
 }
@@ -24,6 +31,11 @@ function fakeSelf(): FakeSelf {
   const showNotification = vi.fn(async () => {
     sequence.push("showNotification");
   });
+  const clients: FakeClients = {
+    claim: vi.fn(async () => undefined),
+    matchAll: vi.fn(async () => []),
+    openWindow: vi.fn(async () => null),
+  };
   const self = {
     addEventListener: (type: string, handler: Handler) => {
       handlers.set(type, handler);
@@ -33,15 +45,11 @@ function fakeSelf(): FakeSelf {
       showNotification,
       pushManager: { getSubscription: vi.fn(async () => null) },
     },
-    clients: {
-      claim: vi.fn(async () => undefined),
-      matchAll: vi.fn(async () => []),
-      openWindow: vi.fn(async () => null),
-    },
+    clients,
     location: { origin: "https://portal.example.test" },
   };
   vi.stubGlobal("self", self);
-  return { handlers, showNotification, sequence };
+  return { handlers, showNotification, clients, sequence };
 }
 
 /** An IDBFactory whose open() request never fires any handler. */
@@ -208,6 +216,89 @@ describe("push service worker glue (K25)", () => {
 
       expect(env.showNotification.mock.calls[0][0]).toBe(GENERIC_TITLE);
       await expect(event.waited).resolves.toBeDefined();
+    });
+  });
+
+  describe("push event carrying a declarative notification (Push API mutable, Safari ≥ 18.4)", () => {
+    const declared = {
+      title: "Enrollment finished",
+      body: "DESKTOP-4711 (…CDE9) finished enrollment.",
+      tag: "session-x",
+      data: { id: "srv-1", type: "session_watch", ts: "2026-10-08T12:40:15Z", severity: "success", facts: [], portalUrl: "https://portal.example.test/sessions?id=x", scope: "platform" },
+    };
+
+    it("reads event.notification when event.data is null, shows the same content and persists it", async () => {
+      const env = await loadWorker(hangingIndexedDb);
+      const event = fakeEvent({ data: null, notification: declared });
+
+      env.handlers.get("push")!(event);
+
+      expect(env.showNotification).toHaveBeenCalledTimes(1);
+      expect(env.showNotification.mock.calls[0][0]).toBe("Enrollment finished");
+      expect(env.showNotification.mock.calls[0][1]).toMatchObject({
+        body: "DESKTOP-4711 (…CDE9) finished enrollment.",
+        tag: "session-x",
+        data: { id: "srv-1", entry: expect.objectContaining({ id: "srv-1", type: "session_watch", severity: "success", portalUrl: "https://portal.example.test/sessions?id=x", scope: "platform" }) },
+      });
+      expect(env.sequence).toEqual(["showNotification", "indexedDB.open"]);
+    });
+
+    it("prefers event.notification over an unreadable event.data", async () => {
+      const env = await loadWorker(hangingIndexedDb);
+      const event = fakeEvent({ data: UNREADABLE_DATA, notification: declared });
+
+      env.handlers.get("push")!(event);
+
+      expect(env.showNotification.mock.calls[0][0]).toBe("Enrollment finished");
+    });
+  });
+
+  describe("notificationclick on a notification the platform displayed itself", () => {
+    function clickEvent(notification: Record<string, unknown>) {
+      const event = fakeEvent({}) as FakeEvent & { notification: Record<string, unknown> };
+      event.notification = { close: vi.fn(), ...notification };
+      return event;
+    }
+
+    const platformShown = {
+      title: "Enrollment failed",
+      body: "DESKTOP-4711 (…CDE9) failed enrollment.",
+      tag: "session-y",
+      data: { id: "srv-2", type: "session_watch", ts: "2026-10-08T12:45:00Z", severity: "error", facts: [{ name: "Device", value: "DESKTOP-4711" }], portalUrl: null, scope: "tenant" },
+    };
+
+    it("rebuilds the history entry from the notification's data, writes it and opens the entry", async () => {
+      const env = await loadWorker(erroringIndexedDb);
+      const event = clickEvent(platformShown);
+
+      env.handlers.get("notificationclick")!(event);
+      await expect(event.waited).resolves.toBeUndefined();
+
+      expect(env.indexedDbOpen).toHaveBeenCalledTimes(1);
+      expect(env.clients.openWindow).toHaveBeenCalledTimes(1);
+      expect(String(env.clients.openWindow.mock.calls[0][0])).toContain("srv-2");
+    });
+
+    it("opens the page even when the history write never answers (bounded like the push path)", async () => {
+      const env = await loadWorker(hangingIndexedDb);
+      const event = clickEvent(platformShown);
+
+      env.handlers.get("notificationclick")!(event);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(event.waited).resolves.toBeUndefined();
+
+      expect(env.clients.openWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps using the entry the push handler attached when there is one", async () => {
+      const env = await loadWorker(erroringIndexedDb);
+      const attached = { id: "srv-3", ts: "2026-10-08T12:50:00Z", title: "t", body: "b", type: "push_test", severity: "info", facts: [], portalUrl: null, navigate: null, tag: null, scope: "platform", generic: false };
+      const event = clickEvent({ title: "t", body: "b", data: { id: "srv-3", entry: attached } });
+
+      env.handlers.get("notificationclick")!(event);
+      await expect(event.waited).resolves.toBeUndefined();
+
+      expect(String(env.clients.openWindow.mock.calls[0][0])).toContain("srv-3");
     });
   });
 });
