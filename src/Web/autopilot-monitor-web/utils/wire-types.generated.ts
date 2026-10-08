@@ -782,6 +782,8 @@ export interface AuthMeResponse {
   whatsNewSeenPlatformUtc?: string;
   /** Same for the Agent tab; null = never and the key is omitted. */
   whatsNewSeenAgentUtc?: string;
+  /** True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens. */
+  dpaAcceptancePending: boolean;
 }
 
 export interface AutoResolveCpeMappingItem {
@@ -4932,8 +4934,14 @@ export interface TenantConfiguration {
   updatedBy: string;
   /** UPN of the user whose first login created this tenant configuration. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten. Used by the preview-approval auto-promote path so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel string into the TenantAdmins table. Null on rows that pre-date the OnboardedBy field — auto-promote falls back to UpdatedBy with a UPN-shape guard. */
   onboardedBy?: string | null;
-  /** Version of the data processing agreement this tenant accepted with its onboarding — CurrentDpaVersion at that moment. Set once in HandleNewTenantDomainAsync together with OnboardedBy and never overwritten; never client-writable. Null on tenants onboarded before the field existed. */
+  /** Version of the data processing agreement this tenant accepted — CurrentDpaVersion at that moment. Written once: with the onboarding when the first sign-in came through the get-started tick, otherwise when the portal's acceptance dialog is confirmed (DpaAcceptancePending). Never client-writable. Null on tenants onboarded before the field existed. */
   dpaVersion?: string | null;
+  /** True while a tenant whose first sign-in skipped the get-started Terms + DPA tick has not confirmed them in the portal yet; the portal asks before anything else. Set only by the onboarding write, cleared by the acceptance endpoint. Tenants onboarded before the field existed never carry it, so they are never asked. */
+  dpaAcceptancePending: boolean;
+  /** UPN of the user who accepted the Terms + DPA for this tenant; null when DpaVersion is null. */
+  dpaAcceptedBy?: string | null;
+  /** When the Terms + DPA were accepted for this tenant; null when DpaVersion is null. */
+  dpaAcceptedAt?: string | null;
   /** Address used to reach this tenant about the service itself — a technical problem, a security matter, or a change that needs an administrator's attention. Editable by the tenant's own admins under Settings → Tenant → Contact. Seeded once at onboarding from the tenant's notification address if one was given, and never re-synced afterwards: from that point the value belongs to the tenant, and a later edit must not be overwritten by the onboarding source. Purpose-limited by design — service communication only. It is never used for marketing and never disclosed. Null means we have no way to reach this tenant, which is why enforcement actions cannot promise prior warning. */
   contactEmail?: string | null;
   /** Organization name behind this tenant, as the tenant's admins want it read by a support engineer — the counterpart of ContactEmail in the tenant's contact profile. Editable under Settings → Tenant → Contact. Optional on Community. Together with it is required at the self-service Pro entry point (trial start) so a paying tenant is reachable and identifiable for support; it is never a runtime gate on Pro features, and a GA plan assignment does not require it (the admin UI warns instead). Never derived from : the domain is a technical label, the company name is what the tenant tells us. Null means not provided. */

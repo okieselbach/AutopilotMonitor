@@ -104,12 +104,13 @@ namespace AutopilotMonitor.Functions.Services
         /// with dedicated endpoints (plan/trial), and system-written provenance:
         /// HomedAppClientId caused the 2026-07-31 prod incident when a stale round-trip
         /// reverted it — only the app-homing flow writes it; LastAuthClientId*/OnboardedBy/
-        /// OnboardedAt/DpaVersion are AuthFunction-owned; LastUpdated/UpdatedBy are stamped server-side.
+        /// OnboardedAt/DpaVersion/DpaAccept* are AuthFunction-owned; LastUpdated/UpdatedBy are stamped server-side.
         /// </summary>
         internal static readonly HashSet<string> BaseDeniedFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "TenantId", "DomainName", "PartitionKey", "RowKey", "Timestamp", "ETag",
             "LastUpdated", "UpdatedBy", "OnboardedAt", "OnboardedBy", "DpaVersion",
+            "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
             "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
@@ -161,6 +162,7 @@ namespace AutopilotMonitor.Functions.Services
         {
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "OnboardedBy", "OnboardedAt", "DpaVersion",
+            "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
             "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
         };
@@ -507,6 +509,7 @@ namespace AutopilotMonitor.Functions.Services
             "TenantId" or "DomainName" => "identity — never writable",
             "LastUpdated" or "UpdatedBy" => "stamped server-side on every write",
             "OnboardedAt" or "OnboardedBy" or "DpaVersion" => "system-owned onboarding provenance (set at first login)",
+            "DpaAcceptancePending" or "DpaAcceptedBy" or "DpaAcceptedAt" => "system-owned — written by the onboarding and the Terms + DPA acceptance",
             "HomedAppClientId" => "system-owned — written only by the app-homing flow",
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
             "PlanTier" or "TrialExpiresUtc" or "TrialStartedUtc" or "TrialConsumed" or "TrialGrantedBy"

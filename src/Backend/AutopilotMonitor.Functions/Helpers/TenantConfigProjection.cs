@@ -41,6 +41,10 @@ namespace AutopilotMonitor.Functions.Helpers
             ("onboardedBy",       c => c.OnboardedBy),
             // DPA version accepted at onboarding — a version label, not a secret.
             ("dpaVersion",        c => c.DpaVersion),
+            // Terms + DPA acceptance state — a flag, the accepting UPN (as onboardedBy) and a timestamp.
+            ("dpaAcceptancePending", c => c.DpaAcceptancePending),
+            ("dpaAcceptedBy",     c => c.DpaAcceptedBy),
+            ("dpaAcceptedAt",     c => c.DpaAcceptedAt),
             ("lastUpdated",       c => c.LastUpdated),
             ("dataRetentionDays", c => c.DataRetentionDays),
             // App-reg migration observability: which app the tenant is homed on (null = legacy)

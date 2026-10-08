@@ -171,6 +171,7 @@ export const TENANT_SAFE_FIELDS: ReadonlySet<string> = new Set([
   'tenantId', 'domainName', 'planTier', 'trialExpiresUtc', 'trialConsumed',
   'disabled', 'disabledReason',
   'onboardedAt', 'onboardedBy', 'dpaVersion', 'lastUpdated', 'dataRetentionDays',
+  'dpaAcceptancePending', 'dpaAcceptedBy', 'dpaAcceptedAt',
 ]);
 
 /**

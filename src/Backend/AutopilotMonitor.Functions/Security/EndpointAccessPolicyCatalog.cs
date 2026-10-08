@@ -233,6 +233,9 @@ public static class EndpointAccessPolicyCatalog
         // ── AuthenticatedUser ───────────────────────────────────────────
         new("GET",    "auth/me",                   EndpointPolicy.AuthenticatedUser),
         new("PUT",    "auth/me/whats-new-seen",    EndpointPolicy.AuthenticatedUser),
+        // Terms + DPA acceptance: writes only the caller's own home tenant row (token tid), and only
+        // while that row asks for it — the portal dialog of a tenant onboarded without the signup tick.
+        new("POST",   "auth/dpa-acceptance",       EndpointPolicy.AuthenticatedUser),
         new("GET",    "auth/is-global-admin",      EndpointPolicy.AuthenticatedUser),
         new("POST",   "realtime/negotiate",        EndpointPolicy.AuthenticatedUser),
         // Group join/leave is AuthenticatedUserWithRole — NOT MemberRead — on purpose. The real,

@@ -103,6 +103,9 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   onboardedAt: { section: "Tenant Status", label: "Onboarded At", kind: "date", informational: true },
   onboardedBy: { section: "Tenant Status", label: "Onboarded By", informational: true },
   dpaVersion: { section: "Tenant Status", label: "DPA Version", informational: true },
+  dpaAcceptancePending: { section: "Tenant Status", label: "DPA Acceptance Pending", informational: true },
+  dpaAcceptedBy: { section: "Tenant Status", label: "DPA Accepted By", informational: true },
+  dpaAcceptedAt: { section: "Tenant Status", label: "DPA Accepted At", kind: "date", informational: true },
   contactEmail: { section: "Tenant Status", label: "Contact Email", informational: true },
   companyName: { section: "Tenant Status", label: "Company", informational: true },
 

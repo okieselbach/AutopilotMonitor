@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { LoginButton } from "./LoginButton";
-import { DOCS_URL } from "@/utils/config";
+import { TermsDpaAgreementText } from "../legal/TermsDpaAgreementText";
 
 const LINK_CLASS = "text-[var(--lp-accent-ink)] hover:opacity-80 underline";
 
 /**
  * Get-started CTA: the signup sign-in stays inert until the visitor ticks that they accept the
- * Terms of Use and the Data Processing Agreement. A client-side gate only — nothing is recorded
- * here. Both links open in a new tab so the tick survives reading them.
+ * Terms of Use and the Data Processing Agreement. The signup sign-in carries the tick to portal,
+ * where the onboarding records it (lib/signupConsent.ts); a tenant onboarded through any other
+ * sign-in confirms the same sentence in the portal's acceptance dialog.
  */
 export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
   const [accepted, setAccepted] = useState(false);
@@ -23,23 +24,7 @@ export function SignupConsentCta({ children }: { children?: React.ReactNode }) {
           onChange={(e) => setAccepted(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--lp-accent-ink)]"
         />
-        <span>
-          I agree to the{" "}
-          <a href="/terms/" target="_blank" rel="noopener noreferrer" data-track="signup_terms" className={LINK_CLASS}>
-            Terms of Use
-          </a>{" "}
-          and the{" "}
-          <a
-            href={`${DOCS_URL}/legal/data-privacy-agreement-dpa`}
-            data-track="signup_dpa"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={LINK_CLASS}
-          >
-            Data Processing Agreement
-          </a>
-          .
-        </span>
+        <TermsDpaAgreementText linkClassName={LINK_CLASS} trackIds={{ terms: "signup_terms", dpa: "signup_dpa" }} />
       </label>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

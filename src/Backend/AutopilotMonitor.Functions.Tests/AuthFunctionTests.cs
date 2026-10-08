@@ -76,6 +76,24 @@ public class AuthFunctionTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HappyPath_CarriesThePendingTermsAndDpaAcceptance(bool pending)
+    {
+        var config = DefaultConfig();
+        config.DpaAcceptancePending = pending;
+
+        var result = AuthFunction.BuildAuthResult(
+            config, isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: AdminRole(), mcpCheck: McpAllowed(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(pending, (bool)ToDynamic(result.Body).dpaAcceptancePending);
+    }
+
+    [Theory]
     [InlineData("platform", "platform")]
     [InlineData("Platform", "platform")]
     [InlineData("agent", "agent")]

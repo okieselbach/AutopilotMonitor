@@ -45,12 +45,27 @@ namespace AutopilotMonitor.Shared.Models
         public string? OnboardedBy { get; set; }
 
         /// <summary>
-        /// Version of the data processing agreement this tenant accepted with its onboarding —
-        /// <see cref="Constants.CurrentDpaVersion"/> at that moment. Set once in
-        /// <c>HandleNewTenantDomainAsync</c> together with <see cref="OnboardedBy"/> and never
-        /// overwritten; never client-writable. Null on tenants onboarded before the field existed.
+        /// Version of the data processing agreement this tenant accepted —
+        /// <see cref="Constants.CurrentDpaVersion"/> at that moment. Written once: with the onboarding
+        /// when the first sign-in came through the get-started tick, otherwise when the portal's
+        /// acceptance dialog is confirmed (<see cref="DpaAcceptancePending"/>). Never client-writable.
+        /// Null on tenants onboarded before the field existed.
         /// </summary>
         public string? DpaVersion { get; set; }
+
+        /// <summary>
+        /// True while a tenant whose first sign-in skipped the get-started Terms + DPA tick has not
+        /// confirmed them in the portal yet; the portal asks before anything else. Set only by the
+        /// onboarding write, cleared by the acceptance endpoint. Tenants onboarded before the field
+        /// existed never carry it, so they are never asked.
+        /// </summary>
+        public bool DpaAcceptancePending { get; set; }
+
+        /// <summary>UPN of the user who accepted the Terms + DPA for this tenant; null when <see cref="DpaVersion"/> is null.</summary>
+        public string? DpaAcceptedBy { get; set; }
+
+        /// <summary>When the Terms + DPA were accepted for this tenant; null when <see cref="DpaVersion"/> is null.</summary>
+        public DateTime? DpaAcceptedAt { get; set; }
 
         /// <summary>
         /// Address used to reach this tenant about the service itself — a technical problem,

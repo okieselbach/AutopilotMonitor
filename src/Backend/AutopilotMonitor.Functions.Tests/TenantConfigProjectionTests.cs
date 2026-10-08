@@ -30,7 +30,8 @@ public class TenantConfigProjectionTests
         "tenantId", "domainName", "planTier", "trialExpiresUtc", "trialConsumed", "maxDelegatedTenantsOverride",
         "mcpUsagePlanOverride", "payingCustomer", "managedByProTenantId",
         "disabled", "disabledReason", "mcpDisabled", "mcpDisabledReason",
-        "onboardedAt", "onboardedBy", "dpaVersion", "lastUpdated", "dataRetentionDays",
+        "onboardedAt", "onboardedBy", "dpaVersion", "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
+        "lastUpdated", "dataRetentionDays",
         "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
     };
 

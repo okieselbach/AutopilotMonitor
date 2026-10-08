@@ -168,7 +168,7 @@ public class AuthFunctionSideEffectTests
         Assert.Empty(_signalR.DisconnectedUsers);
     }
 
-    private static (HttpRequestData Req, FunctionContext Ctx) BuildAuthenticatedRequest(string callerUpn)
+    private static (HttpRequestData Req, FunctionContext Ctx) BuildAuthenticatedRequest(string callerUpn, string? tenantId = null)
     {
         var services = new ServiceCollection();
         services.AddOptions();
@@ -177,8 +177,9 @@ public class AuthFunctionSideEffectTests
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
         var provider = services.BuildServiceProvider();
 
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(
-            new[] { new Claim("preferred_username", callerUpn) }, "test"));
+        var claims = new List<Claim> { new("preferred_username", callerUpn) };
+        if (tenantId != null) claims.Add(new Claim("tid", tenantId));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "test"));
 
         var context = new Mock<FunctionContext>();
         context.SetupGet(c => c.Items).Returns(
@@ -231,12 +232,16 @@ public class AuthFunctionSideEffectTests
         // OnboardedBy is the immutable copy of the first-login UPN that auto-promote on
         // preview approval reads — UpdatedBy may later be clobbered by background syncs.
         Assert.Equal(Upn, config.OnboardedBy);
-        // The DPA version rides along in the same onboarding write (D-252).
-        Assert.Equal(CurrentDpa, config.DpaVersion);
+        // A first sign-in without the get-started tick leaves the Terms + DPA pending: the portal asks.
+        Assert.True(config.DpaAcceptancePending);
+        Assert.Null(config.DpaVersion);
         var (written, source, _) = Assert.Single(_store.Writes);
         Assert.Equal("contoso.com", written.DomainName);
         Assert.Equal(Upn, written.OnboardedBy);
-        Assert.Equal(CurrentDpa, written.DpaVersion);
+        Assert.True(written.DpaAcceptancePending);
+        Assert.Null(written.DpaVersion);
+        Assert.Null(written.DpaAcceptedBy);
+        Assert.Null(written.DpaAcceptedAt);
         Assert.Equal("auth", source);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), Times.Once);   // the routable record next to the ping
@@ -443,18 +448,137 @@ public class AuthFunctionSideEffectTests
     private const string CurrentDpa = AutopilotMonitor.Shared.Constants.CurrentDpaVersion;
 
     [Fact]
-    public async Task HandleNewTenantDomain_WhenDomainAlreadySet_NeverStampsDpaVersion()
+    public async Task HandleNewTenantDomain_ThroughTheGetStartedTick_AcceptsWithTheOnboarding()
     {
-        // The DPA version is written once, with the onboarding (D-252): an existing tenant's
-        // login writes nothing — no stamp, no save.
+        var config = DefaultConfig();
+        config.DomainName = null!;
+
+        var before = DateTime.UtcNow;
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn, signupConsent: true);
+
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.False(written.DpaAcceptancePending);
+        Assert.Equal(CurrentDpa, written.DpaVersion);
+        Assert.Equal(Upn, written.DpaAcceptedBy);
+        Assert.NotNull(written.DpaAcceptedAt);
+        Assert.True(written.DpaAcceptedAt >= before);
+        // This login's view follows the stored row, so its auth/me carries no dialog.
+        Assert.False(config.DpaAcceptancePending);
+        Assert.Equal(CurrentDpa, config.DpaVersion);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HandleNewTenantDomain_WhenDomainAlreadySet_NeverAsksOrStamps(bool signupConsent)
+    {
+        // Decided once, with the onboarding: an existing tenant's login writes nothing — no stamp,
+        // no pending flag, whichever button the user came through (tenants that pre-date the
+        // acceptance are never asked).
         var config = DefaultConfig();
         config.DomainName = "contoso.com";
         config.DpaVersion = null;
 
-        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn, signupConsent: signupConsent);
 
         Assert.Null(config.DpaVersion);
+        Assert.False(config.DpaAcceptancePending);
         Assert.Empty(_store.Writes);
+    }
+
+    // -------------------------------------------------------------------------
+    // AcceptDpa — POST auth/dpa-acceptance (portal dialog)
+    // -------------------------------------------------------------------------
+
+    private static TenantConfiguration PendingTenant()
+    {
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        config.OnboardedBy = "first@contoso.com";
+        config.DpaAcceptancePending = true;
+        return config;
+    }
+
+    [Fact]
+    public async Task AcceptDpa_PendingTenant_RecordsTheAcceptanceAndClearsTheDialog()
+    {
+        _store.Row = PendingTenant();
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: Upn, tenantId: TenantId);
+
+        var before = DateTime.UtcNow;
+        var response = await _sut.AcceptDpa(req, ctx);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var (written, source, _) = Assert.Single(_store.Writes);
+        Assert.Equal("auth", source);
+        Assert.False(written.DpaAcceptancePending);
+        Assert.Equal(CurrentDpa, written.DpaVersion);
+        Assert.Equal(Upn, written.DpaAcceptedBy);
+        Assert.True(written.DpaAcceptedAt >= before);
+        Assert.Equal("first@contoso.com", written.OnboardedBy);
+    }
+
+    [Fact]
+    public async Task AcceptDpa_NothingPending_IsANoOp()
+    {
+        // Already accepted (a double click, a second user) or a tenant that was never asked.
+        var accepted = DefaultConfig();
+        accepted.DomainName = "contoso.com";
+        accepted.DpaVersion = "2026-01-1.0";
+        accepted.DpaAcceptedBy = "first@contoso.com";
+        _store.Row = accepted;
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: Upn, tenantId: TenantId);
+
+        var response = await _sut.AcceptDpa(req, ctx);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(_store.Writes);
+        Assert.Equal("2026-01-1.0", _store.Row!.DpaVersion);
+        Assert.Equal("first@contoso.com", _store.Row.DpaAcceptedBy);
+    }
+
+    [Fact]
+    public async Task AcceptDpa_OnlyEverWritesTheCallersOwnTenant()
+    {
+        // The row is keyed by the token's tid: a caller from another tenant reaches no pending row.
+        const string otherTenant = "ffffffff-0000-1111-2222-333333333333";
+        var otherStore = _tenantConfigMock.StubWrites(otherTenant, row: null);
+        _store.Row = PendingTenant();
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: "user@fabrikam.com", tenantId: otherTenant);
+
+        var response = await _sut.AcceptDpa(req, ctx);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(otherStore.Writes);
+        Assert.Empty(_store.Writes);
+        Assert.True(_store.Row!.DpaAcceptancePending);
+    }
+
+    [Fact]
+    public async Task AcceptDpa_OffboardingTombstone_IsRefused()
+    {
+        var tombstone = PendingTenant();
+        tombstone.Disabled = true;
+        tombstone.DisabledReason = AutopilotMonitor.Functions.Functions.Admin.TenantOffboardFunction.OffboardingDisabledReason;
+        _store.Row = tombstone;
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: Upn, tenantId: TenantId);
+
+        var response = await _sut.AcceptDpa(req, ctx);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(_store.Writes);
+    }
+
+    [Fact]
+    public async Task AcceptDpa_LostWriteRace_AsksToRetry()
+    {
+        _store.Row = PendingTenant();
+        _store.Force = TenantConfigUpdateStatus.Conflict;
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: Upn, tenantId: TenantId);
+
+        var response = await _sut.AcceptDpa(req, ctx);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]

@@ -125,6 +125,9 @@
       "updatedBy",
       "onboardedBy",
       "dpaVersion",
+      "dpaAcceptancePending",
+      "dpaAcceptedBy",
+      "dpaAcceptedAt",
       "contactEmail",
       "companyName",
       "onboardedAt",
@@ -227,6 +230,9 @@
       "updatedBy": null,
       "onboardedBy": null,
       "dpaVersion": null,
+      "dpaAcceptancePending": false,
+      "dpaAcceptedBy": null,
+      "dpaAcceptedAt": null,
       "contactEmail": null,
       "companyName": null,
       "onboardedAt": null,
@@ -4449,6 +4455,14 @@
           },
           "optional": true,
           "doc": "Same for the Agent tab; null = never and the key is omitted."
+        },
+        {
+          "name": "dpaAcceptancePending",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens."
         }
       ]
     },
@@ -22603,7 +22617,35 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Version of the data processing agreement this tenant accepted with its onboarding — CurrentDpaVersion at that moment. Set once in HandleNewTenantDomainAsync together with OnboardedBy and never overwritten; never client-writable. Null on tenants onboarded before the field existed."
+          "doc": "Version of the data processing agreement this tenant accepted — CurrentDpaVersion at that moment. Written once: with the onboarding when the first sign-in came through the get-started tick, otherwise when the portal's acceptance dialog is confirmed (DpaAcceptancePending). Never client-writable. Null on tenants onboarded before the field existed."
+        },
+        {
+          "name": "dpaAcceptancePending",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True while a tenant whose first sign-in skipped the get-started Terms + DPA tick has not confirmed them in the portal yet; the portal asks before anything else. Set only by the onboarding write, cleared by the acceptance endpoint. Tenants onboarded before the field existed never carry it, so they are never asked."
+        },
+        {
+          "name": "dpaAcceptedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "UPN of the user who accepted the Terms + DPA for this tenant; null when DpaVersion is null."
+        },
+        {
+          "name": "dpaAcceptedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When the Terms + DPA were accepted for this tenant; null when DpaVersion is null."
         },
         {
           "name": "contactEmail",

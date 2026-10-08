@@ -24,8 +24,12 @@ function pushRoot(scope: PushScope): string {
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────────────────
   auth: {
-    me: () => `${API_BASE_URL}/api/auth/me`,
+    /** signupConsent: this tab's sign-in came through the get-started Terms + DPA tick (lib/signupConsent.ts). */
+    me: (opts?: { signupConsent?: boolean }) =>
+      `${API_BASE_URL}/api/auth/me${qs({ signupConsent: opts?.signupConsent ? "1" : undefined })}`,
     whatsNewSeen: () => `${API_BASE_URL}/api/auth/me/whats-new-seen`,
+    /** POST — accepts the Terms + DPA for the caller's own tenant (portal dialog); 204. */
+    dpaAcceptance: () => `${API_BASE_URL}/api/auth/dpa-acceptance`,
   },
 
   // ── Sessions ──────────────────────────────────────────────────────────────

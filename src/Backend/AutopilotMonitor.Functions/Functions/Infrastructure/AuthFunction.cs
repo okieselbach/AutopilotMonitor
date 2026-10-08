@@ -167,9 +167,12 @@ public class AuthFunction
         // Which app registration minted this login's token (dual app-reg window) — drives the
         // onboarding homing decision and the per-tenant last-seen provenance below.
         var tokenAudience = principal.GetAudience();
+        // The get-started CTA is inert until its Terms + DPA tick is set; the portal forwards that
+        // sign-in path here so the onboarding records the acceptance instead of asking again.
+        var signupConsent = string.Equals(req.Query?["signupConsent"], "1", StringComparison.Ordinal);
         if (isHomeTenantParticipant)
         {
-            await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn, tokenAudience);
+            await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn, tokenAudience, signupConsent);
             await HandleAutoReEnableAsync(tenantConfig, tenantId);
             await HandleAuthClientIdTrackingAsync(tenantConfig, tenantId, tokenAudience);
         }
@@ -239,6 +242,56 @@ public class AuthFunction
 
         await _metricsRepo.MarkUserWhatsNewSeenAsync(tenantId, upn, channel, seenUtc);
         return req.CreateResponse(HttpStatusCode.NoContent);
+    }
+
+    /// <summary>
+    /// POST /api/auth/dpa-acceptance
+    /// Records that the caller accepted the Terms + DPA for their own tenant, which clears the
+    /// portal's acceptance dialog (<see cref="TenantConfiguration.DpaAcceptancePending"/>). Only the
+    /// caller's home tenant is ever written. Nothing pending (already accepted, or a tenant that was
+    /// never asked) is a no-op 204, so a double click or a second user is harmless.
+    /// </summary>
+    [Function("AcceptDpa")]
+    [Authorize]
+    public async Task<HttpResponseData> AcceptDpa(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "auth/dpa-acceptance")] HttpRequestData req,
+        FunctionContext context)
+    {
+        var principal = context.GetUser();
+        if (principal == null)
+            return req.CreateResponse(HttpStatusCode.Unauthorized);
+
+        var tenantId = principal.GetTenantId();
+        var upn = principal.GetUserPrincipalName();
+        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
+            return await req.BadRequestAsync("Missing required claims");
+
+        var update = await _tenantConfigService.UpdateAsync(tenantId, row =>
+        {
+            if (!row.DpaAcceptancePending)
+                return false;
+            row.DpaAcceptancePending = false;
+            row.DpaVersion = Constants.CurrentDpaVersion;
+            row.DpaAcceptedBy = upn;
+            row.DpaAcceptedAt = DateTime.UtcNow;
+            row.UpdatedBy = upn;
+            return true;
+        }, "auth", "terms + dpa acceptance");
+
+        switch (update.Status)
+        {
+            case TenantConfigUpdateStatus.Updated:
+                _logger.LogInformation("Terms + DPA {DpaVersion} accepted for tenant {TenantId} by {Upn}",
+                    Constants.CurrentDpaVersion, tenantId, upn);
+                return req.CreateResponse(HttpStatusCode.NoContent);
+            case TenantConfigUpdateStatus.Declined:
+            case TenantConfigUpdateStatus.NotFound:
+                return req.CreateResponse(HttpStatusCode.NoContent);
+            case TenantConfigUpdateStatus.OffboardingInProgress:
+                return await req.ForbiddenAsync("This tenant is being offboarded.", Constants.ApiErrorCodes.TenantSuspended);
+            default:
+                return await req.ConflictAsync("The acceptance could not be saved. Please try again.");
+        }
     }
 
     /// <summary>
@@ -377,7 +430,8 @@ public class AuthFunction
     /// the login that wrote it fires the signup side effects.
     /// </summary>
     internal async Task HandleNewTenantDomainAsync(
-        TenantConfiguration tenantConfig, string tenantId, string upn, string? tokenAudience = null)
+        TenantConfiguration tenantConfig, string tenantId, string upn, string? tokenAudience = null,
+        bool signupConsent = false)
     {
         if (!string.IsNullOrEmpty(tenantConfig.DomainName) || string.IsNullOrEmpty(upn))
             return;
@@ -424,10 +478,22 @@ public class AuthFunction
             // into TenantAdmins.
             if (string.IsNullOrWhiteSpace(row.OnboardedBy))
                 row.OnboardedBy = upn;
-            // The DPA is accepted with the onboarding itself (D-251/D-252): record the version in force,
-            // once, in this same first write — later logins never touch it.
-            if (string.IsNullOrWhiteSpace(row.DpaVersion))
-                row.DpaVersion = Constants.CurrentDpaVersion;
+            // Terms + DPA, decided once in this same first write — later logins never touch it. A first
+            // sign-in through the get-started tick accepts with the onboarding (D-251/D-252); any other
+            // first sign-in leaves the acceptance pending, and the portal asks before it opens.
+            if (string.IsNullOrWhiteSpace(row.DpaVersion) && !row.DpaAcceptancePending)
+            {
+                if (signupConsent)
+                {
+                    row.DpaVersion = Constants.CurrentDpaVersion;
+                    row.DpaAcceptedBy = upn;
+                    row.DpaAcceptedAt = seededAt;
+                }
+                else
+                {
+                    row.DpaAcceptancePending = true;
+                }
+            }
             // Dual app-reg window: home a NEW tenant on the primary app ONLY when its first login
             // actually arrived via the primary app. A first login via the legacy app leaves the field
             // null (= legacy) — keeps the "null = legacy" invariant clean and never routes a tenant
@@ -748,7 +814,8 @@ public class AuthFunction
                 && tenantConfig.UnrestrictedModeEnabled,
             McpClientRegistrationEnabled = mcpClientRegistrationEnabled,
             WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
-            WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc
+            WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc,
+            DpaAcceptancePending = tenantConfig.DpaAcceptancePending
         }, needsAutoAdmin);
     }
 

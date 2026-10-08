@@ -25,7 +25,12 @@ import { classifyAuthMeRefusal } from '@/lib/authMeRefusal';
 import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
+import { captureSignupConsentFromUrl, hasSignupConsent, stripSignupConsentParam } from '@/lib/signupConsent';
 import type { AuthMeResponse } from '@/types/auth';
+
+// Before the auth/me prefetch below can fire: a get-started sign-in carries its Terms + DPA tick
+// into portal as ?signupConsent=1 (lib/signupConsent.ts). The address bar is cleaned on mount.
+captureSignupConsentFromUrl();
 
 // Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
 // selection was decided at module boot in lib/msalConfig.ts; app switches always reload).
@@ -122,7 +127,7 @@ const msalInitPromise = msalInstance
         // The dashboard's first list/stats requests run in parallel with auth/me instead of
         // behind it (consumed once by authenticatedFetch, see lib/dashboardSeed.ts).
         seedDashboardFirstFetch(tokenResponse.accessToken, accounts[0].tenantId);
-        const res = await fetch(api.auth.me(), {
+        const res = await fetch(api.auth.me({ signupConsent: hasSignupConsent() }), {
           headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}` },
           signal: AbortSignal.timeout(8000),
         });
@@ -283,6 +288,7 @@ function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
     // What's new seen marks: absent key = never viewed (first-visit window applies).
     whatsNewSeenPlatformUtc: data.whatsNewSeenPlatformUtc,
     whatsNewSeenAgentUtc: data.whatsNewSeenAgentUtc,
+    dpaAcceptancePending: data.dpaAcceptancePending || false,
   };
 }
 
@@ -308,6 +314,7 @@ function claimsOnlyUserInfo(account: AccountInfo): UserInfo {
     bootstrapTokenEnabled: false,
     unrestrictedModeEnabled: false,
     mcpClientRegistrationEnabled: false,
+    dpaAcceptancePending: false,
   };
 }
 
@@ -359,7 +366,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       const authMeTimeout = setTimeout(() => authMeController.abort(), 8000);
       let response: Response;
       try {
-        response = await fetch(api.auth.me(), {
+        response = await fetch(api.auth.me({ signupConsent: hasSignupConsent() }), {
           headers: {
             'Authorization': `Bearer ${tokenResponse.accessToken}`,
           },
@@ -439,6 +446,13 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       setUser(userInfo);
     }
   }, [accounts, fetchUserInfo]);
+
+  // Clean the signup marker out of the address bar (captured at module load) before ProtectedRoute
+  // can stash the URL as the post-login deep link — a bookmark must never carry it.
+  useEffect(() => {
+    const cleaned = stripSignupConsentParam(window.location.pathname + window.location.search + window.location.hash);
+    if (cleaned !== null) window.history.replaceState(null, '', cleaned);
+  }, []);
 
   /**
    * Load user info when authentication state changes.

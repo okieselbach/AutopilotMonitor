@@ -11,6 +11,7 @@ import { DOCS_PATHS } from "../lib/docsPaths";
 import { DOCS_URL } from "../utils/config";
 import { useAdminMode } from "../hooks/useAdminMode";
 import OffboardingFeedbackForm from "./OffboardingFeedbackForm";
+import { DpaAcceptanceDialog } from "./DpaAcceptanceDialog";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -232,6 +233,12 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
         </div>
       </div>
     );
+  }
+
+  // A tenant whose first sign-in skipped the get-started Terms + DPA tick confirms them here once,
+  // before any page renders (and starts its API calls).
+  if (user?.dpaAcceptancePending) {
+    return <DpaAcceptanceDialog />;
   }
 
   // Show nothing if the route's platform requirement isn't met.

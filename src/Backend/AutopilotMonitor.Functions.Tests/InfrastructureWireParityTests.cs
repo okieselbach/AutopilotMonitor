@@ -51,7 +51,8 @@ public class InfrastructureWireParityTests
                 unrestrictedModeEnabled = false,
                 mcpClientRegistrationEnabled = true,
                 whatsNewSeenPlatformUtc = platformSeen,
-                whatsNewSeenAgentUtc = agentSeen
+                whatsNewSeenAgentUtc = agentSeen,
+                dpaAcceptancePending = true
             },
             new AuthMeResponse
             {
@@ -72,7 +73,8 @@ public class InfrastructureWireParityTests
                 UnrestrictedModeEnabled = false,
                 McpClientRegistrationEnabled = true,
                 WhatsNewSeenPlatformUtc = platformSeen,
-                WhatsNewSeenAgentUtc = agentSeen
+                WhatsNewSeenAgentUtc = agentSeen,
+                DpaAcceptancePending = true
             });
     }
 
@@ -109,7 +111,8 @@ public class InfrastructureWireParityTests
                 unrestrictedModeEnabled = false,
                 mcpClientRegistrationEnabled = false,
                 whatsNewSeenPlatformUtc,
-                whatsNewSeenAgentUtc
+                whatsNewSeenAgentUtc,
+                dpaAcceptancePending = false
             },
             new AuthMeResponse
             {
@@ -130,7 +133,8 @@ public class InfrastructureWireParityTests
                 UnrestrictedModeEnabled = false,
                 McpClientRegistrationEnabled = false,
                 WhatsNewSeenPlatformUtc = null,
-                WhatsNewSeenAgentUtc = null
+                WhatsNewSeenAgentUtc = null,
+                DpaAcceptancePending = false
             });
     }
 

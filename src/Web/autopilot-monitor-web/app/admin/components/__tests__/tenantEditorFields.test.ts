@@ -12,6 +12,7 @@ import { TENANT_EDITOR_FIELDS, tenantEditorPatch } from "../tenantEditorFields";
 const SERVER_DENIED_FIELDS = new Set([
   "tenantId", "domainName", "partitionKey", "rowKey", "timestamp", "eTag",
   "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy", "dpaVersion",
+  "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
   "planTier", "trialExpiresUtc", "trialStartedUtc", "trialConsumed", "trialGrantedBy",
   "proDowngradedUtc", "maxDelegatedTenantsOverride", "mcpUsagePlanOverride", "payingCustomer",

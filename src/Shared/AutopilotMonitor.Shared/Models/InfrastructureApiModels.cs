@@ -45,6 +45,9 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? WhatsNewSeenPlatformUtc { get; set; }
         /// <summary>Same for the Agent tab; null = never and the key is omitted.</summary>
         public DateTime? WhatsNewSeenAgentUtc { get; set; }
+
+        /// <summary>True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens.</summary>
+        public bool DpaAcceptancePending { get; set; }
     }
 
     /// <summary>Body of PUT auth/me/whats-new-seen.</summary>
