@@ -41,7 +41,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "fast-uri": "^3.1.4",
     "global-agent": "^4.1.3"
   }
