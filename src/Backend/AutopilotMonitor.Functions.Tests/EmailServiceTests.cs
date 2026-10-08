@@ -113,7 +113,12 @@ public sealed class EmailServiceTests
         Assert.Equal("to", message.GetProperty("to")[0].GetProperty("type").GetString());
         Assert.Equal(EmailTemplates.PreviewApprovedSubject, message.GetProperty("subject").GetString());
         Assert.Contains("contoso.invalid", message.GetProperty("html").GetString());
-        Assert.True(message.GetProperty("auto_text").GetBoolean());
+        // A text part of our own (HtmlToText) instead of the provider's derived one, and the
+        // RFC 3834 header on every automated mail.
+        Assert.False(message.GetProperty("auto_text").GetBoolean());
+        Assert.Contains("contoso.invalid", message.GetProperty("text").GetString());
+        Assert.DoesNotContain("<", message.GetProperty("text").GetString());
+        Assert.Equal("auto-generated", message.GetProperty("headers").GetProperty("Auto-Submitted").GetString());
         Assert.False(message.GetProperty("track_opens").GetBoolean());
         Assert.False(message.GetProperty("track_clicks").GetBoolean());
         Assert.Equal("welcome", message.GetProperty("tags")[0].GetString());

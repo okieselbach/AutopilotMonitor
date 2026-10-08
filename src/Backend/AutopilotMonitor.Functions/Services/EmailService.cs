@@ -42,6 +42,16 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     public const string DefaultFromAddress = "noreply@autopilotmonitor.com";
     public const string DefaultFromName = "Autopilot Monitor";
 
+    /// <summary>
+    /// RFC 3834: every mail the platform sends is machine-generated — auto-responders stay quiet,
+    /// and filters read the message as a notification rather than as someone pretending to write.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> AutomatedHeaders = new Dictionary<string, string>
+    {
+        ["Auto-Submitted"] = "auto-generated",
+        ["X-Auto-Response-Suppress"] = "All",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -85,12 +95,9 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             return false;
         }
 
-        var sent = (await SendViaMandrillAsync(
-            toEmail,
-            EmailTemplates.PreviewApprovedSubject,
-            await _templates.GetHtmlAsync(EmailTemplateKind.Welcome, domainName, ct),
-            tag: "welcome",
-            ct)).Accepted;
+        var html = await _templates.GetHtmlAsync(EmailTemplateKind.Welcome, domainName, ct);
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplates.PreviewApprovedSubject, html, "welcome", ct,
+            HtmlToText.Convert(html), AutomatedHeaders)).Accepted;
 
         if (sent)
         {
@@ -129,12 +136,9 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             return false;
         }
 
-        var sent = (await SendViaMandrillAsync(
-            toEmail,
-            EmailTemplates.OffboardingFarewellSubject,
-            await _templates.GetHtmlAsync(EmailTemplateKind.Farewell, domainName, ct),
-            tag: "offboarding-farewell",
-            ct)).Accepted;
+        var html = await _templates.GetHtmlAsync(EmailTemplateKind.Farewell, domainName, ct);
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplates.OffboardingFarewellSubject, html, "offboarding-farewell", ct,
+            HtmlToText.Convert(html), AutomatedHeaders)).Accepted;
 
         if (sent)
         {
@@ -159,7 +163,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             ? await _templates.GetHtmlAsync(kind, domainName, ct)
             : EmailTemplateService.Render(draftHtml, domainName);
 
-        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, tag: "test", ct)).Accepted;
+        var sent = (await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, "test", ct,
+            HtmlToText.Convert(html), AutomatedHeaders)).Accepted;
         if (sent)
             _logger.LogInformation("{Kind} test email sent to {ToEmail} (draft={IsDraft})", kind, toEmail, draftHtml is not null);
         return sent;
@@ -208,8 +213,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                     To = new[] { new MandrillRecipient { Email = toEmail, Type = "to" } },
                     Subject = subject,
                     Html = html,
-                    // A text part of our own (the alert mails) beats the provider's derived one; the
-                    // templates still let the provider derive it.
+                    // A text part of our own beats the provider's derived one (a balanced multipart is
+                    // a content signal filters weigh); auto_text stays as the fallback for callers without one.
                     Text = text,
                     AutoText = text is null,
                     Headers = headers is { Count: > 0 } ? new Dictionary<string, string>(headers) : null,

@@ -18,15 +18,8 @@ public class EmailNotificationService : IEmailChannelSender
     public const int MaxRecipients = 5;
     public const string Tag = "alert";
 
-    /// <summary>
-    /// Declares the mail as machine-generated (RFC 3834): auto-responders stay quiet, and filters
-    /// read it as a notification rather than as someone pretending to write a letter.
-    /// </summary>
-    public static readonly IReadOnlyDictionary<string, string> Headers = new Dictionary<string, string>
-    {
-        ["Auto-Submitted"] = "auto-generated",
-        ["X-Auto-Response-Suppress"] = "All",
-    };
+    /// <summary>The platform's automated-mail headers (RFC 3834), shared with the template mails.</summary>
+    public static IReadOnlyDictionary<string, string> Headers => EmailService.AutomatedHeaders;
 
     private readonly EmailService _email;
     private readonly ILogger<EmailNotificationService> _logger;
