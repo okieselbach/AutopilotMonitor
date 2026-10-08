@@ -19,7 +19,7 @@ import {
   writeMeta,
   type HistoryEntry,
 } from "@/lib/push/pushCore";
-import { readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
+import { importDisplayedNotifications, readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
 import { formatDateTime, formatRelativeTime } from "@/lib/push/pushFormat";
 import { EntryActionSheet } from "./EntryActionSheet";
 import { useIsClient, useLocationHash } from "./pushEnvironment";
@@ -69,6 +69,7 @@ export default function PushHistoryPage() {
   const loadHistory = useCallback(async () => {
     let list: HistoryEntry[] = [];
     try {
+      await importDisplayedNotifications();
       await pruneStoredHistory();
       list = await readHistory();
     } catch {
@@ -134,7 +135,22 @@ export default function PushHistoryPage() {
       onChange: setPull,
     }),
   );
-  useEffect(() => () => puller.dispose(), [puller]);
+  // The gesture listens on the window, not on the content: most of the page is empty space
+  // below the list, and a pull that starts there must count too. Passive — nothing is prevented.
+  useEffect(() => {
+    const opts: AddEventListenerOptions = { passive: true };
+    window.addEventListener("touchstart", puller.onTouchStart, opts);
+    window.addEventListener("touchmove", puller.onTouchMove, opts);
+    window.addEventListener("touchend", puller.onTouchEnd, opts);
+    window.addEventListener("touchcancel", puller.onTouchCancel, opts);
+    return () => {
+      window.removeEventListener("touchstart", puller.onTouchStart);
+      window.removeEventListener("touchmove", puller.onTouchMove);
+      window.removeEventListener("touchend", puller.onTouchEnd);
+      window.removeEventListener("touchcancel", puller.onTouchCancel);
+      puller.dispose();
+    };
+  }, [puller]);
 
   // The filter is a per-device preference, stored next to the retention; a stale key keeps everything.
   useEffect(() => {
@@ -214,7 +230,7 @@ export default function PushHistoryPage() {
   const pullLabel = pull.refreshing ? "Refreshing…" : pull.armed ? "Release to refresh" : "Pull to refresh";
 
   return (
-    <div onTouchStart={puller.onTouchStart} onTouchMove={puller.onTouchMove} onTouchEnd={puller.onTouchEnd} onTouchCancel={puller.onTouchCancel}>
+    <div className="min-h-[70vh]">
       <div
         className="overflow-hidden flex items-end justify-center text-xs text-gray-500"
         style={{ height: pull.distance, transition: pull.pulling ? "none" : "height 150ms ease-out" }}

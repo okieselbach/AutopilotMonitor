@@ -271,6 +271,23 @@ export function normalizePayload(input, nowMs) {
 }
 
 /**
+ * The history entry behind a displayed notification: the one the push handler attached
+ * (data.entry), or — for a notification the platform displayed straight from the declarative
+ * JSON, without the worker running — rebuilt from the Notification itself, whose data is the
+ * payload's data member. Used by the click handler and by the pages, which import whatever is
+ * still in the notification centre on open so a push the worker missed is not lost.
+ * @param {{ title?: unknown, body?: unknown, tag?: unknown, data?: unknown }} notification
+ * @param {number} nowMs
+ * @returns {HistoryEntry | null} null when nothing identifies the notification as ours
+ */
+export function entryFromNotification(notification, nowMs) {
+  const data = isRecord(notification.data) ? notification.data : null;
+  if (data && isRecord(data.entry) && typeof data.entry.id === "string") return /** @type {HistoryEntry} */ (data.entry);
+  if (!data || typeof data.id !== "string") return null;
+  return normalizePayload({ title: notification.title, body: notification.body, tag: notification.tag, data }, nowMs);
+}
+
+/**
  * @param {HistoryEntry} entry
  * @returns {boolean} true for the wipe command (push_revoked): the device must forget everything
  */

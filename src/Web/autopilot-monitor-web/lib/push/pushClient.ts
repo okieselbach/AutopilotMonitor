@@ -8,11 +8,13 @@ import {
   base64UrlToUint8Array,
   bufferToBase64Url,
   clearPushDb,
+  entryFromNotification,
   META_KEYS,
   PAIR_COOKIE_NAME,
   readMeta,
-  writeMeta,
   type PlatformInput,
+  writeHistoryEntry,
+  writeMeta,
 } from "./pushCore";
 import {
   deleteDevice,
@@ -127,6 +129,34 @@ export async function isStoragePersisted(): Promise<boolean | null> {
 }
 
 // --- Device lifecycle -----------------------------------------------------------------------
+
+/**
+ * The notifications still in the notification centre are the one record outside IndexedDB of
+ * what was delivered. On every open the page imports the ones the history lacks — a push the
+ * worker could not persist (killed early, a stuck database) is then caught up as long as the
+ * notification has not been cleared. Returns how many entries were added.
+ */
+export async function importDisplayedNotifications(): Promise<number> {
+  const registration = await getPushRegistration().catch(() => null);
+  if (!registration || typeof registration.getNotifications !== "function") return 0;
+  let notifications: Notification[];
+  try {
+    notifications = await registration.getNotifications();
+  } catch {
+    return 0;
+  }
+  let added = 0;
+  for (const notification of notifications) {
+    const entry = entryFromNotification(notification, Date.now());
+    if (!entry) continue;
+    try {
+      if (await writeHistoryEntry(entry)) added++;
+    } catch {
+      // No IndexedDB: nothing to import into.
+    }
+  }
+  return added;
+}
 
 /** Drops the subscription and every local trace; used by unpair, the wipe command and "device gone". */
 export async function wipeLocalDevice(): Promise<void> {

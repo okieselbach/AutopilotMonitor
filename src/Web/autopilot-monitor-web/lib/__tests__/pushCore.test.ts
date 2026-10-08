@@ -8,6 +8,7 @@ import {
   detectPlatform,
   DEVICE_TOKEN_HEADER,
   entryFragment,
+  entryFromNotification,
   GENERIC_BODY,
   GENERIC_TITLE,
   HISTORY_MAX_AGE_MS,
@@ -250,6 +251,30 @@ describe("planSubscriptionKeys (worker repair after a browser-side subscription 
     expect(planSubscriptionKeys({}, null)).toBeNull();
     expect(planSubscriptionKeys({ [META_KEYS.kid]: "k1" }, null)).toBeNull();
     expect(planSubscriptionKeys({}, { activeKid: "k2", activeVapidPublicKey: 7 })).toBeNull();
+  });
+});
+
+describe("entryFromNotification (click handler and the on-open import of displayed notifications)", () => {
+  it("takes the entry the push handler attached", () => {
+    const attached = normalizePayload(FULL_PAYLOAD, NOW);
+    const entry = entryFromNotification({ title: "x", body: "y", data: { id: attached.id, entry: attached } }, NOW);
+    expect(entry).toBe(attached);
+  });
+
+  it("rebuilds the entry from a platform-displayed notification's data member", () => {
+    const n = { title: "Enrollment finished", body: "PHS-1 (…36GJ) finished enrollment.", tag: "session_watch", data: FULL_PAYLOAD.notification.data };
+    const entry = entryFromNotification(n, NOW)!;
+    expect(entry.id).toBe(FULL_PAYLOAD.notification.data.id);
+    expect(entry.title).toBe("Enrollment finished");
+    expect(entry.type).toBe("enrollment_failed");
+    expect(entry.tag).toBe("session_watch");
+    expect(entry.portalUrl).toBe(FULL_PAYLOAD.notification.data.portalUrl);
+  });
+
+  it("ignores notifications that are not ours", () => {
+    expect(entryFromNotification({ title: "foreign", body: "", data: null }, NOW)).toBeNull();
+    expect(entryFromNotification({ title: "foreign", body: "", data: { other: 1 } }, NOW)).toBeNull();
+    expect(entryFromNotification({ title: "foreign", body: "" }, NOW)).toBeNull();
   });
 });
 

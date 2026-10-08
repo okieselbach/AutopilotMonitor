@@ -14,6 +14,7 @@ import {
   bufferToBase64Url,
   clearPushDb,
   entryFragment,
+  entryFromNotification,
   GENERIC_BODY,
   GENERIC_TITLE,
   isWipeCommand,
@@ -151,23 +152,9 @@ self.addEventListener("pushnotification", (event) => {
   handlePush(event, proposed ?? safeParse(event.data ?? null));
 });
 
-/**
- * The history entry behind a clicked notification: the one the push handler attached, or —
- * for a notification the platform displayed straight from the declarative JSON, without the
- * worker running — rebuilt from the Notification itself (its data is the payload's data member).
- * @param {Notification} notification
- * @returns {import("./sw-core.js").HistoryEntry | null}
- */
-function entryFromClicked(notification) {
-  const data = notification.data ?? {};
-  if (data.entry && typeof data.entry === "object") return data.entry;
-  if (typeof data.id !== "string") return null;
-  return normalizePayload({ title: notification.title, body: notification.body, tag: notification.tag, data }, Date.now());
-}
-
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const entry = entryFromClicked(event.notification);
+  const entry = entryFromNotification(event.notification, Date.now());
   const id = entry ? entry.id : null;
   const target = new URL("/push/" + (id ? entryFragment(id) : ""), self.location.origin).toString();
   event.waitUntil(
