@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -38,11 +38,25 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
 import type { CreateAnalyzeRuleFromTemplateRequest, RuleStatsResponse, TenantConfiguration } from "@/utils/wire-types.generated";
 import { fetchJson, jsonBody } from "@/lib/apiClient";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { utcDateDaysAgo } from "@/lib/timeWindow";
 import { CommunityContributionBox } from "@/components/rules/CommunityContributionBox";
 import { MySubmissionsList } from "@/components/rules/MySubmissionsList";
 import { SubmitRulesModal } from "@/components/rules/SubmitRulesModal";
 
+/** Rule telemetry window without `?days=` — the backend's own rule-stats default (today−30 … today). */
+const RULE_TELEMETRY_DEFAULT_DAYS = 30;
+
 export default function AnalyzeRulesPage() {
+  // useSearchParams (the ?days= telemetry window) requires a Suspense boundary under the static export.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <AnalyzeRulesContent />
+    </Suspense>
+  );
+}
+
+function AnalyzeRulesContent() {
   const { user, getAccessToken } = useAuth();
 
   const { successMessage, error, showSuccess, showError } = useNotificationMessages();
@@ -108,6 +122,11 @@ export default function AnalyzeRulesPage() {
   // Global admin tenant scope (tenant list, selector state, override/effective tenant)
   const scope = useGlobalAdminScope();
   const { isGlobalOverride, effectiveTenantId } = scope;
+  // Telemetry window from the URL (?days=, no selector), capped to the viewed tenant's edition.
+  const { days: telemetryDays, ready: telemetryWindowReady } = useWindowDays({
+    defaultDays: RULE_TELEMETRY_DEFAULT_DAYS,
+    tenantId: effectiveTenantId,
+  });
   // Editable only for a real Global Admin (any tenant), or an own-tenant admin viewing their OWN tenant.
   // A read-only Global Reader — and an own-tenant admin viewing a FOREIGN tenant (cross-tenant override) —
   // is read-only. Backend also enforces (rules write is TenantAdminOrGA, cross-tenant blocked for non-GA).
@@ -140,14 +159,16 @@ export default function AnalyzeRulesPage() {
     fetchRules();
   }, [fetchRules]);
 
-  // Fetch rule telemetry stats (hit rates for last 30 days)
+  // Fetch rule telemetry stats (hit rates over the telemetry window). The default window sends no
+  // dates, so the backend's own default stays authoritative.
   useEffect(() => {
-    if (!effectiveTenantId) return;
+    if (!effectiveTenantId || !telemetryWindowReady) return;
+    const startDate = telemetryDays === RULE_TELEMETRY_DEFAULT_DAYS ? undefined : utcDateDaysAgo(telemetryDays);
     const fetchStats = async () => {
       try {
         const statsUrl = scope.routeGlobal
-          ? api.metrics.globalRuleStats(undefined, undefined, "analyze", effectiveTenantId)
-          : api.metrics.ruleStats(undefined, undefined, "analyze");
+          ? api.metrics.globalRuleStats(startDate, undefined, "analyze", effectiveTenantId)
+          : api.metrics.ruleStats(startDate, undefined, "analyze");
         const data = await fetchJson<RuleStatsResponse>(statsUrl, getAccessToken);
         {
           const map: Record<string, {
@@ -179,7 +200,7 @@ export default function AnalyzeRulesPage() {
       }
     };
     fetchStats();
-  }, [effectiveTenantId, scope.routeGlobal, getAccessToken]);
+  }, [effectiveTenantId, scope.routeGlobal, getAccessToken, telemetryWindowReady, telemetryDays]);
 
   // Fetch the tenant's notification channels (id + name) for the per-rule notify selector.
   // Mirrors the backend legacy synthesis: a non-migrated tenant with a single webhook shows
@@ -647,11 +668,11 @@ export default function AnalyzeRulesPage() {
                 return (
                   <div className="bg-white rounded-lg shadow border border-indigo-200 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-semibold text-gray-700">Rule Telemetry (last 30 days)</h3>
+                      <h3 className="text-sm font-semibold text-gray-700">Rule Telemetry (last {telemetryDays} days)</h3>
                       <span className="text-xs text-gray-500">{totalFires} total fires across {statsEntries.length} rules</span>
                     </div>
                     {topRules.length === 0 ? (
-                      <p className="text-sm text-gray-400">No rules have fired in the last 30 days.</p>
+                      <p className="text-sm text-gray-400">No rules have fired in the last {telemetryDays} days.</p>
                     ) : (
                       <div className="space-y-2">
                         {topRules.map(([ruleId, stat]) => {
@@ -931,6 +952,7 @@ export default function AnalyzeRulesPage() {
                       hitRate={ruleStatsMap[rule.ruleId]?.hitRate ?? null}
                       fireCount={ruleStatsMap[rule.ruleId]?.fireCount ?? null}
                       trend={ruleStatsMap[rule.ruleId]?.trend ?? null}
+                      windowDays={telemetryDays}
                       regression={ruleStatsMap[rule.ruleId]?.regression ?? null}
                     />
                   )}

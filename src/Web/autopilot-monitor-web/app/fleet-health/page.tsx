@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { Suspense, useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { dashboardUrl } from "@/lib/routes";
@@ -22,7 +22,10 @@ import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { timelineBars } from "./timelineBars";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { formatDuration } from "@/lib/formatting";
@@ -53,10 +56,18 @@ interface AppMetricsResponse {
 }
 
 export default function FleetHealthPage() {
+  // useSearchParams (the ?days= window) requires a Suspense boundary under the static export.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <FleetHealthContent />
+    </Suspense>
+  );
+}
+
+function FleetHealthContent() {
   const [appMetrics, setAppMetrics] = useState<AppMetricsResponse | null>(null);
   const [timeAttribution, setTimeAttribution] = useState<TimeAttributionResponseDto | null>(null);
   const [deviceJourneys, setDeviceJourneys] = useState<DeviceJourneyResponseDto | null>(null);
-  const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("7d");
 
   const hasJoinedGroup = useRef(false);
 
@@ -70,7 +81,8 @@ export default function FleetHealthPage() {
   const scope = useAggregatedAdminScope();
   const { isGlobalAdmin, routeGlobal, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
 
-  const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+  // The window lives in the URL (?days=): page default 7, capped to the viewed tenant's edition.
+  const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: 7, tenantId: effectiveTenantId });
 
   // Server-aggregated fleet data (stats, timeline, model + failure breakdowns).
   // Replaces the old client path that drained up to 200k raw sessions into the
@@ -79,17 +91,16 @@ export default function FleetHealthPage() {
     routeGlobal,
     selectedTenantId,
     tenantId,
-    scopeInitialized,
+    scopeInitialized: scopeInitialized && windowReady,
     scopeKey,
     days,
     getAccessToken,
     signalR: { on, off, isConnected },
   });
 
-  const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
+  const fetchAppMetrics = async (windowDays: number) => {
     try {
-      const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = scopedApi.appMetrics(scope, d);
+      const endpoint = scopedApi.appMetrics(scope, windowDays);
       setAppMetrics(await fetchJson<AppMetricsResponse>(endpoint, getAccessToken));
     } catch (error) {
       console.error("Failed to fetch app metrics:", error);
@@ -99,16 +110,16 @@ export default function FleetHealthPage() {
 
   // App install metrics are already backend-aggregated; fetch alongside fleet data.
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     const run = async () => {
-      await fetchAppMetrics(timeRange);
+      await fetchAppMetrics(days);
     };
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, timeRange, scopeKey]);
+  }, [scopeInitialized, windowReady, days, scopeKey]);
 
   // F1 time attribution: sweep-maintained rolling 30d rollup — independent of the page's
-  // 7/30/90d selector (per-day medians cannot be merged into arbitrary ranges honestly),
+  // window (per-day medians cannot be merged into arbitrary ranges honestly),
   // so it only refetches on scope changes. Fail-soft: the section hides without data.
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -125,10 +136,10 @@ export default function FleetHealthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, scopeKey]);
 
-  // F2 first-time-right: daily FTR counts are additive, so this DOES follow the 7/30/90d
-  // selector (window rate = ratio of summed daily rows). Fail-soft like the sections above.
+  // F2 first-time-right: daily FTR counts are additive, so this DOES follow the page's
+  // window (window rate = ratio of summed daily rows). Fail-soft like the sections above.
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     let cancelled = false;
     (async () => {
       try {
@@ -140,7 +151,7 @@ export default function FleetHealthPage() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, scopeKey, days]);
+  }, [scopeInitialized, windowReady, scopeKey, days]);
 
   // Join this tenant's SignalR group so its session events reach the client; the
   // useFleetHealth hook listens for newSession/newevents to trigger a debounced
@@ -201,22 +212,8 @@ export default function FleetHealthPage() {
   // useMemo below — a fresh [] each render would invalidate that memo every time.
   const failureReasons = useMemo(() => data?.failureReasons ?? [], [data]);
 
-  // Timeline points with presentation labels derived from the UTC date string.
-  const dailyData = useMemo(() => {
-    const points = data?.dailyData ?? [];
-    return points.map((p) => {
-      const d = new Date(p.date + "T00:00:00");
-      return {
-        date: p.date,
-        label:
-          days <= 7
-            ? d.toLocaleDateString(undefined, { weekday: "short" })
-            : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-        success: p.success,
-        failed: p.failed,
-      };
-    });
-  }, [data, days]);
+  // Timeline bars with presentation labels: one per day up to 90 days, one per week beyond.
+  const dailyData = useMemo(() => timelineBars(data?.dailyData ?? [], days), [data, days]);
 
   const maxDaily = useMemo(
     () => Math.max(1, ...dailyData.map((d) => d.success + d.failed)),
@@ -264,9 +261,9 @@ export default function FleetHealthPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 <SegmentedControl
-                  options={TIME_RANGE_OPTIONS}
-                  value={timeRange}
-                  onChange={(v) => setTimeRange(v as typeof timeRange)}
+                  options={WINDOW_PRESET_OPTIONS}
+                  value={days}
+                  onChange={setDays}
                 />
                 <DocsLink path={DOCS_PATHS.fleetHealth} label="Docs" />
               </div>

@@ -44,10 +44,3 @@ export function SegmentedControl<T extends string | number>({
     </div>
   );
 }
-
-/** Shared 7/30/90-day options so every page shows identical labels. */
-export const TIME_RANGE_OPTIONS = [
-  { value: "7d", label: "7 Days" },
-  { value: "30d", label: "30 Days" },
-  { value: "90d", label: "90 Days" },
-] as const;

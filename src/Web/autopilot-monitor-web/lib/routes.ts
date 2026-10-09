@@ -60,6 +60,11 @@ export function appDetailUrl(
   });
 }
 
+/** The Software hub; `days` carries a window other than the hub's default. */
+export function appsHubUrl(opts?: { days?: number }): Route {
+  return withQuery("/apps", { days: opts?.days?.toString() });
+}
+
 export function dashboardUrl(opts?: {
   status?: string;
   search?: string;

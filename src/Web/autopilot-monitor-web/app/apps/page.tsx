@@ -2,16 +2,17 @@
 
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
+import { useWindowDays } from "@/hooks/useWindowDays";
 import InstallsTab from "./components/InstallsTab";
+import { APPS_DEFAULT_WINDOW_DAYS } from "./components/types";
 import InventoryTab from "./components/InventoryTab";
 import VulnerabilitiesTab from "./components/VulnerabilitiesTab";
-import type { TimeRange } from "./components/types";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -26,7 +27,8 @@ function SoftwareHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const scope = useAggregatedAdminScope();
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
+  // The window lives in the URL (?days=) and survives tab switches (selectTab keeps every parameter).
+  const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: APPS_DEFAULT_WINDOW_DAYS, tenantId: scope.effectiveTenantId });
 
   const rawTab = searchParams.get("tab");
   const activeTab: TabId = TABS.some((t) => t.id === rawTab) ? (rawTab as TabId) : "installs";
@@ -52,9 +54,9 @@ function SoftwareHub() {
             <div className="flex flex-wrap items-center gap-2">
               <TenantScopeSelector scope={scope} allowAggregated />
               <SegmentedControl
-                options={TIME_RANGE_OPTIONS}
-                value={timeRange}
-                onChange={(v) => setTimeRange(v as typeof timeRange)}
+                options={WINDOW_PRESET_OPTIONS}
+                value={days}
+                onChange={setDays}
               />
               <DocsLink path={DOCS_PATHS.softwareInventory} label="Docs" />
             </div>
@@ -80,9 +82,9 @@ function SoftwareHub() {
       </header>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {activeTab === "installs" && <InstallsTab scope={scope} timeRange={timeRange} />}
+        {activeTab === "installs" && <InstallsTab scope={scope} days={days} windowReady={windowReady} />}
         {activeTab === "inventory" && <InventoryTab scope={scope} />}
-        {activeTab === "vulnerabilities" && <VulnerabilitiesTab scope={scope} timeRange={timeRange} />}
+        {activeTab === "vulnerabilities" && <VulnerabilitiesTab scope={scope} days={days} windowReady={windowReady} />}
       </main>
     </div>
   );

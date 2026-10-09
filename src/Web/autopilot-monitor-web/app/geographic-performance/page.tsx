@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { Suspense, useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
@@ -11,7 +11,10 @@ import { useAggregatedAdminScope } from "@/hooks";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { WINDOW_PRESET_OPTIONS, windowProgressKey } from "@/lib/timeWindow";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { GEO_DEFAULT_WINDOW_DAYS } from "./geoWindow";
 import { CalculatingCard } from "@/components/CalculatingCard";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -40,8 +43,6 @@ const GeoMap = dynamic(() => import("./GeoMap"), { ssr: false });
 type GroupBy = "city" | "region" | "country";
 type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "medianApiLatencyMs" | "avgDoPercentPeerCaching";
 
-type TimeRange = "7d" | "30d" | "90d";
-
 // Module-level so React keeps a stable component identity across renders
 // (react-hooks/static-components: an inline component type remounts on every render).
 function SortIcon({ col, sortBy, sortDesc }: { col: SortBy; sortBy: SortBy; sortDesc: boolean }) {
@@ -57,11 +58,19 @@ const formatBytes = (bytes: number) => {
 };
 
 export default function GeographicPerformancePage() {
+  // useSearchParams (the ?days= window) requires a Suspense boundary under the static export.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <GeographicPerformanceContent />
+    </Suspense>
+  );
+}
+
+function GeographicPerformanceContent() {
   const router = useRouter();
 
   const [geoMetrics, setGeoMetrics] = useState<GeographicMetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
   const [groupBy, setGroupBy] = useState<GroupBy>("city");
   const [sortBy, setSortBy] = useState<SortBy>("sessionCount");
   const [sortDesc, setSortDesc] = useState(true);
@@ -80,15 +89,17 @@ export default function GeographicPerformancePage() {
   const scope = useAggregatedAdminScope();
   const { routeGlobal, selectedTenantId, effectiveTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
 
-  const progress = useFetchProgress("geoPerf.lastFetchMs");
+  // The window lives in the URL (?days=): page default 30, capped to the viewed tenant's edition.
+  const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: GEO_DEFAULT_WINDOW_DAYS, tenantId: effectiveTenantId });
+
+  const progress = useFetchProgress(windowProgressKey("geoPerf.lastFetchMs", days));
   const { begin: progressBegin, finish: progressFinish } = progress;
 
-  const fetchGeoMetrics = useCallback(async (range: TimeRange = timeRange, group: GroupBy = groupBy) => {
+  const fetchGeoMetrics = useCallback(async (windowDays: number = days, group: GroupBy = groupBy) => {
     let succeeded = false;
     try {
       progressBegin();
-      const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = scopedApi.geographic({ routeGlobal, selectedTenantId, effectiveTenantId }, days, group);
+      const endpoint = scopedApi.geographic({ routeGlobal, selectedTenantId, effectiveTenantId }, windowDays, group);
       setGeoMetrics(await fetchJson<GeographicMetricsResponse>(endpoint, getAccessToken, { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) }));
       succeeded = true;
     } catch (error) {
@@ -97,21 +108,21 @@ export default function GeographicPerformancePage() {
       progressFinish(succeeded);
       setLoading(false);
     }
-  }, [routeGlobal, selectedTenantId, effectiveTenantId, getAccessToken, timeRange, groupBy, progressBegin, progressFinish]);
+  }, [routeGlobal, selectedTenantId, effectiveTenantId, getAccessToken, days, groupBy, progressBegin, progressFinish]);
 
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     const run = async () => {
       if (isTimeRangeMount.current) {
         isTimeRangeMount.current = false;
       } else {
         setLoading(true);
       }
-      await fetchGeoMetrics(timeRange, groupBy);
+      await fetchGeoMetrics(days, groupBy);
     };
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, timeRange, groupBy, scopeKey]);
+  }, [scopeInitialized, windowReady, days, groupBy, scopeKey]);
 
   const sortedLocations = useMemo(() => {
     if (!geoMetrics?.locations) return [];
@@ -179,9 +190,9 @@ export default function GeographicPerformancePage() {
                 <TenantScopeSelector scope={scope} allowAggregated />
                 {/* Time Range Toggle */}
                 <SegmentedControl
-                  options={TIME_RANGE_OPTIONS}
-                  value={timeRange}
-                  onChange={(v) => setTimeRange(v as TimeRange)}
+                  options={WINDOW_PRESET_OPTIONS}
+                  value={days}
+                  onChange={setDays}
                 />
                 {/* Group By Toggle */}
                 <SegmentedControl
@@ -439,7 +450,6 @@ export default function GeographicPerformancePage() {
                             selectedLocation === loc.locationKey ? "bg-blue-50" : ""
                           }`}
                           onClick={() => {
-                            const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
                             // Carry the selected tenant into the drill-in so a cross-tenant caller (GA override
                             // or delegated/MSP) scopes the session list to it. Empty = GA all-tenants aggregate.
                             const tenantParam = selectedTenantId ? `&tenantId=${selectedTenantId}` : "";

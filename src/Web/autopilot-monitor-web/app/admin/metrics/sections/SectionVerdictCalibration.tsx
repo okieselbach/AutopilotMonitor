@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import { useAggregatedAdminScope } from "@/hooks";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
 import {
   ALERT_KIND_LABELS,
   VERDICT_PATH_ORIGIN_LABELS,
@@ -20,10 +21,6 @@ import {
   type VerdictCalibrationResponse,
 } from "./verdictCalibrationLogic";
 
-type DateRange = "7d" | "30d" | "90d";
-
-const RANGE_DAYS: Record<DateRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
-
 export function SectionVerdictCalibration() {
   const { getAccessToken } = useAuth();
   const scope = useAggregatedAdminScope({ defaultAggregated: true });
@@ -31,16 +28,16 @@ export function SectionVerdictCalibration() {
   const [data, setData] = useState<VerdictCalibrationResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>("30d");
+  const [days, setDays] = useState(30);
 
   const fetchData = useCallback(
-    async (range: DateRange, tenantId: string) => {
+    async (windowDays: number, tenantId: string) => {
       setLoading(true);
       setError(null);
       try {
         // Deploy skew: a backend without the route yet (404) reads as "no rows", never as an error.
         setData(
-          await fetchJson<VerdictCalibrationResponse>(api.metrics.globalVerdictCalibration(RANGE_DAYS[range], tenantId || undefined), getAccessToken).catch(nullOn404),
+          await fetchJson<VerdictCalibrationResponse>(api.metrics.globalVerdictCalibration(windowDays, tenantId || undefined), getAccessToken).catch(nullOn404),
         );
       } catch (err) {
         setError(apiErrorText(err, "Failed to load verdict calibration"));
@@ -54,10 +51,10 @@ export function SectionVerdictCalibration() {
   useEffect(() => {
     if (!scopeInitialized) return;
     const run = async () => {
-      await fetchData(dateRange, selectedTenantId);
+      await fetchData(days, selectedTenantId);
     };
     void run();
-  }, [fetchData, dateRange, selectedTenantId, scopeInitialized]);
+  }, [fetchData, days, selectedTenantId, scopeInitialized]);
 
   const groups = data ? groupPathsByOrigin(data.paths) : [];
   const pathAlerts = alertsByPath(data?.alerts ?? []);
@@ -74,9 +71,9 @@ export function SectionVerdictCalibration() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <TenantScopeSelector scope={scope} allowAggregated />
-          <SegmentedControl options={TIME_RANGE_OPTIONS} value={dateRange} onChange={(v) => setDateRange(v as DateRange)} />
+          <SegmentedControl options={WINDOW_PRESET_OPTIONS} value={days} onChange={setDays} />
           <button
-            onClick={() => fetchData(dateRange, selectedTenantId)}
+            onClick={() => fetchData(days, selectedTenantId)}
             disabled={loading}
             className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >

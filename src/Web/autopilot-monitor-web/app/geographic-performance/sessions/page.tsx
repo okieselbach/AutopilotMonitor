@@ -13,6 +13,9 @@ import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { windowProgressKey } from "@/lib/timeWindow";
+import { GEO_DEFAULT_WINDOW_DAYS } from "../geoWindow";
 import { CalculatingCard } from "@/components/CalculatingCard";
 import type { GeographicLocationSessionsResponse, LocationSessionRow } from "@/utils/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
@@ -69,7 +72,6 @@ function LocationSessionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const locationKey = searchParams.get("locationKey") || "";
-  const days = searchParams.get("days") || "30";
   const groupBy = searchParams.get("groupBy") || "city";
 
   const [data, setData] = useState<LocationSessionsResponse | null>(null);
@@ -96,7 +98,13 @@ function LocationSessionsContent() {
   // raw presence so it never falls back to the caller's own-tenant endpoint.
   const boundedTenantId = boundTenantToDelegatedScope(urlTenantId || undefined, isDelegatedScope, user?.delegatedTenantIds);
 
-  const progress = useFetchProgress("geoSessions.lastFetchMs");
+  // ?days= from the geographic page, capped to the drilled tenant's edition (the aggregate is platform scope).
+  const { days, ready: windowReady } = useWindowDays({
+    defaultDays: GEO_DEFAULT_WINDOW_DAYS,
+    tenantId: crossTenant ? boundedTenantId : tenantId,
+  });
+
+  const progress = useFetchProgress(windowProgressKey("geoSessions.lastFetchMs", days));
   const { begin: progressBegin, finish: progressFinish } = progress;
 
   const fetchSessions = useCallback(async () => {
@@ -105,8 +113,8 @@ function LocationSessionsContent() {
     try {
       progressBegin();
       const endpoint = crossTenant
-        ? api.metrics.globalGeographicSessions(Number(days), groupBy, locationKey, boundedTenantId)
-        : api.metrics.geographicSessions(tenantId, Number(days), groupBy, locationKey);
+        ? api.metrics.globalGeographicSessions(days, groupBy, locationKey, boundedTenantId)
+        : api.metrics.geographicSessions(tenantId, days, groupBy, locationKey);
       setData(await fetchJson<GeographicLocationSessionsResponse>(endpoint, getAccessToken, { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) }));
       succeeded = true;
     } catch (error) {
@@ -119,12 +127,13 @@ function LocationSessionsContent() {
 
   useEffect(() => {
     if (!crossTenant && !tenantId) return;
+    if (!windowReady) return;
     if (hasInitialFetch.current) return;
     hasInitialFetch.current = true;
     fetchSessions();
-  }, [tenantId, crossTenant, fetchSessions]);
+  }, [tenantId, crossTenant, windowReady, fetchSessions]);
 
-  const timeLabel = days === "7" ? "7 Days" : days === "30" ? "30 Days" : "90 Days";
+  const timeLabel = `${days} Days`;
 
   // Compute summary stats from loaded sessions
   const stats = data?.sessions
@@ -188,7 +197,7 @@ function LocationSessionsContent() {
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             <button
               onClick={() => {
-                router.push(`/geographic-performance`);
+                router.push(days === GEO_DEFAULT_WINDOW_DAYS ? "/geographic-performance" : `/geographic-performance?days=${days}`);
               }}
               className="text-sm text-gray-600 hover:text-gray-900 mb-2 flex items-center"
             >

@@ -1,6 +1,7 @@
 "use client";
 
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
@@ -21,16 +22,13 @@ interface UsageRecord {
 /** One per-day usage row (wire shape). */
 type DailySummary = UserUsageDailySummary;
 
-type DateRange = "7d" | "30d" | "90d";
-
 function formatDate(yyyymmdd: string): string {
   if (yyyymmdd.length !== 8) return yyyymmdd;
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
-function getDateFrom(range: DateRange): string {
+function getDateFrom(days: number): string {
   const d = new Date();
-  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
@@ -53,13 +51,13 @@ export function SectionMcpUsage() {
   const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>("30d");
+  const [days, setDays] = useState(30);
 
-  const fetchData = useCallback(async (range: DateRange) => {
+  const fetchData = useCallback(async (windowDays: number) => {
     setLoading(true);
     setError(null);
     try {
-      const dateFrom = getDateFrom(range);
+      const dateFrom = getDateFrom(windowDays);
       const dateTo = getDateTo();
 
       const [globalData, dailyData] = await Promise.all([
@@ -78,10 +76,10 @@ export function SectionMcpUsage() {
 
   useEffect(() => {
     const run = async () => {
-      await fetchData(dateRange);
+      await fetchData(days);
     };
     void run();
-  }, [fetchData, dateRange]);
+  }, [fetchData, days]);
 
   // Aggregate by user
   const userAggregates: UserAggregate[] = (() => {
@@ -126,12 +124,12 @@ export function SectionMcpUsage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl
-            options={TIME_RANGE_OPTIONS}
-            value={dateRange}
-            onChange={(v) => setDateRange(v as DateRange)}
+            options={WINDOW_PRESET_OPTIONS}
+            value={days}
+            onChange={setDays}
           />
           <button
-            onClick={() => fetchData(dateRange)}
+            onClick={() => fetchData(days)}
             disabled={loading}
             className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
@@ -153,7 +151,7 @@ export function SectionMcpUsage() {
           <div className="text-2xl sm:text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-          <div className="text-sm text-gray-500 mb-1">Total ({dateRange})</div>
+          <div className="text-sm text-gray-500 mb-1">Total ({days}d)</div>
           <div className="text-2xl sm:text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4 sm:p-6">

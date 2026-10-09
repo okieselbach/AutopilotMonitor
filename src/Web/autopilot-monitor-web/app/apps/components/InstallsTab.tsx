@@ -14,8 +14,8 @@ import { CalculatingInline } from "@/components/CalculatingCard";
 import { InstallSourcePill, installSourceLabel } from "@/components/InstallSourcePill";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
-import type { SoftwareTabScope, TimeRange } from "./types";
-import { rangeToDays } from "./types";
+import type { SoftwareTabScope } from "./types";
+import { windowProgressKey } from "@/lib/timeWindow";
 
 // A cross-tenant apps aggregation can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
@@ -78,10 +78,13 @@ const PAGE_SIZE = 20;
 
 interface InstallsTabProps {
   scope: SoftwareTabScope;
-  timeRange: TimeRange;
+  /** The hub's window (?days=), already capped to the viewer's edition. */
+  days: number;
+  /** False while the window waits for the viewed tenant's edition — no fetch yet. */
+  windowReady: boolean;
 }
 
-export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
+export default function InstallsTab({ scope, days, windowReady }: InstallsTabProps) {
   const router = useRouter();
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
@@ -97,14 +100,13 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
 
-  const progress = useFetchProgress("appsInstalls.lastFetchMs");
+  const progress = useFetchProgress(windowProgressKey("appsInstalls.lastFetchMs", days));
   const { begin: progressBegin, finish: progressFinish } = progress;
 
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     if (!isGlobalAdmin && !tenantId) return;
     let cancelled = false;
-    const days = rangeToDays(timeRange);
 
     const run = async () => {
       let succeeded = false;
@@ -143,7 +145,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, timeRange, scopeKey]);
+  }, [scopeInitialized, windowReady, days, scopeKey]);
 
   // Channels present in the window; the filter only appears when there is a choice.
   const sources = useMemo(
@@ -236,7 +238,6 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   }
 
   function openApp(row: AppRow) {
-    const days = rangeToDays(timeRange);
     // Tenant scope is carried in sessionStorage (see useAggregatedAdminScope), so no scope params needed.
     router.push(appDetailUrl(row.appName, { days: String(days), source: row.source }));
   }
@@ -260,7 +261,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
       </div>
 
       {/* Delivery Optimization rollup */}
-      <DoCard rollup={doRollup} days={rangeToDays(timeRange)} />
+      <DoCard rollup={doRollup} days={days} />
 
       {/* Search + channel filter */}
       <div className="bg-white rounded-lg shadow mb-4 p-4 flex flex-col sm:flex-row gap-3 sm:items-center">

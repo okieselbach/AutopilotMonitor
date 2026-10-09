@@ -294,10 +294,10 @@ export const api = {
 
   // ── Metrics ───────────────────────────────────────────────────────────────
   metrics: {
-    usage: (tenantId?: string) =>
-      `${API_BASE_URL}/api/metrics/usage${qs({ tenantId })}`,
-    globalUsage: (tenantId?: string) =>
-      `${API_BASE_URL}/api/global/metrics/usage${qs({ tenantId })}`,
+    usage: (tenantId?: string, days?: number) =>
+      `${API_BASE_URL}/api/metrics/usage${qs({ tenantId, days: days?.toString() })}`,
+    globalUsage: (tenantId?: string, days?: number) =>
+      `${API_BASE_URL}/api/global/metrics/usage${qs({ tenantId, days: days?.toString() })}`,
     // Cross-tenant live presence: web users active within the last windowMinutes (GA / Global Reader).
     activeUsers: (windowMinutes?: number) =>
       `${API_BASE_URL}/api/global/presence${qs({ windowMinutes: windowMinutes != null ? String(windowMinutes) : undefined })}`,

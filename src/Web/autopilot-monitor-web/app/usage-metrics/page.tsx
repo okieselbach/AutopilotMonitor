@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
@@ -13,6 +13,7 @@ import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { PlatformUsageMetrics } from "@/utils/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
+import { useWindowDays } from "@/hooks/useWindowDays";
 import { notifyApiError } from "@/contexts/NotificationContext";
 
 
@@ -24,7 +25,19 @@ import { notifyApiError } from "@/contexts/NotificationContext";
 
 
 
+/** The backend's default window for these metrics; a URL `?days=` replaces it (no selector). */
+const USAGE_DEFAULT_WINDOW_DAYS = 90;
+
 export default function UsageMetricsPage() {
+  // useSearchParams (the ?days= window) requires a Suspense boundary under the static export.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <UsageMetricsContent />
+    </Suspense>
+  );
+}
+
+function UsageMetricsContent() {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
     const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);
@@ -34,6 +47,7 @@ export default function UsageMetricsPage() {
   // Global admin tenant scope (tenant list, selector state, override/effective tenant)
   const scope = useGlobalAdminScope();
   const { isGlobalOverride, effectiveTenantId, selectedTenantId, tenants } = scope;
+  const { days, ready: windowReady } = useWindowDays({ defaultDays: USAGE_DEFAULT_WINDOW_DAYS, tenantId: effectiveTenantId });
 
   // Latest-wins guard: a tenant switch starts a new fetch while an older one may still be in
   // flight; only the most recently started request may write state (raw authenticatedFetch has
@@ -41,7 +55,7 @@ export default function UsageMetricsPage() {
   const fetchSeqRef = useRef(0);
 
   const fetchMetrics = useCallback(async (showRefreshing = false) => {
-    if (!effectiveTenantId) return;
+    if (!effectiveTenantId || !windowReady) return;
     const seq = ++fetchSeqRef.current;
     const isCurrent = () => fetchSeqRef.current === seq;
     try {
@@ -53,8 +67,8 @@ export default function UsageMetricsPage() {
 
       // Global admin viewing another tenant → use global endpoint
       const url = isGlobalOverride
-        ? api.metrics.globalUsage(effectiveTenantId)
-        : api.metrics.usage(effectiveTenantId);
+        ? api.metrics.globalUsage(effectiveTenantId, days)
+        : api.metrics.usage(effectiveTenantId, days);
 
       const data = await fetchJson<PlatformUsageMetrics>(url, getAccessToken);
       if (!isCurrent()) return;
@@ -70,7 +84,7 @@ export default function UsageMetricsPage() {
         setRefreshing(false);
       }
     }
-  }, [effectiveTenantId, isGlobalOverride, getAccessToken, addNotification]);
+  }, [effectiveTenantId, isGlobalOverride, windowReady, days, getAccessToken, addNotification]);
 
   useEffect(() => {
     if (!effectiveTenantId) return;

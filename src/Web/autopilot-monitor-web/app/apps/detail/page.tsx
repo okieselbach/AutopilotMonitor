@@ -1,6 +1,6 @@
 "use client";
 
-import { sessionUrl } from "@/lib/routes";
+import { appsHubUrl, sessionUrl } from "@/lib/routes";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -19,6 +19,9 @@ import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdmin
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CalculatingInline } from "@/components/CalculatingCard";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { COMMUNITY_WINDOW_CAP_DAYS, WINDOW_PRESETS, windowProgressKey } from "@/lib/timeWindow";
+import { APPS_DEFAULT_WINDOW_DAYS } from "../components/types";
 import { chartColors } from "../../../components/charts/chartTheme";
 import { fetchJson } from "@/lib/apiClient";
 import { parseAppInstallSource } from "@/lib/appInstallSources";
@@ -214,21 +217,13 @@ function AppDetailContent() {
   // `?source=` = install channel; absent (every Intune link) means the Intune channel.
   const source = parseAppInstallSource(searchParams?.get("source"));
 
-  const initialDays = (() => {
-    const d = parseInt(searchParams?.get("days") ?? "30", 10);
-    return d === 7 || d === 30 || d === 90 ? d : 30;
-  })();
-
   // Optional deep-link seed: ?tenantId=<guid> points the view at a specific tenant on first init.
   // The selection otherwise comes from the tab-persisted scope (sessionStorage, via useAggregatedAdminScope).
   const urlTenantId = searchParams?.get("tenantId") ?? "";
 
-  const [days, setDays] = useState<7 | 30 | 90>(initialDays as 7 | 30 | 90);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
-  const progress = useFetchProgress("appAnalytics.lastFetchMs");
-  const { begin: progressBegin, finish: progressFinish } = progress;
 
   // Sessions panel state
   const [sessions, setSessions] = useState<SessionsResponse | null>(null);
@@ -244,6 +239,12 @@ function AppDetailContent() {
   // deep-link; falls back to the GA's own tenant.
   const scope = useAggregatedAdminScope({ urlTenantId });
   const { isGlobalAdmin, tenants, scopeInitialized, scopeKey } = scope;
+
+  // The window lives in the URL (?days=; the duration-regression bell links 35): page default 30,
+  // capped to the viewed tenant's edition.
+  const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: APPS_DEFAULT_WINDOW_DAYS, tenantId: scope.effectiveTenantId });
+  const progress = useFetchProgress(windowProgressKey("appAnalytics.lastFetchMs", days));
+  const { begin: progressBegin, finish: progressFinish } = progress;
 
   // Endpoint routing comes from the scope hook's routeGlobal (via scopedApi) — the former
   // local formula was equivalent except that a GA viewing their OWN tenant used the member
@@ -401,18 +402,19 @@ function AppDetailContent() {
     }
   };
 
-  // Single fetch effect: re-runs when scope, app, days, or tenant selection change.
+  // Single fetch effect: re-runs when scope, app, channel, days, or tenant selection change —
+  // app, channel and days come from the URL, so a link to another app on this same route refetches.
   // Gated on scopeInitialized so we don't waste a backend hit fetching the
   // wrong scope before the GA default-to-own-tenant has settled.
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     const run = async () => {
       setSessionsOffset(0);
       await Promise.all([fetchAnalytics(), fetchSessions(0, statusFilter)]);
     };
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, days, scopeKey]);
+  }, [scopeInitialized, windowReady, days, scopeKey, appName, source]);
 
   function formatDuration(s: number) {
     if (!s) return "—";
@@ -421,10 +423,18 @@ function AppDetailContent() {
     return `${(s / 3600).toFixed(1)}h`;
   }
 
+  // Beyond 90 days a window can span New Year; the ticks then name the year.
+  const series = analytics?.timeSeries ?? [];
+  const tickYears =
+    days > COMMUNITY_WINDOW_CAP_DAYS &&
+    series.length > 1 &&
+    String(series[0].bucketStart).slice(0, 4) !== String(series[series.length - 1].bucketStart).slice(0, 4);
+
   function formatBucketTick(value: unknown) {
     const d = new Date(String(value));
     if (isNaN(d.getTime())) return String(value);
-    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+    const monthDay = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+    return tickYears ? `${monthDay}/${String(d.getUTCFullYear()).slice(2)}` : monthDay;
   }
 
   return (
@@ -435,8 +445,9 @@ function AppDetailContent() {
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             <button
               onClick={() => {
-                // Tenant scope is carried in sessionStorage, so the list restores it on its own.
-                router.push("/apps");
+                // Tenant scope is carried in sessionStorage, so the list restores it on its own;
+                // a non-default window travels back as ?days=.
+                router.push(appsHubUrl({ days: days === APPS_DEFAULT_WINDOW_DAYS ? undefined : days }));
               }}
               className="text-sm text-green-700 hover:underline mb-2 inline-flex items-center"
             >
@@ -461,7 +472,7 @@ function AppDetailContent() {
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <TenantScopeSelector scope={scope} allowAggregated />
-                {([7, 30, 90] as const).map((d) => (
+                {WINDOW_PRESETS.map((d) => (
                   <button
                     key={d}
                     onClick={() => setDays(d)}

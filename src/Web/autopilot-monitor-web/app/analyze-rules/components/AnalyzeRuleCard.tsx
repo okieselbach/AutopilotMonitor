@@ -7,6 +7,7 @@ import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
+import { SPARKLINE_BARS, sparklineBars } from "@/lib/ruleSparkline";
 
 /** One day of rule telemetry (rule-stats `trend`; sparse — days without activity have no entry). */
 export interface RuleTrendPoint {
@@ -35,32 +36,32 @@ export interface RuleRegressionInfo {
 }
 
 /**
- * 30-day fire-count sparkline (F3): densifies the sparse trend rows into one bar per day so
- * gaps read as honest zeros. Hidden below lg — the collapsed header is already dense on mobile.
+ * Fire-count sparkline over the page's window (F3): densifies the sparse trend rows so gaps read
+ * as honest zeros — one bar per day up to 30 days, several days per bar beyond (sparklineBars). The
+ * width never changes; a shorter window leaves the left bars out. Hidden below lg — the collapsed
+ * header is already dense on mobile.
  */
-function RuleSparkline({ trend }: { trend: RuleTrendPoint[] }) {
+function RuleSparkline({ trend, windowDays }: { trend: RuleTrendPoint[]; windowDays: number }) {
   if (trend.length === 0) return null;
   const byDate = new Map(trend.map((t) => [t.date, t.fireCount]));
   const end = new Date(trend[trend.length - 1].date + "T00:00:00Z");
-  const values: number[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(end);
-    d.setUTCDate(d.getUTCDate() - i);
-    values.push(byDate.get(d.toISOString().slice(0, 10)) ?? 0);
-  }
+  const { values, daysPerBar } = sparklineBars(byDate, end, windowDays);
   const max = Math.max(...values);
   if (max === 0) return null;
+  const offset = SPARKLINE_BARS - values.length;
   return (
     <span
       className="hidden lg:inline-flex items-end flex-shrink-0 text-gray-300"
-      title={`Daily fires, last 30 days (peak ${max}/day)`}
+      title={daysPerBar === 1
+        ? `Daily fires, last ${windowDays} days (peak ${max}/day)`
+        : `Fires per ${daysPerBar} days, last ${windowDays} days (peak ${max})`}
       aria-hidden
     >
-      <svg width={90} height={16}>
+      <svg width={SPARKLINE_BARS * 3} height={16}>
         {values.map((v, i) => {
           const h = v > 0 ? Math.max(2, Math.round((v / max) * 16)) : 1;
           return (
-            <rect key={i} x={i * 3} y={16 - h} width={2} height={h}
+            <rect key={i} x={(offset + i) * 3} y={16 - h} width={2} height={h}
               className={v > 0 ? "fill-indigo-300" : "fill-gray-200"} />
           );
         })}
@@ -106,8 +107,10 @@ interface AnalyzeRuleCardProps {
   onScrollToCopy?: (ruleId: string) => void;
   hitRate?: number | null;
   fireCount?: number | null;
-  /** Sparse daily telemetry for the 30d sparkline (rule-stats `trend`). */
+  /** Sparse daily telemetry for the sparkline (rule-stats `trend`). */
   trend?: RuleTrendPoint[] | null;
+  /** The page's telemetry window (days) — sparkline and tooltips; default 30. */
+  windowDays?: number;
   /** Active regression episode → renders the F3 badge while the alert is live. */
   regression?: RuleRegressionInfo | null;
 }
@@ -123,7 +126,7 @@ export default function AnalyzeRuleCard({
   readOnly = false,
   variant = "default",
   onConfigureTemplate, templateCopyExists, templateCopyRuleId, onScrollToCopy,
-  hitRate, fireCount, trend, regression,
+  hitRate, fireCount, trend, regression, windowDays = 30,
 }: AnalyzeRuleCardProps) {
   const isTemplateVariant = variant === "template";
   const [showJson, setShowJson] = useState(false);
@@ -229,7 +232,7 @@ export default function AnalyzeRuleCard({
           <div className="w-full min-w-0 flex items-center gap-x-4">
             <h3 className="flex-1 min-w-0 text-sm font-semibold text-gray-900">{rule.title}</h3>
             <span className="text-xs text-gray-500 flex-shrink-0 hidden md:inline" title="Confidence Threshold">Threshold: {rule.confidenceThreshold}%</span>
-            {trend && trend.length > 0 && <RuleSparkline trend={trend} />}
+            {trend && trend.length > 0 && <RuleSparkline trend={trend} windowDays={windowDays} />}
             {hitRate != null && hitRate > 0 && (
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
@@ -237,7 +240,7 @@ export default function AnalyzeRuleCard({
                   hitRate >= 5 ? "bg-amber-50 text-amber-700 border border-amber-200" :
                   "bg-gray-50 text-gray-600 border border-gray-200"
                 }`}
-                title={`Fires on ${hitRate}% of evaluated sessions (${fireCount ?? 0} total fires in last 30 days)`}
+                title={`Fires on ${hitRate}% of evaluated sessions (${fireCount ?? 0} total fires in last ${windowDays} days)`}
               >
                 {hitRate}% hit rate
               </span>

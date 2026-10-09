@@ -6,8 +6,8 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import VulnerabilityExposurePanel from "@/components/VulnerabilityExposurePanel";
 import type { CveExposureSummary } from "@/utils/wire-types.generated";
-import type { SoftwareTabScope, TimeRange } from "./types";
-import { rangeToDays } from "./types";
+import type { SoftwareTabScope } from "./types";
+import { windowProgressKey } from "@/lib/timeWindow";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 import { notifyApiError } from "@/contexts/NotificationContext";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
@@ -16,7 +16,7 @@ const TOP_N = 20;
 /** Per severity/priority band, its top entries outside the lists, so every band filter shows something. */
 const PER_BAND = 10;
 
-export default function VulnerabilitiesTab({ scope, timeRange }: { scope: SoftwareTabScope; timeRange: TimeRange }) {
+export default function VulnerabilitiesTab({ scope, days, windowReady }: { scope: SoftwareTabScope; days: number; windowReady: boolean }) {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
     const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
@@ -28,13 +28,14 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
   const showTenantCount = isGlobalAdmin && !selectedTenantId;
 
   // The cross-tenant scan takes far longer than one tenant's, so each keeps its own estimate.
-  const progress = useFetchProgress(showTenantCount ? "vulnExposure.all.lastFetchMs" : "vulnExposure.tenant.lastFetchMs");
+  const progress = useFetchProgress(
+    windowProgressKey(showTenantCount ? "vulnExposure.all.lastFetchMs" : "vulnExposure.tenant.lastFetchMs", days),
+  );
   const { begin: progressBegin, finish: progressFinish } = progress;
 
   useEffect(() => {
-    if (!scopeInitialized) return;
+    if (!scopeInitialized || !windowReady) return;
     let cancelled = false;
-    const days = rangeToDays(timeRange);
 
     const run = async () => {
       let succeeded = false;
@@ -66,7 +67,7 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, scopeKey, timeRange]);
+  }, [scopeInitialized, windowReady, scopeKey, days]);
 
   return (
     <VulnerabilityExposurePanel
