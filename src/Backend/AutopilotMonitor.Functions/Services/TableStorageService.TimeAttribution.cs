@@ -303,15 +303,23 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Retention: deletes aggregate rows older than the cutoff (RowKey starts with the date,
-        /// so a string compare works across partitions). Mirrors the UsageMetrics 180d policy.
+        /// Retention bound: deletes daily aggregate rows older than the cutoff in every partition
+        /// (RowKey starts with the date, so a string compare works across partitions; the
+        /// "rolling30" rows sort above every date and stay).
         /// </summary>
-        public async Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
+        public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
+            => DeleteTimeAttributionAggregatesAsync($"RowKey lt '{cutoffDate:yyyy-MM-dd}'");
+
+        /// <summary>Tenant retention: deletes one tenant's daily rows older than the cutoff; its rolling rows stay.</summary>
+        public Task<int> DeleteTenantTimeAttributionAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate)
+            => DeleteTimeAttributionAggregatesAsync(
+                $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}' and RowKey lt '{cutoffDate:yyyy-MM-dd}'");
+
+        private async Task<int> DeleteTimeAttributionAggregatesAsync(string filter)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TimeAttributionAggregates);
-                var filter = $"RowKey lt '{cutoffDate:yyyy-MM-dd}'";
                 var deleted = 0;
                 await foreach (var entity in tableClient.QueryAsync<TableEntity>(
                     filter: filter, select: new[] { "PartitionKey", "RowKey" }))

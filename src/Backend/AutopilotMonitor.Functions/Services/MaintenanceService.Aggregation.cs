@@ -590,15 +590,19 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "Failed to cleanup old tenant MCP usage counters");
             }
 
-            // Rule stats retention: delete entries older than 90 days
+            // Rule stats: tenant partitions follow the tenant's retention (pruned per tenant by the
+            // retention fanout); this pass is their ceiling, plus the platform rows and the legacy
+            // layout at their own lifetime.
             try
             {
-                var ruleStatsCutoff = DateTime.UtcNow.AddDays(-90);
                 var ruleStatsTenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
-                var deletedRuleStats = await _metricsRepo.DeleteRuleStatsOlderThanAsync(ruleStatsCutoff, ruleStatsTenantIds);
+                var deletedRuleStats = await _metricsRepo.DeleteRuleStatsOlderThanAsync(
+                    DateTime.UtcNow.AddDays(-DataLifetimes.TenantRowCeilingDays),
+                    DateTime.UtcNow.AddDays(-DataLifetimes.GlobalRuleStatsDays),
+                    ruleStatsTenantIds);
 
                 if (deletedRuleStats > 0)
-                    _logger.LogInformation("Rule stats cleanup: deleted {Count} entries older than 90 days", deletedRuleStats);
+                    _logger.LogInformation("Rule stats cleanup: deleted {Count} entries beyond the tenant ceiling or platform lifetime", deletedRuleStats);
             }
             catch (Exception ex)
             {
@@ -1043,9 +1047,11 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Retention cleanup for append-only tables that previously had no purge mechanism and
         /// therefore grew unbounded: GlobalNotifications + TenantNotifications (hybrid: dismissed 30d /
-        /// unread 180d), HardwareRejectionNotificationTracker (30d), AuditLogs (180d), UsageMetrics
-        /// (180d), BackupJobs (365d). Each table is handled in its own try/catch so one failure never
-        /// blocks the others. Retention windows are fixed product decisions (no AdminConfig knob),
+        /// unread 180d), HardwareRejectionNotificationTracker (30d), UsageMetrics (180d), BackupJobs
+        /// (365d), plus the outer bounds of the rows that follow tenant retention (see
+        /// <see cref="DataLifetimes"/>): AuditLogs, time-attribution, device-journey and
+        /// verdict-calibration aggregates. Each table is handled in its own try/catch so one failure
+        /// never blocks the others. Retention windows are fixed product decisions (no AdminConfig knob),
         /// mirroring the DistressReports pattern. PlatformStats is intentionally excluded — it is a
         /// single upserted row, not append-only.
         /// </summary>
@@ -1057,8 +1063,6 @@ namespace AutopilotMonitor.Functions.Services
             const int notificationDismissedRetentionDays = 30;
             const int notificationUnreadRetentionDays = 180;
             const int hardwareRejectionRetentionDays = 30;
-            const int auditLogRetentionDays = 180;
-            const int usageMetricsRetentionDays = 180;
             const int backupJobRetentionDays = 365;
 
             var now = DateTime.UtcNow;
@@ -1125,11 +1129,21 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "Failed to cleanup old delegation invitation rows");
             }
 
+            // Audit trail: each tenant's rows follow its retention with a 180-day floor, pruned per
+            // tenant by the retention fanout; this pass is the ceiling for tenant rows, while the
+            // platform partition (no tenant, no retention) and the legacy rows without a recoverable
+            // event time keep the floor.
             try
             {
-                var deleted = await _maintenanceRepo.DeleteAuditLogsOlderThanAsync(now.AddDays(-auditLogRetentionDays));
+                var floorCutoff = now.AddDays(-DataLifetimes.AuditLogFloorDays);
+                var deleted =
+                    await _maintenanceRepo.DeleteAuditLogsOlderThanAsync(
+                        now.AddDays(-DataLifetimes.TenantRowCeilingDays), legacyCutoffUtc: floorCutoff)
+                    + await _maintenanceRepo.DeleteTenantAuditLogsOlderThanAsync(
+                        AutopilotMonitor.Shared.Constants.AuditGlobalTenantId, floorCutoff);
                 if (deleted > 0)
-                    _logger.LogInformation("Audit log cleanup: deleted {Count} entries older than {Days} days", deleted, auditLogRetentionDays);
+                    _logger.LogInformation("Audit log cleanup: deleted {Count} entries beyond the tenant ceiling or the platform/legacy floor",
+                        deleted);
             }
             catch (Exception ex)
             {
@@ -1138,7 +1152,7 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
-                var cutoffDate = now.AddDays(-usageMetricsRetentionDays).ToString("yyyy-MM-dd");
+                var cutoffDate = now.AddDays(-DataLifetimes.UsageMetricsDays).ToString("yyyy-MM-dd");
                 var deleted = await _metricsRepo.DeleteUsageMetricsSnapshotsOlderThanAsync(cutoffDate);
                 if (deleted > 0)
                     _logger.LogInformation("Usage metrics cleanup: deleted {Count} snapshots older than {Cutoff}", deleted, cutoffDate);
@@ -1159,41 +1173,44 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "Failed to cleanup old backup job records");
             }
 
-            // Time-attribution daily aggregates: same 180d window as the usage-metrics snapshots
-            // they sit beside. (SessionTimeBreakdowns needs no age sweep — breakdown rows are
-            // deleted with their session via the deletion-manifest cascade / offboarding wipe.)
+            // Time-attribution daily aggregates: tenant rows follow the tenant's retention (pruned per
+            // tenant by the retention fanout); this pass bounds every partition, the platform rows
+            // included, at the route's needs. (SessionTimeBreakdowns needs no age sweep — breakdown
+            // rows are deleted with their session via the deletion-manifest cascade / offboarding wipe.)
             try
             {
-                var deleted = await _metricsRepo.DeleteTimeAttributionAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                var deleted = await _metricsRepo.DeleteTimeAttributionAggregatesOlderThanAsync(now.AddDays(-DataLifetimes.TimeAttributionDays));
                 if (deleted > 0)
-                    _logger.LogInformation("Time-attribution aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+                    _logger.LogInformation("Time-attribution aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, DataLifetimes.TimeAttributionDays);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to cleanup old time-attribution aggregates");
             }
 
-            // Device-journey (FTR) daily aggregates: same 180d window. (DeviceHistories needs no
-            // age sweep — chain refs of deleted sessions are pruned tombstone-driven by
-            // SweepDeviceJourneysAsync and the rows die with tenant offboarding.)
+            // Device-journey (FTR) daily aggregates: tenant rows follow the tenant's retention (pruned
+            // per tenant by the retention fanout); this pass is the ceiling for tenant rows and the
+            // lifetime of the platform rows. (DeviceHistories needs no age sweep — chain refs of
+            // deleted sessions are pruned tombstone-driven by SweepDeviceJourneysAsync and the rows
+            // die with tenant offboarding.)
             try
             {
-                var deleted = await _metricsRepo.DeleteDeviceJourneyAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                var deleted = await _metricsRepo.DeleteDeviceJourneyAggregatesOlderThanAsync(now.AddDays(-DataLifetimes.GlobalDeviceJourneyDays));
                 if (deleted > 0)
-                    _logger.LogInformation("Device-journey aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+                    _logger.LogInformation("Device-journey aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, DataLifetimes.GlobalDeviceJourneyDays);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to cleanup old device-journey aggregates");
             }
 
-            // Verdict-calibration daily aggregates: same 180d window (regenerable; the radar
-            // needs 35d, the matrix serves up to 180d).
+            // Verdict-calibration daily aggregates (regenerable; the radar needs 35d, the matrix
+            // serves up to the lifetime).
             try
             {
-                var deleted = await _metricsRepo.DeleteVerdictCalibrationAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                var deleted = await _metricsRepo.DeleteVerdictCalibrationAggregatesOlderThanAsync(now.AddDays(-DataLifetimes.VerdictCalibrationDays));
                 if (deleted > 0)
-                    _logger.LogInformation("Verdict-calibration aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+                    _logger.LogInformation("Verdict-calibration aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, DataLifetimes.VerdictCalibrationDays);
             }
             catch (Exception ex)
             {

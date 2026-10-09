@@ -146,8 +146,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Many tenants, one range read each with bounded concurrency; never includes "global".</summary>
         Task<List<RuleStatsEntry>> GetRuleStatsForTenantsAsync(IReadOnlyCollection<string> tenantIds, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResultsPerTenant = 10000);
-        /// <summary>Retention cleanup per scope (every tenant plus "global"); returns the number of rows deleted.</summary>
-        Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds);
+        /// <summary>
+        /// Retention cleanup across scopes: tenant partitions older than <paramref name="tenantCutoffDate"/> (their
+        /// ceiling; each tenant's own retention is applied by <see cref="DeleteTenantRuleStatsOlderThanAsync"/>), "global"
+        /// and the legacy layout older than <paramref name="platformCutoffDate"/>. Returns the number of rows deleted.
+        /// </summary>
+        Task<int> DeleteRuleStatsOlderThanAsync(DateTime tenantCutoffDate, DateTime platformCutoffDate, IReadOnlyCollection<string> tenantIds);
+        /// <summary>One tenant's partitions older than the cutoff (tenant retention); returns the number of rows deleted.</summary>
+        Task<int> DeleteTenantRuleStatsOlderThanAsync(string tenantId, DateTime cutoffDate);
 
         // --- F1 Time Attribution (insights spec §F1, PR2) ---
         /// <summary>Computes + stores the session's time breakdown; null when not computable (non-terminal, no duration, events aged out) — fail-soft.</summary>
@@ -165,6 +171,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Deletes one aggregate row (daily date key or "rolling30") — the sweep's stale-bucket reconcile.</summary>
         Task DeleteTimeAttributionAggregateAsync(string tenantId, string dateKey, string enrollmentClass);
         Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate);
+        /// <summary>One tenant's daily rows older than the cutoff (tenant retention); its rolling rows stay.</summary>
+        Task<int> DeleteTenantTimeAttributionAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate);
 
         // --- F2 Device History / First-Time-Right (insights spec §F2, PR4) ---
         /// <summary>Point-reads one device's history row by NORMALIZED serial; null when absent.</summary>
@@ -180,6 +188,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Deletes one daily FTR row — the sweep's stale-bucket reconcile.</summary>
         Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey);
         Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate);
+        /// <summary>One tenant's daily FTR rows older than the cutoff (tenant retention).</summary>
+        Task<int> DeleteTenantDeviceJourneyAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate);
 
         // --- Verdict calibration (internal/docs/backend/verdict-calibration.md) ---
         Task<bool> SaveVerdictCalibrationAggregateAsync(VerdictCalibrationDailyAggregate aggregate);

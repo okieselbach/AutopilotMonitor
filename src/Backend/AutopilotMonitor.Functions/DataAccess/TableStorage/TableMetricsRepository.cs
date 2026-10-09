@@ -137,8 +137,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string? endDate = null, string? ruleType = null, int maxResultsPerTenant = 10000)
             => _storage.GetRuleStatsForTenantsAsync(tenantIds, startDate, endDate, ruleType, maxResultsPerTenant);
 
-        public Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds)
-            => _storage.DeleteRuleStatsOlderThanAsync(cutoffDate, tenantIds);
+        public Task<int> DeleteRuleStatsOlderThanAsync(DateTime tenantCutoffDate, DateTime platformCutoffDate, IReadOnlyCollection<string> tenantIds)
+            => _storage.DeleteRuleStatsOlderThanAsync(tenantCutoffDate, platformCutoffDate, tenantIds);
+
+        public Task<int> DeleteTenantRuleStatsOlderThanAsync(string tenantId, DateTime cutoffDate)
+            => _storage.DeleteTenantRuleStatsOlderThanAsync(tenantId, cutoffDate);
 
         public Task<SessionTimeBreakdown?> ComputeAndStoreSessionTimeBreakdownAsync(string tenantId, string sessionId)
             => _storage.ComputeAndStoreSessionTimeBreakdownAsync(tenantId, sessionId);
@@ -167,6 +170,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteTimeAttributionAggregatesOlderThanAsync(cutoffDate);
 
+        public Task<int> DeleteTenantTimeAttributionAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate)
+            => _storage.DeleteTenantTimeAttributionAggregatesOlderThanAsync(tenantId, cutoffDate);
+
         public Task<DeviceHistory?> GetDeviceHistoryAsync(string tenantId, string serialKey)
             => _storage.GetDeviceHistoryAsync(tenantId, serialKey);
 
@@ -190,6 +196,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteDeviceJourneyAggregatesOlderThanAsync(cutoffDate);
+
+        public Task<int> DeleteTenantDeviceJourneyAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate)
+            => _storage.DeleteTenantDeviceJourneyAggregatesOlderThanAsync(tenantId, cutoffDate);
 
         public Task<bool> SaveVerdictCalibrationAggregateAsync(VerdictCalibrationDailyAggregate aggregate)
             => _storage.SaveVerdictCalibrationAggregateAsync(aggregate);

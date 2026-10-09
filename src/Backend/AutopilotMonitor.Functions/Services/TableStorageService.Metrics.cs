@@ -2003,29 +2003,38 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Retention cleanup: per scope (every tenant plus "global") a PartitionKey range delete;
-        /// while legacy rows can still exist, additionally the legacy date-keyed rows — checked
-        /// row by row, because a bare date range would also match tenant GUIDs that sort inside
-        /// it. Per-row failures are logged and skipped so one 404 does not abort the sweep.
+        /// Retention cleanup: per scope a PartitionKey range delete — every tenant at
+        /// <paramref name="tenantCutoffDate"/> (the ceiling; each tenant's own retention is applied by
+        /// <see cref="DeleteTenantRuleStatsOlderThanAsync"/>), "global" at <paramref name="platformCutoffDate"/>;
+        /// while legacy rows can still exist, additionally the legacy date-keyed rows at the platform
+        /// cutoff — checked row by row, because a bare date range would also match tenant GUIDs that
+        /// sort inside it. Per-row failures are logged and skipped so one 404 does not abort the sweep.
         /// </summary>
-        public async Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds)
+        public async Task<int> DeleteRuleStatsOlderThanAsync(
+            DateTime tenantCutoffDate, DateTime platformCutoffDate, IReadOnlyCollection<string> tenantIds)
         {
-            var cutoffStr = cutoffDate.ToString("yyyy-MM-dd");
+            var tenantCutoffStr = tenantCutoffDate.ToString("yyyy-MM-dd");
+            var platformCutoffStr = platformCutoffDate.ToString("yyyy-MM-dd");
             var deleted = 0;
 
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
-                var scopes = (tenantIds ?? Array.Empty<string>()).Append(RuleStatsKeys.GlobalScope).Distinct(StringComparer.OrdinalIgnoreCase);
+                var tenantScopes = (tenantIds ?? Array.Empty<string>())
+                    .Where(t => !string.Equals(t, RuleStatsKeys.GlobalScope, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var scope in scopes)
-                    deleted += await DeleteRuleStatsRowsAsync(tableClient, BuildRuleStatsCleanupFilter(scope, cutoffStr), requireLegacyKey: false).ConfigureAwait(false);
+                foreach (var scope in tenantScopes)
+                    deleted += await DeleteRuleStatsRowsAsync(tableClient, BuildRuleStatsCleanupFilter(scope, tenantCutoffStr), requireLegacyKey: false).ConfigureAwait(false);
+
+                deleted += await DeleteRuleStatsRowsAsync(tableClient, BuildRuleStatsCleanupFilter(RuleStatsKeys.GlobalScope, platformCutoffStr), requireLegacyKey: false).ConfigureAwait(false);
 
                 if (RuleStatsKeys.LegacyLayoutActive(DateTime.UtcNow))
-                    deleted += await DeleteRuleStatsRowsAsync(tableClient, $"PartitionKey ge '2000-01-01' and PartitionKey lt '{cutoffStr}'", requireLegacyKey: true).ConfigureAwait(false);
+                    deleted += await DeleteRuleStatsRowsAsync(tableClient, $"PartitionKey ge '2000-01-01' and PartitionKey lt '{platformCutoffStr}'", requireLegacyKey: true).ConfigureAwait(false);
 
                 if (deleted > 0)
-                    _logger.LogInformation("Deleted {Count} rule stats entries older than {Cutoff}", deleted, cutoffStr);
+                    _logger.LogInformation("Deleted {Count} rule stats entries (tenant ceiling {TenantCutoff}, platform {PlatformCutoff})",
+                        deleted, tenantCutoffStr, platformCutoffStr);
             }
             catch (Exception ex)
             {
@@ -2033,6 +2042,22 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return deleted;
+        }
+
+        /// <summary>Tenant retention: deletes one tenant's partitions older than the cutoff.</summary>
+        public async Task<int> DeleteTenantRuleStatsOlderThanAsync(string tenantId, DateTime cutoffDate)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
+                return await DeleteRuleStatsRowsAsync(
+                    tableClient, BuildRuleStatsCleanupFilter(tenantId, cutoffDate.ToString("yyyy-MM-dd")), requireLegacyKey: false).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete old rule stats entries for tenant {TenantId}", tenantId);
+                return 0;
+            }
         }
 
         private async Task<int> DeleteRuleStatsRowsAsync(TableClient tableClient, string filter, bool requireLegacyKey)

@@ -287,13 +287,15 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordSessionDeletionMaintenanceCompletedAsync(
             bool killSwitchActive, int tenantsProcessed, int sessionsEnqueued,
             int sessionsSkipped, int rateLimitedTenants, int blobsTtlGced, int preparingRowsCleared,
-            int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch, bool abortedByBudget)
+            int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch, bool abortedByBudget,
+            int tenantRowsPruned)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceCompleted, OpsEventSeverity.Info,
-                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
+                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} tenantRowsPruned={tenantRowsPruned} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
                 null, "System.Maintenance", new {
                     killSwitchActive, tenantsProcessed, sessionsEnqueued,
                     sessionsSkipped, rateLimitedTenants, blobsTtlGced, preparingRowsCleared,
                     strandedQueuedDetected, durationMs, abortedByKillSwitch, abortedByBudget,
+                    tenantRowsPruned,
                 });
 
         /// <summary>

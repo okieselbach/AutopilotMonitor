@@ -421,11 +421,88 @@ public class SessionRetentionFanoutServiceTests
             "t1", now.AddDays(-90), It.IsAny<int>(), It.IsAny<bool>()), Times.Once);
     }
 
+    // ============================ Rows outside the cascade follow retention ====
+
+    [Fact]
+    public async Task TenantRows_PrunedAtTheRetentionCutoff_AuditAtItsFloor_EvenWithNoSessionToDelete()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var harness = new Harness(utcNow: () => now);
+        harness.WithTenant("t1", retentionDays: 90, sessions: Array.Empty<SessionSummary>());
+        harness.MetricsRepo.Setup(m => m.DeleteTenantDeviceJourneyAggregatesOlderThanAsync("t1", now.AddDays(-90))).ReturnsAsync(2);
+        harness.MetricsRepo.Setup(m => m.DeleteTenantTimeAttributionAggregatesOlderThanAsync("t1", now.AddDays(-90))).ReturnsAsync(3);
+        harness.MetricsRepo.Setup(m => m.DeleteTenantRuleStatsOlderThanAsync("t1", now.AddDays(-90))).ReturnsAsync(4);
+        harness.MaintenanceRepo.Setup(m => m.DeleteTenantAuditLogsOlderThanAsync("t1", now.AddDays(-180))).ReturnsAsync(5);
+
+        var result = await harness.RunAsync();
+
+        Assert.Equal(14, result.TenantRowsPruned);
+        harness.MetricsRepo.Verify(m => m.DeleteTenantDeviceJourneyAggregatesOlderThanAsync("t1", now.AddDays(-90)), Times.Once);
+        harness.MetricsRepo.Verify(m => m.DeleteTenantTimeAttributionAggregatesOlderThanAsync("t1", now.AddDays(-90)), Times.Once);
+        harness.MetricsRepo.Verify(m => m.DeleteTenantRuleStatsOlderThanAsync("t1", now.AddDays(-90)), Times.Once);
+        harness.MaintenanceRepo.Verify(m => m.DeleteTenantAuditLogsOlderThanAsync("t1", now.AddDays(-180)), Times.Once);
+    }
+
+    [Fact]
+    public async Task TenantRows_ProWithLongerRetention_KeepRowsAndAuditTrailThatLong()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var harness = new Harness(utcNow: () => now);
+        harness.WithTenant("t1", retentionDays: 365, sessions: Array.Empty<SessionSummary>(), planTier: "pro");
+
+        await harness.RunAsync();
+
+        harness.MetricsRepo.Verify(m => m.DeleteTenantDeviceJourneyAggregatesOlderThanAsync("t1", now.AddDays(-365)), Times.Once);
+        harness.MetricsRepo.Verify(m => m.DeleteTenantRuleStatsOlderThanAsync("t1", now.AddDays(-365)), Times.Once);
+        harness.MaintenanceRepo.Verify(m => m.DeleteTenantAuditLogsOlderThanAsync("t1", now.AddDays(-365)), Times.Once);
+    }
+
+    [Fact]
+    public async Task TenantRows_ShortRetention_AuditTrailKeepsTheFloor()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var harness = new Harness(utcNow: () => now);
+        harness.WithTenant("t1", retentionDays: 30, sessions: Array.Empty<SessionSummary>());
+
+        await harness.RunAsync();
+
+        harness.MetricsRepo.Verify(m => m.DeleteTenantRuleStatsOlderThanAsync("t1", now.AddDays(-30)), Times.Once);
+        harness.MaintenanceRepo.Verify(m => m.DeleteTenantAuditLogsOlderThanAsync("t1", now.AddDays(-180)), Times.Once);
+    }
+
+    [Fact]
+    public async Task TenantRows_RetentionZero_NoTenantPrune()
+    {
+        var harness = new Harness();
+        harness.WithTenant("t1", retentionDays: 0, sessions: Array.Empty<SessionSummary>());
+
+        var result = await harness.RunAsync();
+
+        Assert.Equal(0, result.TenantRowsPruned);
+        harness.MetricsRepo.VerifyNoOtherCalls();
+        harness.MaintenanceRepo.Verify(m => m.DeleteTenantAuditLogsOlderThanAsync(It.IsAny<string>(), It.IsAny<DateTime>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TenantRows_FailingPrune_DoesNotBlockTheSessionFanout()
+    {
+        var harness = new Harness();
+        harness.WithTenant("t1", retentionDays: 90, sessions: new[] { Old("s1", ageDays: 120) });
+        harness.MetricsRepo.Setup(m => m.DeleteTenantDeviceJourneyAggregatesOlderThanAsync(It.IsAny<string>(), It.IsAny<DateTime>()))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+
+        var result = await harness.RunAsync();
+
+        Assert.Equal(0, result.TenantRowsPruned);
+        Assert.Equal(1, result.SessionsEnqueued);
+    }
+
     // ============================================================ Harness ====
 
     private sealed class Harness
     {
         public Mock<IMaintenanceRepository> MaintenanceRepo { get; }
+        public Mock<IMetricsRepository> MetricsRepo { get; } = new();
         public Mock<TenantConfigurationService> TenantConfig { get; }
         public Mock<ISessionDeletionEnqueuer> Enqueuer { get; }
         public Mock<AdminConfigurationService> AdminConfig { get; }
@@ -465,7 +542,7 @@ public class SessionRetentionFanoutServiceTests
             // Use internal ctor to inject a no-op throttle so the rate-limit test runs in real-time
             // (50ms × 100 = 5s otherwise) and an optional scripted clock for the budget tests.
             Sut = new SessionRetentionFanoutService(
-                MaintenanceRepo.Object, TenantConfig.Object, Enqueuer.Object,
+                MaintenanceRepo.Object, MetricsRepo.Object, TenantConfig.Object, Enqueuer.Object,
                 AdminConfig.Object,
                 NullLogger<SessionRetentionFanoutService>.Instance,
                 throttle: throttle ?? ((_, _) => Task.CompletedTask),

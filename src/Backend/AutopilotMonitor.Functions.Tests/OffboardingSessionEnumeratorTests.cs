@@ -108,7 +108,8 @@ public class OffboardingSessionEnumeratorTests
         public Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
         public Task<RawPage<AuditLogEntry>> GetAuditLogsPageAsync(string tenantId, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions = false, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
         public Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions = false, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
-        public Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc) => throw new NotImplementedException();
+        public Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc, DateTime legacyCutoffUtc) => throw new NotImplementedException();
+        public Task<int> DeleteTenantAuditLogsOlderThanAsync(string tenantId, DateTime cutoffUtc) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();

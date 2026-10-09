@@ -193,7 +193,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     internal static class DeviceJourneyMetricsResponseBuilder
     {
         internal const int DefaultWindowDays = 30;
-        internal const int MaxWindowDays = 180; // aggregate retention — older rows no longer exist
+        // Tenant rows follow the tenant's retention; none is older than the ceiling, the "global" rows live as long.
+        internal const int MaxWindowDays = DataLifetimes.TenantRowCeilingDays;
         internal const int MaxRepeatDevices = 10;
 
         /// <summary>

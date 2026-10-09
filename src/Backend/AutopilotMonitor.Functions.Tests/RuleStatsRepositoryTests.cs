@@ -196,7 +196,7 @@ public class RuleStatsRepositoryTests
     // ---------- cleanup ----------
 
     [Fact]
-    public async Task Cleanup_deletes_per_scope_and_only_bare_date_rows_from_the_legacy_query()
+    public async Task Cleanup_bounds_tenants_at_the_ceiling_global_and_legacy_at_the_platform_cutoff()
     {
         var h = new Harness
         {
@@ -207,18 +207,40 @@ public class RuleStatsRepositoryTests
                     new TableEntity("2020a3f1-0000-0000-0000-000000000000_2026-05-01", "ANALYZE-A"), // GUID inside the date range → keep
                 }
                 : f.StartsWith($"PartitionKey ge '{Tenant}_'")
-                    ? new[] { new TableEntity($"{Tenant}_2026-05-30", "ANALYZE-B") }
+                    ? new[] { new TableEntity($"{Tenant}_2025-09-30", "ANALYZE-B") }
                     : Array.Empty<TableEntity>()
         };
 
-        var deleted = await h.Sut.DeleteRuleStatsOlderThanAsync(new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc), new[] { Tenant });
+        var deleted = await h.Sut.DeleteRuleStatsOlderThanAsync(
+            tenantCutoffDate: new DateTime(2025, 10, 9, 0, 0, 0, DateTimeKind.Utc),
+            platformCutoffDate: new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc),
+            new[] { Tenant, "global" });
 
-        Assert.Contains($"PartitionKey ge '{Tenant}_' and PartitionKey lt '{Tenant}_2026-06-07'", h.Filters);
+        Assert.Contains($"PartitionKey ge '{Tenant}_' and PartitionKey lt '{Tenant}_2025-10-09'", h.Filters);
         Assert.Contains("PartitionKey ge 'global_' and PartitionKey lt 'global_2026-06-07'", h.Filters);
+        Assert.Contains("PartitionKey ge '2000-01-01' and PartitionKey lt '2026-06-07'", h.Filters);
+        Assert.Single(h.Filters, f => f.StartsWith("PartitionKey ge 'global_'")); // a "global" tenant id is no second pass
         Assert.Equal(2, deleted);
         Assert.Contains(("2026-05-01", $"{Tenant}_ANALYZE-A"), h.Deleted);
-        Assert.Contains(($"{Tenant}_2026-05-30", "ANALYZE-B"), h.Deleted);
+        Assert.Contains(($"{Tenant}_2025-09-30", "ANALYZE-B"), h.Deleted);
         Assert.DoesNotContain(h.Deleted, d => d.Pk.StartsWith("2020a3f1"));
+    }
+
+    [Fact]
+    public async Task Tenant_cleanup_deletes_only_that_tenants_partitions_before_its_cutoff()
+    {
+        var h = new Harness
+        {
+            RowsFor = f => f.StartsWith($"PartitionKey ge '{Tenant}_'")
+                ? new[] { new TableEntity($"{Tenant}_2026-05-30", "ANALYZE-B") }
+                : Array.Empty<TableEntity>()
+        };
+
+        var deleted = await h.Sut.DeleteTenantRuleStatsOlderThanAsync(Tenant, new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(new[] { $"PartitionKey ge '{Tenant}_' and PartitionKey lt '{Tenant}_2026-06-07'" }, h.Filters);
+        Assert.Equal(1, deleted);
+        Assert.Equal(new[] { ($"{Tenant}_2026-05-30", "ANALYZE-B") }, h.Deleted);
     }
 
     // ---------- platform stats (D-198) ----------

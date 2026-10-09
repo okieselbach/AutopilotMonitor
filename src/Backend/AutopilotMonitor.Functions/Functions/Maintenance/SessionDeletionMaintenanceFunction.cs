@@ -240,7 +240,8 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                     strandedQueuedDetected: strandedQueuedDetected,
                     durationMs: (int)sw.ElapsedMilliseconds,
                     abortedByKillSwitch: fanoutResult.AbortedByKillSwitch,
-                    abortedByBudget: fanoutResult.AbortedByBudget);
+                    abortedByBudget: fanoutResult.AbortedByBudget,
+                    tenantRowsPruned: fanoutResult.TenantRowsPruned);
 
                 _logger.LogInformation(
                     "SessionDeletionMaintenance: completed in {Ms}ms — killSwitch={KillSwitch} tenants={Tenants} enqueued={Enqueued} skipped={Skipped} blobs={Blobs} preparing={Preparing} stranded={Stranded} tombstones={Tombstones} abortedByBudget={Budget}",

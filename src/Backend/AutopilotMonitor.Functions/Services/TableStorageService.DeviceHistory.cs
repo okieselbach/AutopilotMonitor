@@ -306,17 +306,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Retention: deletes FTR aggregate rows older than the cutoff (RowKey IS the date, so a
-        /// string compare works across partitions). Mirrors the UsageMetrics 180d policy.
-        /// DeviceHistories needs no age sweep — refs are pruned tombstone-driven and the rows
-        /// die with tenant offboarding.
+        /// Retention ceiling: deletes FTR aggregate rows older than the cutoff in every partition
+        /// (RowKey IS the date, so a string compare works across partitions) — the lifetime of the
+        /// "global" rows and the outer bound for tenant rows. DeviceHistories needs no age sweep —
+        /// refs are pruned tombstone-driven and the rows die with tenant offboarding.
         /// </summary>
-        public async Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
+        public Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
+            => DeleteDeviceJourneyAggregatesAsync($"RowKey lt '{cutoffDate:yyyy-MM-dd}'");
+
+        /// <summary>Tenant retention: deletes one tenant's FTR rows older than the cutoff.</summary>
+        public Task<int> DeleteTenantDeviceJourneyAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate)
+            => DeleteDeviceJourneyAggregatesAsync(
+                $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}' and RowKey lt '{cutoffDate:yyyy-MM-dd}'");
+
+        private async Task<int> DeleteDeviceJourneyAggregatesAsync(string filter)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceJourneyAggregates);
-                var filter = $"RowKey lt '{cutoffDate:yyyy-MM-dd}'";
                 var deleted = 0;
                 await foreach (var entity in tableClient.QueryAsync<TableEntity>(
                     filter: filter, select: new[] { "PartitionKey", "RowKey" }))

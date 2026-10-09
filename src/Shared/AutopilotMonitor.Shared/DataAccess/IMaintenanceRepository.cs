@@ -52,10 +52,15 @@ namespace AutopilotMonitor.Shared.DataAccess
             bool excludeDeletions = false, AuditLogQueryFilters? filters = null);
 
         /// <summary>
-        /// Retention cleanup: deletes audit log entries older than <paramref name="cutoffUtc"/>
-        /// across all tenants. Returns the number of rows deleted.
+        /// Retention cleanup across all tenants: time-encoded entries older than <paramref name="cutoffUtc"/>
+        /// (the ceiling; each tenant's own window is applied by <see cref="DeleteTenantAuditLogsOlderThanAsync"/>)
+        /// and legacy entries without a recoverable event time older than <paramref name="legacyCutoffUtc"/>.
+        /// Returns the number of rows deleted.
         /// </summary>
-        Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc);
+        Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc, DateTime legacyCutoffUtc);
+
+        /// <summary>One tenant's time-encoded audit entries older than the cutoff; returns the number of rows deleted.</summary>
+        Task<int> DeleteTenantAuditLogsOlderThanAsync(string tenantId, DateTime cutoffUtc);
 
         // --- Data Retention Queries ---
         /// <summary>

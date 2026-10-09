@@ -2122,8 +2122,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       inputSchema: {
         serialNumber: z.string().min(1).max(128).optional()
           .describe('Device serial number (trimmed, case-insensitive). Omit for the fleet FTR rollup.'),
-        days: z.coerce.number().int().min(1).max(180).optional()
-          .describe(daysDescription(30, 180, 'Fleet mode only.')),
+        days: z.coerce.number().int().min(1).max(365).optional()
+          .describe(daysDescription(30, 365, 'Fleet mode only.')),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
           'Device mode: the device\'s tenant. Fleet mode: scope to one tenant; omit for cross-tenant.',
           'Ignored — data is scoped to your tenant.')),

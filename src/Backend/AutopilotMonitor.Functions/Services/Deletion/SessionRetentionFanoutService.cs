@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -22,6 +23,12 @@ namespace AutopilotMonitor.Functions.Services.Deletion
     /// Bounds the cost of a maintenance fan-out when a tenant has months of backlog behind a
     /// freshly-shortened retention setting.
     /// </para>
+    /// <para>
+    /// <b>Rows outside the session cascade</b> follow the same retention: the tenant's
+    /// first-time-right and time-attribution aggregates and rule statistics, and its audit trail
+    /// with its own floor (<see cref="DataLifetimes"/>), are pruned per tenant before the session
+    /// scan. The cross-tenant cleanups in the maintenance service only bound them from outside.
+    /// </para>
     /// </summary>
     public class SessionRetentionFanoutService
     {
@@ -29,6 +36,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         public static readonly TimeSpan EnqueueThrottleDelay = TimeSpan.FromMilliseconds(50);
 
         private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly IMetricsRepository _metricsRepo;
         private readonly TenantConfigurationService _tenantConfig;
         private readonly ISessionDeletionEnqueuer _enqueuer;
         private readonly AdminConfigurationService _adminConfig;
@@ -38,11 +46,12 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         public SessionRetentionFanoutService(
             IMaintenanceRepository maintenanceRepo,
+            IMetricsRepository metricsRepo,
             TenantConfigurationService tenantConfig,
             ISessionDeletionEnqueuer enqueuer,
             AdminConfigurationService adminConfig,
             ILogger<SessionRetentionFanoutService> logger)
-            : this(maintenanceRepo, tenantConfig, enqueuer, adminConfig, logger, throttle: Task.Delay, utcNow: () => DateTime.UtcNow)
+            : this(maintenanceRepo, metricsRepo, tenantConfig, enqueuer, adminConfig, logger, throttle: Task.Delay, utcNow: () => DateTime.UtcNow)
         {
         }
 
@@ -53,6 +62,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         /// </summary>
         internal SessionRetentionFanoutService(
             IMaintenanceRepository maintenanceRepo,
+            IMetricsRepository metricsRepo,
             TenantConfigurationService tenantConfig,
             ISessionDeletionEnqueuer enqueuer,
             AdminConfigurationService adminConfig,
@@ -61,6 +71,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             Func<DateTime>? utcNow = null)
         {
             _maintenanceRepo = maintenanceRepo;
+            _metricsRepo = metricsRepo;
             _tenantConfig = tenantConfig;
             _enqueuer = enqueuer;
             _adminConfig = adminConfig;
@@ -83,6 +94,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             public int RateLimitedTenants { get; set; }    // tenants that hit MaxEnqueuesPerTenantPerRun
             public bool AbortedByKillSwitch { get; set; }  // kill-switch flipped mid-run
             public bool AbortedByBudget { get; set; }      // run-budget deadline crossed mid-run
+            public int TenantRowsPruned { get; set; }      // aggregate/rule-stats/audit rows beyond tenant retention
         }
 
         /// <summary>
@@ -182,6 +194,9 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             }
 
             var cutoffUtc = nowUtc.AddDays(-retentionDays);
+
+            // Before the session scan: its early return would skip a tenant with no session left to delete.
+            result.TenantRowsPruned += await PruneTenantRowsAsync(tenantId, retentionDays, nowUtc).ConfigureAwait(false);
 
             // Server-bounded read: fetch one more than the per-run dispatch cap. The loop below
             // only ever advances MaxEnqueuesPerTenantPerRun sessions, so loading the whole backlog
@@ -313,6 +328,37 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             _logger.LogInformation(
                 "Tenant {TenantId}: retention fanout — cutoff={Cutoff:o} eligibleThisRun={Eligible} moreRemaining={More} enqueued={Enqueued} skipped={Skipped}",
                 tenantId, cutoffUtc, Math.Min(oldSessions.Count, MaxEnqueuesPerTenantPerRun), moreRemaining, enqueued, skipped);
+        }
+
+        /// <summary>
+        /// Deletes the tenant's rows that follow its retention outside the session cascade:
+        /// first-time-right and time-attribution aggregates and rule statistics at the retention
+        /// cutoff, the audit trail at its own window (<see cref="DataLifetimes.TenantAuditDays"/>).
+        /// The storage calls are fail-soft; a failure never blocks the session fanout, the next run
+        /// retries.
+        /// </summary>
+        private async Task<int> PruneTenantRowsAsync(string tenantId, int retentionDays, DateTime nowUtc)
+        {
+            var cutoffUtc = nowUtc.AddDays(-retentionDays);
+            var auditDays = DataLifetimes.TenantAuditDays(retentionDays);
+            try
+            {
+                var deleted =
+                    await _metricsRepo.DeleteTenantDeviceJourneyAggregatesOlderThanAsync(tenantId, cutoffUtc).ConfigureAwait(false)
+                    + await _metricsRepo.DeleteTenantTimeAttributionAggregatesOlderThanAsync(tenantId, cutoffUtc).ConfigureAwait(false)
+                    + await _metricsRepo.DeleteTenantRuleStatsOlderThanAsync(tenantId, cutoffUtc).ConfigureAwait(false)
+                    + await _maintenanceRepo.DeleteTenantAuditLogsOlderThanAsync(tenantId, nowUtc.AddDays(-auditDays)).ConfigureAwait(false);
+                if (deleted > 0)
+                    _logger.LogInformation(
+                        "Tenant {TenantId}: pruned {Count} aggregate/rule-stats/audit rows beyond retention ({Days} days, audit {AuditDays} days)",
+                        tenantId, deleted, retentionDays, auditDays);
+                return deleted;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Tenant {TenantId}: pruning aggregate/rule-stats/audit rows failed — the session fanout continues", tenantId);
+                return 0;
+            }
         }
 
         /// <summary>

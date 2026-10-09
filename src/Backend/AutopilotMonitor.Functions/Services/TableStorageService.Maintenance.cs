@@ -73,17 +73,20 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Retention cleanup: deletes audit log entries whose business time is older than the
-        /// cutoff. The AuditLogs table is append-only (one row per admin action) and is otherwise
-        /// only wiped on tenant offboarding, so without this it grows unbounded.
+        /// Retention cleanup across tenants: deletes audit log entries whose business time is older
+        /// than the cutoff — the ceiling; each tenant's own window is applied by
+        /// <see cref="DeleteTenantAuditLogsOlderThanAsync"/>. The AuditLogs table is append-only (one
+        /// row per admin action) and is otherwise only wiped on tenant offboarding, so without this
+        /// it grows unbounded.
         /// Two passes: (1) time-encoded '!'-rows via an index-backed RowKey range — the system
         /// Timestamp cannot be used because storage migrations reset it (post-migration it would
         /// delete nothing for a retention period, then the whole pre-migration corpus at once);
         /// (2) legacy bare-GUID rows (true event time unrecoverable) via their frozen system
-        /// Timestamp — they all age out ~180d after the 2026-07-18 migration.
+        /// Timestamp at <paramref name="legacyCutoffUtc"/> — they all age out ~180d after the
+        /// 2026-07-18 migration.
         /// TODO: Remove pass 2 after 2027-03-01 (no bare-GUID rows can remain by then).
         /// </summary>
-        public async Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc)
+        public async Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc, DateTime legacyCutoffUtc)
         {
             try
             {
@@ -92,16 +95,36 @@ namespace AutopilotMonitor.Functions.Services
                 deleted += await DeleteAuditLogsByFilterAsync(tableClient, BusinessTimestamp.AuditRetentionClause(cutoffUtc));
                 // 'RowKey ge '0'' cannot match any '!'-row (0x21 < 0x30), only legacy GUIDs.
                 deleted += await DeleteAuditLogsByFilterAsync(tableClient,
-                    $"RowKey ge '0' and Timestamp lt datetime'{cutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'");
+                    $"RowKey ge '0' and Timestamp lt datetime'{legacyCutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'");
 
                 if (deleted > 0)
-                    _logger.LogInformation("Deleted {Count} audit log entries older than {Cutoff:yyyy-MM-dd}", deleted, cutoffUtc);
+                    _logger.LogInformation("Deleted {Count} audit log entries (older than {Cutoff:yyyy-MM-dd}, legacy older than {LegacyCutoff:yyyy-MM-dd})",
+                        deleted, cutoffUtc, legacyCutoffUtc);
 
                 return deleted;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete old audit log entries");
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Tenant retention: deletes one tenant's time-encoded audit entries older than the cutoff.
+        /// Legacy rows without an event time are left to the cross-tenant pass.
+        /// </summary>
+        public async Task<int> DeleteTenantAuditLogsOlderThanAsync(string tenantId, DateTime cutoffUtc)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
+                return await DeleteAuditLogsByFilterAsync(tableClient,
+                    $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}' and {BusinessTimestamp.AuditRetentionClause(cutoffUtc)}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete old audit log entries for tenant {TenantId}", tenantId);
                 return 0;
             }
         }

@@ -80,7 +80,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     internal static class VerdictCalibrationResponseBuilder
     {
         internal const int DefaultWindowDays = 30;
-        internal const int MaxWindowDays = 180; // aggregate retention
+        internal const int MaxWindowDays = DataLifetimes.VerdictCalibrationDays; // older rows no longer exist
         internal const int TrendWindowDays = 7;
         internal const int TrendBaselineDays = 28;
         internal const int TrendHorizonDays = TrendWindowDays + TrendBaselineDays;
