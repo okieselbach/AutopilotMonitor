@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
+import { isGuid } from '@/utils/inputValidation';
 // Wire type of the typeahead endpoint — matchedField is "sessionId" | "serialNumber" |
 // "deviceName" on the wire but typed string; fieldLabel handles unknown values anyway.
 import type { QuickSearchResult } from '@/utils/wire-types.generated';
@@ -168,7 +169,8 @@ export default function GlobalSearch() {
       setResults(data.results ?? []);
       setShowDropdown(true);
       setSelectedIndex(-1);
-      trackEvent('global_search', { query: q, resultCount: String(data.count ?? 0) });
+      // Shape only, never the search text (serials, device names): numbers land in customMeasurements.
+      trackEvent('global_search', { queryLength: q.length, resultCount: data.count ?? 0, guidShaped: isGuid(q) });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setResults([]);
