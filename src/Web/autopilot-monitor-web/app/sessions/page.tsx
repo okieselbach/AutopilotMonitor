@@ -19,6 +19,7 @@ import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
 import { isGuid } from "@/utils/inputValidation";
 import { isTerminalStatus } from "@/utils/sessionStatus";
+import { hasTenantReadScope } from "@/lib/tenantScope";
 import { ApiError, fetchBlob, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
@@ -68,13 +69,18 @@ export default function SessionDetailPage() {
 function SessionDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { getAccessToken, user } = useAuth();
   // Query-string identity (`?id=`) — path params are gone with the static export;
   // legacy /sessions/{id} URLs are rewritten here by LegacyPathRedirect.
   // The raw value is attacker-deliverable (deep link) and useSearchParams returns it
   // percent-DECODED, so anything but a GUID must never reach an API URL builder: an empty
   // sessionId keeps every data hook inert and the page renders the invalid-id branch below.
   const rawSessionId = searchParams?.get("id") ?? "";
-  const sessionId = isGuid(rawSessionId) ? rawSessionId.trim() : "";
+  // A member without a tenant role sees ProtectedRoute's notice, but the hooks below run outside its
+  // JSX: the empty id keeps them inert, every read would answer 403. Until auth/me has answered `user`
+  // is null and nothing changes, so members are never delayed.
+  const canReadTenant = !user || hasTenantReadScope(user);
+  const sessionId = canReadTenant && isGuid(rawSessionId) ? rawSessionId.trim() : "";
   // Explicit target tenant from the fleet drill-in (`?tenantId=`). Drives the cross-tenant reads for a
   // delegated ("MSP") admin viewing a managed tenant's session, and flips the page into read-only mode.
   const tenantIdOverride = searchParams?.get("tenantId") || undefined;
@@ -100,7 +106,6 @@ function SessionDetailContent() {
   // Global contexts
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
-  const { getAccessToken, user } = useAuth();
   const { addNotification, notifyError } = useNotifications();
   const { latestAgentVersion, latestBootstrapVersion } = useLatestVersions(getAccessToken);
 
@@ -455,7 +460,7 @@ function SessionDetailContent() {
   // the MSAL login redirect. Wrapping here lets ProtectedRoute drive re-auth.
   if (!sessionId) {
     return (
-      <ProtectedRoute>
+      <ProtectedRoute requireTenantReadScope>
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-gray-600">
             {rawSessionId ? "Invalid session id." : "No session id given."}{" "}
@@ -468,7 +473,7 @@ function SessionDetailContent() {
 
   if (loading && !session && events.length === 0) {
     return (
-      <ProtectedRoute>
+      <ProtectedRoute requireTenantReadScope>
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-gray-600">Loading session details...</div>
         </div>
@@ -477,7 +482,7 @@ function SessionDetailContent() {
   }
 
   return (
-<ProtectedRoute>
+<ProtectedRoute requireTenantReadScope>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow">

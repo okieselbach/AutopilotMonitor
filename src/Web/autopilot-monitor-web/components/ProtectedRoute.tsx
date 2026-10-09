@@ -10,8 +10,10 @@ import { activeAuthApp } from "../lib/msalConfig";
 import { DOCS_PATHS } from "../lib/docsPaths";
 import { DOCS_URL } from "../utils/config";
 import { useAdminMode } from "../hooks/useAdminMode";
+import { hasTenantReadScope } from "../lib/tenantScope";
 import OffboardingFeedbackForm from "./OffboardingFeedbackForm";
 import { DpaAcceptanceDialog } from "./DpaAcceptanceDialog";
+import { NoTenantRoleNotice } from "./NoTenantRoleNotice";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -30,6 +32,12 @@ interface ProtectedRouteProps {
    * client route so a single-tenant user with no fleet doesn't land on an empty fleet page.
    */
   requireFleetScope?: boolean;
+  /**
+   * Require tenant read scope (any tenant role, platform scope or delegated scope — the Progress
+   * Portal hint's definition). A member without one gets a notice naming whom to ask instead of the
+   * page, whose data calls would all answer 403. Opt-in: /progress itself sits in a ProtectedRoute.
+   */
+  requireTenantReadScope?: boolean;
 }
 
 /**
@@ -40,10 +48,11 @@ const OFFBOARDING_SUSPENSION_MESSAGE = "Offboarding in progress";
 
 /**
  * Protects routes by requiring authentication. Optionally requires Global Admin, platform scope
- * (Global Admin or read-only Global Reader), or fleet scope (platform scope OR a delegated MSP admin).
- * A suspended tenant (auth/me 403 TenantSuspended) gets the suspended page instead of the children.
+ * (Global Admin or read-only Global Reader), fleet scope (platform scope OR a delegated MSP admin),
+ * or tenant read scope. A suspended tenant (auth/me 403 TenantSuspended) gets the suspended page
+ * instead of the children.
  */
-export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGlobalScope = false, requireFleetScope = false }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGlobalScope = false, requireFleetScope = false, requireTenantReadScope = false }: ProtectedRouteProps) {
   const { isAuthenticated, user, hasGlobalScope, hasFleetScope, isLoading, login, logout, getAccessToken, isTenantSuspended, suspensionMessage } = useAuth();
   const router = useRouter();
 
@@ -239,6 +248,10 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // before any page renders (and starts its API calls).
   if (user?.dpaAcceptancePending) {
     return <DpaAcceptanceDialog />;
+  }
+
+  if (requireTenantReadScope && user && !hasTenantReadScope(user)) {
+    return <NoTenantRoleNotice upn={user.upn} />;
   }
 
   // Show nothing if the route's platform requirement isn't met.
