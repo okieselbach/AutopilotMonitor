@@ -81,6 +81,32 @@ public class TableLifecycleBucketTests
         Constants.TableNames.DelegationInvitations,
     };
 
+    /// <summary>
+    /// The orphan-session sweep is the cascade for sessions without a Sessions row, so it must
+    /// clear exactly the tables the cascade manifest clears — minus the tombstone pair, which does
+    /// not exist for such a session. A new manifest step without a sweep entry (or the reverse)
+    /// fails here until someone decides the table's orphan lifecycle.
+    /// </summary>
+    [Fact]
+    public async Task OrphanSweep_ClearsEveryPerSessionCascadeTable_ExceptTheTombstonePair()
+    {
+        var cascade = await PerSessionCascadeTablesAsync();
+        cascade.Remove(Constants.TableNames.Sessions);
+        cascade.Remove(Constants.TableNames.SessionsIndex);
+
+        var swept = AutopilotMonitor.Functions.Services.Maintenance.OrphanSessionSweeper.SweptTables.ToHashSet(StringComparer.Ordinal);
+
+        var missingFromSweep = cascade.Except(swept, StringComparer.Ordinal).OrderBy(t => t, StringComparer.Ordinal).ToList();
+        var sweptButNotCascaded = swept.Except(cascade, StringComparer.Ordinal).OrderBy(t => t, StringComparer.Ordinal).ToList();
+
+        Assert.True(missingFromSweep.Count == 0,
+            "Per-session cascade tables the orphan sweep does not clear — add them to OrphanSessionRowFilters.Tables "
+            + "(with the writer's key shape) or handle them in OrphanSessionSweeper:\n  - " + string.Join("\n  - ", missingFromSweep));
+        Assert.True(sweptButNotCascaded.Count == 0,
+            "Orphan sweep clears tables the cascade manifest does not know — add a manifest step first:\n  - "
+            + string.Join("\n  - ", sweptButNotCascaded));
+    }
+
     [Fact]
     public void TableNamesConstants_SetEquals_TableNamesAll()
     {

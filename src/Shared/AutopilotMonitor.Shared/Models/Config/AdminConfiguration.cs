@@ -641,6 +641,13 @@ namespace AutopilotMonitor.Shared.Models
         public string EpssLastSyncUtc { get; set; } = default!;
 
         /// <summary>
+        /// Last run of the weekly orphan-session reconciliation (UTC ISO 8601): the read-only
+        /// EventTypeIndex-against-Sessions pass of the orphan sweep. Written by the sweep itself,
+        /// never patched from the portal.
+        /// </summary>
+        public string OrphanDeepCheckLastRunUtc { get; set; } = default!;
+
+        /// <summary>
         /// Returns a shallow copy with all secret-bearing string fields replaced by
         /// <see cref="Constants.RedactedSecretPlaceholder"/> (empty values are left empty). Used when
         /// serving the global config to a read-only GlobalReader so SAS URLs / API keys / webhook URLs

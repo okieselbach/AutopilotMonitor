@@ -306,7 +306,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     });
 
                     DelayLateEventGrace();
-                    DrainSpool();
+                    DrainSpool(args);
 
                     // Option 2 (WG Part 1 graceful-exit hardening, 2026-04-30): write the
                     // clean-exit marker BEFORE _signalShutdown returns control to the main
@@ -329,7 +329,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
                 RunUploadDiagnosticsWithEvents(args);
                 WriteEnrollmentCompleteMarker(args);
-                RunStandaloneRebootIfRequested();
+                RunStandaloneRebootIfRequested(args);
                 RunSelfDestructIfAppropriate(args);
                 // Option 2 (same hardening) — covers the standard Completed / Failed terminal
                 // path too. Cleanup PowerShell does not touch this marker, so writing it before
@@ -979,6 +979,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// </param>
         private void RunUploadDiagnosticsWithEvents(EnrollmentTerminatedEventArgs args, string suffixOverride = null)
         {
+            if (IsSessionGone(args))
+            {
+                // The backend answered 410 for this session: the package would describe a session
+                // that no longer exists, and its diagnostics_* events could never be accepted.
+                _logger.Info("EnrollmentTerminationHandler: diagnostics upload skipped — backend no longer knows this session.");
+                return;
+            }
+
             var mode = _configuration.DiagnosticsUploadMode ?? "Off";
             if (!_configuration.DiagnosticsUploadEnabled || string.Equals(mode, "Off", StringComparison.OrdinalIgnoreCase))
             {
@@ -1124,7 +1132,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// but enables <c>RebootOnComplete</c>, the agent's final act is <c>shutdown.exe /r</c>
         /// with the configured delay, giving the user a visible countdown.
         /// </summary>
-        private void RunStandaloneRebootIfRequested()
+        private void RunStandaloneRebootIfRequested(EnrollmentTerminatedEventArgs args)
         {
             if (_configuration.SelfDestructOnComplete) return;
             if (!_configuration.RebootOnComplete) return;
@@ -1148,7 +1156,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 ImmediateUpload = true,
             });
 
-            DrainSpool();
+            DrainSpool(args);
 
             try
             {
@@ -1185,7 +1193,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // just above. The WG-Part-1 and standalone-reboot paths already drain first; this
                 // closes the gap on the self-destruct path. Bounded + best-effort (never blocks
                 // termination on a wedged backend).
-                DrainSpool();
+                DrainSpool(args);
 
                 var service = _cleanupServiceFactory();
                 service.ExecuteSelfDestruct();
@@ -1318,8 +1326,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             }
         }
 
-        private void DrainSpool()
+        /// <summary>
+        /// <see cref="TerminationOrigins.SessionGone"/>: the backend no longer knows the session.
+        /// Every drain would only collect more 410s against a bounded budget, and a diagnostics
+        /// package would describe a deleted session — both are skipped; marker, cleanup and
+        /// self-destruct run as usual.
+        /// </summary>
+        private static bool IsSessionGone(EnrollmentTerminatedEventArgs args) =>
+            string.Equals(args.Origin, TerminationOrigins.SessionGone, StringComparison.Ordinal);
+
+        private void DrainSpool(EnrollmentTerminatedEventArgs args)
         {
+            if (IsSessionGone(args))
+            {
+                _logger.Info("EnrollmentTerminationHandler: spool drain skipped — backend no longer knows this session.");
+                return;
+            }
+
             // Block briefly so pending events can land before the next destructive step
             // (shutdown.exe, self-destruct). Two phases share the same bounded budget:
             //

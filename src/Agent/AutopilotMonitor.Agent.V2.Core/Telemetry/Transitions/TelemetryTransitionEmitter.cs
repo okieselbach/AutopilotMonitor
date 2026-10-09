@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Transitions
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId is mandatory.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId is mandatory.", nameof(tenantId));
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-            _partitionKey = $"{tenantId}_{sessionId}";
+            _partitionKey = TelemetryPartitionKey.ForSession(tenantId, sessionId);
         }
 
         /// <summary>

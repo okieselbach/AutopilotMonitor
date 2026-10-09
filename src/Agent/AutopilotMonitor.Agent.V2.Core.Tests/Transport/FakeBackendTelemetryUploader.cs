@@ -68,6 +68,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             return this;
         }
 
+        public FakeBackendTelemetryUploader QueueSessionGone(string reason = "session gone: http 410")
+        {
+            _script.Enqueue(_ => UploadResult.SessionGone(reason));
+            return this;
+        }
+
         public FakeBackendTelemetryUploader QueueThrow(Exception ex)
         {
             _script.Enqueue(_ => throw ex);

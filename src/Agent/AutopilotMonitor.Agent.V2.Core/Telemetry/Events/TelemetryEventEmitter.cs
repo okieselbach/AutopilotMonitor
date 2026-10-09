@@ -45,7 +45,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
             _sequenceCounter = sequenceCounter ?? throw new ArgumentNullException(nameof(sequenceCounter));
             _sessionId = sessionId;
             _tenantId = tenantId;
-            _partitionKey = $"{tenantId}_{sessionId}";
+            _partitionKey = TelemetryPartitionKey.ForSession(tenantId, sessionId);
             _traceEventsEnabled = traceEventsEnabled;
         }
 

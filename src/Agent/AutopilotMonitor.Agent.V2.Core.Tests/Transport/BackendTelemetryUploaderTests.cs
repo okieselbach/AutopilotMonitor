@@ -275,7 +275,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 
             Assert.False(result.Success);
             Assert.False(result.IsTransient);
+            Assert.False(result.IsSessionGone);
             Assert.Contains(((int)status).ToString(), result.ErrorReason);
+        }
+
+        [Fact]
+        public async Task Gone_410_maps_to_SessionGone()
+        {
+            // 410 = the backend no longer knows this session. Not transient (no retry), not auth,
+            // not poison, not a size problem — a distinct terminal kind the drain reacts to.
+            using var rig = new Rig();
+            rig.Handler.QueueStatus(HttpStatusCode.Gone, body: "session unknown");
+
+            var result = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.True(result.IsSessionGone);
+            Assert.False(result.IsTransient);
+            Assert.False(result.IsAuthFailure);
+            Assert.False(result.IsPoison);
+            Assert.False(result.RequiresSplit);
+            Assert.Contains("410", result.ErrorReason);
+        }
+
+        [Fact]
+        public async Task Gone_410_with_poison_body_is_still_SessionGone_never_poison()
+        {
+            // A poison body on 410 must not be honoured: dropping items + emitting
+            // telemetry_upload_poisoned would only produce the next 410 (emit/reject loop).
+            using var rig = new Rig();
+            rig.Handler.QueueStatus(HttpStatusCode.Gone, body: "{\"poison\":true,\"rejectedRowKeys\":[\"rk1\"],\"reason\":\"x\"}");
+
+            var result = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.True(result.IsSessionGone);
+            Assert.False(result.IsPoison);
+            Assert.Null(result.PoisonRowKeys);
         }
 
         [Theory]

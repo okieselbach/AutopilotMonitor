@@ -45,12 +45,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         // telemetry_upload_blocked exactly once per process rather than on every 30 s drain.
         private bool _uploadBlockedReported;
 
+        // Partition key of the session this process serves; null = every batch counts as own.
+        private readonly string? _currentPartitionKey;
+        private readonly Logging.AgentLogger? _logger;
+
+        // One-shot guard for SessionGone. Latched only when a handler is subscribed: the host
+        // wires the handler after EnrollmentOrchestrator.Start, and a 410 on the very first
+        // drain must not be swallowed before anyone listens.
+        private bool _sessionGoneReported;
+
+        /// <param name="currentPartitionKey">
+        /// <see cref="TelemetryPartitionKey.ForSession"/> of the registered session. A 410 on a
+        /// batch that starts with this key ends the session (<see cref="SessionGone"/>); a 410 on
+        /// a batch that starts with any other key only drops those leftover items.
+        /// </param>
         public TelemetryUploadOrchestrator(
             ITelemetrySpool spool,
             IBackendTelemetryUploader uploader,
             IClock clock,
             int batchSize = 100,
-            IReadOnlyList<TimeSpan>? retryBackoffs = null)
+            IReadOnlyList<TimeSpan>? retryBackoffs = null,
+            string? currentPartitionKey = null,
+            Logging.AgentLogger? logger = null)
         {
             _spool = spool ?? throw new ArgumentNullException(nameof(spool));
             _uploader = uploader ?? throw new ArgumentNullException(nameof(uploader));
@@ -61,6 +77,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             _effectiveBatchSize = batchSize;
 
             _retryBackoffs = retryBackoffs ?? DefaultRetryBackoffs;
+            _currentPartitionKey = currentPartitionKey;
+            _logger = logger;
         }
 
         /// <summary>
@@ -98,6 +116,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         public event EventHandler<string>? UploadBlocked;
 
         /// <summary>
+        /// Raised once per process (after the drain guard releases) when the backend answered
+        /// HTTP 410 for a batch of the CURRENT session: the session is over server-side (never
+        /// registered, deleted, or being deleted) and no retry can succeed. The batch is retained
+        /// (cursor stays) and the drain stops; the host reports once over the emergency channel
+        /// and terminates the agent with self-destruct. Carries the backend error reason.
+        /// </summary>
+        public event EventHandler<string>? SessionGone;
+
+        /// <summary>
         /// <c>true</c> when the last successful upload returned <see cref="UploadResult.DeviceBlocked"/>
         /// and the paused-until window has not expired. Drain is a no-op in this state.
         /// </summary>
@@ -124,6 +151,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             List<UploadResult>? pendingSignals = null;
             List<PoisonReport>? pendingPoison = null;
             string? pendingBlockedReason = null;
+            string? pendingSessionGoneReason = null;
             DrainResult result;
 
             try
@@ -247,6 +275,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                             new PoisonReport(1, oversizeId, "oversize: " + outcome.ErrorReason, PoisonKind.Oversize));
                         break;
                     }
+                    else if (outcome.IsSessionGone)
+                    {
+                        // HTTP 410 — the backend no longer knows the session these items belong to.
+                        var foreignRun = CountLeadingForeignItems(batch);
+                        if (foreignRun > 0)
+                        {
+                            // Leftovers of a previous session id (the spool drops these at startup;
+                            // this is defence in depth). Drop only that leading run and carry on: a
+                            // legitimate new session must never be ended because of old items.
+                            var throughId = batch[foreignRun - 1].TelemetryItemId;
+                            _spool.MarkUploaded(throughId);
+                            _logger?.Warning(
+                                $"TelemetryUploadOrchestrator: dropped {foreignRun} item(s) of a previous session id the backend rejected with 410 (cursor advanced to {throughId}).");
+                            continue;
+                        }
+
+                        // The current session is over server-side. RETAIN (cursor stays, the items
+                        // remain on disk for the diagnostics ZIP), stop this drain, and surface it
+                        // once — not as telemetry_upload_blocked, which would only queue another
+                        // item behind a batch that can never be accepted.
+                        failedBatches++;
+                        lastError = outcome.ErrorReason;
+                        if (!_sessionGoneReported && SessionGone != null)
+                        {
+                            _sessionGoneReported = true;
+                            pendingSessionGoneReason = outcome.ErrorReason;
+                        }
+                        break;
+                    }
                     else
                     {
                         // P1 — RETAIN. Transient (retry next drain), auth-permanent (uploader already
@@ -301,7 +358,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 catch { /* handler must not abort the drain result */ }
             }
 
+            if (pendingSessionGoneReason != null)
+            {
+                try { SessionGone?.Invoke(this, pendingSessionGoneReason); }
+                catch { /* handler must not abort the drain result */ }
+            }
+
             return result;
+        }
+
+        /// <summary>
+        /// Number of items at the head of <paramref name="batch"/> whose partition key is not the
+        /// current session's. 0 when no current key is configured (every batch counts as own).
+        /// </summary>
+        private int CountLeadingForeignItems(IReadOnlyList<TelemetryItem> batch)
+        {
+            if (_currentPartitionKey == null) return 0;
+
+            var count = 0;
+            while (count < batch.Count
+                && !string.Equals(batch[count].PartitionKey, _currentPartitionKey, StringComparison.Ordinal))
+            {
+                count++;
+            }
+            return count;
         }
 
         private static bool CarriesSignal(UploadResult outcome) =>

@@ -50,6 +50,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         private readonly SignalRNotificationService _signalRNotification;
         private readonly TenantConfigurationService _configService;
         private readonly Notifications.NotificationChannelDispatcher _channelDispatcher;
+        private readonly Deletion.SessionDeletionGuard _deletionGuard;
         private readonly ILogger<AnalyzeOnEnrollmentEndHandler> _logger;
 
         public const string ReasonEnrollmentComplete     = "enrollment_complete";
@@ -66,6 +67,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             SignalRNotificationService signalRNotification,
             TenantConfigurationService configService,
             Notifications.NotificationChannelDispatcher channelDispatcher,
+            Deletion.SessionDeletionGuard deletionGuard,
             ILogger<AnalyzeOnEnrollmentEndHandler> logger)
         {
             _ruleService = ruleService;
@@ -75,6 +77,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             _signalRNotification = signalRNotification;
             _configService = configService;
             _channelDispatcher = channelDispatcher;
+            _deletionGuard = deletionGuard;
             _logger = logger;
         }
 
@@ -94,6 +97,20 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             }
 
             var sessionPrefix = $"[Session: {envelope.SessionId.Substring(0, Math.Min(8, envelope.SessionId.Length))}]";
+
+            // Rule results, stats and channel alerts only for a live session: a session the backend
+            // does not know, or one a cascade is tearing down, gets nothing derived (no cascade could
+            // reach the rows afterwards, and an alert would name a session that does not exist).
+            var liveness = await _deletionGuard.GetLivenessAsync(
+                envelope.TenantId, envelope.SessionId, "AnalyzeOnEnrollmentEnd", cancellationToken).ConfigureAwait(false);
+            if (liveness != Deletion.SessionLiveness.Live)
+            {
+                _logger.LogWarning(
+                    "{Prefix} Analyze skipped — session {Liveness} (reason={Reason})",
+                    sessionPrefix, liveness, envelope.Reason);
+                return;
+            }
+
             var isVulnerabilityRerun = string.Equals(
                 envelope.Reason, ReasonVulnerabilityCorrelated, StringComparison.OrdinalIgnoreCase);
             var isWhitegloveSealed = string.Equals(

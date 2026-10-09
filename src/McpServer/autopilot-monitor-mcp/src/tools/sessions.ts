@@ -236,9 +236,11 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const { eventType, tenantId: rawTenantId, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
-        // eventType is the sole filter and is applied server-side (EventTypeIndex OData),
-        // so an empty page never carries a nextLink — no auto-exhaust needed. An empty result
-        // for an uncatalogued type says so, so a typo does not read as "no such sessions".
+        // eventType is applied server-side (EventTypeIndex OData), but the backend drops index
+        // rows whose session no longer exists (deleted, or not yet removed by the orphan sweep),
+        // so a page can be empty and still carry a nextLink — auto-exhaust forward like
+        // search_sessions. An empty result for an uncatalogued type says so, so a typo does not
+        // read as "no such sessions".
         const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-event', '/api/search/sessions-by-event', tenantId);
         const path = followNextLink(
           basePath,
@@ -246,7 +248,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           continuation,
           { pageSize },
         );
-        const data = await apiFetch<SessionListResponse>(path);
+        const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
         return toolResultText(withEventTypeNote(data, eventType, !continuation), MAX_RESULT_SIZE_CHARS.indexSessions);
       } catch (error: unknown) {
         return toolError('search_sessions_by_event', args, error);

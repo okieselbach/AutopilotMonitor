@@ -84,15 +84,17 @@ namespace AutopilotMonitor.Functions.Services
         /// <paramref name="report"/> is the run report of a manual run: the trigger answers 202
         /// before the run starts, so this event is where the operator reads what the run did.
         /// </summary>
-        public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy, MaintenanceResult? report = null)
+        public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy, MaintenanceResult? report = null,
+            IReadOnlyDictionary<string, long>? stepsMs = null)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceCompleted, OpsEventSeverity.Info,
                 $"Maintenance completed in {durationMs}ms (triggered by {triggeredBy})",
                 null, triggeredBy,
                 report == null
-                    ? (object)new { durationMs }
+                    ? (object)new { durationMs, stepsMs }
                     : new
                     {
                         durationMs,
+                        stepsMs,
                         aggregatedDate = report.AggregatedDate,
                         stalledSessionsChecked = report.StalledSessionsChecked,
                         dataCleanupExecuted = report.DataCleanupExecuted,
@@ -138,36 +140,113 @@ namespace AutopilotMonitor.Functions.Services
                 $"Cleaned up {deletedCount} ops events older than {retentionDays} days",
                 null, "System.Maintenance", new { deletedCount, retentionDays });
 
+        // ── Orphan session sweep (OrphanSessionSweeper) ─────────────────────────
+
         /// <summary>
-        /// Records the orphan-cleanup result. <paramref name="cleanedOrphans"/> carries the
-        /// per-session breakdown (which tenant + session lost lingering events and how many),
-        /// so the ops dashboard shows *what* was cleaned, not just a count. The list is capped
-        /// to keep the OpsEvents Table row under the per-property (32 KB) / entity (~1 MB) limits;
-        /// the full count always survives in <c>orphanSessions</c> and a <c>detailsTruncated</c>
-        /// flag flags any clipping. Note: an "orphan" is a session row that no longer exists while
-        /// its events lingered past the 24h grace — the tenant itself usually still exists.
+        /// Heartbeat of every sweep run: scan sizes, candidates, what was cleaned, skipped and
+        /// left for the next run, the per-table totals and — when it ran — the reconciliation.
         /// </summary>
-        public Task RecordOrphanEventsCleanedAsync(int orphanSessions, int totalEventsDeleted,
-            IReadOnlyList<OrphanedEventSession>? cleanedOrphans = null)
+        public Task RecordOrphanSweepCompletedAsync(Maintenance.OrphanSweepRunResult result, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanSweepCompleted, OpsEventSeverity.Info,
+                $"Orphan session sweep completed in {result.DurationMs}ms — handles={result.HandlesScanned} sessions={result.SessionKeys} "
+                + $"candidates={result.Candidates} cleaned={result.Cleaned.Count} remaining={result.Remaining} failed={result.FailedSessions}",
+                null, Maintenance.OrphanSessionSweeper.Actor,
+                new
+                {
+                    triggeredBy,
+                    durationMs = result.DurationMs,
+                    handlesScanned = result.HandlesScanned,
+                    sessionKeys = result.SessionKeys,
+                    candidates = result.Candidates,
+                    cleaned = result.Cleaned.Count,
+                    remaining = result.Remaining,
+                    failedSessions = result.FailedSessions,
+                    skippedRowReturned = result.SkippedRowReturned,
+                    skippedHandleGone = result.SkippedHandleGone,
+                    skippedHandleChanged = result.SkippedHandleChanged,
+                    afterCascade = result.AfterCascade,
+                    inventoryDecrementsFailed = result.InventoryDecrementsFailed,
+                    budgetExhausted = result.BudgetExhausted,
+                    totalsByTable = result.TotalsByTable,
+                    reconcile = result.Reconcile == null ? null : new
+                    {
+                        indexSessions = result.Reconcile.IndexSessions,
+                        residueSessions = result.Reconcile.ResidueSessions,
+                        durationMs = result.Reconcile.DurationMs,
+                    },
+                });
+
+        public Task RecordOrphanSweepFailedAsync(string error, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanSweepFailed, OpsEventSeverity.Error,
+                $"Orphan session sweep failed: {error}",
+                null, Maintenance.OrphanSessionSweeper.Actor, new { error, triggeredBy });
+
+        public Task RecordOrphanSweepSkippedLockedAsync(string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanSweepSkippedLocked, OpsEventSeverity.Warning,
+                $"Orphan session sweep skipped — another run holds the lease (triggered by {triggeredBy})",
+                null, Maintenance.OrphanSessionSweeper.Actor, new { reason = "lease held by another run", triggeredBy });
+
+        /// <summary>
+        /// Weekly read-only reconciliation of EventTypeIndex against the Sessions keys. Info at
+        /// zero residue; Warning with a capped sample otherwise — residue means rows exist for a
+        /// session that has neither a Sessions row nor a handle, which the sweep cannot reach on its own.
+        /// </summary>
+        public Task RecordOrphanReconcileCompletedAsync(Maintenance.OrphanReconcileResult result)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanReconcileCompleted,
+                result.ResidueSessions == 0 ? OpsEventSeverity.Info : OpsEventSeverity.Warning,
+                result.ResidueSessions == 0
+                    ? $"Orphan reconciliation: no residue across {result.IndexSessions} indexed sessions ({result.DurationMs}ms)"
+                    : $"Orphan reconciliation: {result.ResidueSessions} indexed sessions without a Sessions row or a handle ({result.DurationMs}ms)",
+                null, Maintenance.OrphanSessionSweeper.Actor,
+                new
+                {
+                    indexSessions = result.IndexSessions,
+                    residueSessions = result.ResidueSessions,
+                    sample = result.Sample.Select(k => new { tenantId = k.TenantId, sessionId = k.SessionId }).ToList(),
+                    sampleTruncated = result.ResidueSessions > result.Sample.Count,
+                    durationMs = result.DurationMs,
+                });
+
+        /// <summary>
+        /// Rows of sessions without a Sessions row were removed (Warning: after the ingest refusal
+        /// every real hit is a writer outside the registration path or a restore residue; legacy
+        /// handles are expected while the backlog drains). <c>totalEventsDeleted</c> keeps its old
+        /// meaning (Events rows) next to the per-table totals. The per-session list is capped to
+        /// keep the row inside the Table Storage property limits; the counts are never clipped.
+        /// </summary>
+        public Task RecordOrphanEventsCleanedAsync(Maintenance.OrphanSweepRunResult result)
         {
             const int maxDetailRows = 50;
 
-            var orphanList = cleanedOrphans ?? Array.Empty<OrphanedEventSession>();
-            var detail = orphanList
-                .OrderByDescending(o => o.EventCount)
+            var detail = result.Cleaned
+                .OrderByDescending(c => c.TotalRows)
                 .Take(maxDetailRows)
-                .Select(o => new { tenantId = o.TenantId, sessionId = o.SessionId, eventCount = o.EventCount })
+                .Select(c => new
+                {
+                    tenantId = c.TenantId,
+                    sessionId = c.SessionId,
+                    rows = c.TotalRows,
+                    inventoryKeys = c.InventoryKeysDecremented,
+                    legacy = c.Legacy,
+                    afterCascade = c.AfterCascade,
+                    handleKept = c.HandleKept,
+                })
                 .ToList();
+            result.TotalsByTable.TryGetValue(Shared.Constants.TableNames.Events, out var eventsDeleted);
+            var legacy = result.Cleaned.Count(c => c.Legacy);
 
             return WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanEventsCleaned, OpsEventSeverity.Warning,
-                $"Cleaned {totalEventsDeleted} orphaned events across {orphanSessions} sessions",
-                null, "System.Maintenance",
+                $"Cleaned {result.TotalsByTable.Values.Sum()} rows of {result.Cleaned.Count} orphan sessions ({legacy} legacy handles)",
+                null, Maintenance.OrphanSessionSweeper.Actor,
                 new
                 {
-                    orphanSessions,
-                    totalEventsDeleted,
+                    orphanSessions = result.Cleaned.Count,
+                    totalEventsDeleted = eventsDeleted,
+                    legacySessions = legacy,
+                    remaining = result.Remaining,
+                    totalsByTable = result.TotalsByTable,
                     orphans = detail,
-                    detailsTruncated = orphanList.Count > maxDetailRows
+                    detailsTruncated = result.Cleaned.Count > maxDetailRows,
                 });
         }
 

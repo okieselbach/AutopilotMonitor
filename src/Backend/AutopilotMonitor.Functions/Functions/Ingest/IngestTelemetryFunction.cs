@@ -228,12 +228,14 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         return AsOutput(await WriteDeviceBlockedAsync(req, sessionVerdict));
                 }
 
-                // Cascade-delete guard: refuse the batch with 410 Gone when a V2 cascade owns the
-                // Sessions row (states Preparing/Queued/Running/Poisoned). Without this check, the
-                // hot-path writers below (StoreEventsBatchAsync, signal/transition StoreBatchAsync,
-                // UpdateSessionImeAgentVersionAsync upsert, …) would land rows past the lock and
-                // leave orphan data the manifest cannot describe. One read per batch; absent
-                // Sessions row → silent pass (caller handles session-not-found in its own write).
+                // Session guard: refuse the batch with 410 Gone when a V2 cascade owns the Sessions
+                // row (states Preparing/Queued/Running/Poisoned) OR when there is no Sessions row at
+                // all. Both mean "this session is over server-side": the hot-path writers below
+                // (StoreEventsBatchAsync, signal/transition StoreBatchAsync, the index upserts, …)
+                // would otherwise land rows no cascade can ever reach, because a cascade needs the
+                // Sessions row. Registration always precedes the first upload (and re-creates an
+                // absent row), so a live session never sees this. One read per batch; the row's
+                // IngestRefusal marker tells the two 410 reasons apart on the request row.
                 Azure.Data.Tables.TableEntity? guardSessionRow;
                 try
                 {
@@ -241,10 +243,20 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 }
                 catch (SessionDeletionLockedException locked)
                 {
+                    RequestRowMarkers.Stamp(req, RequestRowMarkers.IngestRefusalKey, RequestRowMarkers.IngestRefusal.CascadeLocked);
                     _logger.LogInformation(
                         "IngestTelemetry: refused batch — cascade in flight tenant={Tenant} session={Session} state={State} manifestId={ManifestId}",
                         bodyTenantId, sessionId, locked.CurrentState, locked.ManifestId);
                     return AsOutput(await WriteSessionLockedAsync(req, locked));
+                }
+
+                if (guardSessionRow == null)
+                {
+                    RequestRowMarkers.Stamp(req, RequestRowMarkers.IngestRefusalKey, RequestRowMarkers.IngestRefusal.SessionUnknown);
+                    _logger.LogInformation(
+                        "IngestTelemetry: refused batch — session unknown tenant={Tenant} session={Session}",
+                        bodyTenantId, sessionId);
+                    return AsOutput(await WriteSessionUnknownAsync(req));
                 }
 
                 // The header serial is caller-declared; the Sessions row carries the serial the
@@ -412,6 +424,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             {
                 Success = false,
                 Message = $"Session is being deleted by an administrator (state={locked.CurrentState}); further telemetry will be rejected.",
+                ProcessedAt = DateTime.UtcNow,
+            });
+
+        /// <summary>
+        /// 410 for a session without a Sessions row: same status and body shape as the cascade lock,
+        /// because the agent's reaction is the same (stop, clean up). Never a poison body — the
+        /// agent would drop the items and re-emit a marker event into the same dead session.
+        /// </summary>
+        private static Task<HttpResponseData> WriteSessionUnknownAsync(HttpRequestData req)
+            => req.JsonAsync(HttpStatusCode.Gone, new IngestEventsResponse
+            {
+                Success = false,
+                Message = "Session is unknown to the backend (never registered, or already deleted); further telemetry will be rejected.",
                 ProcessedAt = DateTime.UtcNow,
             });
 

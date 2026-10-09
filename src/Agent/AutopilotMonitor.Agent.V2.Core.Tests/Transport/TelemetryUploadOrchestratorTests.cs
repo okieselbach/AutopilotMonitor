@@ -10,10 +10,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 {
     public sealed class TelemetryUploadOrchestratorTests
     {
-        private static TelemetryItemDraft Draft(string rowKey) =>
+        private const string OwnKey = "tenant_session";
+
+        private static TelemetryItemDraft Draft(string rowKey) => Draft(rowKey, OwnKey);
+
+        private static TelemetryItemDraft Draft(string rowKey, string partitionKey) =>
             new TelemetryItemDraft(
                 kind: TelemetryItemKind.Event,
-                partitionKey: "tenant_session",
+                partitionKey: partitionKey,
                 rowKey: rowKey,
                 payloadJson: $"{{\"rk\":\"{rowKey}\"}}",
                 isSessionScoped: true);
@@ -155,6 +159,118 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             var second = await sut.DrainAllAsync();
             Assert.Equal(-1, sut.LastUploadedItemId);
             Assert.Equal(1, blockedCount);
+        }
+
+        // ============================================================ HTTP 410 — session gone
+
+        [Fact]
+        public async Task SessionGone_for_current_session_stops_drain_retains_cursor_and_raises_once()
+        {
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(Draft("a"));
+            spool.Enqueue(Draft("b"));
+
+            var uploader = new FakeBackendTelemetryUploader().QueueSessionGone().QueueSessionGone();
+            using var sut = new TelemetryUploadOrchestrator(spool, uploader, Clock(), currentPartitionKey: OwnKey);
+            var gone = new System.Collections.Generic.List<string>();
+            int blockedCount = 0;
+            PoisonReport? poison = null;
+            sut.SessionGone += (_, reason) => gone.Add(reason);
+            sut.UploadBlocked += (_, __) => blockedCount++;
+            sut.BatchPoisoned += (_, p) => poison = p;
+
+            var first = await sut.DrainAllAsync();
+
+            Assert.False(first.Success);
+            Assert.Equal(1, first.FailedBatches);
+            Assert.Equal(0, first.UploadedItems);
+            Assert.Equal(1, uploader.CallCount);       // no retries — nothing can make a 410 succeed
+            Assert.Equal(-1, sut.LastUploadedItemId);  // retained — items stay on disk for the diag ZIP
+            Assert.Single(gone);
+            Assert.Contains("410", gone[0]);
+            Assert.Equal(0, blockedCount);             // not a "blocked" pipeline
+            Assert.Null(poison);
+
+            // One-shot: the next drain hits the 410 again but does not raise again.
+            var second = await sut.DrainAllAsync();
+            Assert.False(second.Success);
+            Assert.Equal(2, uploader.CallCount);
+            Assert.Equal(-1, sut.LastUploadedItemId);
+            Assert.Single(gone);
+            Assert.Equal(0, blockedCount);
+        }
+
+        [Fact]
+        public async Task SessionGone_for_leading_foreign_items_drops_only_them_and_continues()
+        {
+            // Leftovers of a previous session id at the head of the spool (defence in depth — the
+            // spool filters these at startup). A 410 for them must not end the current session:
+            // drop exactly the leading foreign run, then carry on with the current session's items.
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(Draft("old-a", "tenant_old-session"));
+            spool.Enqueue(Draft("old-b", "tenant_old-session"));
+            spool.Enqueue(Draft("new", OwnKey));
+
+            var uploader = new FakeBackendTelemetryUploader().QueueSessionGone().QueueOk();
+            using var sut = new TelemetryUploadOrchestrator(spool, uploader, Clock(), currentPartitionKey: OwnKey);
+            int goneCount = 0, blockedCount = 0;
+            sut.SessionGone += (_, __) => goneCount++;
+            sut.UploadBlocked += (_, __) => blockedCount++;
+
+            var result = await sut.DrainAllAsync();
+
+            Assert.True(result.Success);
+            Assert.Equal(0, result.FailedBatches);
+            Assert.Equal(1, result.UploadedItems);
+            Assert.Equal(2, uploader.CallCount);
+            Assert.Equal(3, uploader.Received[0].Count);              // first batch carried all three
+            Assert.Equal("new", Assert.Single(uploader.Received[1]).RowKey); // retry carried only the own item
+            Assert.Equal(2, sut.LastUploadedItemId);
+            Assert.Equal(0, goneCount);
+            Assert.Equal(0, blockedCount);
+        }
+
+        [Fact]
+        public async Task SessionGone_is_not_latched_before_a_handler_is_subscribed()
+        {
+            // The host subscribes after EnrollmentOrchestrator.Start; a 410 on the very first drain
+            // must still reach it on the next drain instead of being swallowed by the one-shot guard.
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(Draft("only"));
+
+            var uploader = new FakeBackendTelemetryUploader().QueueSessionGone().QueueSessionGone();
+            using var sut = new TelemetryUploadOrchestrator(spool, uploader, Clock(), currentPartitionKey: OwnKey);
+
+            await sut.DrainAllAsync();                 // nobody listening yet
+
+            int goneCount = 0;
+            sut.SessionGone += (_, __) => goneCount++;
+            await sut.DrainAllAsync();
+
+            Assert.Equal(1, goneCount);
+            Assert.Equal(-1, sut.LastUploadedItemId);
+        }
+
+        [Fact]
+        public async Task SessionGone_without_a_current_key_treats_every_batch_as_own()
+        {
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(Draft("x", "tenant_whatever"));
+
+            var uploader = new FakeBackendTelemetryUploader().QueueSessionGone();
+            using var sut = new TelemetryUploadOrchestrator(spool, uploader, Clock());
+            int goneCount = 0;
+            sut.SessionGone += (_, __) => goneCount++;
+
+            var result = await sut.DrainAllAsync();
+
+            Assert.False(result.Success);
+            Assert.Equal(1, goneCount);
+            Assert.Equal(-1, sut.LastUploadedItemId);
         }
 
         [Fact]

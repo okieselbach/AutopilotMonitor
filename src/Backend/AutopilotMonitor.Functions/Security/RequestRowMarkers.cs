@@ -42,6 +42,22 @@ namespace AutopilotMonitor.Functions.Security
             => validatedBy == ValidatorType.Unknown ? DeviceValidation.None : validatedBy.ToString();
 
         /// <summary>
+        /// Why a telemetry batch was refused with 410: the session is locked by a cascade delete,
+        /// or the backend has no Sessions row for it. Both share the status so the agent treats
+        /// them alike; the row keeps them apart.
+        /// </summary>
+        public const string IngestRefusalKey = "IngestRefusal";
+
+        /// <summary>Closed set of <see cref="IngestRefusalKey"/> values.</summary>
+        public static class IngestRefusal
+        {
+            /// <summary>The Sessions row is in a cascade lock state (or freshly tombstoned).</summary>
+            public const string CascadeLocked = "cascade_locked";
+            /// <summary>No Sessions row and no tombstone: never registered, or deleted longer ago than the marker lives.</summary>
+            public const string SessionUnknown = "session_unknown";
+        }
+
+        /// <summary>
         /// Outcome of the Intune device lookup behind the client certificate
         /// (<see cref="IntuneDeviceBindingOutcome"/> name). Absent when no lookup result exists for
         /// the request: the tenant granted no permission, or an observation is still running.

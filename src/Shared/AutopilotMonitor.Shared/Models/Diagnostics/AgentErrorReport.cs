@@ -38,6 +38,15 @@ namespace AutopilotMonitor.Shared.Models
         /// out the silence grace. See tasks/enrollment-status-reclassification.md.
         /// </summary>
         SessionAgeEmergencyBreak = 4,
+
+        /// <summary>
+        /// POST /api/agent/telemetry answered 410 Gone for the agent's own session: the backend
+        /// no longer knows it (never registered, deleted, or being deleted). The agent stops
+        /// uploading and terminates with self-destruct; this single report is the last thing the
+        /// device says about the session. Sent over the emergency channel because the telemetry
+        /// channel is exactly what was refused.
+        /// </summary>
+        TelemetryRejectedSessionUnknown = 5,
     }
 
     /// <summary>

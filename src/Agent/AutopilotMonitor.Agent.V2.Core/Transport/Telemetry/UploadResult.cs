@@ -30,7 +30,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             bool isAuthFailure = false,
             bool requiresSplit = false,
             bool isPoison = false,
-            IReadOnlyList<string>? poisonRowKeys = null)
+            IReadOnlyList<string>? poisonRowKeys = null,
+            bool isSessionGone = false)
         {
             Success = success;
             ErrorReason = errorReason;
@@ -44,6 +45,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             RequiresSplit = requiresSplit;
             IsPoison = isPoison;
             PoisonRowKeys = poisonRowKeys;
+            IsSessionGone = isSessionGone;
         }
 
         public bool Success { get; }
@@ -80,6 +82,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
         /// <summary>The RowKeys the backend named as poison (item-level). Non-empty when <see cref="IsPoison"/>.</summary>
         public IReadOnlyList<string>? PoisonRowKeys { get; }
+
+        /// <summary>
+        /// HTTP 410: the backend no longer knows the session the batch belongs to (never
+        /// registered, deleted, or being deleted). Not transient, not auth, not poison — retrying
+        /// can never succeed. The orchestrator stops the drain (cursor stays) and raises
+        /// <see cref="TelemetryUploadOrchestrator.SessionGone"/> when the batch belongs to the
+        /// current session, or drops the batch's leading items when they are leftovers of a
+        /// previous session id.
+        /// </summary>
+        public bool IsSessionGone { get; }
 
         /// <summary>
         /// Non-terminal quarantine signalled by the backend. The agent should stop draining
@@ -165,5 +177,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
                 deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
                 isPoison: true, poisonRowKeys: rejectedRowKeys ?? throw new ArgumentNullException(nameof(rejectedRowKeys)));
+
+        /// <summary>
+        /// HTTP 410 — the backend no longer knows the session. Flagged <see cref="IsSessionGone"/>;
+        /// never retried, never split, never treated as poison.
+        /// </summary>
+        public static UploadResult SessionGone(string reason) =>
+            new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
+                deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
+                isSessionGone: true);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
@@ -14,6 +15,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     ///   - Same error key (ErrorType + HTTP status code) is only ever sent once per session
     ///   - At most <see cref="MaxReportsPerSession"/> emergency reports total per session
     ///   - At most one report every <see cref="MinIntervalMinutes"/> minutes regardless of error type
+    ///     (the terminal <see cref="AgentErrorType.TelemetryRejectedSessionUnknown"/> report is exempt)
     ///
     /// A failure in this reporter is silently swallowed — it must never cascade into the main loop.
     /// </summary>
@@ -32,6 +34,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         private readonly string _tenantId;
         private readonly string _agentVersion;
         private readonly AgentLogger _logger;
+        private readonly IClock _clock;
 
         private readonly HashSet<string> _reportedKeys = new HashSet<string>();
         private readonly object _antiFloodLock = new object();
@@ -43,13 +46,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             string sessionId,
             string tenantId,
             string agentVersion,
-            AgentLogger logger)
+            AgentLogger logger,
+            IClock clock = null)
         {
             _apiClient = apiClient;
             _sessionId = sessionId;
             _tenantId = tenantId;
             _agentVersion = agentVersion;
             _logger = logger;
+            _clock = clock ?? SystemClock.Instance;
         }
 
         /// <summary>
@@ -100,6 +105,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             // All anti-flood checks are protected by a lock to prevent race conditions when
             // TrySendAsync is called concurrently (fire-and-forget from multiple threads).
             var key = $"{errorType}:{httpStatusCode}";
+            var now = _clock.UtcNow;
             int currentReportCount;
             DateTime? previousLastReportTime;
 
@@ -117,8 +123,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     return;
                 }
 
-                if (_lastReportTime != null &&
-                    (DateTime.UtcNow - _lastReportTime.Value).TotalMinutes < MinIntervalMinutes)
+                // The session-unknown report is terminal and sent at most once per process (the
+                // termination follows immediately): a routine report minutes earlier must not cost
+                // the last word about the session. Only the cooldown is waived; key dedup and the
+                // per-session maximum still apply.
+                var exemptFromCooldown = errorType == AgentErrorType.TelemetryRejectedSessionUnknown;
+                if (!exemptFromCooldown && _lastReportTime != null &&
+                    (now - _lastReportTime.Value).TotalMinutes < MinIntervalMinutes)
                 {
                     _logger?.Debug($"[EmergencyChannel] Suppressed (cooldown active, last report at {_lastReportTime.Value:HH:mm:ss}): {key}");
                     return;
@@ -127,7 +138,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 previousLastReportTime = _lastReportTime;
                 _reportedKeys.Add(key);
                 _reportCount++;
-                _lastReportTime = DateTime.UtcNow;
+                _lastReportTime = now;
                 currentReportCount = _reportCount;
             }
 
@@ -145,7 +156,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 SessionAgeHours = sessionAgeHours,
                 PriorRegistrationFailure = priorRegistrationFailure,
                 AgentVersion = _agentVersion,
-                Timestamp = DateTime.UtcNow
+                Timestamp = now
             };
 
             var delivered = false;

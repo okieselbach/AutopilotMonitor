@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services.Monitoring;
 using AutopilotMonitor.Shared.DataAccess;
@@ -56,6 +57,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly PreviewWhitelistService _previewWhitelistService;
         private readonly IStorageInitializer _storageInitializer;
         private readonly Maintenance.MaintenanceRunGate _runGate;
+        private readonly Maintenance.OrphanSessionSweeper _orphanSweeper;
         private readonly ILogger<MaintenanceService> _logger;
 
         private const string PlatformStatsAliasFileName = "platform-stats.json";
@@ -93,6 +95,7 @@ namespace AutopilotMonitor.Functions.Services
             PreviewWhitelistService previewWhitelistService,
             IStorageInitializer storageInitializer,
             Maintenance.MaintenanceRunGate runGate,
+            Maintenance.OrphanSessionSweeper orphanSweeper,
             ILogger<MaintenanceService> logger)
         {
             _maintenanceRepo = maintenanceRepo;
@@ -124,6 +127,7 @@ namespace AutopilotMonitor.Functions.Services
             _previewWhitelistService = previewWhitelistService;
             _storageInitializer = storageInitializer;
             _runGate = runGate;
+            _orphanSweeper = orphanSweeper;
             _logger = logger;
         }
 
@@ -150,53 +154,56 @@ namespace AutopilotMonitor.Functions.Services
             _logger.LogInformation($"Daily maintenance started at {DateTime.UtcNow}");
             var maintenanceStart = Stopwatch.StartNew();
 
+            // Every step is timed into the Completed event (stepsMs): the run's composition is
+            // what decides which steps leave this timer next, and worker logs never show it.
+            var steps = new Maintenance.MaintenanceStepTimer();
             try
             {
                 // Startup only point-reads the table schema sentinel (see
                 // TableStorageService.InitializeTablesAsync); this daily full pass is what
                 // recreates a table that was deleted out-of-band. Cheap (idempotent creates).
-                await EnsureAllTablesAsync();
-                await MarkStalledSessionsAsTimedOutAsync();
-                await DetectExcessiveEventSessionsAsync();
-                await AggregateMetricsWithCatchUpAsync();
+                await steps.RunAsync("ensureTables", async () => { await EnsureAllTablesAsync(); });
+                await steps.RunAsync("stalledSessions", async () => { await MarkStalledSessionsAsTimedOutAsync(); });
+                await steps.RunAsync("excessiveEvents", async () => { await DetectExcessiveEventSessionsAsync(); });
+                await steps.RunAsync("aggregateMetrics", async () => { await AggregateMetricsWithCatchUpAsync(); });
                 // F3 PR6: rule-frequency regression radar, right after the rule-stats
                 // aggregation so the window rows are fresh. Anchored on YESTERDAY — whole
                 // days only, a partial today would understate the window rate. Fail-soft.
-                await RunRuleRegressionRadarAsync(DateTime.UtcNow.Date.AddDays(-1));
+                await steps.RunAsync("ruleRegressionRadar", async () => { await RunRuleRegressionRadarAsync(DateTime.UtcNow.Date.AddDays(-1)); });
                 // App-version duration regression radar: same episode/tracker pattern over the
                 // install summaries (trailing 35d horizon loaded internally). Fail-soft.
-                await RunAppVersionRegressionRadarAsync();
+                await steps.RunAsync("appVersionRadar", async () => { await RunAppVersionRegressionRadarAsync(); });
                 // ONE projected cross-tenant window scan feeds every rolling sweep below (the
                 // StartedAt-only filter is a full-table drain in Table Storage — four of them per
                 // tick was four times the same read). Each sweep slices its own window.
-                var sweepWindow = await LoadSweepWindowSessionsAsync();
+                var sweepWindow = await steps.RunAsync<List<SessionSummary>>("sweepWindow", () => LoadSweepWindowSessionsAsync());
                 // F1 PR2: rolling 30d breakdown backfill + daily attribution aggregates. Owns
                 // its own window (NOT the snapshot-gated catch-up above) so late-terminating
                 // sessions still reach their StartedAt-date's aggregate. Fail-soft internally.
-                await SweepTimeAttributionAsync(sweepWindow);
+                await steps.RunAsync("timeAttribution", async () => { await SweepTimeAttributionAsync(sweepWindow); });
                 // F2 PR4: device-history chain heal (incl. deleted-session ref cleanup) + daily
                 // FTR aggregates over the same rolling window. Fail-soft internally.
-                await SweepDeviceJourneysAsync(sweepWindow);
+                await steps.RunAsync("deviceJourneys", async () => { await SweepDeviceJourneysAsync(sweepWindow); });
                 // Verdict calibration: per-verdict-path daily buckets over the same rolling
                 // window, AFTER the device-journey sweep so the re-enrollment proxy reads
                 // freshly merged chains. Fail-soft internally.
-                await SweepVerdictCalibrationAsync(sweepWindow);
+                await steps.RunAsync("verdictCalibration", async () => { await SweepVerdictCalibrationAsync(sweepWindow); });
                 // Verdict-calibration drift radar over the rows the sweep just refreshed; anchored
                 // on yesterday like the rule radar (whole days only). Fail-soft.
-                await RunVerdictCalibrationRadarAsync(DateTime.UtcNow.Date.AddDays(-1), sweepWindow);
+                await steps.RunAsync("verdictCalibrationRadar", async () => { await RunVerdictCalibrationRadarAsync(DateTime.UtcNow.Date.AddDays(-1), sweepWindow); });
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
                 // work has independent cadence + kill-switch + OpsEvent watchdogs. The non-session
-                // tail of the old CleanupOldDataAsync (UserUsageLog + RuleStats) stays here.
-                await CleanupOldUsageDataAsync();
-                await CleanupOldDistressReportsAsync();
-                await CleanupOldOpsEventsAsync();
-                await CleanupUnboundedTablesAsync();
-                await CleanupOrphanedEventsAsync();
-                await CheckAgentBlobStorageAsync();
-                await CheckEmbeddedCertExpiryAsync();
-                await CheckPoisonQueueBacklogAsync();
-                await RecomputePlatformStatsAsync();
+                // tail of the old CleanupOldDataAsync (UserUsageLog + RuleStats) stays here. The
+                // orphan-session sweep left this timer too (OrphanSessionSweepFunction, every 4h).
+                await steps.RunAsync("usageData", async () => { await CleanupOldUsageDataAsync(); });
+                await steps.RunAsync("distressReports", async () => { await CleanupOldDistressReportsAsync(); });
+                await steps.RunAsync("opsEvents", async () => { await CleanupOldOpsEventsAsync(); });
+                await steps.RunAsync("unboundedTables", async () => { await CleanupUnboundedTablesAsync(); });
+                await steps.RunAsync("agentBlobStorage", async () => { await CheckAgentBlobStorageAsync(); });
+                await steps.RunAsync("embeddedCertExpiry", async () => { await CheckEmbeddedCertExpiryAsync(); });
+                await steps.RunAsync("poisonQueues", async () => { await CheckPoisonQueueBacklogAsync(); });
+                await steps.RunAsync("platformStats", async () => { await RecomputePlatformStatsAsync(); });
 
                 // Backfill and repair tasks run only via manual trigger (RunManualAsync)
                 // to keep the timer-triggered path lightweight. See RunManualAsync for:
@@ -205,7 +212,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 maintenanceStart.Stop();
                 _logger.LogInformation($"Daily maintenance completed in {maintenanceStart.ElapsedMilliseconds}ms");
-                await _opsEventService.RecordMaintenanceCompletedAsync((int)maintenanceStart.ElapsedMilliseconds, "Timer");
+                await _opsEventService.RecordMaintenanceCompletedAsync((int)maintenanceStart.ElapsedMilliseconds, "Timer", stepsMs: steps.Steps);
 
                 // Soft watchdog: the run completed, but if it is climbing toward the host's 60min
                 // functionTimeout (e.g. a large first-time retention backlog deleting row-by-row),
@@ -315,6 +322,10 @@ namespace AutopilotMonitor.Functions.Services
                     await CleanupOldUsageDataAsync();
                     await CleanupUnboundedTablesAsync();
                     result.DataCleanupExecuted = true;
+
+                    // The orphan-session sweep has its own timer and lease; a manual run includes it
+                    // (with the reconciliation) so an operator can drive it from the same button.
+                    await _orphanSweeper.RunAsync(triggeredBy, CancellationToken.None);
 
                     // --- Backfill & repair tasks (manual-only, not in timer path) ---
 

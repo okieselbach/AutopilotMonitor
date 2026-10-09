@@ -61,7 +61,8 @@ export const SHARED_MANIFEST = {
       "vulnerabilityDataLastSyncUtc",
       "msrcLastSyncUtc",
       "nvdCacheLastRefreshUtc",
-      "epssLastSyncUtc"
+      "epssLastSyncUtc",
+      "orphanDeepCheckLastRunUtc"
     ],
     "defaults": {
       "partitionKey": "GlobalConfig",
@@ -118,7 +119,8 @@ export const SHARED_MANIFEST = {
       "vulnerabilityDataLastSyncUtc": null,
       "msrcLastSyncUtc": null,
       "nvdCacheLastRefreshUtc": null,
-      "epssLastSyncUtc": null
+      "epssLastSyncUtc": null,
+      "orphanDeepCheckLastRunUtc": null
     }
   },
   "tenantConfiguration": {
@@ -604,6 +606,10 @@ export const SHARED_MANIFEST = {
     "SessionSweepFailed",
     "OpsEventCleanup",
     "OrphanEventsCleaned",
+    "OrphanSweepCompleted",
+    "OrphanSweepFailed",
+    "OrphanSweepSkippedLocked",
+    "OrphanReconcileCompleted",
     "SessionDeletionMaintenanceStarted",
     "SessionDeletionMaintenanceBudgetExceeded",
     "SessionDeletionMaintenanceSkippedLocked",

@@ -200,6 +200,8 @@ export interface AdminConfiguration {
   nvdCacheLastRefreshUtc: string;
   /** Last successful FIRST EPSS re-score of the cached CVEs (UTC ISO 8601). Updated by VulnerabilityDataSyncFunction (daily timer) and the manual /api/vulnerability/sync-epss. */
   epssLastSyncUtc: string;
+  /** Last run of the weekly orphan-session reconciliation (UTC ISO 8601): the read-only EventTypeIndex-against-Sessions pass of the orphan sweep. Written by the sweep itself, never patched from the portal. */
+  orphanDeepCheckLastRunUtc: string;
 }
 
 /** The immutable Entra identity behind a cross-tenant-role UPN: the HOME tenant the UPN was granted for and, once known, the user's object id. A role row (GlobalAdmins / DelegatedAdmins / TenantGroupAssignments) confers nothing unless the caller's validated JWT matches this binding. */

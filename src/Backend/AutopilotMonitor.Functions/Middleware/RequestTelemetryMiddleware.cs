@@ -198,6 +198,10 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue(RequestRowMarkers.DeviceValidationKey, out var deviceValidation) && deviceValidation is string deviceValidationOutcome)
                 requestTelemetry.Properties[RequestRowMarkers.DeviceValidationKey] = deviceValidationOutcome;
 
+            // INGEST-REFUSAL — set by IngestTelemetry on its 410 paths (cascade lock vs unknown session).
+            if (context.Items.TryGetValue(RequestRowMarkers.IngestRefusalKey, out var ingestRefusal) && ingestRefusal is string ingestRefusalReason)
+                requestTelemetry.Properties[RequestRowMarkers.IngestRefusalKey] = ingestRefusalReason;
+
             // CERT-DEVICE-BINDING — the Intune device lookup behind the certificate (admitting or
             // observing), set by SecurityValidator whenever a lookup result exists for the request.
             foreach (var key in RequestRowMarkers.CertDeviceBindingKeys)

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -153,6 +154,27 @@ public class IngestTelemetryAuthPathTests
 
         Assert.Same(row, returned);
         Assert.Equal(SessionStatus.Succeeded, SessionRowProjections.TryReadStatus(returned));
+    }
+
+    // ============================================================ Session unknown → 410
+
+    [Fact]
+    public async Task SessionUnknown_guard_returns_null_that_Run_maps_to_410_session_unknown()
+    {
+        // Run: a null guard row (no Sessions row, no active tombstone) is refused with 410 via
+        // WriteSessionUnknownAsync and stamped IngestRefusal=session_unknown; the cascade lock keeps
+        // its own value so the two 410 reasons stay apart on the request row.
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+        reader.Setup(r => r.GetActiveSessionTombstoneAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+
+        var row = await guard.EnsureWritableAndGetRowAsync(TenantId, SessionId, callerContext: "V2.IngestTelemetry");
+
+        Assert.Null(row);
+        Assert.NotEqual(RequestRowMarkers.IngestRefusal.SessionUnknown, RequestRowMarkers.IngestRefusal.CascadeLocked);
+        Assert.Equal("IngestRefusal", RequestRowMarkers.IngestRefusalKey);
     }
 
     // ============================================================ TryReadStatus (unique helper)

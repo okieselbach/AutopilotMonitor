@@ -10,10 +10,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 {
     public sealed class TelemetrySpoolTests
     {
-        private static TelemetryItemDraft EventDraft(string rowKey = "row-1") =>
+        private const string OwnKey = "tenant_session";
+        private const string ForeignKey = "tenant_old-session";
+
+        private static TelemetryItemDraft EventDraft(string rowKey = "row-1") => EventDraft(rowKey, OwnKey);
+
+        private static TelemetryItemDraft EventDraft(string rowKey, string partitionKey) =>
             new TelemetryItemDraft(
                 kind: TelemetryItemKind.Event,
-                partitionKey: "tenant_session",
+                partitionKey: partitionKey,
                 rowKey: rowKey,
                 payloadJson: "{\"EventType\":\"agent_started\"}",
                 isSessionScoped: true);
@@ -193,6 +198,86 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.Equal(0, s2.LastAssignedItemId);
             var next = s2.Enqueue(EventDraft("next"));
             Assert.Equal(1, next.TelemetryItemId);
+        }
+
+        // ============================================================ Startup partition-key filter
+
+        [Fact]
+        public void Ctor_drops_leading_pending_items_of_another_session_and_persists_cursor()
+        {
+            // Same spool directory, new session id: the previous session's unsent items would only
+            // draw a 410 that must not end the new session. They are dropped on startup; the own
+            // item behind them stays pending.
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("old-a", ForeignKey));
+            s1.Enqueue(EventDraft("old-b", ForeignKey));
+            s1.Enqueue(EventDraft("own", OwnKey));
+
+            var s2 = new TelemetrySpool(tmp.Path, Clock(), expectedPartitionKey: OwnKey);
+
+            Assert.Equal(1, s2.LastUploadedItemId);
+            Assert.Equal(2, s2.LastAssignedItemId);
+            Assert.Equal(1, s2.PendingItemCount);
+            Assert.Equal("own", Assert.Single(s2.Peek(10)).RowKey);
+
+            // Cursor persisted: a later start without the filter sees the same tail with the same bytes.
+            var s3 = new TelemetrySpool(tmp.Path, Clock());
+            Assert.Equal(1, s3.LastUploadedItemId);
+            Assert.Equal(1, s3.PendingItemCount);
+            Assert.Equal(s3.PendingBytes, s2.PendingBytes);
+
+            var next = s2.Enqueue(EventDraft("next", OwnKey));
+            Assert.Equal(3, next.TelemetryItemId);
+        }
+
+        [Fact]
+        public void Ctor_drops_nothing_when_a_foreign_item_follows_an_own_item()
+        {
+            // Impossible by construction (one process = one session); if it happens the order is
+            // not trustworthy, so the filter keeps everything instead of guessing.
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("old-a", ForeignKey));
+            s1.Enqueue(EventDraft("own", OwnKey));
+            s1.Enqueue(EventDraft("old-b", ForeignKey));
+
+            var s2 = new TelemetrySpool(tmp.Path, Clock(), expectedPartitionKey: OwnKey);
+
+            Assert.Equal(-1, s2.LastUploadedItemId);
+            Assert.Equal(3, s2.PendingItemCount);
+            Assert.Equal(s1.PendingBytes, s2.PendingBytes);
+        }
+
+        [Fact]
+        public void Ctor_keeps_pending_items_that_carry_the_expected_key()
+        {
+            // WhiteGlove Part 2 reuses the Part-1 session id: its leftovers carry the expected key.
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("a", OwnKey));
+            s1.Enqueue(EventDraft("b", OwnKey));
+            s1.Enqueue(EventDraft("c", OwnKey));
+
+            var s2 = new TelemetrySpool(tmp.Path, Clock(), expectedPartitionKey: OwnKey);
+
+            Assert.Equal(-1, s2.LastUploadedItemId);
+            Assert.Equal(3, s2.PendingItemCount);
+            Assert.Equal(s1.PendingBytes, s2.PendingBytes);
+        }
+
+        [Fact]
+        public void Ctor_without_expected_key_keeps_foreign_items()
+        {
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("old-a", ForeignKey));
+            s1.Enqueue(EventDraft("old-b", ForeignKey));
+
+            var s2 = new TelemetrySpool(tmp.Path, Clock());
+
+            Assert.Equal(-1, s2.LastUploadedItemId);
+            Assert.Equal(2, s2.PendingItemCount);
         }
 
         [Fact]

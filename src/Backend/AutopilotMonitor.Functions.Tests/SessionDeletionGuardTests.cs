@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
@@ -131,6 +132,60 @@ public class SessionDeletionGuardTests
 
         Assert.Equal(TenantId, ex.TenantId);
         Assert.Equal(SessionId, ex.SessionId);
+    }
+
+    // ============================================================ GetLivenessAsync (derived writers) ====
+
+    [Fact]
+    public async Task GetLivenessAsync_reports_Missing_when_the_row_does_not_exist()
+    {
+        // Unlike the ingest contract, a derived writer (queue handler, rescan) stops here: nothing
+        // may be derived for a session the backend does not know.
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+
+        Assert.Equal(SessionLiveness.Missing, await guard.GetLivenessAsync(TenantId, SessionId, "VulnerabilityCorrelate"));
+        reader.Verify(r => r.GetActiveSessionTombstoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(SessionDeletionState.Preparing)]
+    [InlineData(SessionDeletionState.Queued)]
+    [InlineData(SessionDeletionState.Running)]
+    [InlineData(SessionDeletionState.Poisoned)]
+    public async Task GetLivenessAsync_reports_Locked_for_every_lock_state(string state)
+    {
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+              .ReturnsAsync(new TableEntity(TenantId, SessionId) { ["DeletionState"] = state });
+
+        Assert.Equal(SessionLiveness.Locked, await guard.GetLivenessAsync(TenantId, SessionId, "AnalyzeOnEnrollmentEnd"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("None")]
+    public async Task GetLivenessAsync_reports_Live_for_an_unlocked_row(string? state)
+    {
+        var guard = NewGuard(out var reader);
+        var row = new TableEntity(TenantId, SessionId);
+        if (state != null) row["DeletionState"] = state;
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+              .ReturnsAsync(row);
+
+        Assert.Equal(SessionLiveness.Live, await guard.GetLivenessAsync(TenantId, SessionId, "VulnerabilityRescan"));
+    }
+
+    [Fact]
+    public async Task GetLivenessAsync_propagates_a_read_error()
+    {
+        // A storage failure must surface to the queue worker (retry/poison), never read as "missing".
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+              .ThrowsAsync(new Azure.RequestFailedException(503, "busy"));
+
+        await Assert.ThrowsAsync<Azure.RequestFailedException>(() => guard.GetLivenessAsync(TenantId, SessionId, "VulnerabilityCorrelate"));
     }
 
     // ============================================================ Codex F3: tombstone-marker disambiguation ====

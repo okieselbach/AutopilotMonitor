@@ -371,8 +371,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // 3) Telemetry-Transport. Batch size flows from AgentConfiguration.MaxBatchSize
             //    via Program.cs (P1 fix: previously the remote-config knob was merged but
             //    never applied, so tenants saw drainInterval/MaxBatchSize have no effect).
-            _spool = new TelemetrySpool(_transportDirectory, _clock, _logger);
-            _transport = new TelemetryUploadOrchestrator(_spool, _uploader, _clock, batchSize: _uploadBatchSize);
+            //    The partition key names the registered session: the spool drops leftovers of a
+            //    previous session id on startup, and the orchestrator tells a 410 for this session
+            //    (SessionGone → host terminates) from a 410 for such leftovers (dropped).
+            var partitionKey = TelemetryPartitionKey.ForSession(_tenantId, _sessionId);
+            _spool = new TelemetrySpool(_transportDirectory, _clock, _logger, expectedPartitionKey: partitionKey);
+            _transport = new TelemetryUploadOrchestrator(
+                _spool, _uploader, _clock, batchSize: _uploadBatchSize, currentPartitionKey: partitionKey, logger: _logger);
 
             // TRACE-H1 — surface skipped oversized items + blocked-pipeline conditions as timeline
             // events. Raised after the drain guard releases, so posting back through the ingress

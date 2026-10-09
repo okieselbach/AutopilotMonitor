@@ -165,6 +165,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     {
                         _logger?.Warning($"BackendTelemetryUploader: ingest TRANSIENT (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
                     }
+                    else if (result.IsSessionGone)
+                    {
+                        _logger?.Error($"BackendTelemetryUploader: ingest rejected — backend no longer knows this session (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
+                    }
                     else
                     {
                         _logger?.Error($"BackendTelemetryUploader: ingest PERMANENT fail (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
@@ -208,6 +212,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
                 case HttpStatusCode.RequestEntityTooLarge: // 413 — the data is fine, only the batch
                     return UploadResult.TooLarge(shortReason); // size is wrong → split & retry (P1).
+
+                case HttpStatusCode.Gone:                  // 410 — the backend no longer knows this session.
+                    // Decided BEFORE the poison-body check: a poison body on 410 would make the
+                    // drain drop items and emit telemetry_upload_poisoned, which the backend
+                    // rejects with 410 again — an emit/reject loop for a session that is over.
+                    return UploadResult.SessionGone($"session gone: {shortReason}");
             }
 
             if (statusCode >= 500 && statusCode <= 599) return UploadResult.Transient(shortReason);

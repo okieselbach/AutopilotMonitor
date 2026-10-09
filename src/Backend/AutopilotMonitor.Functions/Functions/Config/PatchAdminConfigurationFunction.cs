@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             "LatestAgentV2Version", "LatestAgentV2Sha256", "LatestAgentV2ExeSha256", "LatestBootstrapV2ScriptVersion",
             "PlanTierDefinitionsJson",
             "VulnerabilityDataLastSyncUtc", "MsrcLastSyncUtc", "NvdCacheLastRefreshUtc", "EpssLastSyncUtc",
+            "OrphanDeepCheckLastRunUtc",
         };
 
         /// <summary>

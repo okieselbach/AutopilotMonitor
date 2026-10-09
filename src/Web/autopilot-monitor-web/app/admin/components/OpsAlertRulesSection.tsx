@@ -88,8 +88,16 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // PR2: GA restored a single row from a backup. Warning severity so operators
     // can wire a Telegram rule and see the audit in near-real-time.
     "BackupRowRestored",
-    // Orphan cleanup sweep (Warning): events whose parent session no longer exists were
-    // deleted during maintenance aggregation. Backend helper RecordOrphanEventsCleanedAsync.
+    // Orphan-session sweep (OrphanSessionSweepFunction, every 4h at :45) — dual-register per
+    // memory feedback_ops_event_types_dual_register. Backend helpers RecordOrphanSweep{Completed,
+    // Failed,SkippedLocked}Async, RecordOrphanReconcileCompletedAsync, RecordOrphanEventsCleanedAsync.
+    // Completed is the 4h heartbeat (Info); EventsCleaned (Warning) fires only when rows of a
+    // session without a Sessions row were removed; ReconcileCompleted is the weekly read-only
+    // EventTypeIndex check (Info at zero residue, Warning otherwise).
+    "OrphanSweepCompleted",
+    "OrphanSweepFailed",
+    "OrphanSweepSkippedLocked",
+    "OrphanReconcileCompleted",
     "OrphanEventsCleaned",
   ],
   // SLA breach evaluation (SlaBreachEvaluationService). Dual-register per memory

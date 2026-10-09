@@ -121,13 +121,17 @@ public class OffboardingSessionEnumeratorTests
         public Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff) => throw new NotImplementedException();
         public Task<List<string>> GetAllTenantIdsAsync() => throw new NotImplementedException();
-        public Task<int> DeleteSessionEventsAsync(string tenantId, string sessionId) => throw new NotImplementedException();
         public Task<int> DeleteSessionRuleResultsAsync(string tenantId, string sessionId) => throw new NotImplementedException();
         public Task<int> BackfillSessionIndexAsync() => throw new NotImplementedException();
         public Task<int> CleanupGhostSessionIndexEntriesAsync() => throw new NotImplementedException();
         public Task<bool> IsSessionIndexEmptyAsync() => throw new NotImplementedException();
-        public Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod) => throw new NotImplementedException();
-        public Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId) => throw new NotImplementedException();
+        public Task<HashSet<(string TenantId, string SessionId)>> GetSessionKeysAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<OrphanSessionHandle>> GetEventSessionIndexHandlesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<OrphanSessionHandle?> GetEventSessionIndexHandleAsync(string tenantId, string sessionId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<string?> StampHandleInventoryDecrementedAsync(string tenantId, string sessionId, string etag, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteEventSessionIndexHandleAsync(string tenantId, string sessionId, string etag, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<int> DeleteOrphanSessionRowsAsync(string table, string tenantId, string sessionId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<HashSet<(string TenantId, string SessionId)>> GetEventTypeIndexSessionKeysAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync() => throw new NotImplementedException();
     }
 }

@@ -936,23 +936,6 @@ namespace AutopilotMonitor.Functions.Services
         // ===== DELETION HELPERS =====
 
         /// <summary>
-        /// Deletes all events for a session from storage
-        /// </summary>
-        public async Task<int> DeleteSessionEventsAsync(string tenantId, string sessionId)
-        {
-            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
-            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
-
-            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
-            var partitionKey = $"{tenantId}_{sessionId}";
-            var filter = $"PartitionKey eq '{partitionKey}'";
-            var deleted = await DeleteByFilterInBatchesAsync(tableClient, filter, $"events for session {sessionId}");
-            if (deleted > 0)
-                _logger.LogInformation($"Deleted {deleted} events for session {sessionId}");
-            return deleted;
-        }
-
-        /// <summary>
         /// Deletes all rule results for a session
         /// </summary>
         public async Task<int> DeleteSessionRuleResultsAsync(string tenantId, string sessionId)
@@ -1186,82 +1169,6 @@ namespace AutopilotMonitor.Functions.Services
                 // The manual maintenance backfill remains the safety net.
                 _logger.LogWarning(ex, "Failed to check if session index is empty — skipping startup backfill");
                 return false;
-            }
-        }
-
-        // ===== ORPHAN EVENT DETECTION =====
-
-        /// <summary>
-        /// Scans EventSessionIndex, checks each entry against the Sessions table,
-        /// and returns entries where no session exists and LastIngestAt is older than the grace period.
-        /// </summary>
-        public async Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod)
-        {
-            var orphans = new List<OrphanedEventSession>();
-            var cutoff = DateTime.UtcNow - gracePeriod;
-
-            try
-            {
-                var indexClient = _tableServiceClient.GetTableClient(Constants.TableNames.EventSessionIndex);
-                var sessionsClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
-
-                await foreach (var entity in indexClient.QueryAsync<TableEntity>())
-                {
-                    var tenantId = entity.PartitionKey;
-                    var sessionId = entity.RowKey;
-                    var lastIngestAt = entity.GetDateTimeOffset("LastIngestAt")?.UtcDateTime ?? DateTime.MinValue;
-                    var eventCount = entity.GetInt32("EventCount") ?? 0;
-
-                    // Grace period: skip recent entries (race condition protection)
-                    if (lastIngestAt > cutoff)
-                        continue;
-
-                    // Check if session exists
-                    try
-                    {
-                        var session = await sessionsClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId, select: new[] { "PartitionKey" });
-                        if (!session.HasValue)
-                        {
-                            orphans.Add(new OrphanedEventSession
-                            {
-                                TenantId = tenantId,
-                                SessionId = sessionId,
-                                LastIngestAt = lastIngestAt,
-                                EventCount = eventCount
-                            });
-                        }
-                    }
-                    catch (RequestFailedException ex)
-                    {
-                        // GetEntityIfExistsAsync does NOT throw on 404 (handled via HasValue above),
-                        // so this only fires on transient errors (429/500/503). Treating those as
-                        // "orphan" would delete events of live sessions — skip the entry instead.
-                        _logger.LogWarning(ex, "Transient error checking session existence for {TenantId}/{SessionId} (status {Status}); skipping orphan classification this run", tenantId, sessionId, ex.Status);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to scan EventSessionIndex for orphans");
-            }
-
-            return orphans;
-        }
-
-        public async Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId)
-        {
-            try
-            {
-                var indexClient = _tableServiceClient.GetTableClient(Constants.TableNames.EventSessionIndex);
-                await indexClient.DeleteEntityAsync(tenantId, sessionId);
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                // Already deleted, ignore
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete EventSessionIndex entry for {TenantId}/{SessionId}", tenantId, sessionId);
             }
         }
     }

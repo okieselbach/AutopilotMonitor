@@ -74,7 +74,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             public int ByteLength { get; }
         }
 
-        public TelemetrySpool(string directoryPath, IClock clock, Logging.AgentLogger? logger = null)
+        /// <param name="expectedPartitionKey">
+        /// Partition key of the session this process serves (<see cref="TelemetryPartitionKey.ForSession"/>).
+        /// When set, pending items of another session id found at the head of the spool are dropped
+        /// on startup — see <see cref="DropLeadingForeignPending"/>. Null disables the filter.
+        /// </param>
+        public TelemetrySpool(
+            string directoryPath,
+            IClock clock,
+            Logging.AgentLogger? logger = null,
+            string? expectedPartitionKey = null)
         {
             if (string.IsNullOrEmpty(directoryPath))
             {
@@ -96,6 +105,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             // count as "pending" and need to be rehydrated into _pending.
             _lastUploadedItemId = _cursor.Load();
             _lastAssignedItemId = ScanSpoolAndRehydratePending();
+            DropLeadingForeignPending(expectedPartitionKey);
             _peakPendingCount = _pending.Count;
         }
 
@@ -311,6 +321,69 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 }
             }
             return highest;
+        }
+
+        /// <summary>
+        /// Startup filter: drops the LEADING run of pending items whose partition key is not
+        /// <paramref name="expectedPartitionKey"/>, advancing and persisting the cursor past them.
+        /// Such items are leftovers of a previous session id in the same spool directory; the
+        /// backend answers 410 for them, and that 410 must never end the session this process
+        /// serves. One process serves one session, so a foreign item AFTER an own item cannot
+        /// occur — if it does, the order is not trustworthy and nothing is dropped. WhiteGlove
+        /// Part 2 reuses the Part-1 session id, so its leftovers carry the expected key and stay.
+        /// Called once from the ctor, after rehydration.
+        /// </summary>
+        private void DropLeadingForeignPending(string? expectedPartitionKey)
+        {
+            if (string.IsNullOrEmpty(expectedPartitionKey) || _pending.Count == 0) return;
+
+            var leadingForeign = 0;
+            long lastForeignId = -1;
+            var seenOwn = false;
+            foreach (var entry in _pending)
+            {
+                var isForeign = !string.Equals(entry.Item.PartitionKey, expectedPartitionKey, StringComparison.Ordinal);
+                if (!isForeign)
+                {
+                    seenOwn = true;
+                    continue;
+                }
+
+                if (!seenOwn)
+                {
+                    leadingForeign++;
+                    lastForeignId = entry.Item.TelemetryItemId;
+                    continue;
+                }
+
+                _logger?.Error(
+                    $"TelemetrySpool: pending itemId={entry.Item.TelemetryItemId} carries a foreign partition key after items of the current session — spool order is inconsistent; keeping all {_pending.Count} pending item(s).");
+                return;
+            }
+
+            if (leadingForeign == 0) return;
+
+            try
+            {
+                _cursor.Save(lastForeignId);
+            }
+            catch (Exception ex)
+            {
+                // Keep the items rather than risk a cursor that disagrees with disk; the drain
+                // loop drops the same leading run on its first 410 (defence in depth).
+                _logger?.Warning($"TelemetrySpool: could not persist the cursor past {leadingForeign} foreign pending item(s): {ex.Message}");
+                return;
+            }
+
+            _lastUploadedItemId = lastForeignId;
+            for (var i = 0; i < leadingForeign; i++)
+            {
+                _pendingBytes -= _pending.First!.Value.ByteLength;
+                _pending.RemoveFirst();
+            }
+
+            _logger?.Warning(
+                $"TelemetrySpool: dropped {leadingForeign} pending item(s) of a previous session id (cursor advanced to {lastForeignId}, {_pending.Count} pending item(s) of the current session kept).");
         }
     }
 }

@@ -310,6 +310,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             new EnrollmentTerminatedEventArgs(
                 reason, outcome, stage.ToString(), at ?? EndUtc);
 
+        /// <summary>
+        /// The args <c>ServerControlPlane.OnTerminateRequested</c> synthesises for a
+        /// <c>terminate_session</c> action tagged with <paramref name="origin"/>.
+        /// </summary>
+        private static EnrollmentTerminatedEventArgs ServerArgs(string origin) =>
+            new EnrollmentTerminatedEventArgs(
+                EnrollmentTerminationReason.DecisionTerminalStage,
+                EnrollmentTerminationOutcome.Failed,
+                SessionStage.Failed.ToString(),
+                EndUtc,
+                details: "Server-requested termination",
+                origin: origin);
+
         [Fact]
         public void Handle_writes_final_status_json_in_state_directory()
         {
@@ -456,6 +469,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
 
             Assert.Equal(0, rig.CleanupService.Invocations);
+        }
+
+        // ============================================================= origin=session_gone (HTTP 410)
+
+        [Fact]
+        public void Handle_session_gone_skips_spool_drain_and_diagnostics_but_still_cleans_up()
+        {
+            // The backend no longer knows the session: every drain would only burn its budget on
+            // 410s and a diagnostics package would describe a deleted session. Marker, cleanup
+            // and the (forced) self-destruct still run.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Failed }.Build();
+            rig.SpoolDrainPeriodOverride = TimeSpan.FromSeconds(5);
+            var spoolPolls = 0;
+            rig.PendingItemCountAccessor = () => { spoolPolls++; return 5; }; // never drains — a poll would burn the budget
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: true);
+
+            rig.Build(cfg).Handle(sender: null!, ServerArgs(TerminationOrigins.SessionGone));
+
+            Assert.Equal(0, spoolPolls);
+            Assert.Equal(0, rig.DiagnosticsUploads);
+            Assert.DoesNotContain(Constants.EventTypes.DiagnosticsCollecting, rig.EmittedEventTypes);
+            Assert.Contains(Constants.EventTypes.AgentShuttingDown, rig.EmittedEventTypes);
+            Assert.True(File.Exists(Path.Combine(rig.StateDir, "enrollment-complete.marker")));
+            Assert.Equal(1, rig.CleanupService.Invocations);
+            Assert.Equal(1, rig.ShutdownSignalled);
+        }
+
+        [Fact]
+        public void Handle_kill_signal_origin_still_drains_spool_and_uploads_diagnostics()
+        {
+            // The administrator kill signal keeps its full sequence — only session_gone skips.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Failed }.Build();
+            rig.SpoolDrainPeriodOverride = TimeSpan.FromSeconds(5);
+            var spoolPolls = 0;
+            rig.PendingItemCountAccessor = () => { spoolPolls++; return 0; };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: true);
+
+            rig.Build(cfg).Handle(sender: null!, ServerArgs(TerminationOrigins.KillSignal));
+
+            Assert.True(spoolPolls > 0);
+            Assert.Equal(1, rig.DiagnosticsUploads);
+            Assert.Contains(Constants.EventTypes.DiagnosticsCollecting, rig.EmittedEventTypes);
+            Assert.Equal(1, rig.CleanupService.Invocations);
+            Assert.Equal(1, rig.ShutdownSignalled);
         }
 
         [Fact]

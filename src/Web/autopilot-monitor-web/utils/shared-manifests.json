@@ -57,7 +57,8 @@
       "vulnerabilityDataLastSyncUtc",
       "msrcLastSyncUtc",
       "nvdCacheLastRefreshUtc",
-      "epssLastSyncUtc"
+      "epssLastSyncUtc",
+      "orphanDeepCheckLastRunUtc"
     ],
     "defaults": {
       "partitionKey": "GlobalConfig",
@@ -114,7 +115,8 @@
       "vulnerabilityDataLastSyncUtc": null,
       "msrcLastSyncUtc": null,
       "nvdCacheLastRefreshUtc": null,
-      "epssLastSyncUtc": null
+      "epssLastSyncUtc": null,
+      "orphanDeepCheckLastRunUtc": null
     }
   },
   "tenantConfiguration": {
@@ -600,6 +602,10 @@
     "SessionSweepFailed",
     "OpsEventCleanup",
     "OrphanEventsCleaned",
+    "OrphanSweepCompleted",
+    "OrphanSweepFailed",
+    "OrphanSweepSkippedLocked",
+    "OrphanReconcileCompleted",
     "SessionDeletionMaintenanceStarted",
     "SessionDeletionMaintenanceBudgetExceeded",
     "SessionDeletionMaintenanceSkippedLocked",
@@ -1750,6 +1756,14 @@
             "name": "string"
           },
           "doc": "Last successful FIRST EPSS re-score of the cached CVEs (UTC ISO 8601). Updated by VulnerabilityDataSyncFunction (daily timer) and the manual /api/vulnerability/sync-epss."
+        },
+        {
+          "name": "orphanDeepCheckLastRunUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Last run of the weekly orphan-session reconciliation (UTC ISO 8601): the read-only EventTypeIndex-against-Sessions pass of the orphan sweep. Written by the sweep itself, never patched from the portal."
         }
       ]
     },

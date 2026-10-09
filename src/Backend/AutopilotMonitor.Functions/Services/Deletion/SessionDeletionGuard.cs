@@ -8,6 +8,17 @@ using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services.Deletion
 {
+    /// <summary>Outcome of <see cref="SessionDeletionGuard.GetLivenessAsync"/>.</summary>
+    public enum SessionLiveness
+    {
+        /// <summary>Sessions row present and not in a cascade lock state.</summary>
+        Live,
+        /// <summary>No Sessions row: never registered, or deleted.</summary>
+        Missing,
+        /// <summary>Sessions row present but owned by a cascade (Preparing / Queued / Running / Poisoned).</summary>
+        Locked,
+    }
+
     /// <summary>
     /// Single chokepoint for the cascade-delete writer-block invariant (Plan §1 P7 / §5 PR3).
     /// Two APIs split for hot-path I/O cost:
@@ -87,6 +98,35 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         /// <summary>Columns the guard reads off the row itself; a projected read adds them to the caller's list.</summary>
         public static readonly string[] LockColumns = { "DeletionState", "PendingDeletionManifestId" };
+
+        /// <summary>
+        /// For writers that DERIVE rows for a session (queue handlers, the manual rescan). Unlike
+        /// the registration/ingest contract, a missing Sessions row is a stop here, not a pass:
+        /// a derived row for a session the backend does not know can never be reached by a
+        /// cascade and would only feed the orphan sweep. Read errors propagate (queue retry).
+        /// </summary>
+        public async Task<SessionLiveness> GetLivenessAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
+        {
+            var sessionRow = await _reader.GetSessionRowAsync(tenantId, sessionId, LockColumns, cancellationToken);
+            if (sessionRow == null)
+            {
+                _logger.LogWarning(
+                    "SessionDeletionGuard: no Sessions row — derived write skipped: tenant={TenantId} session={SessionId} caller={Caller}",
+                    tenantId, sessionId, callerContext);
+                return SessionLiveness.Missing;
+            }
+
+            var state = sessionRow.GetString("DeletionState");
+            if (SessionDeletionState.IsLocked(state))
+            {
+                _logger.LogInformation(
+                    "SessionDeletionGuard: session locked — derived write skipped: tenant={TenantId} session={SessionId} state={State} caller={Caller}",
+                    tenantId, sessionId, state, callerContext);
+                return SessionLiveness.Locked;
+            }
+
+            return SessionLiveness.Live;
+        }
 
         /// <summary>
         /// <see cref="EnsureWritableAndGetRowAsync(string, string, string, CancellationToken)"/> with the

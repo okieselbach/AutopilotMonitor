@@ -294,6 +294,10 @@ builder.Services.AddHttpClient<GitHubRuleRepository>()
 // BackgroundService worker that runs a queued manual run.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.MaintenanceRunLockStore>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.MaintenanceRunGate>();
+// Orphan-session sweep: own 4h timer (OrphanSessionSweepFunction), own lease, also run by the
+// manual maintenance trigger. The cascade for sessions that have no Sessions row.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.OrphanSweepLockStore>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.OrphanSessionSweeper>();
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Maintenance.IMaintenanceTriggerProducer,
     AutopilotMonitor.Functions.Services.Maintenance.AzureQueueMaintenanceTriggerProducer>();

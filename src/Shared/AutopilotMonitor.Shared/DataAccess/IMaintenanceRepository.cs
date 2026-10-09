@@ -130,7 +130,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<string>> GetAllTenantIdsAsync();
 
         // --- Cleanup ---
-        Task<int> DeleteSessionEventsAsync(string tenantId, string sessionId);
         Task<int> DeleteSessionRuleResultsAsync(string tenantId, string sessionId);
 
         // --- Index Maintenance ---
@@ -138,13 +137,51 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<int> CleanupGhostSessionIndexEntriesAsync();
         Task<bool> IsSessionIndexEmptyAsync();
 
-        // --- Orphan Event Detection ---
+        // --- Orphan session sweep (rows of sessions that have no Sessions row) ---
+
         /// <summary>
-        /// Returns EventSessionIndex entries whose session no longer exists in the Sessions table
-        /// and whose last ingest is older than the grace period.
+        /// Every (tenantId, sessionId) key of the Sessions table, projected to the keys (one range
+        /// request per 1000 rows). The sweep diffs the EventSessionIndex handles against this set
+        /// instead of point-reading one Sessions row per handle.
         /// </summary>
-        Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod);
-        Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId);
+        Task<HashSet<(string TenantId, string SessionId)>> GetSessionKeysAsync(System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Every EventSessionIndex handle with the columns the sweep decides on: last ingest, the
+        /// row's own write time, ETag and the inventory progress stamp.
+        /// </summary>
+        Task<IReadOnlyList<OrphanSessionHandle>> GetEventSessionIndexHandlesAsync(System.Threading.CancellationToken ct = default);
+
+        /// <summary>Point-reads one handle; null when it no longer exists (a cascade took it).</summary>
+        Task<OrphanSessionHandle?> GetEventSessionIndexHandleAsync(string tenantId, string sessionId, System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Marks the handle's software-inventory decrements as applied (ETag-conditional merge).
+        /// Returns the handle's new ETag, or null when the row changed or vanished since
+        /// <paramref name="etag"/> was read.
+        /// </summary>
+        Task<string?> StampHandleInventoryDecrementedAsync(string tenantId, string sessionId, string etag, System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Deletes the handle only while it still carries <paramref name="etag"/>: false when a
+        /// later write changed it (412) or it is already gone (404).
+        /// </summary>
+        Task<bool> DeleteEventSessionIndexHandleAsync(string tenantId, string sessionId, string etag, System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Deletes every row of <paramref name="table"/> that belongs to the session, by that table's
+        /// own key shape. Fail-loud on query or delete errors; rows already missing count as done.
+        /// Returns the number of rows found.
+        /// </summary>
+        Task<int> DeleteOrphanSessionRowsAsync(string table, string tenantId, string sessionId, System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Distinct (tenantId, sessionId) pairs present in EventTypeIndex — the input of the weekly
+        /// reconciliation (a full projected drain, roughly 65 rows per session). The tenant comes
+        /// from the TenantId column, falling back to the PartitionKey prefix for rows written
+        /// before that column existed.
+        /// </summary>
+        Task<HashSet<(string TenantId, string SessionId)>> GetEventTypeIndexSessionKeysAsync(System.Threading.CancellationToken ct = default);
 
         // --- Session Tombstones (F2 device-journey sweep input) ---
         /// <summary>
@@ -167,12 +204,31 @@ namespace AutopilotMonitor.Shared.DataAccess
         IAsyncEnumerable<string> EnumerateSessionsForOffboardingAsync(string tenantId, System.Threading.CancellationToken ct = default);
     }
 
-    public class OrphanedEventSession
+    /// <summary>
+    /// One EventSessionIndex row as the orphan sweep sees it — the discovery handle that every
+    /// events write creates (PK tenantId, RK sessionId).
+    /// </summary>
+    public sealed class OrphanSessionHandle
     {
         public string TenantId { get; set; } = string.Empty;
         public string SessionId { get; set; } = string.Empty;
+
+        /// <summary>Server time of the last ingest that touched the handle.</summary>
         public DateTime LastIngestAt { get; set; }
-        public int EventCount { get; set; }
+
+        /// <summary>
+        /// System write time of the row. A restore re-inserts the handle with its old
+        /// LastIngestAt but a fresh write time, so the sweep waits on this one too.
+        /// </summary>
+        public DateTime WrittenAt { get; set; }
+
+        public string ETag { get; set; } = string.Empty;
+
+        /// <summary>
+        /// True once the sweep applied the session's software-inventory decrements. Progress
+        /// marker across runs: a rerun after a crash skips the decrements and only removes the rows.
+        /// </summary>
+        public bool InventoryDecremented { get; set; }
     }
 
     /// <summary>

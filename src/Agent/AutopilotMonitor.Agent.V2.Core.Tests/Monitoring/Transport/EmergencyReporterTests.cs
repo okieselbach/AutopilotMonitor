@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
@@ -48,6 +49,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
 
         private static EmergencyReporter Reporter(FakeApiClient client)
             => new EmergencyReporter(client, "session", "tenant", "0.0.0", logger: null);
+
+        private static EmergencyReporter Reporter(FakeApiClient client, VirtualClock clock)
+            => new EmergencyReporter(client, "session", "tenant", "0.0.0", logger: null, clock: clock);
+
+        private static VirtualClock Clock() => new VirtualClock(new DateTime(2026, 10, 9, 10, 0, 0, DateTimeKind.Utc));
+
+        [Fact]
+        public async Task Session_unknown_report_is_not_suppressed_by_the_cooldown_of_an_earlier_report()
+        {
+            // Terminal report, sent at most once per process right before the termination — a
+            // routine report one minute earlier must not cost it. Every other type keeps the cooldown.
+            var clock = Clock();
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+            var reporter = Reporter(client, clock);
+
+            await reporter.TrySendAsync(AgentErrorType.IngestFailed, "m", httpStatusCode: 503);
+            clock.Advance(TimeSpan.FromMinutes(1));
+            await reporter.TrySendAsync(AgentErrorType.TelemetryRejectedSessionUnknown, "m", httpStatusCode: 410);
+
+            Assert.Equal(2, client.Calls);
+            Assert.Equal(AgentErrorType.TelemetryRejectedSessionUnknown, client.Reports[1].ErrorType);
+
+            // Control: a third report of another type inside the window is still held back.
+            clock.Advance(TimeSpan.FromMinutes(1));
+            await reporter.TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
+            Assert.Equal(2, client.Calls);
+        }
+
+        [Fact]
+        public async Task Second_session_unknown_report_within_the_window_is_still_suppressed()
+        {
+            var clock = Clock();
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+            var reporter = Reporter(client, clock);
+
+            await reporter.TrySendAsync(AgentErrorType.TelemetryRejectedSessionUnknown, "m", httpStatusCode: 410);
+            clock.Advance(TimeSpan.FromMinutes(1));
+            await reporter.TrySendAsync(AgentErrorType.TelemetryRejectedSessionUnknown, "m", httpStatusCode: 410);
+
+            Assert.Equal(1, client.Calls);
+        }
+
+        [Fact]
+        public async Task Session_unknown_report_still_counts_against_the_per_session_maximum()
+        {
+            // Five delivered reports (ten minutes apart, distinct keys) exhaust the budget; the
+            // exemption waives only the cooldown, not the maximum.
+            var clock = Clock();
+            var client = new FakeApiClient();
+            for (var i = 0; i < 6; i++) client.Results.Enqueue(true);
+            var reporter = Reporter(client, clock);
+
+            foreach (var status in new[] { 500, 502, 503, 504, 429 })
+            {
+                await reporter.TrySendAsync(AgentErrorType.IngestFailed, "m", httpStatusCode: status);
+                clock.Advance(TimeSpan.FromMinutes(10));
+            }
+            Assert.Equal(5, client.Calls);
+
+            await reporter.TrySendAsync(AgentErrorType.TelemetryRejectedSessionUnknown, "m", httpStatusCode: 410);
+
+            Assert.Equal(5, client.Calls);
+        }
 
         [Fact]
         public async Task Failed_send_rolls_back_reservation_so_a_later_call_retries()
@@ -140,6 +209,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
             await reporter.TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
 
             Assert.Equal(2, client.Calls);
+        }
+
+        [Fact]
+        public async Task Session_unknown_report_carries_error_type_and_http_410()
+        {
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            var reporter = Reporter(client);
+
+            await reporter.TrySendAsync(AgentErrorType.TelemetryRejectedSessionUnknown, "m", httpStatusCode: 410);
+
+            var report = Assert.Single(client.Reports);
+            Assert.Equal(AgentErrorType.TelemetryRejectedSessionUnknown, report.ErrorType);
+            Assert.Equal(410, report.HttpStatusCode);
         }
 
         [Fact]

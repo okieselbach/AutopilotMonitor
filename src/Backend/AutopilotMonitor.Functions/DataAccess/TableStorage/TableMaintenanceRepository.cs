@@ -87,9 +87,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<string>> GetAllTenantIdsAsync()
             => _storage.GetAllTenantIdsAsync();
 
-        public Task<int> DeleteSessionEventsAsync(string tenantId, string sessionId)
-            => _storage.DeleteSessionEventsAsync(tenantId, sessionId);
-
         public Task<int> DeleteSessionRuleResultsAsync(string tenantId, string sessionId)
             => _storage.DeleteSessionRuleResultsAsync(tenantId, sessionId);
 
@@ -102,11 +99,26 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<bool> IsSessionIndexEmptyAsync()
             => _storage.IsSessionIndexEmptyAsync();
 
-        public Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod)
-            => _storage.GetOrphanedEventSessionsAsync(gracePeriod);
+        public Task<HashSet<(string TenantId, string SessionId)>> GetSessionKeysAsync(CancellationToken ct = default)
+            => _storage.GetSessionKeysAsync(ct);
 
-        public Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId)
-            => _storage.DeleteEventSessionIndexEntryAsync(tenantId, sessionId);
+        public Task<IReadOnlyList<OrphanSessionHandle>> GetEventSessionIndexHandlesAsync(CancellationToken ct = default)
+            => _storage.GetEventSessionIndexHandlesAsync(ct);
+
+        public Task<OrphanSessionHandle?> GetEventSessionIndexHandleAsync(string tenantId, string sessionId, CancellationToken ct = default)
+            => _storage.GetEventSessionIndexHandleAsync(tenantId, sessionId, ct);
+
+        public Task<string?> StampHandleInventoryDecrementedAsync(string tenantId, string sessionId, string etag, CancellationToken ct = default)
+            => _storage.StampHandleInventoryDecrementedAsync(tenantId, sessionId, etag, ct);
+
+        public Task<bool> DeleteEventSessionIndexHandleAsync(string tenantId, string sessionId, string etag, CancellationToken ct = default)
+            => _storage.DeleteEventSessionIndexHandleAsync(tenantId, sessionId, etag, ct);
+
+        public Task<int> DeleteOrphanSessionRowsAsync(string table, string tenantId, string sessionId, CancellationToken ct = default)
+            => _storage.DeleteOrphanSessionRowsAsync(table, tenantId, sessionId, ct);
+
+        public Task<HashSet<(string TenantId, string SessionId)>> GetEventTypeIndexSessionKeysAsync(CancellationToken ct = default)
+            => _storage.GetEventTypeIndexSessionKeysAsync(ct);
 
         public Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync()
             => _storage.GetAllSessionTombstoneKeysAsync();

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Termination;
 using AutopilotMonitor.Shared;
@@ -103,6 +105,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         ///     dispatcher because these are real actions, not admin-button echoes.</item>
         ///   <item><b>DeviceBlocked</b> — non-terminal upload pause. Transport already reacted in
         ///     <c>TelemetryUploadOrchestrator.ApplyControlSignals</c>; here we only log.</item>
+        ///   <item><b>SessionGone</b> (<see cref="TelemetryUploadOrchestrator.SessionGone"/>, HTTP 410
+        ///     on the current session's telemetry) — one emergency report, then the kill-signal
+        ///     termination path tagged <c>origin=session_gone</c>. See <see cref="HandleSessionGone"/>.</item>
         /// </list>
         /// <para>
         /// <b>Shutdown race guard</b>: if the agent has already finished its own termination
@@ -117,9 +122,14 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             InformationalEventPost post,
             Func<EnrollmentTerminationHandler> terminationHandlerAccessor,
             AgentConfiguration agentConfig,
+            EmergencyReporter emergencyReporter,
+            ManualResetEventSlim shutdown,
             ManualResetEventSlim shutdownComplete,
             AgentLogger logger)
         {
+            orchestrator.Transport.SessionGone += (sender, reason) =>
+                HandleSessionGone(reason, emergencyReporter, dispatcher, shutdown, shutdownComplete, logger);
+
             orchestrator.Transport.ServerResponseReceived += (sender, upload) =>
             {
                 if (shutdownComplete.IsSet)
@@ -140,7 +150,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         {
                             { "forceSelfDestruct", "true" },
                             { "gracePeriodSeconds", "0" },
-                            { "origin", "kill_signal" },
+                            { "origin", TerminationOrigins.KillSignal },
                         },
                     };
                     try { dispatcher.DispatchAsync(new List<ServerAction> { killAction }).GetAwaiter().GetResult(); }
@@ -179,6 +189,76 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     logger.Warning($"Backend signalled DeviceBlocked {until} — uploads paused, session remains alive.");
                 }
             };
+        }
+
+        // Bounded blocking send for the one session-gone report: the terminate that follows ends
+        // the process and the cleanup script deletes the agent, so a fire-and-forget send would
+        // be abandoned mid-flight. Retries stay inside one anti-flood reservation (ONE report).
+        private const int SessionGoneReportAttempts = 2;
+        private static readonly TimeSpan SessionGoneReportTimeout = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan SessionGoneReportRetryDelay = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan SessionGoneReportBudget = TimeSpan.FromSeconds(40);
+
+        /// <summary>
+        /// The backend answered HTTP 410 for the current session's telemetry: the session is over
+        /// server-side. (a) Send ONE <see cref="AgentErrorType.TelemetryRejectedSessionUnknown"/>
+        /// report over the emergency channel — the telemetry channel is exactly what was refused,
+        /// and the backend accepts this report for unknown sessions. (b) Terminate through the same
+        /// synthesised <c>terminate_session</c> path as the administrator kill signal (forced
+        /// self-destruct, no grace), tagged <see cref="TerminationOrigins.SessionGone"/> so the
+        /// termination handler skips the spool drain and the diagnostics upload. A shutdown that is
+        /// already in progress owns the outcome — then nothing happens here.
+        /// </summary>
+        internal static void HandleSessionGone(
+            string reason,
+            EmergencyReporter emergencyReporter,
+            ServerActionDispatcher dispatcher,
+            ManualResetEventSlim shutdown,
+            ManualResetEventSlim shutdownComplete,
+            AgentLogger logger)
+        {
+            if (shutdownComplete.IsSet || shutdown.IsSet)
+            {
+                logger.Debug("ServerControlPlane: session gone (HTTP 410) while shutdown is already in progress — ignoring.");
+                return;
+            }
+
+            logger.Error($"Backend no longer knows this session (HTTP 410: {reason}) — reporting once over the emergency channel, then terminating with self-destruct.");
+
+            if (emergencyReporter != null)
+            {
+                try
+                {
+                    emergencyReporter
+                        .TrySendAsync(
+                            AgentErrorType.TelemetryRejectedSessionUnknown,
+                            $"Telemetry upload rejected with HTTP 410 — backend no longer knows this session ({reason}). Agent terminating with self-destruct.",
+                            httpStatusCode: (int)HttpStatusCode.Gone,
+                            attempts: SessionGoneReportAttempts,
+                            perAttemptTimeout: SessionGoneReportTimeout,
+                            retryDelay: SessionGoneReportRetryDelay)
+                        .Wait(SessionGoneReportBudget);
+                }
+                catch (Exception ex)
+                {
+                    logger.Debug($"Session-gone report send failed (best-effort): {ex.Message}");
+                }
+            }
+
+            var terminateAction = new ServerAction
+            {
+                Type = ServerActionTypes.TerminateSession,
+                Reason = "Backend no longer knows this session (HTTP 410)",
+                QueuedAt = DateTime.UtcNow,
+                Params = new Dictionary<string, string>
+                {
+                    { "forceSelfDestruct", "true" },
+                    { "gracePeriodSeconds", "0" },
+                    { "origin", TerminationOrigins.SessionGone },
+                },
+            };
+            try { dispatcher.DispatchAsync(new List<ServerAction> { terminateAction }).GetAwaiter().GetResult(); }
+            catch (Exception ex) { logger.Error("ServerActionDispatcher.DispatchAsync (session gone) threw during server-response wiring.", ex); }
         }
 
         /// <summary>
@@ -281,6 +361,17 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 : EnrollmentTerminationOutcome.Failed;
         }
 
+        /// <summary>
+        /// The <c>origin</c> param of a synthesised <c>terminate_session</c> action
+        /// (<see cref="TerminationOrigins"/>), or null when absent — it travels into
+        /// <see cref="EnrollmentTerminatedEventArgs.Origin"/>.
+        /// </summary>
+        internal static string ReadOrigin(IReadOnlyDictionary<string, string> parameters)
+        {
+            if (parameters == null) return null;
+            return parameters.TryGetValue("origin", out var origin) && !string.IsNullOrEmpty(origin) ? origin : null;
+        }
+
         // ============================================================ Private terminate-callback
 
         /// <summary>
@@ -326,8 +417,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             // before, masquerading every admin override as an error in SummaryDialog +
             // firing spurious diagnostics uploads).
             var mappedOutcome = MapAdminOutcome(action?.Params);
+            var origin = ReadOrigin(action?.Params);
 
-            logger.Warning($"ServerAction terminate_session received (ruleId={action?.RuleId}, reason={action?.Reason}, outcome={mappedOutcome}) — invoking termination handler.");
+            logger.Warning($"ServerAction terminate_session received (ruleId={action?.RuleId}, reason={action?.Reason}, outcome={mappedOutcome}, origin={origin ?? "none"}) — invoking termination handler.");
             // Synthesise a Terminated event as if the kernel fired it.
             terminationHandler.Handle(
                 sender: null,
@@ -336,7 +428,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     outcome: mappedOutcome,
                     stageName: orchestrator.CurrentState?.Stage.ToString(),
                     terminatedAtUtc: DateTime.UtcNow,
-                    details: $"Server-requested termination: ruleId={action?.RuleId}, reason={action?.Reason}"));
+                    details: $"Server-requested termination: ruleId={action?.RuleId}, reason={action?.Reason}",
+                    origin: origin));
 
             // Plan §6.2 synchronous-shutdown — block the ingest dispatcher thread until the
             // main-thread cleanup (orchestrator.Stop, client disposal) has fully run. This

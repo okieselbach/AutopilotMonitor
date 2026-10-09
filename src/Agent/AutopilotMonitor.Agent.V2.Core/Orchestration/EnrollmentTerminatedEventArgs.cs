@@ -73,13 +73,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         public string? StopReason { get; }
 
+        /// <summary>
+        /// The <c>origin</c> param of a server-requested <c>terminate_session</c> action
+        /// (<see cref="TerminationOrigins"/>); null for every termination the agent decided
+        /// itself. <see cref="TerminationOrigins.SessionGone"/> makes the termination handler
+        /// skip the spool drain and the diagnostics upload — the backend no longer knows the
+        /// session, so both could only fail.
+        /// </summary>
+        public string? Origin { get; }
+
         public EnrollmentTerminatedEventArgs(
             EnrollmentTerminationReason reason,
             EnrollmentTerminationOutcome outcome,
             string? stageName,
             DateTime terminatedAtUtc,
             string? details = null,
-            string? stopReason = null)
+            string? stopReason = null,
+            string? origin = null)
         {
             Reason = reason;
             Outcome = outcome;
@@ -87,6 +97,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             TerminatedAtUtc = terminatedAtUtc;
             Details = details;
             StopReason = stopReason;
+            Origin = origin;
         }
+    }
+
+    /// <summary>
+    /// Values of the <c>origin</c> param on a synthesised <c>terminate_session</c>
+    /// <c>ServerAction</c>, carried into <see cref="EnrollmentTerminatedEventArgs.Origin"/>.
+    /// </summary>
+    public static class TerminationOrigins
+    {
+        /// <summary>Administrator kill signal (<c>DeviceKillSignal</c> on a 2xx telemetry response).</summary>
+        public const string KillSignal = "kill_signal";
+
+        /// <summary>The backend answered HTTP 410 for the current session's telemetry.</summary>
+        public const string SessionGone = "session_gone";
     }
 }

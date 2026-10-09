@@ -439,6 +439,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                             lifecyclePost,
                             () => terminationHandler,
                             agentConfig,
+                            auth.EmergencyReporter,
+                            shutdown,
                             shutdownComplete,
                             logger);
 
