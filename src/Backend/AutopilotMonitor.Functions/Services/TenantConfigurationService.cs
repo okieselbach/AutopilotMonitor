@@ -54,6 +54,12 @@ namespace AutopilotMonitor.Functions.Services
         {
         }
 
+        /// <summary>
+        /// The projection value alone: the conferring Pro owner, or null. For write paths that hold a raw
+        /// repository row, which never carries the projection.
+        /// </summary>
+        public Task<string?> GetConferringProOwnerAsync(string tenantId) => _proIndex.GetConferringOwnerAsync(tenantId);
+
         /// <summary>Applies the read-time projection (see the class remarks). Idempotent; null passes through.</summary>
         private async Task<TenantConfiguration?> ProjectAsync(TenantConfiguration? config)
         {

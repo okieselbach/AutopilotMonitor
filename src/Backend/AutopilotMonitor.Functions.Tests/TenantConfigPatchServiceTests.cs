@@ -50,7 +50,7 @@ public class TenantConfigPatchServiceTests
         /// <summary>Bumps the version WITHOUT a replace before the Nth replace call — simulates a concurrent writer.</summary>
         public int? StealEtagBeforeReplaceCall;
 
-        public Harness(TenantConfiguration? stored)
+        public Harness(TenantConfiguration? stored, ManagedTenantProIndex? proIndex = null)
         {
             Current = stored;
 
@@ -91,7 +91,7 @@ public class TenantConfigPatchServiceTests
 
             var configService = new TenantConfigurationService(
                 Repo.Object, NullLogger<TenantConfigurationService>.Instance,
-                new MemoryCache(new MemoryCacheOptions()));
+                new MemoryCache(new MemoryCacheOptions()), proIndex ?? ManagedTenantProIndex.None);
 
             OpsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
                 .Callback<OpsEventEntry>(e => { lock (OpsEvents) OpsEvents.Add(e); })
@@ -386,6 +386,68 @@ public class TenantConfigPatchServiceTests
             Assert.False(outcome.Success);
             Assert.Equal(PatchFailure.InvalidField, outcome.Failure);
         }
+    }
+
+    // ── Retention cap: Pro conferred by a managing tenant ──────────────────
+
+    private const string ManagingTenantId = "22222222-2222-2222-2222-222222222222";
+
+    /// <summary>Projects every tenant as managed by one owner, without storage.</summary>
+    private sealed class FixedOwnerIndex : ManagedTenantProIndex
+    {
+        private readonly string? _owner;
+        public FixedOwnerIndex(string? owner) => _owner = owner;
+        public override Task<string?> GetConferringOwnerAsync(string? tenantId) => Task.FromResult(_owner);
+        public override void Invalidate() { }
+    }
+
+    [Fact]
+    public async Task Patch_RetentionAbove90_ProConferredByManagingTenant_IsAccepted_ProjectionNeverStored()
+    {
+        var harness = new Harness(Stored(), new FixedOwnerIndex(ManagingTenantId));
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", 180)), "admin@contoso.com", "api-patch", null,
+            TenantConfigCallerTier.TenantAdmin);
+
+        Assert.True(outcome.Success, outcome.Error);
+        Assert.Equal(new[] { "DataRetentionDays" }, outcome.AppliedFields);
+        Assert.Equal(180, harness.Current!.DataRetentionDays);
+        Assert.Null(harness.Current.ManagedByProTenantId);
+    }
+
+    [Fact]
+    public async Task Patch_RetentionAbove90_CommunityTenant_IsRejected()
+    {
+        var harness = new Harness(Stored());
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", 180)), "admin@contoso.com", "api-patch", null,
+            TenantConfigCallerTier.TenantAdmin);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PatchFailure.ValidationFailed, outcome.Failure);
+        Assert.Contains("between 7 and 90 days", outcome.Error);
+        Assert.Equal(30, harness.Current!.DataRetentionDays);
+    }
+
+    [Fact]
+    public async Task Revert_ToRetentionAbove90_ProConferredByManagingTenant_PassesValidation()
+    {
+        var stored = Stored();
+        stored.DataRetentionDays = 180;
+        var harness = new Harness(stored, new FixedOwnerIndex(ManagingTenantId));
+        var lowered = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", 30)), "admin@contoso.com", "api-patch", null,
+            TenantConfigCallerTier.TenantAdmin);
+        Assert.True(lowered.Success, lowered.Error);
+
+        var outcome = await harness.Sut.RevertAsync(
+            TenantId, lowered.BackupId, includeProtectedFields: false, "admin@contoso.com", "api-revert", null,
+            TenantConfigCallerTier.TenantAdmin);
+
+        Assert.True(outcome.Success, outcome.Error);
+        Assert.Equal(180, harness.Current!.DataRetentionDays);
     }
 
     // ── Validation ──────────────────────────────────────────────────────────

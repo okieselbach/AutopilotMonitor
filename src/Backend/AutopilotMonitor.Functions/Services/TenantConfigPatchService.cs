@@ -250,7 +250,8 @@ namespace AutopilotMonitor.Functions.Services
                         "UnrestrictedMode cannot be enabled while UnrestrictedModeEnabled (the GA gate) is off.");
 
                 var validationError = TenantConfigValidation.ValidateModel(
-                    clone, initial, isGlobalAdmin: callerTier == TenantConfigCallerTier.GlobalAdmin);
+                    clone, await ProjectedForValidationAsync(tenantId, initial),
+                    isGlobalAdmin: callerTier == TenantConfigCallerTier.GlobalAdmin);
                 if (validationError != null)
                     return PatchOutcome.Fail(PatchFailure.ValidationFailed, validationError);
 
@@ -334,7 +335,8 @@ namespace AutopilotMonitor.Functions.Services
 
                 // A snapshot predating a validation rule must not bypass it on the way back in.
                 var validationError = TenantConfigValidation.ValidateModel(
-                    candidate, current, isGlobalAdmin: callerTier == TenantConfigCallerTier.GlobalAdmin);
+                    candidate, await ProjectedForValidationAsync(tenantId, current),
+                    isGlobalAdmin: callerTier == TenantConfigCallerTier.GlobalAdmin);
                 if (validationError != null)
                     return PatchOutcome.Fail(PatchFailure.ValidationFailed,
                         $"Backup \"{backup.RowKey}\" no longer passes validation: {validationError}");
@@ -574,6 +576,19 @@ namespace AutopilotMonitor.Functions.Services
 
         private static TenantConfiguration DeepClone(TenantConfiguration config)
             => JsonConvert.DeserializeObject<TenantConfiguration>(JsonConvert.SerializeObject(config))!;
+
+        /// <summary>
+        /// The stored row as the validator must see it: edition-dependent rules (the retention cap)
+        /// resolve Pro conferred by a managing tenant, which a raw repository row never carries. A copy,
+        /// never the row itself — the verify diff runs against the raw row, where the projection would
+        /// read as drift.
+        /// </summary>
+        private async Task<TenantConfiguration> ProjectedForValidationAsync(string tenantId, TenantConfiguration stored)
+        {
+            var projected = DeepClone(stored);
+            projected.ManagedByProTenantId = await _configService.GetConferringProOwnerAsync(tenantId);
+            return projected;
+        }
 
         // Tiny spacing between CAS retries; keeps the loop honest without a TimeProvider dance.
         private static Task NextAttemptDelayAsync() => Task.Delay(TimeSpan.FromMilliseconds(150));
