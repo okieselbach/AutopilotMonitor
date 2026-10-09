@@ -1073,7 +1073,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
         // AAD consent-propagation awareness: right after a successful admin consent the app-only
         // token often mints with an EMPTY roles claim for 30-90s (observed live 2026-07-31,
-        // tenant 5ca2b350: token 43s post-consent with GrantedRoleCount=0) — a single-shot probe
+        // one tenant: token 43s post-consent with GrantedRoleCount=0) — a single-shot probe
         // misclassified that window as "permission not granted" and showed a hard error while
         // everything was actually fine. The access-check invalidates + re-mints fresh on every
         // call, so a bounded poll converges as soon as Microsoft has propagated the role. The

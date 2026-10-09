@@ -28,7 +28,7 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("user@contoso.com")]
     [InlineData("admin@tenant.onmicrosoft.com")]
     [InlineData("first.last@example.de")]
-    [InlineData("cadm_user@xx3t8.onmicrosoft.com")]
+    [InlineData("cadm_user@contoso.onmicrosoft.com")]
     public void IsRealUserUpn_AcceptsRealUpnShapes(string upn)
     {
         Assert.True(TenantApprovalService.IsRealUserUpn(upn));

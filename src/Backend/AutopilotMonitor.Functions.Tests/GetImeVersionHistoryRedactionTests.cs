@@ -68,8 +68,8 @@ public class GetImeVersionHistoryRedactionTests
     {
         var json = SerializeFor(hasGlobalScope: false, MakeEntry());
 
-        Assert.DoesNotContain("57f34dd1-6a42-47f9-9bc0-b921fa6caa30", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("baae0453-6d19-47b5-aa58-8bed5a572fc8", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("aaaaaaaa-1111-4222-8333-444444444444", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("bbbbbbbb-1111-4222-8333-444444444444", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -109,8 +109,8 @@ public class GetImeVersionHistoryRedactionTests
         using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: true, MakeEntry()));
 
         var row = doc.RootElement[0];
-        Assert.Equal("57f34dd1-6a42-47f9-9bc0-b921fa6caa30", row.GetProperty("firstSeenTenantId").GetString());
-        Assert.Equal("baae0453-6d19-47b5-aa58-8bed5a572fc8", row.GetProperty("firstSeenSessionId").GetString());
+        Assert.Equal("aaaaaaaa-1111-4222-8333-444444444444", row.GetProperty("firstSeenTenantId").GetString());
+        Assert.Equal("bbbbbbbb-1111-4222-8333-444444444444", row.GetProperty("firstSeenSessionId").GetString());
     }
 
     [Fact]
@@ -300,8 +300,8 @@ public class GetImeVersionHistoryRedactionTests
         {
             Version = version,
             FirstSeenAt = firstSeenAt ?? First,
-            FirstSeenSessionId = "baae0453-6d19-47b5-aa58-8bed5a572fc8",
-            FirstSeenTenantId = "57f34dd1-6a42-47f9-9bc0-b921fa6caa30",
+            FirstSeenSessionId = "bbbbbbbb-1111-4222-8333-444444444444",
+            FirstSeenTenantId = "aaaaaaaa-1111-4222-8333-444444444444",
             LastSeenAt = Last,
             SessionCount = 3109,
             MsiArchiveStatus = "Archived",

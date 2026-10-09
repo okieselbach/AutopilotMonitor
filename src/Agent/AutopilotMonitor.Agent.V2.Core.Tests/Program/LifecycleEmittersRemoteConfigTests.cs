@@ -182,7 +182,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal("FromCache", data["outcome"]);
         }
 
-        // ── Post-registration recovery (Phase 6.5, tenant aebdce78 audit 2026-08-24) ─
+        // ── Post-registration recovery (Phase 6.5, kiosk-tenant audit 2026-08-24) ─
 
         [Fact]
         public void EmitFetchFailedIfAny_AfterRecovery_MarksRecoveredAndDemotesToInfo()

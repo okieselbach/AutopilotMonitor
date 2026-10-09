@@ -8,8 +8,7 @@ using Xunit;
 namespace AutopilotMonitor.DecisionCore.Tests
 {
     /// <summary>
-    /// sits-d Cloud-PC fix (2026-08-20, sessions 8110e262 / a89aac2d / e7ba63c9 / cb4a485a /
-    /// 3d6278fb). On a SkipUser=true flow Windows never renders the user ESP page: Shell-Core
+    /// Cloud-PC fix (2026-08-20, five field sessions). On a SkipUser=true flow Windows never renders the user ESP page: Shell-Core
     /// 62407 does not fire and the AccountSetup provisioning categories are never written —
     /// verified live (Shell-Core watcher armed across three agent runs, zero 62407 in six
     /// hours; SkipUserStatusPage read 10+ times across all runs, True every time). Arm B of
@@ -20,14 +19,14 @@ namespace AutopilotMonitor.DecisionCore.Tests
     /// <para>
     /// The fix lets the observed skip stand in for the final-exit evidence inside
     /// <c>HandleImeUserSessionCompletedV1</c>'s completion attempt. These tests replay the real
-    /// 8110e262 signal ordering end to end (including the Fix-10 AccountSetup bounce-back a
+    /// field session's signal ordering end to end (including the Fix-10 AccountSetup bounce-back a
     /// restart re-emission triggers) and pin the negative space: no skip observed, no desktop,
     /// ghost IME completion, and Device Preparation flows are all unchanged.
     /// </para>
     /// </summary>
     public sealed class ClassicSkipUserEspUserSessionCompletionTests
     {
-        // 8110e262 run 1: agent_started 08:30:08Z.
+        // Field session run 1: agent_started 08:30:08Z.
         private static readonly DateTime T0 = new DateTime(2026, 8, 19, 8, 30, 8, DateTimeKind.Utc);
 
         [Fact]
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
         {
             var engine = new DecisionEngine();
             var state = DecisionState.CreateInitial(
-                "8110e262-da57-4282-9290-bb0c96d05614", "5ca2b350", T0);
+                "33333333-3333-3333-3333-333333333333", "tenant-a", T0);
 
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
 
@@ -94,7 +93,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [Fact]
         public void Fix10_bounceback_is_healed_by_the_ime_reemission()
         {
-            // Restart shape (8110e262 run 3): the promoted AwaitingHello gets bounced back by a
+            // Restart shape (field session run 3): the promoted AwaitingHello gets bounced back by a
             // re-emitted AccountSetup phase line (Fix 10 cancels HelloSafety, deliberately — it
             // guards the premature-promotion case). The IME phase line always precedes the
             // user-session-complete line in log order, so the re-emitted completion re-knocks.
@@ -116,7 +115,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [Theory]
         // No EspConfigDetected at all — SkipUserEsp unknown.
         [InlineData(null)]
-        // Explicit SkipUser=false (the two sits-d machines that succeeded had this shape and
+        // Explicit SkipUser=false (the two field machines that succeeded had this shape and
         // a REAL page: exit + registry evidence. Without the exit the gate must stay shut.)
         [InlineData("false")]
         public void No_promotion_without_an_observed_skip(string? skipUser)

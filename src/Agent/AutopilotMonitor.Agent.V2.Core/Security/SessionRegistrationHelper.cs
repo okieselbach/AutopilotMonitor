@@ -27,7 +27,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///   <item>6 attempts total; between attempts <c>2^attempt</c> seconds (2s, 4s, 8s, 16s, 32s —
     ///     ~62 s of backoff). The original V1 budget of 5 attempts / ~30 s was too short for the
     ///     reboot-relaunch on Wi-Fi kiosks: the relaunched agent gave up and exited 7 before
-    ///     the network came back, leaving the session silent forever (tenant aebdce78,
+    ///     the network came back, leaving the session silent forever (kiosk-tenant
     ///     2026-08-23 audit). A relaunch that misses here is lost — nothing retries later.</item>
     ///   <item>On <c>response.Success == true</c> → stop immediately.</item>
     ///   <item>On <see cref="BackendAuthException"/> (401/403) → report to the

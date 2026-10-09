@@ -194,7 +194,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             bool helloEnabled = false,
             bool includeDesktop = true)
         {
-            var state = DecisionState.CreateInitial("sess-caa6cf50", "tenant-e46bc88e", T0);
+            var state = DecisionState.CreateInitial("sess-caa6cf50", "tenant-a", T0);
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
             state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),
                 new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "DeviceSetup" })).NewState;

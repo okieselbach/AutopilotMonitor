@@ -355,7 +355,7 @@ public class EnrollmentTimeoutClassifierTests
     [Fact]
     public void Classify_device_provisioned_user_phase_pending_within_grace_is_AwaitingUser()
     {
-        // The dominant crcins.com case: DeviceSetup 4/4, AccountSetup 0/5, silent, 6h in.
+        // The dominant field case: DeviceSetup 4/4, AccountSetup 0/5, silent, 6h in.
         var (status, reason) = Classify(new[] { Esp(DeviceSetup44), Esp(AccountSetup05) }, hoursSinceStart: 6);
         Assert.Equal(SessionStatus.AwaitingUser, status);
         Assert.Contains("Device Setup completed", reason);
@@ -382,7 +382,7 @@ public class EnrollmentTimeoutClassifierTests
     public void ExtractRollup_agent_timeout_enrollment_failed_is_not_explicit_failure()
     {
         // The max-lifetime watchdog's enrollment_failed(failureType=agent_timeout) is "the agent
-        // gave up waiting", not a failure verdict — it must not poison rule 1 (tenant a53e67ec).
+        // gave up waiting", not a failure verdict — it must not poison rule 1 (misclassification audit 2026-07-16).
         var timeout = Evt("enrollment_failed",
             data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
         Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { timeout }).HasExplicitFailure);
@@ -589,7 +589,7 @@ public class EnrollmentTimeoutClassifierTests
         }
     }
 
-    // -------- WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21) --------
+    // -------- WhiteGlove Part-2 awaiting-user gate (field analysis 2026-08-21) --------
 
     private static readonly DateTime Resumed = Start.AddMinutes(20);
 
@@ -603,7 +603,7 @@ public class EnrollmentTimeoutClassifierTests
         return (status, reason);
     }
 
-    /// <summary>The fairstone event shape: Part 1 sealed, Part 2 resumed, nobody signed in.</summary>
+    /// <summary>The field event shape: Part 1 sealed, Part 2 resumed, nobody signed in.</summary>
     private static EnrollmentEvent[] WgParkedEvents() => new[]
     {
         Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05),
@@ -660,7 +660,7 @@ public class EnrollmentTimeoutClassifierTests
     [Fact]
     public void Classify_whiteglove_part2_parked_within_grace_is_AwaitingUser()
     {
-        // The fairstone shape: technician powers the device off at the logon screen minutes
+        // The field shape: technician powers the device off at the logon screen minutes
         // after the reseal-reboot. Part-1 whiteglove_complete must NOT reconcile to Succeeded.
         var (status, reason) = ClassifyWhiteGlove(WgParkedEvents(), hoursSinceStart: 6);
         Assert.Equal(SessionStatus.AwaitingUser, status);
@@ -734,7 +734,7 @@ public class EnrollmentTimeoutClassifierTests
         Assert.Equal(SessionStatus.Succeeded, status);
     }
 
-    // -------- Self-deploying profile gate (kiosk tenant aebdce78, audit 2026-08-23) --------
+    // -------- Self-deploying profile gate (kiosk tenant, audit 2026-08-23) --------
 
     private static (SessionStatus, string) ClassifySelfDeploying(
         IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 3, int grace = 51)

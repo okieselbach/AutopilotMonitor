@@ -174,7 +174,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         [Fact]
         public void Reevaluate_does_not_re_emit_starved_warnings()
         {
-            // sits-d Cloud-PC fix (2026-08-19): the synthesis re-check now runs on EVERY IME
+            // Cloud-PC fix (2026-08-19): the synthesis re-check now runs on EVERY IME
             // app-state transition. It must not turn the one-shot starvation warning into a
             // per-transition stream — the re-check path suppresses the emission entirely
             // (the per-appId dedupe would swallow the duplicates, but walking the probe
@@ -198,7 +198,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         [Fact]
         public void Starved_apps_that_settle_later_still_complete_the_enrollment()
         {
-            // The real sits-d shape: the ESP exits with apps still starved (warning emitted),
+            // The real field shape: the ESP exits with apps still starved (warning emitted),
             // the apps then all settle, and the re-check must open the gate — the warning
             // already on the timeline is history, not a permanent veto.
             using var f = new Fixture();

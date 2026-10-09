@@ -107,7 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         [Fact]
         public void Succeeded_outcome_is_an_info_about_tail_only_coverage_without_alarm_framing()
         {
-            // The 659c3a90 shape: healthy enrollment, bootstrap merely ran late in the ESP queue.
+            // The field shape: healthy enrollment, bootstrap merely ran late in the ESP queue.
             Describe(EnrollmentTerminationOutcome.Succeeded, "in_progress",
                 out var severity, out _, out var note);
 

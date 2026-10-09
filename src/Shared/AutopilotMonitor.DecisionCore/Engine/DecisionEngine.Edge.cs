@@ -164,8 +164,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         ///   <c>esp_failure_advisory</c> timeline entry, the stage stays unchanged, deadlines
         ///   remain armed, and normal completion paths (Hello/Desktop, IME pattern,
         ///   AccountSetupProvisioningComplete) continue to drive the session. Session 4fa5a2d4
-        ///   (2026-05-22) — defangs the 199/202 false-positive failures observed in tenant
-        ///   c9787ba2 where ContinueAnyway was on and the device kept progressing.
+        ///   (2026-05-22) — defangs the 199/202 false-positive failures observed in one
+        ///   tenant where ContinueAnyway was on and the device kept progressing.
         ///   </item>
         ///   <item>
         ///   <b>Terminal failure</b> — default path. Transitions to <see cref="SessionStage.Failed"/>
@@ -239,7 +239,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var continueAnywayEnabled = observations?.EspAllowContinueAnyway?.Value == true;
             var advisoryEligible = continueAnywayEnabled && state.AccountSetupEnteredUtc != null;
 
-            // Continue-Anyway observation mode (tenant c9787ba2, session 53d1e9f6, 2026-08-08):
+            // Continue-Anyway observation mode (field case 2026-08-08):
             // a Device-phase ESP terminal failure (AccountSetup never entered) is a hard fail
             // by default — the classic advisory gate above requires AccountSetupEnteredUtc.
             // Fleets held at the ESP timeout wall by one slow blocking app then show 100%

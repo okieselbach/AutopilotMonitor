@@ -188,7 +188,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// network yet — its failure says nothing about the latest version. The certificate is
         /// proof of connectivity, and this is the last chance to swap a stranded old build
         /// (stale baked-in ApiBaseUrl) for a current one BEFORE session registration hits a
-        /// retired endpoint (field case sits-d.cloud, 2026-08-09). Timeouts are relaxed vs. the
+        /// retired endpoint (field case 2026-08-09). Timeouts are relaxed vs. the
         /// boot-speed-tuned startup check; enrollment is already past OOBE's critical path here.
         /// On update success the process restarts and this method never returns; the
         /// await-enrollment config was already removed, so the new binary proceeds normally.

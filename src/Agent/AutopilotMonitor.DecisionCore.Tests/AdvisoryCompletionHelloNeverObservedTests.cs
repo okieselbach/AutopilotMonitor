@@ -65,7 +65,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             bool helloPolicyEnabledRead = false,
             bool allowContinueAnyway = false)
         {
-            var state = DecisionState.CreateInitial("sess-2dac8298", "tenant-047b2e1f", T0);
+            var state = DecisionState.CreateInitial("sess-2dac8298", "tenant-a", T0);
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
             state = engine.Reduce(state, MakeSignal(
                 5, DecisionSignalKind.EspConfigDetected, T0.AddMinutes(1),

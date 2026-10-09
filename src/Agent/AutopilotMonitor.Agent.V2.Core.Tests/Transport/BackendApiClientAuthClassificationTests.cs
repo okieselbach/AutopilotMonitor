@@ -14,7 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
     /// 401/403 classification in <see cref="BackendApiClient"/>: a backend JSON 403 is a real
     /// device-authorization verdict, while an HTML body means the response came from the Azure
     /// platform / an edge proxy (stopped or retired app) and must NOT be reported as
-    /// "device is not authorized". Field case sits-d.cloud 2026-08-09: a pre-cutover agent hit
+    /// "device is not authorized". Field case 2026-08-09: a pre-cutover agent hit
     /// the stopped legacy Function App and support chased a non-existent authorization problem.
     /// </summary>
     public sealed class BackendApiClientAuthClassificationTests

@@ -1,5 +1,5 @@
 # Scenario: ESP Terminal Failure DEFANGED by ContinueAnyway (PR1, Session 4fa5a2d4, 2026-05-22)
-# Tenant c9787ba2 observed 199/202 sessions failing with esp_terminal_failure, even though
+# One tenant observed 199/202 sessions failing with esp_terminal_failure, even though
 # customers were demonstrably deploying 1200+ devices through the same profile. Real root cause:
 # - ESP profile sets BlockInStatusPage=6 (ContinueAnyway=true)
 # - DeviceSetup completes Apps successfully

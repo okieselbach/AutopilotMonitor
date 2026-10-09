@@ -222,7 +222,7 @@ public class AppHomingServiceTests
     [Fact]
     public async Task Probe_reports_only_add_on_roles_when_manifest_and_add_on_roles_are_both_missing()
     {
-        // Live 2026-09-03 shape (thesrgroup, 1 s after consent): validation role still
+        // Live 2026-09-03 shape (1 s after consent): validation role still
         // propagating AND the add-on missing. The add-on decides (permanent); the propagating
         // manifest role is not the admin's problem and must not appear in the to-do list.
         SetupProbe(GraphTokenResult.Success(Jwt()));

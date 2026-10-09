@@ -9,7 +9,7 @@ using Xunit;
 namespace AutopilotMonitor.DecisionCore.Tests
 {
     /// <summary>
-    /// Continue-Anyway observation mode (tenant c9787ba2, session 53d1e9f6, 2026-08-08).
+    /// Continue-Anyway observation mode (field case 2026-08-08).
     /// A Device-phase ESP terminal failure (AccountSetup never entered) on a
     /// Continue-Anyway-enabled profile is a hard fail by default; with the tenant opt-in
     /// (<c>EspContinueAnywayObservationEnabled</c> observation) it is defanged into a 60-min
@@ -72,7 +72,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             bool continueAnyway = true,
             bool helloPolicyDisabled = true)
         {
-            var state = DecisionState.CreateInitial("sess-53d1e9f6", "tenant-c9787ba2", T0);
+            var state = DecisionState.CreateInitial("sess-53d1e9f6", "tenant-a", T0);
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
             var espConfig = new Dictionary<string, string>
             {

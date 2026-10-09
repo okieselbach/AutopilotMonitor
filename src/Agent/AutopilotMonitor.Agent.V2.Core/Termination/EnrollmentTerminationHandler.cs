@@ -824,7 +824,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// IME-log event) but the agent actually observed only the end-state. Severity and phrasing
         /// are outcome-calibrated via <see cref="ObservationCoverage.DescribeLateStart"/>: a failure
         /// stays a Warning with the post-mortem/hung-script note, a success is an Info about
-        /// tail-only coverage (fleet 2026-07-28: tenant 659c3a90 collected 12 Warnings on healthy
+        /// tail-only coverage (fleet 2026-07-28: one tenant collected 12 Warnings on healthy
         /// enrollments whose bootstrap merely ran late). No state mutation.
         /// </summary>
         private void MaybeEmitAgentLateStart(EnrollmentTerminatedEventArgs args)

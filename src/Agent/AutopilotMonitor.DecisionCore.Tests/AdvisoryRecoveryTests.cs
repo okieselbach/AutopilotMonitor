@@ -74,7 +74,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
         /// </summary>
         private static DecisionState SetupSession(DecisionEngine engine)
         {
-            var state = DecisionState.CreateInitial("sess-4910a5a5", "tenant-e46bc88e", T0);
+            var state = DecisionState.CreateInitial("sess-4910a5a5", "tenant-a", T0);
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
             state = engine.Reduce(state, MakeSignal(
                 5, DecisionSignalKind.EspConfigDetected, T0.AddMinutes(1),
@@ -105,7 +105,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
                     ["failureType"] = "Provisioning_DeviceSetup_Apps_Failed",
                     ["failedSubcategory"] = "Apps",
                     ["category"] = "DeviceSetup",
-                    ["likelyCulpritApps"] = "Oriflame Cosmectics - Teams Backgroundsv v2",
+                    ["likelyCulpritApps"] = "Contoso Branding - Teams Backgrounds v2",
                     ["likelyCulpritAppCount"] = "1",
                 }));
 
@@ -129,7 +129,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
 
             var advisory = FindTimelineEffect(step, "esp_failure_advisory");
             Assert.NotNull(advisory);
-            Assert.Equal("Oriflame Cosmectics - Teams Backgroundsv v2", advisory!.Parameters!["likelyCulpritApps"]);
+            Assert.Equal("Contoso Branding - Teams Backgrounds v2", advisory!.Parameters!["likelyCulpritApps"]);
         }
 
         // ===================================================== recovery hook ====

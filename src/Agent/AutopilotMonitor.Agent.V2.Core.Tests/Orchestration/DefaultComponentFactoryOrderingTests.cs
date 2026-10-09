@@ -145,7 +145,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [Fact]
         public void Ime_app_state_callback_is_chained_into_the_user_apps_settled_recheck()
         {
-            // sits-d Cloud-PC fix (2026-08-19): the AccountSetup synthesis is re-evaluated on every
+            // Cloud-PC fix (2026-08-19): the AccountSetup synthesis is re-evaluated on every
             // terminal IME app transition, which only works while the factory keeps this chain
             // wired. It is five lines that a refactor can drop silently and whose absence costs a
             // whole class of sessions their completion — so pin it here.

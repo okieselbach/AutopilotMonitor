@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     /// signal once per second for at most <paramref name="maxWait"/>. It cannot prove backend
     /// reachability — the callers' retry loops handle that — it only keeps retry budgets from
     /// being burned into a link that is provably still down (BootTrigger relaunch after a
-    /// mid-enrollment reboot, Wi-Fi still associating; tenant aebdce78 audits 2026-08-23/24).
+    /// mid-enrollment reboot, Wi-Fi still associating; kiosk-tenant audits 2026-08-23/24).
     /// Free on the normal path — a live link returns immediately. Probe errors end the wait,
     /// never the caller's operation.
     /// </summary>

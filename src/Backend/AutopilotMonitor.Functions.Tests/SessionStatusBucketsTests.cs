@@ -46,7 +46,7 @@ public class SessionStatusBucketsTests
     [Fact]
     public void Failure_rate_denominator_is_terminal_only_excluding_incomplete()
     {
-        // 1 succeeded, 1 failed, 8 incomplete (the crcins shape). Honest rate = 1/(1+1) = 50%,
+        // 1 succeeded, 1 failed, 8 incomplete (the field shape). Honest rate = 1/(1+1) = 50%,
         // NOT 1/10 = 10% (Incomplete must not dilute) and NOT counting Incomplete as failures.
         var b = Tally("Succeeded", "Failed", "Incomplete", "Incomplete", "Incomplete", "Incomplete",
                       "Incomplete", "Incomplete", "Incomplete", "Incomplete");

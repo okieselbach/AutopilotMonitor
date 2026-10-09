@@ -50,12 +50,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         // Session caa6cf50 gate-starvation fix (2026-06-11) — fire-once guard for the
         // user-ESP-apps-settled AccountSetup synthesis (see MaybeSynthesizeAccountSetupComplete).
-        // Interlocked rather than a plain bool: since the sits-d Cloud-PC fix the synthesis is
+        // Interlocked rather than a plain bool: since the Cloud-PC fix the synthesis is
         // ALSO re-evaluated from the IME app-state-change thread, so two threads can reach the
         // guard concurrently (Shell-Core watcher thread + IME log thread).
         private int _userAppsSettledSynthesisFired;
 
-        // sits-d Cloud-PC fix (2026-08-19) — set once a CONFIRMED post-AccountSetup Shell-Core
+        // Cloud-PC fix (2026-08-19) — set once a CONFIRMED post-AccountSetup Shell-Core
         // exit has been observed (live OR backfill). The synthesis needs two facts: the ESP exit
         // is an EDGE that happens once, the settled user-ESP apps are a LEVEL that may only be
         // reached minutes later. Recording the edge lets ReevaluateUserAppsSettledSynthesis
@@ -374,7 +374,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             => _shellCoreTracker?.BackfillUpdatePageTelemetry(lookbackMinutes);
 
         /// <summary>
-        /// sits-d Cloud-PC fix (2026-08-19) — re-check the user-apps-settled AccountSetup
+        /// Cloud-PC fix (2026-08-19) — re-check the user-apps-settled AccountSetup
         /// synthesis after the ESP exit has already been observed. Wired to the IME tracker's
         /// app-state-change callback in <c>DefaultComponentFactory</c>.
         /// <para>

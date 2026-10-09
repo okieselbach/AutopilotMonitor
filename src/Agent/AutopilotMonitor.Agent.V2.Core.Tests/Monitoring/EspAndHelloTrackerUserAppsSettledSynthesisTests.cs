@@ -172,8 +172,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         // ------------------------------------------------------------------------------
-        // sits-d Cloud-PC fix (2026-08-19) — the synthesis is no longer edge-only.
-        // Sessions 8110e262 / a89aac2d: the ESP page exited while 138 required user-ESP apps
+        // Cloud-PC fix (2026-08-19) — the synthesis is no longer edge-only.
+        // Two field sessions: the ESP page exited while 138 required user-ESP apps
         // were still in flight, they all reached a terminal state (0 failed) minutes later,
         // and because nothing re-checked, the enrollment never completed.
         // ------------------------------------------------------------------------------

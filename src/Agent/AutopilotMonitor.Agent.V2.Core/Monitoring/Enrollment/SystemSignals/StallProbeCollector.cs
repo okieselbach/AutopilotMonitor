@@ -138,7 +138,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         //   - Explicit "Required app failed" lines from the ESP required-app enforcer
         //
         // TODO(stall-probe-imelog-scan): Also scan IntuneManagementExtension.log (not just
-        // AppWorkload.log). Learning from the Oriflame session b4b5d37e-a993-453e-b16b-9b75098022e4
+        // AppWorkload.log). Learning from a field session
         // (MS Intune AAD token service outage 2026-04-08): the ESP blocker was
         //   "Failed to get AAD token. errorCode = 3399548929"  (= 0xCAA90001 AADSTS_SERVER_ERROR)
         // and this string lives in IntuneManagementExtension.log, NOT AppWorkload.log. Add a third

@@ -409,7 +409,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [Fact]
         public void Timeout_fire_with_recent_first_deployment_activity_extends_instead_of_timing_out()
         {
-            // Report 55e6afd61c9d (Douglas): timer armed at detection (phase 0, RJ agent MSI
+            // Field report: timer armed at detection (phase 0, RJ agent MSI
             // install during DeviceSetup), first deployment only started 16 min later, Office
             // completed 3 s before the deadline — the hard cut truncated an actively working
             // deployment. The fire must now re-arm to lastActivity + 60 min instead.

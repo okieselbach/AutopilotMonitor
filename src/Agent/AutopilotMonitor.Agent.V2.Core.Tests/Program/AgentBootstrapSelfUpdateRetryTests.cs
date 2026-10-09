@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
 {
     /// <summary>
     /// Contract tests for <see cref="AgentBootstrap.RetrySelfUpdateAfterEnrollment"/> —
-    /// the post-cert one-shot self-update retry (field case sits-d.cloud, 2026-08-09):
+    /// the post-cert one-shot self-update retry (field case 2026-08-09):
     /// guard on <see cref="SelfUpdater.LastVersionCheckSucceeded"/>, the relaxed
     /// timeouts/trigger it passes to the updater, and the swallow-everything exception
     /// contract (bootstrap must continue on any updater failure). Uses the

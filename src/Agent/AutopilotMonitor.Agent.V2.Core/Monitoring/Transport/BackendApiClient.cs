@@ -284,7 +284,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// Throws <see cref="BackendAuthException"/> for 401/403 responses so callers can
         /// distinguish authentication failures from transient server errors.
         /// <para>
-        /// Field case (sits-d.cloud, 2026-08-09): a pre-cutover agent build pointed at a
+        /// Field case (2026-08-09): a pre-cutover agent build pointed at a
         /// retired Function App; Azure answers for a stopped app with a platform-level 403
         /// carrying an HTML error page ("Web App - Unavailable"). Our backend never returns
         /// HTML on 401/403 — an HTML body therefore means the response did not come from the

@@ -79,7 +79,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             // write to the same state file; per-enrollment lifecycle like the other state files.
             var startupEventGate = new AutopilotMonitor.Agent.V2.Core.Persistence.StartupEventGate(stateSubdir, logger);
 
-            // sits-d Cloud-PC fix (2026-08-19): a reboot_kill means the agent was down across the
+            // Cloud-PC fix (2026-08-19): a reboot_kill means the agent was down across the
             // forced mid-ESP restart. Hand the boot timestamp to the factory so the Shell-Core
             // ESP-exit backfill can reach back over the whole downtime instead of 5 minutes.
             var previousBootUtc =

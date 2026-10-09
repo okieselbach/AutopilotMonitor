@@ -144,7 +144,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(4, svc.LastFetchAttempts);
         }
 
-        // ── Network-link gate (tenant aebdce78 audit 2026-08-24) ────────────
+        // ── Network-link gate (kiosk-tenant audit 2026-08-24) ────────────
 
         [Fact]
         public async Task FetchConfig_InitialFetch_WaitsForNetworkLink()

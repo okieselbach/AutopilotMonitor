@@ -258,7 +258,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // on esp_exiting events long after Start.
             ImeLogHost? imeLogHostRef = null;
 
-            // sits-d Cloud-PC fix (2026-08-19), narrowed after review: the Shell-Core ESP-exit
+            // Cloud-PC fix (2026-08-19), narrowed after review: the Shell-Core ESP-exit
             // replay is restart recovery, so it stays OFF on a first run and the happy path keeps
             // its pre-fix behaviour exactly. See ResolveEspExitBackfillLookbackMinutes.
             var espExitBackfillLookbackMinutes = ResolveEspExitBackfillLookbackMinutes(
@@ -453,7 +453,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             imeLogHost.Tracker.OnUserTokenAcquired = lineUtc => aadJoinHost.NotifyUserTokenAcquired(lineUtc);
             imeLogHost.Tracker.OnTokenFailureLine = (code, lineUtc) => aadJoinHost.NotifyTokenFailureLine(code, lineUtc);
 
-            // sits-d Cloud-PC fix (2026-08-19): the user-apps-settled AccountSetup synthesis used
+            // Cloud-PC fix (2026-08-19): the user-apps-settled AccountSetup synthesis used
             // to run ONLY on the EspExited edge. On a tenant with a large required-app set the ESP
             // page exits while apps are still in flight, the single attempt misses, and nothing
             // ever re-checks — sessions 8110e262 / a89aac2d reached 138/138 apps with 0 failed and

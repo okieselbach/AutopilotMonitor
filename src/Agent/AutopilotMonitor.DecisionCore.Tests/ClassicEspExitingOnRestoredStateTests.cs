@@ -102,7 +102,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var builder = DecisionState.CreateInitial("s", "t", Fixed.AddDays(-1))
                 .ToBuilder()
                 .WithStage(SessionStage.EspAccountSetup)
-                .WithStepIndex(452)             // the restored StepIndex the sits-d sessions showed
+                .WithStepIndex(452)             // the restored StepIndex the field sessions showed
                 .WithLastAppliedSignalOrdinal(9);
 
             if (accountSetupEntered)

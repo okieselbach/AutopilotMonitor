@@ -118,7 +118,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
         /// agent restart therefore lost an ESP exit (62407) or Hello-wizard start (62404) that
         /// happened while the agent was down — and after a mid-ESP reboot that is exactly the
-        /// window the completion signal lands in (sits-d Cloud PCs, 2026-08-19: five sessions
+        /// window the completion signal lands in (Cloud PCs, 2026-08-19: five sessions
         /// hung in AccountSetup until the server-side timeout while the devices were fine).
         /// </para>
         /// <para>

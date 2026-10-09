@@ -46,7 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// Upper bound for the pre-fetch network-link wait on the initial startup fetch.
         /// Deliberately longer than the registration gate's 15s: the fetch runs FIRST after a
         /// boot-time relaunch, when Wi-Fi may still be associating (802.1X, OOBE), and a fetch
-        /// burned into a dead link strands the whole session on built-in defaults — tenant aebdce78
+        /// burned into a dead link strands the whole session on built-in defaults — kiosk-tenant
         /// audit 2026-08-24: ~50% of sessions lost their tenant config exactly this way.
         /// </summary>
         internal static readonly TimeSpan InitialFetchNetworkLinkWaitMax = TimeSpan.FromSeconds(60);

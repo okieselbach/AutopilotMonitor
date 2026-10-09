@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Services
     /// perpetually <c>"in_progress"</c> even at DeviceSetup 4/4 and AccountSetup 5/5), so the
     /// authoritative rollup is the per-category "N of M subcategories completed" line — which
     /// the agent authors in one place (ProvisioningStatusTracker) and which was validated at
-    /// scale against real crcins.com data. The 30s "all subcategories succeeded but
+    /// scale against real field data. The 30s "all subcategories succeeded but
     /// categorySucceeded was not confirmed … treating as complete" fallback line is treated
     /// as all-succeeded for its category.
     /// </summary>
@@ -137,7 +137,7 @@ namespace AutopilotMonitor.Functions.Services
                     // enrollment failure verdict. Counting it as an explicit failure would send
                     // every timed-out-but-actually-provisioned session through rule 1 straight to
                     // Failed, defeating the honest classification this class exists for
-                    // (misclassification audit 2026-07-16, tenant a53e67ec cluster).
+                    // (misclassification audit 2026-07-16).
                     if (!Eq(TryGetDataString(evt, "failureType") ?? string.Empty, "agent_timeout"))
                         hasFailure = true;
                     else
@@ -259,7 +259,7 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21). After the
+        /// WhiteGlove Part-2 awaiting-user gate (field analysis 2026-08-21). After the
         /// reseal-reboot the session is BY DEFINITION in the user-driven final phase: the agent
         /// resumed (<c>whiteglove_resumed</c> → ResumedAt, the only writer of that column), the
         /// Part-2 Device ESP re-confirms in minutes, and the device sits at the logon screen.
@@ -303,8 +303,8 @@ namespace AutopilotMonitor.Functions.Services
         /// Device ESP reaching all-succeeded IS the enrollment's end, and the agent's own
         /// SelfDeploying terminal only adds a 5-min confirmation window on top of it. When the
         /// agent goes silent after that point (reboot into the kiosk autologon, powered off and
-        /// boxed for the school term, WiFi never re-associating for the relaunch — tenant
-        /// aebdce78, 836 sessions 2026-08-17..21), "awaiting user / Account Setup" is a factual
+        /// boxed for the school term, WiFi never re-associating for the relaunch — a kiosk
+        /// tenant, 836 sessions 2026-08-17..21), "awaiting user / Account Setup" is a factual
         /// error and the later Incomplete("Account Setup 0/5") is worse: nobody will ever sign
         /// in, the devices are finished and in service. Demands the registration-time
         /// registry-confirmed profile flag (CloudAssignedOobeConfig 0x20|0x40), Device Setup

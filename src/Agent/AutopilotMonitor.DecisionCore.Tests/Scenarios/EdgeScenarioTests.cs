@@ -70,7 +70,7 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
         {
             // PR1 (Session 4fa5a2d4, 2026-05-22) — ContinueAnyway-aware ESP terminal-failure
             // defang. The fixture replays the canonical race that produced 199/202 false
-            // positives in tenant c9787ba2: ContinueAnyway=true profile, AccountSetup entered,
+            // positives in one tenant: ContinueAnyway=true profile, AccountSetup entered,
             // then DeviceSetup/Certificates registry-write flips to failed. Without PR1 this
             // would land in Failed; PR1 records EspAdvisoryFailureRecordedUtc and keeps the
             // stage at EspAccountSetup so the agent stays in monitoring.

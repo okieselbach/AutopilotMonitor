@@ -76,7 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
         /// <summary>
         /// Phase 6.5 — config self-heal. When the Phase 4 fetch ran before the network link was
-        /// up (agent relaunched at boot, Wi-Fi still associating — tenant aebdce78 audit 2026-08-24:
+        /// up (agent relaunched at boot, Wi-Fi still associating — kiosk-tenant audit 2026-08-24:
         /// ~50% of sessions ran on ConfigVersion=0 exactly this way), a successful session
         /// registration has just proven the backend reachable. Retry the fetch once and apply
         /// the live tenant config instead of stranding the whole session on cache/defaults.

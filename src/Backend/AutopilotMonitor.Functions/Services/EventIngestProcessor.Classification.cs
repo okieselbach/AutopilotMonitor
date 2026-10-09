@@ -524,7 +524,7 @@ namespace AutopilotMonitor.Functions.Services
                     // enrollment_failed(failureType=agent_timeout) is the max-lifetime watchdog
                     // giving up, NOT an enrollment failure verdict. Hard-failing here misdeclared
                     // fully provisioned WhiteGlove Part-2 sessions whose user simply never logged
-                    // in (misclassification audit 2026-07-16, tenant a53e67ec: honest verdict
+                    // in (misclassification audit 2026-07-16: honest verdict
                     // AwaitingUser). Route through the same honest classification the maintenance
                     // sweep uses instead.
                     (statusTransitioned, failureReason) = await ApplyAgentGaveUpVerdictAsync(
@@ -665,7 +665,7 @@ namespace AutopilotMonitor.Functions.Services
 
             if (c.SessionStalledEvent != null)
             {
-                // WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21): the
+                // WhiteGlove Part-2 awaiting-user gate (field analysis 2026-08-21): the
                 // agent-side stall probe also fires on a resumed Part-2 device that simply sits
                 // at the logon screen with nobody signing in. With zero user evidence since the
                 // resume that is the expected parking state between technician and end user, so

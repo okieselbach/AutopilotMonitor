@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Pins ANALYZE-ESP-004 ("ESP Gave Up on a Blocking App with 'Continue Anyway' — Soft Failure").
 ///
-/// Background (tenant c9787ba2, session cb7036a6): a slow blocking app (Encompass
+/// Background (field case): a slow blocking app (Encompass
 /// Hybrid Installer) does not finish inside the 30-min Device-ESP window, so the ESP
 /// fails terminally in DeviceSetup. The profile allows "Continue anyway", so the user
 /// most likely dismissed the failure screen and reached the desktop — but the agent
@@ -25,8 +25,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class RuleEngineEspSoftFailureTests
 {
-    private const string TenantId  = "c9787ba2-29de-4944-91f0-73594c12f85d";
-    private const string SessionId = "cb7036a6-2c7c-470f-851b-24e5e537991c";
+    private const string TenantId  = "11111111-1111-1111-1111-111111111111";
+    private const string SessionId = "22222222-2222-2222-2222-222222222222";
     private const string FailedAppName = "Encompass Hybrid Installer";
 
     [Fact]
@@ -146,7 +146,7 @@ public class RuleEngineEspSoftFailureTests
         Assert.Empty(outcome.Results);
     }
 
-    // ===== Event builders (faithful to session cb7036a6's actual payloads) =====
+    // ===== Event builders (faithful to the field session's actual payloads) =====
 
     private static EnrollmentEvent EnrollmentFailedEvent(string? mayHaveContinuedAnyway) =>
         new()

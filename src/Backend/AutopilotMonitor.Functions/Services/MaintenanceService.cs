@@ -436,7 +436,7 @@ namespace AutopilotMonitor.Functions.Services
                             if (lastContactAt > silenceCutoff)
                                 continue; // provably alive on the server clock
 
-                            // WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis
+                            // WhiteGlove Part-2 awaiting-user gate (field analysis
                             // 2026-08-21): after the reseal-reboot the technician routinely powers
                             // the device off at the logon screen to box it — that silence is the
                             // expected parking state between technician and end user, not a stall.
@@ -449,7 +449,7 @@ namespace AutopilotMonitor.Functions.Services
                                 continue;
                             }
 
-                            // Self-deploying profile gate (kiosk tenant aebdce78, 2026-08-23): a
+                            // Self-deploying profile gate (kiosk tenant, 2026-08-23): a
                             // silent agent after Device ESP all-succeeded is a finished device
                             // (rebooted into the kiosk autologon / boxed), not a stall and never
                             // "awaiting user" — reconcile to Succeeded right here instead of

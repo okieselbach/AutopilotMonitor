@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Pins the merge collision guard in <see cref="AnalyzeRuleService.GetAllRulesForTenantAsync"/>
 /// and <see cref="GatherRuleService.GetAllRulesForTenantAsync"/>: a tenant-partition row whose
 /// RuleId collides with a merged global rule (legacy debris from the pre-global-partition
-/// seeding era, e.g. tenant 5ca2b350's ANALYZE-ID-002 copy from 2026-03) must be skipped —
+/// seeding era, e.g. one tenant's ANALYZE-ID-002 copy from 2026-03) must be skipped —
 /// the global definition wins. Without the guard the same RuleId appears twice in the merged
 /// list and every ToDictionary(r =&gt; r.RuleId) consumer throws (prod: ArgumentException in
 /// AnalyzeOnEnrollmentEndHandler.SafeNotifyRuleChannelsAsync, killing rule notifications).

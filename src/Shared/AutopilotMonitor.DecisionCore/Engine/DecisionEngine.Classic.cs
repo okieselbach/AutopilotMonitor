@@ -782,7 +782,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// signal's instant.
         /// </para>
         /// <para>
-        /// sits-d Cloud PCs (2026-08-20): on SkipUser=true flows the observed skip stands in
+        /// Cloud PCs (2026-08-20): on SkipUser=true flows the observed skip stands in
         /// for the final-exit evidence — Windows never renders the user ESP page, so no
         /// Shell-Core 62407 and no AccountSetup provisioning category can ever exist, and this
         /// handler is the only remaining site that can knock on the (open) arm-B gate. See the
@@ -837,7 +837,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // in HandleAccountSetupProvisioningCompleteV1) — AwaitingHello/AwaitingDesktop/
             // Finalizing/terminal stages keep their existing rails untouched.
             //
-            // sits-d Cloud PCs (2026-08-20): on a SkipUser=true flow Windows never renders the
+            // Cloud PCs (2026-08-20): on a SkipUser=true flow Windows never renders the
             // user ESP page — Shell-Core 62407 does not fire and the AccountSetup provisioning
             // categories are never written, so IsPostAccountSetupFinalExit is unsatisfiable by
             // construction (there is no exit to record). Arm B of ShouldTransitionToAwaitingHello
