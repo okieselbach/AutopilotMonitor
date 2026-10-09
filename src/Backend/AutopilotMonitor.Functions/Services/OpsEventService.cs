@@ -301,15 +301,21 @@ namespace AutopilotMonitor.Functions.Services
         /// PR6 follow-up F3: replaces the prior <c>LogAuditEntryAsync(null!, ...)</c> call, which
         /// silently failed because the AuditLogs schema requires a non-null PartitionKey (tenantId).
         /// </summary>
+        /// <summary>
+        /// Run summary of the retention maintenance. Warning instead of Info when
+        /// <paramref name="tenantsFailed"/> &gt; 0: those tenants were skipped (nothing deleted), so
+        /// their retention did not run this time.
+        /// </summary>
         public Task RecordSessionDeletionMaintenanceCompletedAsync(
-            bool killSwitchActive, int tenantsProcessed, int sessionsEnqueued,
+            bool killSwitchActive, int tenantsProcessed, int tenantsFailed, int sessionsEnqueued,
             int sessionsSkipped, int rateLimitedTenants, int blobsTtlGced, int preparingRowsCleared,
             int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch, bool abortedByBudget,
             int tenantRowsPruned)
-            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceCompleted, OpsEventSeverity.Info,
-                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} tenantRowsPruned={tenantRowsPruned} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceCompleted,
+                tenantsFailed > 0 ? OpsEventSeverity.Warning : OpsEventSeverity.Info,
+                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} failed={tenantsFailed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} tenantRowsPruned={tenantRowsPruned} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
                 null, "System.Maintenance", new {
-                    killSwitchActive, tenantsProcessed, sessionsEnqueued,
+                    killSwitchActive, tenantsProcessed, tenantsFailed, sessionsEnqueued,
                     sessionsSkipped, rateLimitedTenants, blobsTtlGced, preparingRowsCleared,
                     strandedQueuedDetected, durationMs, abortedByKillSwitch, abortedByBudget,
                     tenantRowsPruned,

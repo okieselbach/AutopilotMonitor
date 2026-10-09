@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.DataAccess;
@@ -64,6 +65,45 @@ public class SessionRetentionFanoutServiceTests
         harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantB, "b2", "retention_cutoff", It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Once);
         // b1 must NOT be enqueued — its session age is below the 120d cutoff for Tenant B.
         harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantB, "b1", It.IsAny<string>(), It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_tenant_whose_configuration_cannot_be_read()
+    {
+        // A config read failure used to yield the synthesized default (90 days) and delete what a
+        // Pro-365 or never-delete tenant chose to keep. Now the tenant is skipped and counted —
+        // nothing enqueued, nothing pruned — and the next tenant still runs.
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 365, sessions: new[] { Old("a1", 120) }, planTier: "pro");
+        harness.WithTenant(TenantB, retentionDays: 30, sessions: new[] { Old("b1", 45) });
+        harness.TenantConfig.Setup(t => t.GetConfigurationIfExistsAsync(TenantA))
+            .ThrowsAsync(new RequestFailedException(503, "Server Busy"));
+
+        var result = await harness.RunAsync();
+
+        Assert.Equal(1, result.TenantsFailed);
+        Assert.Equal(1, result.TenantsProcessed);
+        harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantA, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.MaintenanceRepo.Verify(m => m.DeleteTenantAuditLogsOlderThanAsync(TenantA, It.IsAny<DateTime>()), Times.Never);
+        harness.MetricsRepo.Verify(m => m.DeleteTenantRuleStatsOlderThanAsync(TenantA, It.IsAny<DateTime>()), Times.Never);
+        harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantB, "b1", "retention_cutoff", It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_tenant_whose_configuration_row_vanished()
+    {
+        // The tenant list reads the configuration rows; a row gone by the time of the point read
+        // (offboarding race) leaves nothing to decide on — no default retention, no recreated row.
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 30, sessions: new[] { Old("a1", 45) });
+        harness.TenantConfig.Setup(t => t.GetConfigurationIfExistsAsync(TenantA))
+            .ReturnsAsync((TenantConfiguration?)null);
+
+        var result = await harness.RunAsync();
+
+        Assert.Equal(0, result.TenantsFailed);
+        harness.Enqueuer.Verify(e => e.EnqueueAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.TenantConfig.Verify(t => t.GetConfigurationAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -564,7 +604,7 @@ public class SessionRetentionFanoutServiceTests
             DateTime? proDowngradedUtc = null)
         {
             _tenantIds.Add(tenantId);
-            TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
+            TenantConfig.Setup(t => t.GetConfigurationIfExistsAsync(tenantId))
                 .ReturnsAsync(new TenantConfiguration
                 {
                     TenantId = tenantId,
@@ -579,7 +619,7 @@ public class SessionRetentionFanoutServiceTests
         public void WithTenantOverride(string tenantId, int retentionDays, List<SessionSummary> sessions)
         {
             _tenantIds.Add(tenantId);
-            TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
+            TenantConfig.Setup(t => t.GetConfigurationIfExistsAsync(tenantId))
                 .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays });
             foreach (var s in sessions) s.TenantId = tenantId;
             MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>())).ReturnsAsync(sessions);

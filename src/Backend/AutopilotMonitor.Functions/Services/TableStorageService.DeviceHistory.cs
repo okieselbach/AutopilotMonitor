@@ -95,22 +95,19 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
-        /// <summary>Point-reads one device's history row; null when the device has none. Takes the NORMALIZED serial (RK encoding is internal).</summary>
+        /// <summary>
+        /// Point-reads one device's history row; null when the device has none. Takes the NORMALIZED
+        /// serial (RK encoding is internal). A read failure PROPAGATES: both writers merge into the
+        /// returned chain and replace the row, so a failure taken for "no history" would drop every
+        /// older ref of the device.
+        /// </summary>
         public async Task<DeviceHistory?> GetDeviceHistoryAsync(string tenantId, string serialKey)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             if (string.IsNullOrEmpty(serialKey)) return null;
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceHistories);
-                var result = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, SerialRowKey(serialKey));
-                return result.HasValue ? MapToDeviceHistory(result.Value!) : null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get device history for tenant {TenantId}", tenantId);
-                return null;
-            }
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceHistories);
+            var result = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, SerialRowKey(serialKey));
+            return result.HasValue ? MapToDeviceHistory(result.Value!) : null;
         }
 
         /// <summary>All device-history rows of one tenant (the sweep's tombstone-cleanup scan; bounded by the tenant's device count).</summary>

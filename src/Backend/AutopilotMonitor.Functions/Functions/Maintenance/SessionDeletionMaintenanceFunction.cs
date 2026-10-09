@@ -232,6 +232,7 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                 await _opsEvents.RecordSessionDeletionMaintenanceCompletedAsync(
                     killSwitchActive: killSwitchActive,
                     tenantsProcessed: fanoutResult.TenantsProcessed,
+                    tenantsFailed: fanoutResult.TenantsFailed,
                     sessionsEnqueued: fanoutResult.SessionsEnqueued,
                     sessionsSkipped: fanoutResult.SessionsSkipped,
                     rateLimitedTenants: fanoutResult.RateLimitedTenants,

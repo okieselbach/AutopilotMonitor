@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
@@ -113,33 +114,21 @@ namespace AutopilotMonitor.Functions.Services
                     list.Add(session);
                 }
 
-                var mergedHistories = new List<DeviceHistory>(byDevice.Count);
-                foreach (var pair in byDevice)
-                {
-                    var (tenantId, serialKey) = pair.Key;
-                    var existing = await _metricsRepo.GetDeviceHistoryAsync(tenantId, serialKey);
-                    var refs = pair.Value
-                        .Select(DeviceJourneyCalculator.BuildSessionRef)
-                        .Where(r => r != null)
-                        .Select(r => r!);
-
-                    var chain = DeviceJourneyCalculator.MergeChain(existing?.Chain, refs);
-                    if (deletedByTenant.TryGetValue(tenantId, out var deletedIds))
-                        chain = DeviceJourneyCalculator.RemoveSessionRefs(chain, deletedIds);
-                    if (chain.Count == 0)
-                        continue;
-
-                    // Display fields follow the chain's newest entry (BuildDeviceHistoryRow rule);
-                    // pick the window session that IS that entry, falling back to any of the
-                    // device's window sessions (then the existing row's values win inside).
-                    var newestId = chain[chain.Count - 1].SessionId;
-                    var displaySource = pair.Value.FirstOrDefault(s => s.SessionId == newestId) ?? pair.Value[0];
-                    var history = TableStorageService.BuildDeviceHistoryRow(tenantId, serialKey, chain, existing, displaySource);
-                    await _metricsRepo.UpsertDeviceHistoryAsync(history);
-                    mergedHistories.Add(history);
-                }
+                var (mergedHistories, historyReadFailures, firstReadError) =
+                    await MergeWindowIntoDeviceHistoriesAsync(_metricsRepo, byDevice, deletedByTenant);
 
                 // ---- Phase 3: daily FTR aggregates from the merged chains. ----
+                // Only from a complete Phase 2: aggregates built without the skipped devices would
+                // overwrite complete rows with smaller counts, and the stale reconcile below would
+                // delete buckets those devices alone fill.
+                if (historyReadFailures > 0)
+                {
+                    _logger.LogWarning(firstReadError,
+                        "Device-journey sweep: {Failures} of {Devices} device-history reads failed — those devices wait for the next tick and the FTR aggregates are left unchanged",
+                        historyReadFailures, byDevice.Count);
+                    return;
+                }
+
                 var aggregates = BuildDeviceJourneyAggregates(
                     mergedHistories, excludedSessions, windowStart, windowEnd, DateTime.UtcNow);
                 var saved = 0;
@@ -178,6 +167,59 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex, "Device-journey sweep failed (non-fatal)");
             }
+        }
+
+        /// <summary>
+        /// Phase 2 of <see cref="SweepDeviceJourneysAsync"/>: merges each device's window refs into
+        /// its stored chain and replaces the row. internal static so the read-failure rule is pinned
+        /// by tests: a device whose history read FAILS is skipped and counted, never treated as "no
+        /// history" — merging the window into an empty chain and replacing the row would drop every
+        /// older ref.
+        /// </summary>
+        internal static async Task<(List<DeviceHistory> Merged, int ReadFailures, Exception? FirstReadError)> MergeWindowIntoDeviceHistoriesAsync(
+            IMetricsRepository metricsRepo,
+            IReadOnlyDictionary<(string TenantId, string SerialKey), List<SessionSummary>> byDevice,
+            IReadOnlyDictionary<string, ISet<string>> deletedByTenant)
+        {
+            var merged = new List<DeviceHistory>(byDevice.Count);
+            var readFailures = 0;
+            Exception? firstReadError = null;
+            foreach (var pair in byDevice)
+            {
+                var (tenantId, serialKey) = pair.Key;
+                DeviceHistory? existing;
+                try
+                {
+                    existing = await metricsRepo.GetDeviceHistoryAsync(tenantId, serialKey);
+                }
+                catch (Exception ex)
+                {
+                    readFailures++;
+                    firstReadError ??= ex;
+                    continue;
+                }
+
+                var refs = pair.Value
+                    .Select(DeviceJourneyCalculator.BuildSessionRef)
+                    .Where(r => r != null)
+                    .Select(r => r!);
+
+                var chain = DeviceJourneyCalculator.MergeChain(existing?.Chain, refs);
+                if (deletedByTenant.TryGetValue(tenantId, out var deletedIds))
+                    chain = DeviceJourneyCalculator.RemoveSessionRefs(chain, deletedIds);
+                if (chain.Count == 0)
+                    continue;
+
+                // Display fields follow the chain's newest entry (BuildDeviceHistoryRow rule);
+                // pick the window session that IS that entry, falling back to any of the
+                // device's window sessions (then the existing row's values win inside).
+                var newestId = chain[chain.Count - 1].SessionId;
+                var displaySource = pair.Value.FirstOrDefault(s => s.SessionId == newestId) ?? pair.Value[0];
+                var history = TableStorageService.BuildDeviceHistoryRow(tenantId, serialKey, chain, existing, displaySource);
+                await metricsRepo.UpsertDeviceHistoryAsync(history);
+                merged.Add(history);
+            }
+            return (merged, readFailures, firstReadError);
         }
 
         /// <summary>

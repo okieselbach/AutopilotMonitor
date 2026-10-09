@@ -175,7 +175,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<int> DeleteTenantTimeAttributionAggregatesOlderThanAsync(string tenantId, DateTime cutoffDate);
 
         // --- F2 Device History / First-Time-Right (insights spec §F2, PR4) ---
-        /// <summary>Point-reads one device's history row by NORMALIZED serial; null when absent.</summary>
+        /// <summary>Point-reads one device's history row by NORMALIZED serial; null when absent, throws when the read fails.</summary>
         Task<DeviceHistory?> GetDeviceHistoryAsync(string tenantId, string serialKey);
         /// <summary>All device-history rows of one tenant (sweep's tombstone-cleanup scan).</summary>
         Task<List<DeviceHistory>> GetDeviceHistoriesByTenantAsync(string tenantId);

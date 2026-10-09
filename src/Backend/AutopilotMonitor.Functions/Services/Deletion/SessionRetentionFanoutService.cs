@@ -89,6 +89,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         public sealed class FanoutResult
         {
             public int TenantsProcessed { get; set; }
+            public int TenantsFailed { get; set; }         // tenant skipped on an exception (e.g. unreadable config) — nothing deleted
             public int SessionsEnqueued { get; set; }     // enqueued for cascade
             public int SessionsSkipped { get; set; }       // already locked / poisoned / kill-switch / etc.
             public int RateLimitedTenants { get; set; }    // tenants that hit MaxEnqueuesPerTenantPerRun
@@ -150,6 +151,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 }
                 catch (Exception ex)
                 {
+                    result.TenantsFailed++;
                     _logger.LogError(ex, "SessionRetentionFanout failed for tenant {TenantId} — continuing with next tenant", tenantId);
                 }
 
@@ -168,23 +170,31 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         private async Task RunForTenantAsync(string tenantId, DateTime deadlineUtc, FanoutResult result, CancellationToken cancellationToken)
         {
-            var config = await _tenantConfig.GetConfigurationAsync(tenantId).ConfigureAwait(false);
+            // Strict read: a storage failure throws — RunAsync's per-tenant catch skips and counts
+            // the tenant — instead of yielding the synthesized default, whose 90 days would delete
+            // what a Pro-365 or never-delete tenant chose to keep. No row means it vanished since
+            // the tenant listing (which reads these rows): nothing to decide on, skip.
+            var config = await _tenantConfig.GetConfigurationIfExistsAsync(tenantId).ConfigureAwait(false);
+            if (config == null)
+            {
+                _logger.LogWarning("SessionRetentionFanout: tenant {TenantId} has no configuration row any more — skipped", tenantId);
+                return;
+            }
+
             // Edition retention cap (fail-closed backstop): the stored value is clamped to the
             // effective edition's cap at read time (Community 90 / Pro 365). A tenant whose
             // trial expired, or whose stored value predates the cap, is enforced here even though
             // the stored DataRetentionDays is left untouched. days <= 0 stays the GA-only
             // "infinite" escape hatch (skipped below, never clamped).
             var nowUtc = _utcNow();
-            var storedDays = config?.DataRetentionDays ?? 90;
-            var retentionDays = config == null
-                ? 90
-                : TenantEntitlementService.GetEffectiveRetentionDays(config, nowUtc);
+            var storedDays = config.DataRetentionDays;
+            var retentionDays = TenantEntitlementService.GetEffectiveRetentionDays(config, nowUtc);
             if (retentionDays > 0 && retentionDays < storedDays)
             {
                 _logger.LogWarning(
                     "Tenant {TenantId}: DataRetentionDays={Stored} exceeds the {Edition}-edition cap — enforcing {Effective} days",
                     tenantId, storedDays,
-                    TenantEntitlementService.ResolveEdition(config!, nowUtc), retentionDays);
+                    TenantEntitlementService.ResolveEdition(config, nowUtc), retentionDays);
             }
 
             if (retentionDays <= 0)

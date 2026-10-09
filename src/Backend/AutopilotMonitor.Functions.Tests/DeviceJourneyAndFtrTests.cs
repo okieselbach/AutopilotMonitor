@@ -1,7 +1,10 @@
+using Azure;
 using AutopilotMonitor.Functions.Functions.Metrics;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Moq;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -794,5 +797,39 @@ public class DeviceJourneyAndFtrTests
         Assert.Equal("dev-11", selected[0].History.SerialKey); // highest attempts first
         Assert.DoesNotContain(selected, c => c.History.SerialKey == "dev-00");
         Assert.DoesNotContain(selected, c => c.History.SerialKey == "dev-01");
+    }
+
+    // ── sweep merge: a failed history read is never "no history" ────────────
+
+    [Fact]
+    public async Task SweepMerge_HistoryReadFailure_SkipsTheDevice_AndKeepsOlderRefsOfTheOthers()
+    {
+        // A failed point read used to come back as null ("no history"): the sweep merged the
+        // window into an empty chain and replaced the row, dropping every older ref.
+        var repo = new Mock<IMetricsRepository>();
+        repo.Setup(r => r.GetDeviceHistoryAsync(TenantA, "broken"))
+            .ThrowsAsync(new RequestFailedException(503, "Server Busy"));
+        repo.Setup(r => r.GetDeviceHistoryAsync(TenantA, "healthy"))
+            .ReturnsAsync(History(TenantA, Ref("old-1", SessionStatus.Failed, T0.AddDays(-200))));
+        var upserted = new List<DeviceHistory>();
+        repo.Setup(r => r.UpsertDeviceHistoryAsync(It.IsAny<DeviceHistory>()))
+            .Callback<DeviceHistory>(upserted.Add)
+            .ReturnsAsync(true);
+
+        var byDevice = new Dictionary<(string TenantId, string SerialKey), List<SessionSummary>>
+        {
+            [(TenantA, "broken")] = new() { Session("w-1") },
+            [(TenantA, "healthy")] = new() { Session("w-2") },
+        };
+
+        var (merged, readFailures, firstError) = await MaintenanceService.MergeWindowIntoDeviceHistoriesAsync(
+            repo.Object, byDevice, new Dictionary<string, ISet<string>>());
+
+        Assert.Equal(1, readFailures);
+        Assert.IsType<RequestFailedException>(firstError);
+        var written = Assert.Single(upserted);
+        Assert.Equal("healthy", written.SerialKey);
+        Assert.Equal(new[] { "old-1", "w-2" }, written.Chain.Select(r => r.SessionId).ToArray());
+        Assert.Same(written, Assert.Single(merged));
     }
 }
