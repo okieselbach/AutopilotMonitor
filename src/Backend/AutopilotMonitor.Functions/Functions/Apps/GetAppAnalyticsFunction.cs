@@ -9,9 +9,11 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Apps
 {
     /// <summary>
-    /// GET /api/apps/{appName}/analytics?days=30
+    /// GET /api/apps/analytics?appName=...&amp;days=30
     /// Per-tenant drill-down for a single app: time series, version breakdown,
     /// installer phase breakdown, top failure codes, device-model correlation.
+    /// The name is a query value, never a path segment: app names may contain '/', which the
+    /// host decodes to a path separator before any route matches.
     /// </summary>
     public class GetAppAnalyticsFunction
     {
@@ -34,20 +36,19 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
         [Function("GetAppAnalytics")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "apps/{appName}/analytics")] HttpRequestData req,
-            string appName)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "apps/analytics")] HttpRequestData req)
         {
             try
             {
                 var tenantId = TenantHelper.GetTenantId(req);
 
-                var decodedAppName = Uri.UnescapeDataString(appName ?? string.Empty);
-                if (string.IsNullOrWhiteSpace(decodedAppName))
+                var query = req.Query;
+                var appName = query["appName"];
+                if (string.IsNullOrWhiteSpace(appName))
                 {
                     return await req.BadRequestAsync("appName is required");
                 }
 
-                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
                 if (!AppsAnalyticsHelper.TryParseSourceQueryParam(query["source"], out var source))
                 {
@@ -57,11 +58,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 // Active duration-regression episodes for this app (fail-soft: empty on error).
                 var versionRegressions = (await _notificationTracker.GetAppVersionRegressionsAsync(tenantId))
-                    .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase)
+                    .Where(a => string.Equals(a.AppName, appName, StringComparison.OrdinalIgnoreCase)
                                 && AppInstallSources.Normalize(a.Source) == source)
                     .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, source, days, versionRegressions);
+                    summaries, _sessionRepo, appName, source, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

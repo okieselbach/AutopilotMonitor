@@ -446,7 +446,7 @@ export interface AppAnalyticsFailureCode {
   sampleMessage: string;
 }
 
-/** Response of GET apps/{appName}/analytics and its global variant. */
+/** Response of GET apps/analytics?appName= and its global variant. */
 export interface AppAnalyticsResponse {
   success: boolean;
   appName: string;
@@ -641,7 +641,7 @@ export interface AppSessionItem {
   installPassCount: number;
 }
 
-/** Response of GET apps/{appName}/sessions and its global variant (offset-paged). */
+/** Response of GET apps/sessions?appName= and its global variant (offset-paged). */
 export interface AppSessionsResponse {
   success: boolean;
   total: number;

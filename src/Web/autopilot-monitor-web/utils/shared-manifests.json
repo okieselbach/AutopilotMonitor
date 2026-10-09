@@ -2826,7 +2826,7 @@
     },
     "AppAnalyticsResponse": {
       "kind": "object",
-      "doc": "Response of GET apps/{appName}/analytics and its global variant.",
+      "doc": "Response of GET apps/analytics?appName= and its global variant.",
       "fields": [
         {
           "name": "success",
@@ -3774,7 +3774,7 @@
     },
     "AppSessionsResponse": {
       "kind": "object",
-      "doc": "Response of GET apps/{appName}/sessions and its global variant (offset-paged).",
+      "doc": "Response of GET apps/sessions?appName= and its global variant (offset-paged).",
       "fields": [
         {
           "name": "success",

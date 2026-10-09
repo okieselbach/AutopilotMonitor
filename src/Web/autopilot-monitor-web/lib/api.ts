@@ -249,8 +249,9 @@ export const api = {
     blocked: (tenantId: string) =>
       `${API_BASE_URL}/api/devices/blocked${qs({ tenantId })}`,
     block: () => `${API_BASE_URL}/api/devices/block`,
+    // Serials may contain '/': a query value, never a path segment (the host decodes %2F before routing).
     unblock: (serialNumber: string, tenantId: string) =>
-      `${API_BASE_URL}/api/devices/block/${encodeURIComponent(serialNumber)}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/devices/block${qs({ serialNumber, tenantId })}`,
     allBlocked: () => `${API_BASE_URL}/api/global/devices/blocked`,
   },
 
@@ -372,12 +373,14 @@ export const api = {
   },
 
   // ── Apps Dashboard ────────────────────────────────────────────────────────
+  // App names may contain '/': the name is a query value, never a path segment (the host decodes
+  // %2F before routing).
   apps: {
     list: (tenantId: string, days: number) =>
       `${API_BASE_URL}/api/apps/list${qs({ tenantId, days: String(days) })}`,
     // source = install channel ("realmjoin"); the Intune default is left out of the URL.
     analytics: (tenantId: string, appName: string, days: number, opts?: { source?: string }) =>
-      `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/analytics${qs({ tenantId, days: String(days), source: appInstallSourceParam(opts?.source) })}`,
+      `${API_BASE_URL}/api/apps/analytics${qs({ appName, tenantId, days: String(days), source: appInstallSourceParam(opts?.source) })}`,
     // model/version live in an options object: as trailing positional strings they sat
     // adjacent to other optional strings, so a forgotten argument silently shifted the
     // next one into its place (compiles fine, queries the wrong thing).
@@ -390,7 +393,8 @@ export const api = {
       limit = 50,
       opts?: { model?: string; version?: string; source?: string }
     ) =>
-      `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/sessions${qs({
+      `${API_BASE_URL}/api/apps/sessions${qs({
+        appName,
         tenantId,
         days: String(days),
         status,
@@ -407,7 +411,7 @@ export const api = {
     globalList: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/apps/list${qs({ days: String(days), tenantId })}`,
     globalAnalytics: (appName: string, days: number, tenantId?: string, opts?: { source?: string }) =>
-      `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/analytics${qs({ days: String(days), tenantId, source: appInstallSourceParam(opts?.source) })}`,
+      `${API_BASE_URL}/api/global/apps/analytics${qs({ appName, days: String(days), tenantId, source: appInstallSourceParam(opts?.source) })}`,
     globalSessions: (
       appName: string,
       days: number,
@@ -417,7 +421,8 @@ export const api = {
       tenantId?: string,
       opts?: { model?: string; version?: string; source?: string }
     ) =>
-      `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/sessions${qs({
+      `${API_BASE_URL}/api/global/apps/sessions${qs({
+        appName,
         days: String(days),
         status,
         offset: String(offset),

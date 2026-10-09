@@ -84,13 +84,26 @@ describe("scopedApi routing", () => {
     const t = scopedApi.appSessions(tenantMode, "My App", 7, "failed", 20, 10);
     const g = scopedApi.appSessions(override, "My App", 7, "failed", 20, 10);
     for (const url of [t, g]) {
-      expect(url).toContain("My%20App");
+      expect(url).toContain("appName=My+App");
       expect(url).toContain("days=7");
       expect(url).toContain("status=failed");
       expect(url).toContain("offset=20");
       expect(url).toContain("limit=10");
     }
     expect(g).toContain(`tenantId=${OTHER}`);
+  });
+
+  it("per-app URLs carry the name as a query value, never in the path", () => {
+    // The host decodes %2F to a path separator before routing, so a name in the path 404s.
+    for (const name of ["a/b", "100%", "x+y", "a%20b"]) {
+      for (const sel of [tenantMode, override]) {
+        for (const url of [scopedApi.appAnalytics(sel, name, 30), scopedApi.appSessions(sel, name, 30, "all", 0, 10)]) {
+          const parsed = new URL(url);
+          expect(parsed.pathname).toMatch(/^\/api\/(global\/)?apps\/(analytics|sessions)$/);
+          expect(parsed.searchParams.get("appName")).toBe(name);
+        }
+      }
+    }
   });
 
   it("per-app URLs carry a non-Intune install channel and leave the Intune default out", () => {

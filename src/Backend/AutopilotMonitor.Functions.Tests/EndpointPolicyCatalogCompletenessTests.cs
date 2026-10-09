@@ -137,7 +137,6 @@ public class EndpointPolicyCatalogCompletenessTests
     [InlineData("PUT", "/api/rules/gather/rule-1", "rules/gather/{ruleId}")]
     [InlineData("DELETE", "/api/tenants/tid-1/admins/user@contoso.com", "tenants/{tenantId}/admins/{adminUpn}")]
     [InlineData("PATCH", "/api/tenants/tid-1/admins/user@contoso.com/permissions", "tenants/{tenantId}/admins/{adminUpn}/permissions")]
-    [InlineData("DELETE", "/api/devices/block/SN123456", "devices/block/{encodedSerialNumber}")]
     [InlineData("DELETE", "/api/versions/block/v1.0.*", "versions/block/{encodedPattern}")]
     [InlineData("PATCH", "/api/global/session-reports/report-1/note", "global/session-reports/{reportId}/note")]
     [InlineData("POST", "/api/rules/analyze/ANALYZE-ID-001/create-from-template", "rules/analyze/{ruleId}/create-from-template")]
@@ -284,8 +283,8 @@ public class EndpointPolicyCatalogCompletenessTests
     /// </summary>
     [Theory]
     [InlineData("GET", "/api/global/apps/list",                       "global/apps/list")]
-    [InlineData("GET", "/api/global/apps/Company%20Portal/analytics", "global/apps/{appName}/analytics")]
-    [InlineData("GET", "/api/global/apps/Company%20Portal/sessions",  "global/apps/{appName}/sessions")]
+    [InlineData("GET", "/api/global/apps/analytics",                  "global/apps/analytics")]
+    [InlineData("GET", "/api/global/apps/sessions",                   "global/apps/sessions")]
     public void GlobalAppsRoutes_AreGlobalReadOrAdmin(string method, string path, string expectedTemplate)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);

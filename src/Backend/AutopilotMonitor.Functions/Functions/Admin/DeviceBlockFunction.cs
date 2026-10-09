@@ -135,11 +135,14 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
         }
 
-        /// <summary>DELETE /api/devices/block/{encodedSerialNumber}?tenantId={tenantId} — unblock a device</summary>
+        /// <summary>
+        /// DELETE /api/devices/block?serialNumber={serialNumber}&amp;tenantId={tenantId} — unblock a device. The serial
+        /// is a query value, never a path segment: serial numbers may contain '/', which the host decodes to a path
+        /// separator before any route matches.
+        /// </summary>
         [Function("UnblockDevice")]
         public async Task<HttpResponseData> UnblockDevice(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "devices/block/{encodedSerialNumber}")] HttpRequestData req,
-            string encodedSerialNumber)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "devices/block")] HttpRequestData req)
         {
             try
             {
@@ -150,9 +153,9 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 if (string.IsNullOrEmpty(tenantId))
                     return await req.BadRequestAsync("tenantId query parameter is required");
 
-                var serialNumber = Uri.UnescapeDataString(encodedSerialNumber ?? string.Empty);
+                var serialNumber = req.Query["serialNumber"];
                 if (string.IsNullOrEmpty(serialNumber))
-                    return await req.BadRequestAsync("serialNumber is required");
+                    return await req.BadRequestAsync("serialNumber query parameter is required");
 
                 await _blockedDeviceService.UnblockDeviceAsync(tenantId, serialNumber);
 

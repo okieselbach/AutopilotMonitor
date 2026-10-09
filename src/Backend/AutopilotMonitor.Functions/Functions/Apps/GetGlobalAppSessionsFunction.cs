@@ -9,9 +9,9 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Apps
 {
     /// <summary>
-    /// GET /api/global/apps/{appName}/sessions?days=30&amp;status=failed[&amp;tenantId=GUID][&amp;model=X][&amp;version=Y][&amp;offset=N][&amp;limit=N]
-    /// Global Admin variant of <see cref="GetAppSessionsFunction"/>.
-    /// Authorization: GlobalAdminOnly.
+    /// GET /api/global/apps/sessions?appName=...&amp;days=30&amp;status=failed[&amp;tenantId=GUID][&amp;model=X][&amp;version=Y][&amp;offset=N][&amp;limit=N]
+    /// Global Admin variant of <see cref="GetAppSessionsFunction"/> (the name is a query value for the same reason).
+    /// Authorization: GlobalReadOrAdmin.
     /// </summary>
     public class GetGlobalAppSessionsFunction
     {
@@ -34,19 +34,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
         [Function("GetGlobalAppSessions")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/apps/{appName}/sessions")] HttpRequestData req,
-            string appName)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/apps/sessions")] HttpRequestData req)
         {
             try
             {
                 var userEmail = TenantHelper.GetUserIdentifier(req);
-                var decodedAppName = Uri.UnescapeDataString(appName ?? string.Empty);
-                if (string.IsNullOrWhiteSpace(decodedAppName))
+                var query = req.Query;
+                var appName = query["appName"];
+                if (string.IsNullOrWhiteSpace(appName))
                 {
                     return await req.BadRequestAsync("appName is required");
                 }
 
-                var query = req.Query;
                 var scopedTenantId = query["tenantId"];
                 if (!AppsAnalyticsHelper.IsValidOptionalTenantIdQueryParam(scopedTenantId))
                 {
@@ -68,11 +67,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 _logger.LogInformation(
                     "Global apps/{App}/sessions requested (user: {User}, tenantId: {TenantId})",
-                    decodedAppName, userEmail, scopedTenantId ?? "<all>");
+                    appName, userEmail, scopedTenantId ?? "<all>");
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, scopedTenantId, days);
                 var body = await AppsAnalyticsHelper.BuildSessionsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, source, days,
+                    summaries, _sessionRepo, appName, source, days,
                     statusFilter, modelFilter, versionFilter, offset, limit);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);

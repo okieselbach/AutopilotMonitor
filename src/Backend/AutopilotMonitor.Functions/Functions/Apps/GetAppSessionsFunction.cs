@@ -9,8 +9,9 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Apps
 {
     /// <summary>
-    /// GET /api/apps/{appName}/sessions?days=30&amp;status=failed&amp;model=...&amp;version=...&amp;offset=0&amp;limit=50
+    /// GET /api/apps/sessions?appName=...&amp;days=30&amp;status=failed&amp;model=...&amp;version=...&amp;offset=0&amp;limit=50
     /// Returns paginated sessions that (tried to) install a given app for the caller's tenant.
+    /// The name is a query value for the reason given on <see cref="GetAppAnalyticsFunction"/>.
     /// </summary>
     public class GetAppSessionsFunction
     {
@@ -33,20 +34,19 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
         [Function("GetAppSessions")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "apps/{appName}/sessions")] HttpRequestData req,
-            string appName)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "apps/sessions")] HttpRequestData req)
         {
             try
             {
                 var tenantId = TenantHelper.GetTenantId(req);
 
-                var decodedAppName = Uri.UnescapeDataString(appName ?? string.Empty);
-                if (string.IsNullOrWhiteSpace(decodedAppName))
+                var query = req.Query;
+                var appName = query["appName"];
+                if (string.IsNullOrWhiteSpace(appName))
                 {
                     return await req.BadRequestAsync("appName is required");
                 }
 
-                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
                 if (!AppsAnalyticsHelper.TryParseSourceQueryParam(query["source"], out var source))
                 {
@@ -63,7 +63,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 var body = await AppsAnalyticsHelper.BuildSessionsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, source, days,
+                    summaries, _sessionRepo, appName, source, days,
                     statusFilter, modelFilter, versionFilter, offset, limit);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);

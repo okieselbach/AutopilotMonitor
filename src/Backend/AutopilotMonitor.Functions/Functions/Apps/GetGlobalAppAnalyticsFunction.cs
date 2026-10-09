@@ -9,9 +9,9 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Apps
 {
     /// <summary>
-    /// GET /api/global/apps/{appName}/analytics?days=30[&amp;tenantId=GUID]
-    /// Global Admin variant of <see cref="GetAppAnalyticsFunction"/>.
-    /// Authorization: GlobalAdminOnly.
+    /// GET /api/global/apps/analytics?appName=...&amp;days=30[&amp;tenantId=GUID]
+    /// Global Admin variant of <see cref="GetAppAnalyticsFunction"/> (the name is a query value for the same reason).
+    /// Authorization: GlobalReadOrAdmin.
     /// </summary>
     public class GetGlobalAppAnalyticsFunction
     {
@@ -34,19 +34,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
         [Function("GetGlobalAppAnalytics")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/apps/{appName}/analytics")] HttpRequestData req,
-            string appName)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/apps/analytics")] HttpRequestData req)
         {
             try
             {
                 var userEmail = TenantHelper.GetUserIdentifier(req);
-                var decodedAppName = Uri.UnescapeDataString(appName ?? string.Empty);
-                if (string.IsNullOrWhiteSpace(decodedAppName))
+                var query = req.Query;
+                var appName = query["appName"];
+                if (string.IsNullOrWhiteSpace(appName))
                 {
                     return await req.BadRequestAsync("appName is required");
                 }
 
-                var query = req.Query;
                 var scopedTenantId = query["tenantId"];
                 if (!AppsAnalyticsHelper.IsValidOptionalTenantIdQueryParam(scopedTenantId))
                 {
@@ -60,7 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
                 _logger.LogInformation(
                     "Global apps/{App}/analytics requested (user: {User}, tenantId: {TenantId}, days: {Days})",
-                    decodedAppName, userEmail, scopedTenantId ?? "<all>", days);
+                    appName, userEmail, scopedTenantId ?? "<all>", days);
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, scopedTenantId, days);
                 // Episodes are per-tenant tracker rows; without a tenant scope the aggregated
@@ -68,11 +67,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var versionRegressions = string.IsNullOrEmpty(scopedTenantId)
                     ? new List<AppVersionRegressionAlert>()
                     : (await _notificationTracker.GetAppVersionRegressionsAsync(scopedTenantId!))
-                        .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase)
+                        .Where(a => string.Equals(a.AppName, appName, StringComparison.OrdinalIgnoreCase)
                                     && AppInstallSources.Normalize(a.Source) == source)
                         .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, source, days, versionRegressions);
+                    summaries, _sessionRepo, appName, source, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

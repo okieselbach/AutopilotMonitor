@@ -61,6 +61,17 @@ describe("api path ids are percent-encoded", () => {
     expect(api.sessions.watch(HOSTILE, "t")).toBe(`https://test.example/api/sessions/${ENCODED}/watch?tenantId=t`);
   });
 
+  it("free-text names (app names, serials) travel as query values", async () => {
+    const { api } = await apiPromise;
+    const unblock = new URL(api.devices.unblock("SN/1+2%", "t"));
+    expect(unblock.pathname).toBe("/api/devices/block");
+    expect(unblock.searchParams.get("serialNumber")).toBe("SN/1+2%");
+    expect(unblock.searchParams.get("tenantId")).toBe("t");
+    const analytics = new URL(api.apps.globalAnalytics("a/b", 30));
+    expect(analytics.pathname).toBe("/api/global/apps/analytics");
+    expect(analytics.searchParams.get("appName")).toBe("a/b");
+  });
+
   it("no path builder lets an id escape its segment", async () => {
     const { api } = await apiPromise;
     type Builder = (...args: string[]) => string;

@@ -230,7 +230,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             };
         }
 
-        // ── /apps/{appName}/analytics ───────────────────────────────────────
+        // ── /apps/analytics ─────────────────────────────────────────────────
 
         /// <summary>
         /// Builds the analytics response body for a single app.
@@ -462,7 +462,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             };
         }
 
-        // ── /apps/{appName}/sessions ────────────────────────────────────────
+        // ── /apps/sessions ──────────────────────────────────────────────────
 
         public static async Task<AppSessionsResponse> BuildSessionsResponseAsync(
             List<AppInstallSummary> allSummaries,

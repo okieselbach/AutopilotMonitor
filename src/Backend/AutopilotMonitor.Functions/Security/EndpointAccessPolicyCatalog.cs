@@ -313,9 +313,11 @@ public static class EndpointAccessPolicyCatalog
         // (GA/delegated drill-in) over the SAME route MCP uses — no global duplicate needed.
         new("GET",    "metrics/device-history",    EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/device-journeys",   EndpointPolicy.MemberRead),
+        // Free-text names (app names, serial numbers) are query values, never {placeholders}: the host decodes
+        // %2F to a path separator before routing, and a placeholder matches no '/' (FreeTextNameQueryParamTests).
         new("GET",    "apps/list",                 EndpointPolicy.MemberRead),
-        new("GET",    "apps/{appName}/analytics",  EndpointPolicy.MemberRead),
-        new("GET",    "apps/{appName}/sessions",   EndpointPolicy.MemberRead),
+        new("GET",    "apps/analytics",            EndpointPolicy.MemberRead),
+        new("GET",    "apps/sessions",             EndpointPolicy.MemberRead),
         new("GET",    "metrics/usage",             EndpointPolicy.MemberRead),
         new("GET",    "metrics/sla",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/rule-stats",        EndpointPolicy.MemberRead),
@@ -547,8 +549,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/device-journeys", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/apps/analytics",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/apps/sessions",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/geographic",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/geographic/sessions", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/usage",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
@@ -587,7 +589,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/devices/blocked",     EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "devices/blocked",            EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "devices/block",              EndpointPolicy.GlobalAdminOnly),
-        new("DELETE", "devices/block/{encodedSerialNumber}", EndpointPolicy.GlobalAdminOnly),
+        new("DELETE", "devices/block",              EndpointPolicy.GlobalAdminOnly),
         new("GET",    "versions/blocked",           EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "versions/block",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "versions/block/{encodedPattern}", EndpointPolicy.GlobalAdminOnly),

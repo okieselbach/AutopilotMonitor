@@ -118,7 +118,7 @@ public class AppsAnalyticsFailureRateTests
         Assert.False(app.TryGetProperty("trendDelta", out _));
     }
 
-    // ── /apps/{appName}/analytics ───────────────────────────────────────────
+    // ── /apps/analytics ─────────────────────────────────────────────────────
 
     private static async Task<JsonElement> BuildAnalyticsAsync(
         List<AppInstallSummary> summaries, ISessionRepository? sessionRepo = null)

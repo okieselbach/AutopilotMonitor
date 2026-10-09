@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace AutopilotMonitor.Shared.Models
 {
-    // Declaration order == wire order. App Dashboard endpoints (apps/list, apps/{app}/analytics,
-    // apps/{app}/sessions and their global variants) — lifted from the Functions-local
+    // Declaration order == wire order. App Dashboard endpoints (apps/list, apps/analytics,
+    // apps/sessions and their global variants) — lifted from the Functions-local
     // anonymous builders in AppsAnalyticsHelper so the manifest exports them.
 
     /// <summary>
@@ -54,7 +54,7 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime LastSeenAt { get; set; }
     }
 
-    /// <summary>Response of <c>GET apps/{appName}/analytics</c> and its global variant.</summary>
+    /// <summary>Response of <c>GET apps/analytics?appName=</c> and its global variant.</summary>
     public class AppAnalyticsResponse : IApiResponse
     {
         public bool Success { get; set; }
@@ -151,7 +151,7 @@ namespace AutopilotMonitor.Shared.Models
         public double LiftVsBaseline { get; set; }
     }
 
-    /// <summary>Response of <c>GET apps/{appName}/sessions</c> and its global variant (offset-paged).</summary>
+    /// <summary>Response of <c>GET apps/sessions?appName=</c> and its global variant (offset-paged).</summary>
     public class AppSessionsResponse : IApiResponse
     {
         public bool Success { get; set; }
