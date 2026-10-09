@@ -254,9 +254,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                                 if (subKey == null)
                                     continue;
 
-                                var displayName = subKey.GetValue("DisplayName")?.ToString();
+                                var displayName = ReadRegistryText(subKey, "DisplayName");
                                 var systemComponent = subKey.GetValue("SystemComponent");
-                                var parentKeyName = subKey.GetValue("ParentKeyName")?.ToString();
+                                var parentKeyName = ReadRegistryText(subKey, "ParentKeyName");
 
                                 if (ShouldExclude(displayName, systemComponent, parentKeyName))
                                     continue;
@@ -264,11 +264,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                                 results.Add(new SoftwareEntry
                                 {
                                     DisplayName = displayName,
-                                    DisplayVersion = subKey.GetValue("DisplayVersion")?.ToString(),
-                                    Publisher = subKey.GetValue("Publisher")?.ToString(),
-                                    InstallDate = subKey.GetValue("InstallDate")?.ToString(),
-                                    InstallLocation = subKey.GetValue("InstallLocation")?.ToString(),
-                                    UninstallString = subKey.GetValue("UninstallString")?.ToString(),
+                                    DisplayVersion = ReadRegistryText(subKey, "DisplayVersion"),
+                                    Publisher = ReadRegistryText(subKey, "Publisher"),
+                                    InstallDate = ReadRegistryText(subKey, "InstallDate"),
+                                    InstallLocation = ReadRegistryText(subKey, "InstallLocation"),
+                                    UninstallString = ReadRegistryText(subKey, "UninstallString"),
                                     IsWindowsInstaller = Convert.ToInt32(subKey.GetValue("WindowsInstaller") ?? 0) == 1,
                                     RegistrySource = source
                                 });
@@ -285,6 +285,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             {
                 _logger.Warning($"{Name}: Failed to read {rootKey.Name}\\{subKeyPath} (source={source}): {ex.Message}");
             }
+        }
+
+        private static string ReadRegistryText(RegistryKey key, string name)
+            => CutAtNul(key.GetValue(name)?.ToString());
+
+        /// <summary>
+        /// A registry string the way Windows shows it: up to the first NUL. Some installers write
+        /// REG_SZ data padded with NULs, and .NET Framework drops only one terminator — the rest
+        /// would ride into the normalized identity and, server-side, into a table key.
+        /// </summary>
+        internal static string CutAtNul(string value)
+        {
+            if (value == null)
+                return null;
+            var nul = value.IndexOf('\0');
+            return nul < 0 ? value : value.Substring(0, nul);
         }
 
         // -----------------------------------------------------------------------
