@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
 import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { createGroupRegistry } from '@/lib/signalrGroupRegistry';
+import { createParkController, PARK_AFTER_HIDDEN_MS } from '@/lib/signalrPark';
 import { refusedJoinStatus } from '@/lib/signalrGroupAccess';
 import { useLatest } from '@/hooks/useLatest';
 import { useAuth } from './AuthContext';
@@ -95,6 +96,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   // Set in onreconnecting, read in onreconnected so we can report downtime as a measurement.
   const disconnectStartedAtRef = useRef<number | null>(null);
   const maxRetries = 3;
+  // True while the hidden-tab rule (lib/signalrPark) holds the connection stopped.
+  const parkedRef = useRef(false);
+  // parkedMs of the resume whose start is still pending; null when the next start is no resume.
+  const resumeParkedMsRef = useRef<number | null>(null);
   // Pushes only announce that data changed; after a gap in the connection every consumer re-reads
   // (useSignalRResync). A gap ends with a reconnect, or with a start of a connection that was up
   // before. Each end bumps resyncRequest; the epoch follows once the group joins of that moment have
@@ -212,7 +217,8 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     // Setup connection state change handlers
     newConnection.onclose((error) => {
       setConnectionState(HubConnectionState.Disconnected);
-      trackEvent("signalr_disconnected", { hasError: !!error });
+      // A park is reported as signalr_parked, so this event keeps meaning "the connection closed".
+      if (!parkedRef.current) trackEvent("signalr_disconnected", { hasError: !!error });
       // Memberships and references die with the connection: every consumer hook releases on the
       // Disconnected transition (a no-op against the reset registry) and re-joins on the next
       // Connected transition.
@@ -304,11 +310,29 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         hasConnectedBeforeRef.current = true;
         // Surfaces clients stuck on a fallback transport (e.g. corporate proxies blocking
         // WebSockets) — those sessions get slower live updates and produce long-poll 404
-        // noise in dependency telemetry.
-        trackEvent("signalr_connected", { transport: getTransportName(newConnection) });
+        // noise in dependency telemetry. A resume reports itself, so signalr_connected keeps
+        // meaning "connection built".
+        if (resumeParkedMsRef.current !== null) {
+          trackEvent("signalr_resumed", { parkedMs: resumeParkedMsRef.current, transport: getTransportName(newConnection) });
+          resumeParkedMsRef.current = null;
+        } else {
+          trackEvent("signalr_connected", { transport: getTransportName(newConnection) });
+        }
       } catch (error) {
-        console.error('[SignalR] Failed to start connection:', error);
         setConnectionState(HubConnectionState.Disconnected);
+        // A park stopped this start; the resume starts over.
+        if (parkedRef.current) return;
+        console.error('[SignalR] Failed to start connection:', error);
+
+        // A resumed connection keeps retrying like the automatic reconnect of a standing one: a
+        // standing connection never gives up, and parking must not make that worse. Only another
+        // park (the tab hidden long again) ends the retries.
+        if (resumeParkedMsRef.current !== null) {
+          retryCountRef.current++;
+          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+          retryTimeoutRef.current = setTimeout(startConnection, delay);
+          return;
+        }
 
         // Limited retry with exponential backoff
         if (retryCountRef.current < maxRetries) {
@@ -350,8 +374,45 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     // updates ~2s into the dashboard load for no benefit.
     startConnection();
 
+    // A tab hidden for PARK_AFTER_HIDDEN_MS has its connection stopped, and restarted the moment it
+    // is visible again (lib/signalrPark). The restart ends a gap, so every consumer re-reads.
+    let parkStop: Promise<void> | null = null;
+    const parkController = createParkController({
+      parkAfterHiddenMs: PARK_AFTER_HIDDEN_MS,
+      park: (hiddenMs) => {
+        // Never in the middle of the accessRevoked restart; the controller asks again later.
+        if (revokeRestartInFlightRef.current) return false;
+        parkedRef.current = true;
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = null;
+        }
+        console.info(`[SignalR] Tab hidden for ${Math.round(hiddenMs / 1000)} s, parking the connection`);
+        trackEvent("signalr_parked", { hiddenMs: Math.round(hiddenMs) });
+        parkStop = newConnection.stop().catch(() => { /* nothing left to wait for */ });
+        return true;
+      },
+      resume: (parkedMs) => {
+        parkedRef.current = false;
+        retryCountRef.current = 0;
+        resumeParkedMsRef.current = Math.round(parkedMs);
+        console.info(`[SignalR] Tab visible after ${Math.round(parkedMs / 1000)} s parked, resuming the connection`);
+        const stopping = parkStop;
+        parkStop = null;
+        void (async () => {
+          await stopping;
+          await startConnection();
+        })();
+      },
+    });
+    const onVisibilityChange = () => parkController.setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    onVisibilityChange();
+
     // Cleanup only when provider unmounts (app closes)
     return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      parkController.dispose();
       // Clear any pending retry timeout to prevent reconnection after unmount
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
