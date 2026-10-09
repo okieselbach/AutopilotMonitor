@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { useSignalR } from './SignalRContext';
+import { useSignalR, useSignalRResync } from './SignalRContext';
 import { api } from '@/lib/api';
 import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
 import { fetchJson, fetchOk } from "@/lib/apiClient";
@@ -50,9 +50,8 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     }
   }, [hasGlobalScope, getAccessToken]);
 
-  // Initial state hydration. Re-fetched on SignalR reconnect to recover any deltas
-  // pushed during the disconnect window. Without scope nothing is fetched — the
-  // provider value below masks the list to empty instead of clearing state here.
+  // Initial state hydration. Without scope nothing is fetched — the provider value below
+  // masks the list to empty instead of clearing state here.
   useEffect(() => {
     if (!hasGlobalScope) return;
     const run = async () => {
@@ -62,11 +61,10 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     void run();
   }, [hasGlobalScope, fetchNotifications]);
 
-  useEffect(() => {
-    if (!connection || !hasGlobalScope) return;
-    const handler = () => { fetchNotifications(); };
-    connection.onreconnected(handler);
-  }, [connection, hasGlobalScope, fetchNotifications]);
+  // Re-fetch after every connection gap — covers the deltas pushed while the connection was down.
+  useSignalRResync(() => {
+    if (hasGlobalScope) void fetchNotifications();
+  });
 
   // Re-fetch when globalAdminMode is toggled in localStorage
   useEffect(() => {

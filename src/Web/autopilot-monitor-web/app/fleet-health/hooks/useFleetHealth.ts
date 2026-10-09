@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scopedApi } from "@/lib/scopedApi";
 import { useLatest } from "@/hooks/useLatest";
+import { useSignalRResync } from "@/contexts/SignalRContext";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 
@@ -57,7 +58,7 @@ const SIGNALR_DEBOUNCE_MS = 3000;
  *
  * Refresh model mirrors useDashboardStats: initial fetch on scope/days change +
  * debounced refetch on every in-scope SignalR newSession/newevents, with a
- * forced refetch on reconnect to recover messages missed during an outage.
+ * forced refetch after every connection gap to recover messages missed meanwhile.
  */
 export function useFleetHealth({
   routeGlobal,
@@ -82,7 +83,6 @@ export function useFleetHealth({
   // Invalidates an in-flight fetch when scope/days shift mid-request.
   const fetchGenRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasConnectedRef = useRef(false);
 
   const fetchData = useCallback(async (): Promise<void> => {
     const myGen = ++fetchGenRef.current;
@@ -186,15 +186,8 @@ export function useFleetHealth({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected]);
 
-  // Reconnect-recovery: refetch when SignalR transitions disconnected → connected.
-  useEffect(() => {
-    if (signalR.isConnected) {
-      const isReconnect = wasConnectedRef.current;
-      wasConnectedRef.current = true;
-      if (isReconnect) refresh();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signalR.isConnected]);
+  // Refetch after every connection gap: changes pushed meanwhile were missed.
+  useSignalRResync(refresh);
 
   // Cleanup on unmount.
   useEffect(() => {

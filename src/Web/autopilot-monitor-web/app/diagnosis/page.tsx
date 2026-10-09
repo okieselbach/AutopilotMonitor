@@ -3,7 +3,7 @@
 import { sessionUrl } from "@/lib/routes";
 import { Suspense, useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSignalR } from "../../contexts/SignalRContext";
+import { useSignalR, useSignalRResync } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
@@ -95,6 +95,12 @@ function DiagnosisContent() {
       finishLoadingWhenSettled();
     }
   }, [sessionId, sessionTenantId, tenantId, globalAdminMode, getAccessToken, finishLoadingWhenSettled, addNotification]);
+
+  // After every connection gap the session object is re-read; events and analysis come through
+  // the join catch-up below.
+  useSignalRResync(() => {
+    if (sessionId) void fetchSessionDetails();
+  });
 
   const fetchEvents = useCallback(async () => {
     const effectiveTenantId = sessionTenantId || tenantId;

@@ -9,6 +9,7 @@ import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { mergeSessionsById } from "@/lib/sessionSearchMerge";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { hasTenantReadScope } from "@/lib/tenantScope";
+import { useSignalRResync } from "@/contexts/SignalRContext";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
 import type { Session } from "../types";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
@@ -62,7 +63,7 @@ interface UseDashboardSessionsParams {
   globalAdminMode: boolean;
   /**
    * Whether to join the cross-tenant `global-admins` SignalR broadcast group. Real GA only — a delegated
-   * caller has no platform scope and would be rejected (403); they rely on the per-tenant reconnect refetch.
+   * caller has no platform scope and would be rejected (403); they rely on the per-tenant gap refetch.
    */
   joinGlobalAdmins: boolean;
   tenantIdFilter: string;
@@ -101,7 +102,7 @@ export interface UseDashboardSessionsReturn {
  * Owns the dashboard's session list lifecycle:
  *  - initial fetch (gated on user role + tenantId/globalAdminMode readiness)
  *  - SignalR group joining (tenant + global-admins) and live update handlers
- *  - reconnect refetch
+ *  - refetch after every connection gap
  *  - paginated load-more via cursor
  *  - blocked-devices sync after each fresh fetch
  *  - reset-on-globalAdminMode-toggle
@@ -182,7 +183,6 @@ export function useDashboardSessions({
   const hasInitialFetch = useRef(false);
   const hasGlobalModeInitialized = useRef(false);
   const hasJoinedGroup = useRef(false);
-  const wasConnectedRef = useRef(false);
 
   const fetchBlockedDevices = useCallback(async (currentSessions: Session[]) => {
     if (!adminModeRef.current || !globalAdminModeRef.current) {
@@ -478,21 +478,12 @@ export function useDashboardSessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, tenantId, globalAdminMode]);
 
-  // Join tenant SignalR group; refetch on reconnect
+  // Join tenant SignalR group
   useEffect(() => {
-    if (isConnected) {
-      const isReconnect = wasConnectedRef.current;
-      wasConnectedRef.current = true;
-
-      if (!hasJoinedGroup.current) {
-        const groupName = `tenant-${tenantId}`;
-        hasJoinedGroup.current = true;
-        joinGroup(groupName);
-      }
-
-      if (isReconnect && hasInitialFetch.current) {
-        fetchSessions();
-      }
+    if (isConnected && !hasJoinedGroup.current) {
+      const groupName = `tenant-${tenantId}`;
+      hasJoinedGroup.current = true;
+      joinGroup(groupName);
     }
 
     return () => {
@@ -505,9 +496,14 @@ export function useDashboardSessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, tenantId]);
 
+  // Refetch after every connection gap: sessions pushed meanwhile were missed.
+  useSignalRResync(() => {
+    if (hasInitialFetch.current) fetchSessions();
+  });
+
   // Join the cross-tenant global-admins broadcast group while in GA mode. Real GA only (joinGlobalAdmins) — a
   // delegated ("MSP") caller has no platform scope and would be rejected (403); the dashboard still reads
-  // the bounded aggregate and recovers live state via the reconnect refetch above. The global notification
+  // the bounded aggregate and recovers live state via the gap refetch above. The global notification
   // bell holds the same group for the whole session: group membership is reference-counted per name in the
   // SignalR layer, so the cleanup's leave drops only the dashboard's own reference (an unconditional leave
   // whenever GA mode was off used to drop the bell's membership as well).

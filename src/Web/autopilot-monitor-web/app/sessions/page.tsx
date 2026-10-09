@@ -138,6 +138,7 @@ function SessionDetailContent() {
     scheduleFetchEvents: eventsApi.scheduleFetchEvents,
     setSession: detail.setSession,
     setSessionTenantId: detail.setSessionTenantId,
+    fetchSessionDetails: detail.fetchSessionDetails,
     fetchAnalysisResults: analysis.fetchAnalysisResults,
     fetchVulnerabilityReport: analysis.fetchVulnerabilityReport,
   });

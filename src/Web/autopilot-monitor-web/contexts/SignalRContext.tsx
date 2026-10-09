@@ -48,6 +48,8 @@ interface SignalRContextType {
   isConnected: boolean;
   /** Groups the hub connection is a member of (joined, or a join in flight) — not the reference counts. */
   joinedGroups: string[];
+  /** Counts the ends of connection gaps; consumers read it through useSignalRResync, never directly. */
+  resyncEpoch: number;
 }
 
 const SignalRContext = createContext<SignalRContextType | undefined>(undefined);
@@ -93,6 +95,22 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   // Set in onreconnecting, read in onreconnected so we can report downtime as a measurement.
   const disconnectStartedAtRef = useRef<number | null>(null);
   const maxRetries = 3;
+  // Pushes only announce that data changed; after a gap in the connection every consumer re-reads
+  // (useSignalRResync). A gap ends with a reconnect, or with a start of a connection that was up
+  // before. Each end bumps resyncRequest; the epoch follows once the group joins of that moment have
+  // settled, so a push sent between a re-read and its group's rejoin cannot get lost.
+  const hasConnectedBeforeRef = useRef(false);
+  const [resyncRequest, setResyncRequest] = useState(0);
+  const [resyncEpoch, setResyncEpoch] = useState(0);
+  // Hub joins in flight per group (joinGroup and the reconnect rejoin), as never-rejecting promises.
+  const pendingJoinsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const trackJoin = useCallback((groupName: string, join: Promise<unknown>) => {
+    const settled = join.then(() => undefined, () => undefined);
+    pendingJoinsRef.current.set(groupName, settled);
+    void settled.then(() => {
+      if (pendingJoinsRef.current.get(groupName) === settled) pendingJoinsRef.current.delete(groupName);
+    });
+  }, []);
 
   // One stable token getter for every hub-side call (connection factory, join, leave, rejoin, the
   // deferred leave fired from a timer): always the latest getAccessToken without re-creating the
@@ -144,6 +162,19 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   }, [getToken, syncJoinedGroups]);
 
   useEffect(() => groupRegistry.onLeave((groupName) => { void leaveHubGroup(groupName); }), [groupRegistry, leaveHubGroup]);
+
+  // Child effects run before the provider's: the consumers have issued the joins of the commit that
+  // ended the gap by now, so waiting for every pending join covers theirs too.
+  useEffect(() => {
+    if (resyncRequest === 0) return;
+    let cancelled = false;
+    const run = async () => {
+      await Promise.all(Array.from(pendingJoinsRef.current.values()));
+      if (!cancelled) setResyncEpoch((epoch) => epoch + 1);
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [resyncRequest]);
 
   useEffect(() => {
     // Only create connection if authenticated
@@ -222,8 +253,8 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       groupRegistry.restartPendingLeaves();
       syncJoinedGroups();
 
-      const results = await Promise.allSettled(rejoinGroups.map((groupName) =>
-        fetchOk(api.realtime.joinGroup(), getToken, {
+      const results = await Promise.allSettled(rejoinGroups.map((groupName) => {
+        const join = fetchOk(api.realtime.joinGroup(), getToken, {
           method: 'POST',
           // Re-present the stored serial proof for session groups: a roleless
           // Progress-Portal user's rejoin is refused without it.
@@ -232,7 +263,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
             groupName,
             serialNumber: joinSerialsRef.current.get(groupName),
           }),
-        })));
+        });
+        trackJoin(groupName, join);
+        return join;
+      }));
       let rejoined = 0;
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
@@ -254,6 +288,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         downtimeMs,
         transport: getTransportName(newConnection),
       });
+      setResyncRequest((request) => request + 1);
     });
 
     // Start connection
@@ -263,6 +298,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         setConnectionState(HubConnectionState.Connected);
         setConnection(newConnection);
         retryCountRef.current = 0;
+        // A restart of a connection that was up before (accessRevoked, a resume) ends a gap. The
+        // consumers rejoin from the Connected transition committed together with this request.
+        if (hasConnectedBeforeRef.current) setResyncRequest((request) => request + 1);
+        hasConnectedBeforeRef.current = true;
         // Surfaces clients stuck on a fallback transport (e.g. corporate proxies blocking
         // WebSockets) — those sessions get slower live updates and produce long-poll 404
         // noise in dependency telemetry.
@@ -325,7 +364,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         connectionRef.current = null;
       }
     };
-  }, [isAuthenticated, getToken, syncJoinedGroups, groupRegistry]);
+  }, [isAuthenticated, getToken, syncJoinedGroups, groupRegistry, trackJoin]);
 
   // Keyed on the connection object (set once start() succeeded, kept across the accessRevoked
   // stop/start of the same object): consumer effects that list on/off as dependencies register
@@ -357,8 +396,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     }
 
     // One hub membership serves every holder: already a member, a join in flight, or a pending
-    // leave whose grace period the acquire above just cancelled.
+    // leave whose grace period the acquire above just cancelled. A join in flight is awaited, so a
+    // resolved joinGroup always means "member" (the subscribe-then-fetch consumers rely on it).
     if (joinedGroupsRef.current.has(groupName)) {
+      await pendingJoinsRef.current.get(groupName);
       return;
     }
 
@@ -396,7 +437,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await fetchOk(api.realtime.joinGroup(), getToken, {
+        const join = fetchOk(api.realtime.joinGroup(), getToken, {
           method: 'POST',
           body: jsonBody<SignalRJoinGroupRequest>({
             connectionId,
@@ -404,6 +445,8 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
             serialNumber: options?.serialNumber,
           }),
         });
+        trackJoin(groupName, join);
+        await join;
       } catch (err) {
         if (!(err instanceof ApiError)) throw err;
         // Remove from Set if the join was refused (so we can retry). A refused join must be
@@ -422,7 +465,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       joinSerialsRef.current.delete(groupName);
       syncJoinedGroups();
     }
-  }, [groupRegistry, getToken, syncJoinedGroups, callerTenantId, callerRole, callerIsTenantAdmin, callerIsGlobalAdmin, callerIsGlobalReader]);
+  }, [groupRegistry, getToken, syncJoinedGroups, trackJoin, callerTenantId, callerRole, callerIsTenantAdmin, callerIsGlobalAdmin, callerIsGlobalReader]);
 
   const leaveGroup = useCallback((groupName: string): Promise<void> => {
     // Only this consumer's reference is dropped here; the hub leave follows from the registry
@@ -444,7 +487,8 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     leaveGroup,
     isConnected,
     joinedGroups,
-  }), [connection, connectionState, connectionId, on, off, invoke, joinGroup, leaveGroup, isConnected, joinedGroups]);
+    resyncEpoch,
+  }), [connection, connectionState, connectionId, on, off, invoke, joinGroup, leaveGroup, isConnected, joinedGroups, resyncEpoch]);
 
   return (
     <SignalRContext.Provider value={value}>
@@ -459,4 +503,21 @@ export function useSignalR() {
     throw new Error('useSignalR must be used within a SignalRProvider');
   }
   return context;
+}
+
+/**
+ * Calls `onResync` after every gap in the hub connection, once the rejoins have settled: the consumer
+ * re-reads whatever a push during the gap would have announced. Never on mount (the consumer's own
+ * initial fetch covers that). The one re-read path — consumers never subscribe to the connection's
+ * reconnect callbacks themselves.
+ */
+export function useSignalRResync(onResync: () => void): void {
+  const { resyncEpoch } = useSignalR();
+  const onResyncRef = useLatest(onResync);
+  const seenEpochRef = useRef(resyncEpoch);
+  useEffect(() => {
+    if (seenEpochRef.current === resyncEpoch) return;
+    seenEpochRef.current = resyncEpoch;
+    onResyncRef.current();
+  }, [resyncEpoch, onResyncRef]);
 }

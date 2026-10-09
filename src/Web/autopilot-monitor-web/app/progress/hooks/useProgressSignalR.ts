@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Session } from "@/types";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
-import type { JoinGroupOptions } from "@/contexts/SignalRContext";
+import { useSignalRResync, type JoinGroupOptions } from "@/contexts/SignalRContext";
 import type { NotificationType } from "@/contexts/NotificationContext";
 
 interface SignalRApi {
@@ -41,7 +41,8 @@ interface UseProgressSignalRParams {
  *    mark-succeeded/failed — arrive on the session group anyway)
  *  - surfaces a refused join as a notification instead of a silently frozen page
  *    (a swallowed join 403 is exactly how the c4dabeee regression stayed invisible)
- *  - listens for newevents / newSession / eventStream → debounced refetch
+ *  - listens for newevents / newSession / eventStream → debounced refetch, and refetches after
+ *    every connection gap
  *  - cleans up groups + handlers on unmount / session change
  */
 export function useProgressSignalR({
@@ -89,6 +90,10 @@ export function useProgressSignalR({
       leaveGroup(sessionGroup);
     };
   }, [isConnected, sessionId, sessionTenantId, sessionSerial, joinGroup, leaveGroup]);
+
+  // After every connection gap: a progress page left open across the end of an enrollment would
+  // otherwise keep the last state it saw. No-op while no session is selected.
+  useSignalRResync(scheduleFetchEvents);
 
   useEffect(() => {
     const scheduleRefetch = (source: string, sessionId: string) => {

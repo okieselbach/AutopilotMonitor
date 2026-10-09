@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useLatest } from "@/hooks/useLatest";
+import { useSignalRResync } from "@/contexts/SignalRContext";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
@@ -83,8 +84,8 @@ const SIGNALR_DEBOUNCE_AGGREGATE_MS = 30_000;
  * load-more cursor and printed a fictional "Last 7 days" label.
  *
  * Refresh model: initial fetch on scope change + debounced refetch on every
- * SignalR newSession/newevents in the active scope. On SignalR reconnect we
- * also force a refetch so any messages missed during the outage are reflected.
+ * SignalR newSession/newevents in the active scope. After every connection gap
+ * we also force a refetch so any messages missed meanwhile are reflected.
  */
 export function useDashboardStats({
   tenantId,
@@ -118,10 +119,6 @@ export function useDashboardStats({
   // newevents in one second during a session storm) collapse into a single
   // backend call ~SIGNALR_DEBOUNCE_MS after the last event.
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Tracks whether SignalR was connected on the previous render so we can
-  // distinguish "first connection" from "reconnect after outage" — the latter
-  // needs an explicit refetch to recover from missed messages.
-  const wasConnectedRef = useRef(false);
 
   const fetchStats = useCallback(async (): Promise<void> => {
     if (disabledRef.current) return;
@@ -213,7 +210,7 @@ export function useDashboardStats({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, globalAdminMode, submittedTenantIdFilter, days, disabled]);
 
-  // SignalR-triggered debounced refetch + reconnect-recovery.
+  // SignalR-triggered debounced refetch.
   useEffect(() => {
     if (disabled) return;
 
@@ -250,18 +247,10 @@ export function useDashboardStats({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected, disabled]);
 
-  // Reconnect-recovery: when SignalR transitions disconnected → connected and
-  // we already had an initial fetch, force a refetch to pick up any sessions
-  // we missed during the outage.
-  useEffect(() => {
-    if (disabled) return;
-    if (signalR.isConnected) {
-      const isReconnect = wasConnectedRef.current;
-      wasConnectedRef.current = true;
-      if (isReconnect) refresh();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signalR.isConnected, disabled]);
+  // Refetch after every connection gap: sessions pushed meanwhile were missed.
+  useSignalRResync(() => {
+    if (!disabledRef.current) refresh();
+  });
 
   // Cleanup on unmount.
   useEffect(() => {

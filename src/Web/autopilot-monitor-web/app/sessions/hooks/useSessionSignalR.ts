@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Session, RuleResult } from "@/types";
 import { isTerminalStatus } from "@/utils/sessionStatus";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
+import { useSignalRResync } from "@/contexts/SignalRContext";
 import type { FetchEventsReason } from "./useSessionEvents";
 
 interface SignalRApi {
@@ -29,6 +30,7 @@ interface UseSessionSignalRParams {
   scheduleFetchEvents: (reason?: FetchEventsReason) => void;
   setSession: React.Dispatch<React.SetStateAction<Session | null>>;
   setSessionTenantId: React.Dispatch<React.SetStateAction<string | null>>;
+  fetchSessionDetails: () => Promise<void>;
   fetchAnalysisResults: (reanalyze?: boolean) => Promise<void>;
   fetchVulnerabilityReport: (rescan?: boolean) => Promise<void>;
 }
@@ -50,6 +52,7 @@ export function applySessionUpdate(prev: Session, update: Partial<Session>): Ses
  * Owns the session detail page's SignalR integration:
  *  - joins tenant + session groups using subscribe-then-fetch pattern
  *  - listens for eventStream, newevents, ruleResultsReady, vulnerabilityReportReady
+ *  - re-reads the session, analysis and vulnerability report after every connection gap
  *  - cleans up groups + handlers on unmount / sessionId change
  */
 export function useSessionSignalR({
@@ -65,10 +68,21 @@ export function useSessionSignalR({
   scheduleFetchEvents,
   setSession,
   setSessionTenantId,
+  fetchSessionDetails,
   fetchAnalysisResults,
   fetchVulnerabilityReport,
 }: UseSessionSignalRParams): void {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
+
+  // After every connection gap. The events come through the join catch-up below; the session
+  // object (its status arrives as a newevents delta), the analysis and the vulnerability report
+  // only have their pushes, so they are re-read here.
+  useSignalRResync(() => {
+    if (!sessionIdRef.current) return;
+    void fetchSessionDetails();
+    void fetchAnalysisResults();
+    void fetchVulnerabilityReport();
+  });
 
   // Join SignalR groups when connected (for multi-tenancy and cost optimization)
   // Uses "subscribe-then-fetch" pattern: join groups first, then re-fetch events

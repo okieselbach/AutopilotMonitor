@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { useSignalR } from './SignalRContext';
+import { useSignalR, useSignalRResync } from './SignalRContext';
 import { canFetchTenantNotifications } from './tenantNotificationsGate';
 import { api } from '@/lib/api';
 import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
@@ -53,10 +53,8 @@ export function TenantNotificationProvider({ children }: { children: React.React
     }
   }, [canFetchNotifications, getAccessToken]);
 
-  // Initial state hydration. Runs once on mount and again after every SignalR reconnect to
-  // recover any deltas that were emitted while the SignalR connection was down. Without
-  // fetch rights nothing is fetched — the provider value below masks the list to empty
-  // instead of clearing state here.
+  // Initial state hydration. Without fetch rights nothing is fetched — the provider value below
+  // masks the list to empty instead of clearing state here.
   useEffect(() => {
     if (!canFetchNotifications) return;
     const run = async () => {
@@ -66,14 +64,10 @@ export function TenantNotificationProvider({ children }: { children: React.React
     void run();
   }, [canFetchNotifications, fetchNotifications]);
 
-  // Re-fetch on SignalR reconnect — covers the deltas pushed during the disconnect window.
-  useEffect(() => {
-    if (!connection || !canFetchNotifications) return;
-    const handler = () => { fetchNotifications(); };
-    connection.onreconnected(handler);
-    // The signalr-js client does not expose an unsubscribe for onreconnected; rely on the
-    // SignalR connection lifecycle (one connection per app session) for cleanup.
-  }, [connection, canFetchNotifications, fetchNotifications]);
+  // Re-fetch after every connection gap — covers the deltas pushed while the connection was down.
+  useSignalRResync(() => {
+    if (canFetchNotifications) void fetchNotifications();
+  });
 
   // Group membership: Member-tier always; Admin-tier only for Tenant Admins / Global Admins.
   useEffect(() => {
