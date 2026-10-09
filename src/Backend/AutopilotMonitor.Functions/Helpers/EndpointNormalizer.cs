@@ -32,7 +32,7 @@ public static class EndpointNormalizer
         // Replace GUIDs with {id}
         normalized = GuidPattern.Replace(normalized, "{id}");
 
-        return ReplaceIllegalKeyChars(normalized).ToLowerInvariant();
+        return TableKeySanitizer.Sanitize(normalized).ToLowerInvariant();
     }
 
     /// <summary>
@@ -53,11 +53,7 @@ public static class EndpointNormalizer
         // recognizes; the regex pass then drops any remaining control character or separator.
         var cleaned = toolName.Replace("\r", string.Empty).Replace("\n", string.Empty);
         cleaned = ControlChars.Replace(cleaned, string.Empty);
-        cleaned = ReplaceIllegalKeyChars(cleaned).Trim();
+        cleaned = TableKeySanitizer.Sanitize(cleaned).Trim();
         return cleaned.Length <= MaxToolNameLength ? cleaned : cleaned[..MaxToolNameLength];
     }
-
-    /// <summary>Replaces the characters Azure Table Storage rejects in keys (/, \, #, ?).</summary>
-    private static string ReplaceIllegalKeyChars(string value)
-        => value.Replace('/', '_').Replace('\\', '_').Replace('#', '_').Replace('?', '_');
 }

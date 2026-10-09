@@ -620,6 +620,7 @@ export const SHARED_MANIFEST = {
     "CriticalTableBackupSkippedLocked",
     "BackupRowRestored",
     "VerdictCalibrationDrift",
+    "SoftwareInventoryCounterWriteFailed",
     "DeviceBlocked",
     "VersionBlocked",
     "SessionTenantConflict",

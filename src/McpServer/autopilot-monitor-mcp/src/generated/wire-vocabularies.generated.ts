@@ -86,6 +86,7 @@ export const OPS_EVENT_TYPES = [
   "CriticalTableBackupSkippedLocked",
   "BackupRowRestored",
   "VerdictCalibrationDrift",
+  "SoftwareInventoryCounterWriteFailed",
   "DeviceBlocked",
   "VersionBlocked",
   "SessionTenantConflict",

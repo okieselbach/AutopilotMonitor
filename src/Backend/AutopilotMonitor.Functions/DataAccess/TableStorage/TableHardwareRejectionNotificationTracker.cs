@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -431,9 +432,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             // Paths are a closed vocabulary plus rule ids (ANALYZE-...), statuses are enum names and
             // the group marker "*" - none contain table-key-hostile characters, but sanitize anyway.
-            var k = SanitizeTableKey((kind ?? string.Empty).Trim().ToLowerInvariant());
-            var p = SanitizeTableKey((verdictPath ?? string.Empty).Trim().ToLowerInvariant());
-            var s = SanitizeTableKey((status ?? string.Empty).Trim().ToLowerInvariant());
+            var k = TableKeySanitizer.Sanitize((kind ?? string.Empty).Trim().ToLowerInvariant());
+            var p = TableKeySanitizer.Sanitize((verdictPath ?? string.Empty).Trim().ToLowerInvariant());
+            var s = TableKeySanitizer.Sanitize((status ?? string.Empty).Trim().ToLowerInvariant());
             return $"{VerdictCalibrationRowKeyPrefix}{k}|{p}|{s}";
         }
 
@@ -579,23 +580,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         /// </summary>
         internal static string BuildAppVersionRegressionRowKey(string? source, string appName, string version)
         {
-            var app = SanitizeTableKey((appName ?? string.Empty).Trim().ToLowerInvariant());
-            var ver = SanitizeTableKey((version ?? string.Empty).Trim().ToLowerInvariant());
+            var app = TableKeySanitizer.Sanitize((appName ?? string.Empty).Trim().ToLowerInvariant());
+            var ver = TableKeySanitizer.Sanitize((version ?? string.Empty).Trim().ToLowerInvariant());
             // IME keys predate channels and keep their shape; other channels prefix the app part.
             var channel = AppInstallSources.Normalize(source);
             if (channel != AppInstallSources.Ime)
-                app = $"{SanitizeTableKey(channel)}:{app}";
+                app = $"{TableKeySanitizer.Sanitize(channel)}:{app}";
             return $"{AppVersionRegressionRowKeyPrefix}{app}|{ver}";
-        }
-
-        /// <summary>Replace characters not allowed in Azure Table Storage keys (/, \, #, ?).</summary>
-        private static string SanitizeTableKey(string key)
-        {
-            return key
-                .Replace("/", "_")
-                .Replace("\\", "_")
-                .Replace("#", "_")
-                .Replace("?", "_");
         }
 
         // internal static: entity builder + mapper are pinned by round-trip unit tests

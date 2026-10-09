@@ -171,6 +171,23 @@ namespace AutopilotMonitor.Functions.Services
                 });
         }
 
+        /// <summary>
+        /// One vulnerability-correlation run could not write every SoftwareInventory counter, or
+        /// its per-session contributions side-row (<paramref name="sideRowFailed"/>: then no
+        /// counter was touched). One event per run, never per key. The counters stay off by these
+        /// amounts (accepted drift, Plan §17), so a repeating event points at a systematic cause.
+        /// <paramref name="error"/> is the exception type plus a short reason — never a response body.
+        /// </summary>
+        public Task RecordSoftwareInventoryCounterWriteFailedAsync(
+            string tenantId, string sessionId, int failedIncrements, int failedDecrements, bool sideRowFailed,
+            string error, IReadOnlyList<string> sampleKeys)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SoftwareInventoryCounterWriteFailed, OpsEventSeverity.Warning,
+                sideRowFailed
+                    ? $"Software inventory contributions not written for session {sessionId}: {error}"
+                    : $"{failedIncrements + failedDecrements} software inventory counter writes failed for session {sessionId}: {error}",
+                tenantId, "System.VulnerabilityCorrelation",
+                new { sessionId, failedIncrements, failedDecrements, sideRowFailed, error, sampleKeys });
+
         // ── Cascade-Delete Maintenance (Plan §5 PR6 / §16 R14) ─────────────────
         // Event types dispatched by SessionDeletionMaintenanceFunction: Started, LongRunning,
         // LongRunningSevere, BudgetExceeded, SkippedLocked, Failed, Completed, FanoutSkipped

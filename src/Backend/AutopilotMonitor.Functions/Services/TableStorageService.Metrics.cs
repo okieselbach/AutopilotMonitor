@@ -249,7 +249,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static string BuildAppInstallSummaryRowKey(AppInstallSummary summary)
         {
             var source = AppInstallSources.Normalize(summary.Source);
-            return SanitizeTableKey(source == AppInstallSources.Ime
+            return TableKeySanitizer.Sanitize(source == AppInstallSources.Ime
                 ? $"{summary.SessionId}_{summary.AppName}"
                 : $"{summary.SessionId}_{source}|{summary.InstallScope}|{summary.AppId}");
         }

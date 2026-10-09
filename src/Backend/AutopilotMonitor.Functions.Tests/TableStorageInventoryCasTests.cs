@@ -71,6 +71,36 @@ public class TableStorageInventoryCasTests
     }
 
     [Fact]
+    public async Task Increment_with_nul_padded_triple_reads_and_writes_the_clean_key()
+    {
+        // Installers that pad REG_SZ values with NULs used to put "%00" into the point-read URL,
+        // which the HTTP layer rejects ("400 Invalid URL") before Table Storage sees it.
+        var harness = new Harness();
+        string? readRowKey = null;
+        harness.SoftwareInventory.Setup(t =>
+            t.GetEntityAsync<TableEntity>(TenantId, It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, IEnumerable<string>, CancellationToken>((_, rk, _, _) => readRowKey = rk)
+            .ThrowsAsync(new RequestFailedException(404, "ResourceNotFound"));
+
+        TableEntity? addedEntity = null;
+        harness.SoftwareInventory.Setup(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+            .Returns<TableEntity, CancellationToken>((e, _) =>
+            {
+                addedEntity = e;
+                return Task.FromResult(new Mock<Response>().Object);
+            });
+
+        var item = new SoftwareInventoryItem
+        {
+            NormalizedVendor = "contoso\0\0\0", NormalizedName = "widget\0\0", NormalizedVersion = "1.0",
+        };
+        await harness.Sut.IncrementSoftwareInventoryEntryAsync(TenantId, item, SessionId);
+
+        Assert.Equal("contoso:widget:1.0", readRowKey);
+        Assert.Equal("contoso:widget:1.0", addedEntity!.RowKey);
+    }
+
+    [Fact]
     public async Task Increment_does_etag_cas_plus_one_when_row_exists()
     {
         var existing = new TableEntity(TenantId, "contoso:widget:1.0")

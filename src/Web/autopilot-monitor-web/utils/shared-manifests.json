@@ -616,6 +616,7 @@
     "CriticalTableBackupSkippedLocked",
     "BackupRowRestored",
     "VerdictCalibrationDrift",
+    "SoftwareInventoryCounterWriteFailed",
     "DeviceBlocked",
     "VersionBlocked",
     "SessionTenantConflict",

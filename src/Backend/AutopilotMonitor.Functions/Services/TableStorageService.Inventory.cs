@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -450,15 +451,13 @@ namespace AutopilotMonitor.Functions.Services
         // ============================================================ Helpers ====
 
         /// <summary>
-        /// SoftwareInventory RowKey format — preserves the same shape used by the legacy
-        /// <c>UpsertSoftwareInventoryAsync</c> path so existing rows remain reachable by the
-        /// new helpers. <c>SanitizeTableKey</c> lives in TableStorageService.Rules.cs as a
-        /// private static; partial classes share scope.
+        /// SoftwareInventory RowKey format: <c>vendor:name:version</c> through
+        /// <see cref="TableKeySanitizer"/>, capped at 512 characters.
         /// </summary>
         private static string BuildSoftwareInventoryRowKey(string vendor, string name, string version)
         {
             var raw = $"{vendor ?? string.Empty}:{name ?? string.Empty}:{version ?? string.Empty}";
-            var sanitized = SanitizeTableKey(raw);
+            var sanitized = TableKeySanitizer.Sanitize(raw);
             return sanitized.Length > 512 ? sanitized.Substring(0, 512) : sanitized;
         }
     }

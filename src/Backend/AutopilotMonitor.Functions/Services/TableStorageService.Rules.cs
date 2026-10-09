@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Functions.Services.Vulnerability;
@@ -1045,104 +1046,6 @@ namespace AutopilotMonitor.Functions.Services
         // ===== SOFTWARE INVENTORY METHODS =====
 
         /// <summary>
-        /// Upserts software inventory entries for a tenant.
-        /// PK = tenantId, RK = {normalizedVendor}:{normalizedProduct}:{normalizedVersion} (sanitized).
-        /// If an entry already exists, increments SessionCount and updates LastSeenAt/LastSessionId.
-        /// </summary>
-        public async Task UpsertSoftwareInventoryAsync(string tenantId, List<Dictionary<string, object>> inventoryItems, string sessionId, Dictionary<string, string?>? cpeMappings = null)
-        {
-            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
-
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SoftwareInventory);
-
-                // Read all existing entities for this tenant to merge SessionCount
-                var existingEntities = new Dictionary<string, TableEntity>(StringComparer.OrdinalIgnoreCase);
-                var existingQuery = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{tenantId}'");
-                await foreach (var entity in existingQuery)
-                {
-                    existingEntities[entity.RowKey] = entity;
-                }
-
-                // Build the batch of entities to upsert (dictionary to deduplicate by RowKey)
-                var entitiesToUpsert = new Dictionary<string, TableEntity>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var item in inventoryItems)
-                {
-                    var normalizedName = item.ContainsKey("normalizedName") ? item["normalizedName"]?.ToString() ?? "" : "";
-                    var normalizedVendor = item.ContainsKey("normalizedPublisher") ? item["normalizedPublisher"]?.ToString() ?? "" : "";
-                    var normalizedVersion = item.ContainsKey("normalizedVersion") ? item["normalizedVersion"]?.ToString() ?? "" : "";
-                    var displayName = item.ContainsKey("displayName") ? item["displayName"]?.ToString() ?? "" : "";
-                    var publisher = item.ContainsKey("publisher") ? item["publisher"]?.ToString() ?? "" : "";
-                    var registrySource = item.ContainsKey("registrySource") ? item["registrySource"]?.ToString() ?? "" : "";
-                    var normalizationConfidence = item.ContainsKey("normalizationConfidence") ? item["normalizationConfidence"]?.ToString() ?? "" : "";
-
-                    var rowKey = SanitizeTableKey($"{normalizedVendor}:{normalizedName}:{normalizedVersion}");
-                    if (string.IsNullOrWhiteSpace(rowKey) || rowKey == "::")
-                        continue;
-
-                    // Truncate RowKey to Table Storage limit (1KB)
-                    if (rowKey.Length > 512)
-                        rowKey = rowKey.Substring(0, 512);
-
-                    var now = DateTime.UtcNow;
-                    TableEntity entity;
-
-                    if (existingEntities.TryGetValue(rowKey, out var existing))
-                    {
-                        // Update existing: increment SessionCount, update LastSeenAt
-                        existing["SessionCount"] = (existing.GetInt32("SessionCount") ?? 0) + 1;
-                        existing["LastSeenAt"] = now.ToString("o");
-                        existing["LastSessionId"] = sessionId;
-
-                        // Update CpeUri if we have a mapping and current is empty
-                        if (cpeMappings != null && cpeMappings.TryGetValue(normalizedName, out var cpeUri) && !string.IsNullOrEmpty(cpeUri))
-                        {
-                            existing["CpeUri"] = cpeUri;
-                        }
-
-                        entity = existing;
-                    }
-                    else
-                    {
-                        // Create new entry
-                        entity = new TableEntity(tenantId, rowKey)
-                        {
-                            ["DisplayName"] = displayName,
-                            ["NormalizedName"] = normalizedName,
-                            ["NormalizedVendor"] = normalizedVendor,
-                            ["NormalizedVersion"] = normalizedVersion,
-                            ["Publisher"] = publisher,
-                            ["RegistrySource"] = registrySource,
-                            ["NormalizationConfidence"] = normalizationConfidence,
-                            ["FirstSeenAt"] = now.ToString("o"),
-                            ["LastSeenAt"] = now.ToString("o"),
-                            ["FirstSessionId"] = sessionId,
-                            ["LastSessionId"] = sessionId,
-                            ["SessionCount"] = 1,
-                            ["CpeUri"] = cpeMappings != null && cpeMappings.TryGetValue(normalizedName, out var cpeUri) && !string.IsNullOrEmpty(cpeUri) ? cpeUri : ""
-                        };
-                    }
-
-                    entitiesToUpsert[rowKey] = entity;
-                }
-
-                // Batch write (byte-aware, all same PK)
-                var upsertList = entitiesToUpsert.Values.ToList();
-                foreach (var batch in TableTransactionBatcher.Split(upsertList, TableTransactionActionType.UpsertReplace))
-                    await tableClient.SubmitTransactionAsync(batch);
-
-                _logger.LogInformation("Upserted {Count} software inventory entries for tenant {TenantId}", upsertList.Count, tenantId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to upsert software inventory for tenant {TenantId}", tenantId);
-                throw;
-            }
-        }
-
-        /// <summary>
         /// Gets all software inventory entries for a tenant.
         /// PK = tenantId. Returns all rows.
         /// </summary>
@@ -1185,19 +1088,6 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        /// <summary>
-        /// Sanitize a string for use as an Azure Table Storage key.
-        /// Replaces /, \, #, ? with underscores.
-        /// </summary>
-        private static string SanitizeTableKey(string key)
-        {
-            return key
-                .Replace("/", "_")
-                .Replace("\\", "_")
-                .Replace("#", "_")
-                .Replace("?", "_");
-        }
-
         // ===== CPE MAPPING SEED IMPORT =====
 
         /// <summary>
@@ -1231,7 +1121,7 @@ namespace AutopilotMonitor.Functions.Services
             var entities = new List<TableEntity>();
             foreach (var mapping in seed.Mappings)
             {
-                var rowKey = SanitizeTableKey(
+                var rowKey = TableKeySanitizer.Sanitize(
                     $"{(mapping.NormalizedVendor ?? "unknown")}:{(mapping.NormalizedProduct ?? "unknown")}".ToLowerInvariant());
 
                 if (rowKey.Length > 512)
@@ -1291,7 +1181,7 @@ namespace AutopilotMonitor.Functions.Services
             var entities = new List<TableEntity>();
             foreach (var mapping in seed.Mappings)
             {
-                var rowKey = SanitizeTableKey(
+                var rowKey = TableKeySanitizer.Sanitize(
                     $"{(mapping.NormalizedVendor ?? "unknown")}:{(mapping.NormalizedProduct ?? "unknown")}".ToLowerInvariant());
 
                 if (rowKey.Length > 512)

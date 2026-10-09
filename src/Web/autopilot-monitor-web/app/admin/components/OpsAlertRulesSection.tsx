@@ -31,6 +31,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // fallthrough decides ≥20% of classifier verdicts. Warning-tier, once per episode
     // (tracker-deduped). Dual-register per memory feedback_ops_event_types_dual_register.
     "VerdictCalibrationDrift",
+    // A vulnerability-correlation run could not write every SoftwareInventory counter (or the
+    // per-session side-row). Warning, one per run with counts — replaced the per-key tenant audit
+    // entry inventory_counter_write_failed.
+    "SoftwareInventoryCounterWriteFailed",
     "MaintenanceCompleted",
     "MaintenanceFailed",
     // Soft watchdog (Warning): a maintenance run completed but exceeded the 10min threshold and is
