@@ -38,6 +38,8 @@
 - Simplicity first: minimal, targeted changes. No temporary fixes — find the root cause.
 - Where architecture is flawed, state is duplicated, or patterns are inconsistent, propose and implement the structural fix. Ask what a perfectionist reviewer would reject, and fix that too.
 - On non-trivial changes, ask whether there is a more elegant way before presenting. Skip it for simple fixes — don't over-engineer.
+- Reuse before you write: search for an existing helper by what it does (its key call, literal or regex), not by a guessed name. Web helpers live in `lib/` (route-only ones in a `lib/` beside the route), backend helpers in `Functions/Helpers/`.
+- Dead and copied code is gated: the .NET build fails on unused private members and parameters (`.editorconfig`), `npm run knip` covers web and MCP, and `npm run dup` in `tools/quality` fails on new clones. CI only reports, so run them before calling a change done.
 - English for code comments and everything that carries knowledge.
 
 Private half of these instructions (process, working files, technical docs, operations): @../internal/CLAUDE.md
