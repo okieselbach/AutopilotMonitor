@@ -45,7 +45,7 @@ describe('apiFetch automatic retry', () => {
     ]);
     const context = createToolCallContext('get_sessions', 'cid-tool');
 
-    const data = await asCaller(() => runWithToolCallContext(context, () => apiFetch<{ items: number[] }>('/api/sessions')));
+    const data = await asCaller(async () => runWithToolCallContext(context, () => apiFetch<{ items: number[] }>('/api/sessions')));
 
     expect(data).toEqual({ items: [1] });
     expect(calls).toHaveLength(2);
@@ -67,12 +67,12 @@ describe('apiFetch automatic retry', () => {
 
   it('does not retry when Retry-After exceeds the cap, when the header is missing, or on other statuses', async () => {
     const tooLong = stubFetchSequence([{ status: 429, body: envelope429, headers: { 'retry-after': String(MAX_AUTO_RETRY_AFTER_SECONDS + 1) } }]);
-    const e1 = await asCaller(() => apiFetch<unknown>('/api/x')).catch((e) => e as ApiError);
+    const e1 = await asCaller(() => apiFetch<never>('/api/x')).catch((e) => e as ApiError);
     expect(tooLong).toHaveLength(1);
     expect(e1.retryAfterSeconds).toBe(MAX_AUTO_RETRY_AFTER_SECONDS + 1);
 
     const noHeader = stubFetchSequence([{ status: 429, body: envelope429 }]);
-    const e2 = await asCaller(() => apiFetch<unknown>('/api/x')).catch((e) => e as ApiError);
+    const e2 = await asCaller(() => apiFetch<never>('/api/x')).catch((e) => e as ApiError);
     expect(noHeader).toHaveLength(1);
     expect(e2.retryAfterSeconds).toBeNull();
 
@@ -107,18 +107,18 @@ describe('apiFetch automatic retry', () => {
 describe('apiFetch body contract', () => {
   it('refuses an empty or malformed 2xx body as ApiError instead of returning undefined', async () => {
     stubFetchSequence([{ status: 200, text: '' }]);
-    const empty = await asCaller(() => apiFetch<unknown>('/api/x')).catch((e) => e as ApiError);
+    const empty = await asCaller(() => apiFetch<never>('/api/x')).catch((e) => e as ApiError);
     expect(empty).toBeInstanceOf(ApiError);
     expect(empty.body).toBe('Empty response body');
 
     stubFetchSequence([{ status: 200, text: '<html>' }]);
-    const html = await asCaller(() => apiFetch<unknown>('/api/x')).catch((e) => e as ApiError);
+    const html = await asCaller(() => apiFetch<never>('/api/x')).catch((e) => e as ApiError);
     expect(html.body).toBe('Malformed response body');
   });
 
   it('exposes the typed envelope fields on ApiError', async () => {
     stubFetchSequence([{ status: 404, body: { error: 'Session not found.', code: 'NotFound', correlationId: 'body-cid', hint: 'Check the id.' } }]);
-    const err = await asCaller(() => apiFetch<unknown>('/api/x')).catch((e) => e as ApiError);
+    const err = await asCaller(() => apiFetch<never>('/api/x')).catch((e) => e as ApiError);
     expect(err.parsed?.code).toBe('NotFound');
     expect(err.parsed?.hint).toBe('Check the id.');
     expect(err.correlationId).toBe('body-cid');

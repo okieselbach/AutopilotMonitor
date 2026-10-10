@@ -111,7 +111,7 @@ export function parseFrontmatter(input: string): { frontmatter: DocFrontmatter; 
     const match = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(lines[i]);
     if (!match) continue;
     const key = match[1];
-    let value = match[2].trim();
+    const value = match[2].trim();
 
     // Folded / literal block scalar: consume the following indented lines.
     if (value === '>-' || value === '>' || value === '|' || value === '|-') {

@@ -198,7 +198,7 @@ describe('loadDocsCorpus', () => {
     );
     const headings = chunks.map((c) => c.metadata.heading);
     expect(headings).toContain('General › Does keep-awake work during ESP?');
-    expect(headings.every((h) => h == null || (!h.includes('<') && !h.includes('>')))).toBe(true);
+    expect(headings.every((h) => typeof h !== 'string' || (!h.includes('<') && !h.includes('>')))).toBe(true);
   });
 
   it('never emits a heading from inside a fenced code block', async () => {

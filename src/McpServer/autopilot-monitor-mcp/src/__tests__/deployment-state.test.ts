@@ -97,7 +97,7 @@ describe('collectDeploymentState', () => {
 
   it('an unreachable live endpoint is unknown with the failure listed', async () => {
     const fetchMock = stubFetch(ALL_IN_SYNC);
-    fetchMock.mockImplementationOnce(async () => { throw new Error('fetch failed'); });
+    fetchMock.mockRejectedValueOnce(new Error('fetch failed'));
 
     const state = await collectDeploymentState(fetchMock as never);
 

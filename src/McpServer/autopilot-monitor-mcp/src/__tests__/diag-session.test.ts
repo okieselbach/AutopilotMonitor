@@ -145,7 +145,7 @@ describe('diag_zip_layout catalog', () => {
     const appWorkload = DIAG_ZIP_MAP.files.find((f) => f.path.includes('AppWorkload'));
     expect(appWorkload).toBeDefined();
     expect(appWorkload!.read).toBe('grep-only');
-    expect(appWorkload!.warning).toMatch(/MB/);
+    expect(appWorkload).toHaveProperty('warning', expect.stringMatching(/MB/));
   });
 
   it('puts final-status.json at priority 1', () => {

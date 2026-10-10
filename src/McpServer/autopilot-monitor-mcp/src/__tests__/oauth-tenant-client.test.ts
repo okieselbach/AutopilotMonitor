@@ -257,10 +257,11 @@ describe('sealed refresh tokens of a tenant client', () => {
 
   it('ends a sealed token once the registration is deleted, with or without client_id', async () => {
     const sealed = await sealedToken();
-    for (const form of [
+    const forms: Record<string, string>[] = [
       { grant_type: 'refresh_token', refresh_token: sealed },
       { grant_type: 'refresh_token', refresh_token: sealed, client_id: CLIENT_ID },
-    ]) {
+    ];
+    for (const form of forms) {
       const outbound = stubOutbound({ lookup: 'missing' });
       const r = await token(form);
       expect(r.status).toBe(400);

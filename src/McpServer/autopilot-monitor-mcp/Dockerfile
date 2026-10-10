@@ -7,7 +7,7 @@ WORKDIR /app
 COPY src/McpServer/autopilot-monitor-mcp/package.json src/McpServer/autopilot-monitor-mcp/package-lock.json ./
 RUN npm ci --ignore-scripts
 
-COPY src/McpServer/autopilot-monitor-mcp/tsconfig.json ./
+COPY src/McpServer/autopilot-monitor-mcp/tsconfig.json src/McpServer/autopilot-monitor-mcp/tsconfig.build.json ./
 COPY src/McpServer/autopilot-monitor-mcp/src/ ./src/
 RUN npm run build
 

@@ -391,7 +391,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
 // --- Graceful shutdown ---
 
-async function gracefulShutdown(signal: string) {
+function gracefulShutdown(signal: string) {
   console.error(`[mcp] Received ${signal}, shutting down gracefully…`);
   // Stateless mode: no long-lived transports to close. Just stop accepting
   // new connections and let in-flight requests drain via their own res.on('close').

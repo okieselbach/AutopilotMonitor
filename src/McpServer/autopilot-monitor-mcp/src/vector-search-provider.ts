@@ -20,8 +20,14 @@ export const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 // 0.5 Gi container). A rejected load is cleared so the next call can retry.
 let embedderPromise: Promise<FeatureExtractionPipeline> | null = null;
 
+// The one pipeline() call this file makes. Calling the overloaded signature directly hits TS2590.
+type FeatureExtractionFactory = (
+  task: 'feature-extraction',
+  model: string,
+  options: { dtype: 'q8' },
+) => Promise<FeatureExtractionPipeline>;
+
 async function createEmbedder(): Promise<FeatureExtractionPipeline> {
-  // Dynamic import + cast to avoid TS2590 from the overloaded pipeline() signature
   const { pipeline, env } = await import('@huggingface/transformers');
   // The library's default model cache lives inside node_modules/@huggingface/
   // transformers/.cache — an npm-layout implementation detail. HF_CACHE_DIR pins
@@ -30,9 +36,7 @@ async function createEmbedder(): Promise<FeatureExtractionPipeline> {
   if (process.env.HF_CACHE_DIR) {
     env.cacheDir = process.env.HF_CACHE_DIR;
   }
-  return (await (pipeline as Function)('feature-extraction', MODEL_NAME, {
-    dtype: 'q8',
-  })) as FeatureExtractionPipeline;
+  return (pipeline as unknown as FeatureExtractionFactory)('feature-extraction', MODEL_NAME, { dtype: 'q8' });
 }
 
 function getEmbedder(): Promise<FeatureExtractionPipeline> {

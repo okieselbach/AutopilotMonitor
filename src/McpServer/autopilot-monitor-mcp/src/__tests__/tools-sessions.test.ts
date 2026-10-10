@@ -3,11 +3,10 @@
  * Tests against the live backend — requires AUTOPILOT_API_TOKEN env var.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { apiFetch, buildQuery, getToken } from './helpers.js';
+import { apiFetch, getToken } from './helpers.js';
 
 // Shared state discovered during tests
 let knownSessionId: string;
-let knownTenantId: string;
 
 // Integration suite: only runs when a backend token is supplied. Without one it
 // SKIPS (not errors), so an unattended CI run still goes green on the unit
@@ -29,7 +28,6 @@ suite('search_sessions', () => {
 
     // Store for subsequent tests
     knownSessionId = data.sessions[0].sessionId;
-    knownTenantId = data.sessions[0].tenantId;
 
     // Validate session shape
     const s = data.sessions[0];

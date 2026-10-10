@@ -10,11 +10,12 @@
     "autopilot-monitor-mcp": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "docker:build": "docker build -f Dockerfile -t autopilotmonitor-mcp:local ../../../",
     "docker:run": "docker run --rm -p 8080:8080 -e AUTOPILOT_API_URL=https://autopilotmonitor-api-eu.azurewebsites.net autopilotmonitor-mcp:local",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -32,12 +33,15 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@modelcontextprotocol/client": "^2.2.0",
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.4",
+    "eslint": "^9.39.5",
     "tsx": "^4.23.15",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.11"
   },
   "overrides": {

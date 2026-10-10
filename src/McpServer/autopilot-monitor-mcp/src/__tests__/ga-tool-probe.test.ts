@@ -5,7 +5,7 @@
  * a non-GA tool, or a non-tool request must do neither. Pure unit level: the caller
  * context is set via runWithCaller, fetch is stubbed.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { runWithCaller } from '../client.js';
 import { attemptedToolName, isGaToolProbe, observeGaToolProbe, ACCESS_PROBE_PATH } from '../ga-tool-probe.js';
 import { GA_STRICT_TOOL_NAMES } from '../tools/admin.js';
@@ -13,7 +13,7 @@ import { GA_STRICT_TOOL_NAMES } from '../tools/admin.js';
 const call = (name: string) => ({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } });
 
 let fetchMock: ReturnType<typeof vi.fn>;
-let errorSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: MockInstance<typeof console.error>;
 
 beforeEach(() => {
   fetchMock = vi.fn(async () => new Response('{"error":"Forbidden"}', { status: 403 }));
@@ -95,7 +95,7 @@ describe('observeGaToolProbe', () => {
   });
 
   it('never throws when the probe request fails', async () => {
-    fetchMock.mockImplementation(async () => { throw new Error('network down'); });
+    fetchMock.mockRejectedValue(new Error('network down'));
     expect(() => runWithCaller({ token: 'tok', isGlobalAdmin: false }, () => observeGaToolProbe(call('list_tables')))).not.toThrow();
     await flush();
   });

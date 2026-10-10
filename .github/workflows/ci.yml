@@ -182,8 +182,15 @@ jobs:
 
       - run: npm ci
 
+      # tsconfig.json covers sources, tests and scripts; the build emits via
+      # tsconfig.build.json.
       - name: Typecheck
         run: npx tsc --noEmit
+
+      # Same rule as the web job: any warning fails — fix new findings, never
+      # raise the cap.
+      - name: Lint
+        run: npm run lint -- --max-warnings 0
 
       # The vector-search tests tokenize with the real all-MiniLM-L6-v2 model
       # (~23 MB tokenizer + ONNX weights). transformers.js caches under
