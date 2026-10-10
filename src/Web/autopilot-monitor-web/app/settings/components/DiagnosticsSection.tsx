@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { DiagnosticsLogPath } from "../types";
 import type { DiagnosticsBuiltInSection } from "@/types/diagnostics";
-import { validateDiagnosticsPath } from "@/utils/guardValidation";
+import { validateDiagnosticsPath } from "@/lib/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
 import { BuiltInSectionsList } from "@/components/diagnostics/BuiltInSectionsList";
 import { ContextPill, DiagnosticsPathRow } from "@/components/diagnostics/DiagnosticsPathRow";

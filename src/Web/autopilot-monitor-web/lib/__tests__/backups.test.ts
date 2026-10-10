@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 // API_BASE_URL is read at import time of lib/api — stub it before the import.
-vi.mock("@/utils/config", () => ({ API_BASE_URL: "https://test.example" }));
+vi.mock("@/lib/config", () => ({ API_BASE_URL: "https://test.example" }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const apiPromise = import("../api") as Promise<{ api: any }>;

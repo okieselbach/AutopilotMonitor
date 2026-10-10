@@ -1,4 +1,4 @@
-import type { ProgressTenantStatusResponse } from "@/utils/wire-types.generated";
+import type { ProgressTenantStatusResponse } from "@/lib/generated/wire-types.generated";
 
 /** The note below the Progress Portal search for a member without a role. */
 export type ProgressAccessHint =

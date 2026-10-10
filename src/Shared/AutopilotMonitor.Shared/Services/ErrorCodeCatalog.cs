@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Shared.Services
     /// keyed by normalised code string (lowercase hex, e.g. <c>0x80070005</c>, or decimal MSI
     /// exit code, e.g. <c>1603</c>), by symbol and by enforcement state.
     /// <para>
-    /// Mirror of <c>src/Web/autopilot-monitor-web/utils/errorCodeMap.ts</c> and the MCP
+    /// Mirror of <c>src/Web/autopilot-monitor-web/lib/errorCodeMap.ts</c> and the MCP
     /// server's <c>error-code-catalog.ts</c>; the JSON file is the authoritative copy.
     /// </para>
     /// </summary>

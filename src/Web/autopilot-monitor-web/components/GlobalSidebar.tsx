@@ -11,7 +11,7 @@ import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, 
 import { deriveNavFlags, filterExpandableNavGroups, isNavGroupVisible } from "../lib/navVisibility";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
 
 // Sidebar pixel widths

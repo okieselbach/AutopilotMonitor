@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { isProViaMsp, missingContactProfileParts, trialDaysLeft } from "@/lib/edition";
 import { PlanCards } from "@/components/plans/PlanCards";
-import { sitePageUrl } from "@/utils/config";
+import { sitePageUrl } from "@/lib/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 

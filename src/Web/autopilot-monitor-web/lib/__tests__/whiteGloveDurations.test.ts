@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeWhiteGloveDurations } from "../../app/sessions/utils/eventHelpers";
+import { computeWhiteGloveDurations } from "../../app/sessions/lib/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
 import { makeEvent } from "@/test/factories";
 

@@ -1,4 +1,4 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /**
  * Machine-readable `code` values an error envelope can carry — derived from the generated shared

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BOOTSTRAP_GO_URL } from "@/utils/config";
+import { BOOTSTRAP_GO_URL } from "@/lib/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 

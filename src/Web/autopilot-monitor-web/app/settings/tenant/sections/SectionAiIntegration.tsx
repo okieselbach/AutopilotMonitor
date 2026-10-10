@@ -9,12 +9,12 @@ import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { useCopy } from "@/hooks/useCopy";
-import { MCP_SERVER_URL } from "@/utils/config";
+import { MCP_SERVER_URL } from "@/lib/config";
 import type {
   CreateMcpClientRegistrationRequest,
   CreateMcpClientRegistrationResponse,
   McpClientRegistrationListResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 function formatDay(iso: string | undefined | null): string {
   if (!iso) return "—";

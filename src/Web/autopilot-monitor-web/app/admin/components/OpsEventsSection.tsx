@@ -10,7 +10,7 @@ import type { CursorPage } from "@/lib/cursorPager";
 import { useCursorPager } from "@/hooks/useCursorPager";
 import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { OpsEventEntry, OpsEventListResponse } from "@/utils/wire-types.generated";
+import type { OpsEventEntry, OpsEventListResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 /** One ops event row (wire shape). */

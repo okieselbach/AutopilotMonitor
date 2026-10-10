@@ -1,5 +1,5 @@
 {
-  "$comment": "Parity cases for the session search grammar. Run by the web (app/dashboard/utils/__tests__/sessionSearchQuery.test.ts) and the backend (SessionFreeTextSearchTests) against the SAME sample session: a query that matches on one side must match on the other, or the server sweep returns ghost results the client filters back out. Cases with `extra` are client-only (client-derived tokens the server never sees). All values are synthetic.",
+  "$comment": "Parity cases for the session search grammar. Run by the web (app/dashboard/lib/__tests__/sessionSearchQuery.test.ts) and the backend (SessionFreeTextSearchTests) against the SAME sample session: a query that matches on one side must match on the other, or the server sweep returns ghost results the client filters back out. Cases with `extra` are client-only (client-derived tokens the server never sees). All values are synthetic.",
   "session": {
     "deviceName": "DESKTOP-A1B2C3",
     "serialNumber": "5CG1234XYZ",

@@ -9,7 +9,7 @@ import {
   errorCodeTooltip,
   ERROR_CODE_CATEGORIES,
 } from "../errorCodeMap";
-import catalogFile from "../error-codes.json";
+import catalogFile from "../generated/error-codes.json";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -26,7 +26,7 @@ describe("errorCodeMap", () => {
 
     it("stays inside the client-bundle budget", () => {
       // The catalog ships inside the static export; the sync writes it minified.
-      const bytes = readFileSync(path.join(__dirname, "..", "error-codes.json")).length;
+      const bytes = readFileSync(path.join(__dirname, "..", "generated", "error-codes.json")).length;
       expect(bytes).toBeLessThan(120_000);
     });
 

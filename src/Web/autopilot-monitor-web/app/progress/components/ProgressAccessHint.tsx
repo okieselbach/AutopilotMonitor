@@ -1,6 +1,6 @@
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { SUPPORT_EMAIL } from "@/lib/supportContact";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import type { ProgressAccessHint as Hint } from "../hooks/progressAccessHint";
 
 export const ACCESS_HINT_DOCS_URL = `${DOCS_URL}${DOCS_PATHS.progressPortalOnly}`;

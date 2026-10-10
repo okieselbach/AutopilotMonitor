@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
 import { api } from "@/lib/api";
-import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/utils/wire-types.generated";
+import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/lib/generated/wire-types.generated";
 import { fetchJson, fetchOk, jsonBody, nullOnApiError } from "@/lib/apiClient";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 type Phase = "loading" | "bubble" | "form" | "thankyou" | "hidden";
 

@@ -13,7 +13,7 @@
  * into the case file first, then into both implementations.
  */
 import type { EnrollmentEvent } from "@/types";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 import { parseUtcMs } from "@/lib/osUpdateLive";
 
 type EventTypeName = (typeof SHARED_MANIFEST.eventTypes)[number];

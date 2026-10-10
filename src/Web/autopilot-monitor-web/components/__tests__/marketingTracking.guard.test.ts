@@ -18,7 +18,7 @@ import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { QUESTIONS } from "@/components/ai/questions";
 import { TRACK_ID_PATTERN, isSectionSeen, trackIdOf } from "@/lib/clickTracking";
-import { sitePageUrl } from "@/utils/config";
+import { sitePageUrl } from "@/lib/config";
 
 /**
  * The UX report counts clicks and section views on the marketing pages (D-305). A link or button

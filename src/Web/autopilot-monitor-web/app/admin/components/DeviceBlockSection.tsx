@@ -12,7 +12,7 @@ import { TenantSearchSelect } from "./TenantSearchSelect";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { firstBlockedSessionId, blockedSessionCount } from "./blockedDeviceHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { BlockDeviceRequest, BlockedDeviceEntry, BlockedDeviceListResponse, GetSessionResponse } from "@/utils/wire-types.generated";
+import type { BlockDeviceRequest, BlockedDeviceEntry, BlockedDeviceListResponse, GetSessionResponse } from "@/lib/generated/wire-types.generated";
 
 interface ResolvedDevice {
   sessionId: string;

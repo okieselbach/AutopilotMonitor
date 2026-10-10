@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 import { useSignalR, useSignalRResync } from './SignalRContext';
 import { canFetchTenantNotifications } from './tenantNotificationsGate';
 import { api } from '@/lib/api';
-import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
+import type { GlobalNotificationDto, NotificationListResponse } from '@/lib/generated/wire-types.generated';
 import { fetchJson, fetchOk } from "@/lib/apiClient";
 
 // Both notification endpoints share one backend DTO; the alias keeps the established local name.

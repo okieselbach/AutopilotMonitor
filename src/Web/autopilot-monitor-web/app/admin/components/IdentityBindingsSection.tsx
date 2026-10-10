@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { isGuid, type IdentityBinding } from "@/lib/identityBinding";
-import type { IdentityBindingListResponse, IdentityBindingRequest } from "@/utils/wire-types.generated";
+import type { IdentityBindingListResponse, IdentityBindingRequest } from "@/lib/generated/wire-types.generated";
 
 interface IdentityBindingsSectionProps {
   tenantId: string;

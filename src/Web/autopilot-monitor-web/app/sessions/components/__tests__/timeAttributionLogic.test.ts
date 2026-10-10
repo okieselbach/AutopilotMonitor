@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 import { osUpdateDetail } from "../timeAttributionLogic";
 
 describe("osUpdateDetail", () => {

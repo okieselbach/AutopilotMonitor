@@ -20,7 +20,7 @@ import {
   supportsEmitMode,
 } from "../types";
 import { KNOWN_EVENT_TYPES, findEventType } from "../eventTypes";
-import { validateGatherRuleTarget } from "@/utils/guardValidation";
+import { validateGatherRuleTarget } from "@/lib/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
 import { isReservedBuiltInRuleId, RESERVED_RULE_ID_MESSAGE } from "@/lib/ruleIdPolicy";
 

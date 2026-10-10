@@ -1,4 +1,4 @@
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const TERMS_PATH = "/terms/";
 const DPA_URL = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;

@@ -1,4 +1,4 @@
-import type { UnmatchedSoftwareItem } from "@/utils/wire-types.generated";
+import type { UnmatchedSoftwareItem } from "@/lib/generated/wire-types.generated";
 
 /** One row of GET vulnerability/unmatched-software — the wire shape. */
 export type UnmatchedSoftwareEntry = UnmatchedSoftwareItem;

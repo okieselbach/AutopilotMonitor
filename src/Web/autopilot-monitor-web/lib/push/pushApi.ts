@@ -5,7 +5,7 @@
  * retryAfterSeconds?}` envelope and surfaces as PushApiError. Request and response shapes are
  * the generated wire types (shared manifest parity).
  */
-import { API_BASE_URL } from "@/utils/config";
+import { API_BASE_URL } from "@/lib/config";
 import type {
   BeginPairRequest,
   BeginPairResponse,
@@ -13,7 +13,7 @@ import type {
   RedeemPairRequest,
   RedeemPairResponse,
   ResubscribeRequest,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import { pushApiRequest } from "./pushCore";
 
 /** The wire carries `status` as a string; these are its documented values. */

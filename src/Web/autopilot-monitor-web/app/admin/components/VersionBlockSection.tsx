@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { BlockedVersionListResponse, BlockVersionRequest } from "@/utils/wire-types.generated";
+import type { BlockedVersionListResponse, BlockVersionRequest } from "@/lib/generated/wire-types.generated";
 
 interface BlockedVersion {
   versionPattern: string;

@@ -2,8 +2,8 @@
 export const dynamic = "force-static";
 
 import type { MetadataRoute } from "next";
-import { PAGE_LASTMOD } from "@/utils/page-lastmod.generated";
-import { sitePageUrl } from "@/utils/config";
+import { PAGE_LASTMOD } from "@/lib/generated/page-lastmod.generated";
+import { sitePageUrl } from "@/lib/config";
 
 // Build-time only (static export): a URL missing from PAGE_LASTMOD means
 // scripts/generate-lastmod.js drifted from this list -- fail the build rather

@@ -6,7 +6,7 @@
 // scripts and apps whenever it syncs, so they can — and on a Cloud PC routinely do — start after
 // Account Setup began. The section labels therefore name the ESP phase, never "user" or "device".
 
-import { V1_PHASE_NAMES } from "@/app/sessions/utils/phaseConstants";
+import { V1_PHASE_NAMES } from "@/app/sessions/lib/phaseConstants";
 
 // Account Setup (4) and its Apps (User) sub-phase (5). Only phase-declaration events carry a
 // phase — app and script events are Unknown (-1) — so this never keys off an app event.

@@ -3,7 +3,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SignupConsentCta } from "../../components/landing/SignupConsentCta";
 import { SiteFooter } from "../../components/SiteFooter";
 import { MarketingTracker } from "../../components/MarketingTracker";
-import { DOCS_URL, SITE_URL } from "@/utils/config";
+import { DOCS_URL, SITE_URL } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: "Get started",

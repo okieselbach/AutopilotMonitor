@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SITE_URL } from "@/utils/config";
+import { SITE_URL } from "@/lib/config";
 import { OPEN_GRAPH_BASE, TWITTER_BASE } from "@/lib/siteMetadata";
 
 const SHARE_TITLE = "AI Analysis for Windows Autopilot – Bring Your Own AI";

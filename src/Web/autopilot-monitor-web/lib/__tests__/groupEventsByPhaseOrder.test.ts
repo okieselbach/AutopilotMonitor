@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupEventsByPhase } from "../../app/sessions/utils/eventHelpers";
+import { groupEventsByPhase } from "../../app/sessions/lib/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
 import { makeEvent as makeWireEvent } from "@/test/factories";
 

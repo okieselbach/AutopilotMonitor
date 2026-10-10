@@ -7,7 +7,7 @@ import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
-import type { AutoResolveCpeMappingRequest, GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest } from "@/utils/wire-types.generated";
+import type { AutoResolveCpeMappingRequest, GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest } from "@/lib/generated/wire-types.generated";
 
 interface IgnoredSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;

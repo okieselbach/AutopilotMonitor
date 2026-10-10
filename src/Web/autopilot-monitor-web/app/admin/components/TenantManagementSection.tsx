@@ -16,7 +16,7 @@ import type {
   TenantConfiguration as WireTenantConfiguration,
   TenantOffboardingStatusResponse,
   UpdateTenantAppHomingResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";

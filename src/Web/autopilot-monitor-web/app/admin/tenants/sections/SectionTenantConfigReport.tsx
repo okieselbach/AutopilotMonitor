@@ -9,7 +9,7 @@ import type {
   McpClientRegistrationListResponse,
   TenantConfiguration,
   TenantFeatureFlagsResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import {
   isNonDefault,
   RUNTIME_REPORT_SECTIONS,

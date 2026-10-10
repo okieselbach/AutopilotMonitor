@@ -13,7 +13,7 @@ import type {
   GetPreviewWhitelistResponse,
   TestNotificationChannelRequest,
   TestWebhookNotificationResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import type { NotificationChannel } from "@/app/settings/types";
 
 // Re-export so existing `import { AdminConfiguration } from "../AdminConfigContext"` consumers keep working

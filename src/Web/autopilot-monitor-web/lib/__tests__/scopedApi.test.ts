@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/utils/config", () => ({ API_BASE_URL: "https://test.example" }));
+vi.mock("@/lib/config", () => ({ API_BASE_URL: "https://test.example" }));
 
 import { scopedApi, type TenantScopeSelection } from "../scopedApi";
 

@@ -5,10 +5,10 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
-import { SessionExportEvent, generateCsvExport, generateUiExport } from "@/utils/sessionExportUtils";
+import { SessionExportEvent, generateCsvExport, generateUiExport } from "@/lib/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
+import type { GetSessionEventsResponse } from "@/lib/generated/wire-types.generated";
 
 function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });

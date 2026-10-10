@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { isChunkLoadError, tryRecoverFromChunkError } from "@/utils/chunkReloadRecovery";
+import { isChunkLoadError, tryRecoverFromChunkError } from "@/lib/chunkReloadRecovery";
 
 /**
- * Global listener pair for stale-bundle chunk failures (see utils/chunkReloadRecovery.ts).
+ * Global listener pair for stale-bundle chunk failures (see lib/chunkReloadRecovery.ts).
  * Two paths surface them outside any React error boundary:
  *  - a rejected dynamic import that nothing awaits → unhandledrejection
  *  - the chunk <script>/<link> tag itself failing to load → a capture-phase error

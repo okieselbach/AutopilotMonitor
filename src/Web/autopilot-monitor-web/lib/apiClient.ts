@@ -1,6 +1,6 @@
 import { authenticatedFetch, TokenExpiredError } from "./authenticatedFetch";
 import { shortCorrelationId } from "./correlationId";
-import type { ApiErrorResponse } from "@/utils/wire-types.generated";
+import type { ApiErrorResponse } from "@/lib/generated/wire-types.generated";
 
 /**
  * The one API call layer above authenticatedFetch: ok-check, body parse and the backend's
@@ -21,7 +21,7 @@ export type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;
 
 /**
  * The one way a request body is encoded (D-207): the generic names the generated request wire
- * type (utils/wire-types.generated), so a renamed or retyped backend field fails tsc here instead
+ * type (lib/generated/wire-types.generated), so a renamed or retyped backend field fails tsc here instead
  * of surfacing as a 400 at runtime. The guard refuses `body: JSON.stringify(` and a bare
  * `jsonBody(` without a type argument.
  */

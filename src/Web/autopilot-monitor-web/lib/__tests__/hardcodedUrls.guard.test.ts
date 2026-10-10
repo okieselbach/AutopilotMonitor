@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 
 /**
  * Enforces the URL registry: every well-known own or Microsoft host must be
- * referenced through utils/config.ts (or derived from it, like hostRouting.ts),
+ * referenced through lib/config.ts (or derived from it, like hostRouting.ts),
  * never as a repeated string literal. The EU cutover missed hardcoded copies of
  * the blob host precisely because they did not go through a registry — this
  * test makes that class of drift a CI failure instead of a production surprise.
@@ -30,9 +30,9 @@ const ENFORCED_HOSTS = [
 const WEB_ROOT = join(__dirname, "..", "..");
 
 /** The registry itself — the only file allowed to carry the literals. */
-const REGISTRY_FILES = [join("utils", "config.ts")];
+const REGISTRY_FILES = [join("lib", "config.ts")];
 
-const SCAN_DIRS = ["app", "components", "lib", "utils"];
+const SCAN_DIRS = ["app", "components", "lib"];
 const SCAN_ROOT_FILES = ["next.config.ts", "middleware.ts"];
 
 function collectFiles(dir: string, acc: string[]): void {
@@ -48,7 +48,7 @@ function collectFiles(dir: string, acc: string[]): void {
 }
 
 describe("hardcoded URL guard", () => {
-  it("well-known hosts only appear in the registry (utils/config.ts)", () => {
+  it("well-known hosts only appear in the registry (lib/config.ts)", () => {
     const files: string[] = [];
     for (const dir of SCAN_DIRS) collectFiles(join(WEB_ROOT, dir), files);
     for (const f of SCAN_ROOT_FILES) {
@@ -78,7 +78,7 @@ describe("hardcoded URL guard", () => {
 
     expect(
       violations,
-      "Hardcoded well-known host(s) found outside utils/config.ts — import the constant instead:\n  " +
+      "Hardcoded well-known host(s) found outside lib/config.ts — import the constant instead:\n  " +
         violations.join("\n  "),
     ).toEqual([]);
   });

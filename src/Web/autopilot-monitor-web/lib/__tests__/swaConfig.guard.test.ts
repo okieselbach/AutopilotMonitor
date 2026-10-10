@@ -8,7 +8,7 @@ import { API_URL_PROD, BLOB_URL_PROD, DOCS_URL, ENTRA_LOGIN_URL, GRAPH_URL } fro
  * production redirects, the legacy path rewrites, and ALL security headers.
  * The hardcodedUrls guard only scans .ts/.tsx, so the JSON needs its own
  * consistency test:
- *  (a) every absolute own/Microsoft host in it comes from the utils/config.ts
+ *  (a) every absolute own/Microsoft host in it comes from the lib/config.ts
  *      registry (no drift when a host migrates),
  *  (b) the CSP never ships 'unsafe-eval' (dev-only concession),
  *  (c) route order: /docs specifics before the /docs/* catch-all, and each

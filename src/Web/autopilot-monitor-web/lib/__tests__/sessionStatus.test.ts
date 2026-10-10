@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isTerminalStatus } from "../../utils/sessionStatus";
+import { isTerminalStatus } from "../../lib/sessionStatus";
 
 describe("isTerminalStatus", () => {
   it("returns true for terminal statuses", () => {

@@ -1,6 +1,6 @@
 import type { EnrollmentEvent } from "@/types";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import { isTerminalStatus } from "@/utils/sessionStatus";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import { isTerminalStatus } from "@/lib/sessionStatus";
 import { isParkedAfterTechnicianPart } from "@/lib/preProvisioning";
 
 /**

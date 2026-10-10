@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 import {
   clampHelloWaitTimeoutSeconds,
   HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS,

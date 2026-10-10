@@ -2,13 +2,13 @@
  * Runtime parity between hand-written TS mirrors and the C#-generated shared manifest.
  * The manifest is the single cross-language anchor: the backend reflection guard
  * (SharedManifestParityTests) pins JSON ↔ C#, these tests pin TS ↔ JSON.
- * Compile-time (key-level) checks live in utils/sharedManifestChecks.ts.
+ * Compile-time (key-level) checks live in lib/sharedManifestChecks.ts.
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { SHARED_MANIFEST } from "../shared-manifests.generated";
+import { SHARED_MANIFEST } from "../generated/shared-manifests.generated";
 import { SEVERITY_INT } from "../sessionExportUtils";
 import { isTerminalStatus } from "../sessionStatus";
 import { OPERATORS, PRECONDITION_OPERATORS, SOURCES } from "@/app/analyze-rules/types";
@@ -16,7 +16,7 @@ import {
   ANNOTATION_LANES,
   ANNOTATION_VERDICTS,
 } from "@/app/sessions/components/sessionAnnotationLogic";
-import { V1_PHASE_NAMES, V2_PHASE_NAMES } from "@/app/sessions/utils/phaseConstants";
+import { V1_PHASE_NAMES, V2_PHASE_NAMES } from "@/app/sessions/lib/phaseConstants";
 import { KNOWN_EVENT_TYPES } from "@/app/gather-rules/eventTypes";
 
 const require = createRequire(import.meta.url);
@@ -25,21 +25,21 @@ const {
   buildWireTypesSource,
 } = require("../../scripts/generate-shared-manifest-types.js");
 
-const utilsDir = path.resolve(__dirname, "..");
+const generatedDir = path.resolve(__dirname, "..", "generated");
 
 describe("generated manifest modules freshness", () => {
   it("shared-manifests.generated.ts matches a fresh run of the codegen", () => {
-    const json = fs.readFileSync(path.join(utilsDir, "shared-manifests.json"), "utf8");
+    const json = fs.readFileSync(path.join(generatedDir, "shared-manifests.json"), "utf8");
     const committed = fs.readFileSync(
-      path.join(utilsDir, "shared-manifests.generated.ts"),
+      path.join(generatedDir, "shared-manifests.generated.ts"),
       "utf8"
     );
     expect(committed.replace(/\r\n/g, "\n")).toBe(buildGeneratedSource(json));
   });
 
   it("wire-types.generated.ts matches a fresh run of the codegen", () => {
-    const json = fs.readFileSync(path.join(utilsDir, "shared-manifests.json"), "utf8");
-    const committed = fs.readFileSync(path.join(utilsDir, "wire-types.generated.ts"), "utf8");
+    const json = fs.readFileSync(path.join(generatedDir, "shared-manifests.json"), "utf8");
+    const committed = fs.readFileSync(path.join(generatedDir, "wire-types.generated.ts"), "utf8");
     expect(committed.replace(/\r\n/g, "\n")).toBe(buildWireTypesSource(json));
   });
 });

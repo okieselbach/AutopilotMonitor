@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SITE_URL } from "@/utils/config";
+import { SITE_URL } from "@/lib/config";
 import { OPEN_GRAPH_BASE } from "@/lib/siteMetadata";
 
 export const metadata: Metadata = {

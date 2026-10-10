@@ -9,8 +9,8 @@ namespace AutopilotMonitor.Functions.Helpers;
 /// <summary>
 /// The dashboard search-box grammar, parsed once per request for the server-side sweep
 /// (<c>q=</c> on <c>/api/search/sessions</c> and the global twin). Mirrors the web's
-/// <c>app/dashboard/utils/sessionSearchQuery.ts</c> exactly — both run
-/// <c>utils/session-search-syntax.cases.json</c>, because a term that matches on one side
+/// <c>app/dashboard/lib/sessionSearchQuery.ts</c> exactly — both run
+/// <c>app/dashboard/lib/session-search-syntax.cases.json</c>, because a term that matches on one side
 /// and not the other is a ghost result (found by the server, filtered out by the client, or
 /// never fetched at all).
 /// <para>

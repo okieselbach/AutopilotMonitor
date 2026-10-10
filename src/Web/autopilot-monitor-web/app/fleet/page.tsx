@@ -5,7 +5,7 @@ import Link from "next/link";
 import { dashboardUrl } from "@/lib/routes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
-import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
+import { delegatedScopedTenantList, upnDomain } from "@/lib/homeTenantScope";
 import { useFleetSummaries } from "./hooks/useFleetSummaries";
 import { computeFleetRollup, type FleetSummary } from "./lib/fleetRollup";
 
@@ -26,7 +26,7 @@ export default function FleetPage() {
 
   const tenants = useTenantList(isDelegated);
   // Managed subset plus the caller's own HOME tenant when they hold a member role there — the home
-  // tenant is member-path access, not a delegated grant (see utils/homeTenantScope.ts), so its
+  // tenant is member-path access, not a delegated grant (see lib/homeTenantScope.ts), so its
   // summary is fetched via the JWT-bound member stats endpoint below.
   const myTenants = useMemo(
     () => delegatedScopedTenantList(tenants, user?.delegatedTenantIds, user?.tenantId, upnDomain(user?.upn), !!user?.role),

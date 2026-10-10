@@ -7,7 +7,7 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/api
 import TruncatedLabel from "@/components/TruncatedLabel";
 import type { CursorPage } from "@/lib/cursorPager";
 import { useCursorPager } from "@/hooks/useCursorPager";
-import { isGuid } from "@/utils/inputValidation";
+import { isGuid } from "@/lib/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
@@ -22,7 +22,7 @@ import type {
   RuleSubmissionFireStats,
   RuleSubmissionItem,
   RuleSubmissionListResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 const PAGE_SIZE = 20;
 const STATUS_FILTERS = ["pending", "approved", "declined", "withdrawn"] as const;

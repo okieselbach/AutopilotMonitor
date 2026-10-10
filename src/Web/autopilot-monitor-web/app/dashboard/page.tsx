@@ -23,9 +23,9 @@ import { useDeleteSession } from "./hooks/useDeleteSession";
 import { useBlockDevice } from "./hooks/useBlockDevice";
 import { useTenantSecurityConfig } from "./hooks/useTenantSecurityConfig";
 import { useTenantList } from "./hooks/useTenantList";
-import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
-import { resolveTenantFilterInput } from "@/utils/tenantFilterResolve";
-import { isGuid } from "@/utils/inputValidation";
+import { delegatedScopedTenantList, upnDomain } from "@/lib/homeTenantScope";
+import { resolveTenantFilterInput } from "@/lib/tenantFilterResolve";
+import { isGuid } from "@/lib/inputValidation";
 import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
@@ -33,7 +33,7 @@ import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/formatting";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { GetRuleHitSessionsResponse } from "@/utils/wire-types.generated";
+import type { GetRuleHitSessionsResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 
 export default function Home() {
@@ -158,7 +158,7 @@ function HomeContent() {
   const rawTenantList = useTenantList(crossTenant, getAccessToken);
   // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
   // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
-  // home-tenant reads route via the member path (see utils/homeTenantScope.ts). GA/Reader: the full list.
+  // home-tenant reads route via the member path (see lib/homeTenantScope.ts). GA/Reader: the full list.
   const tenantList = useMemo(() => {
     if (!isDelegated || hasGlobalScope) return rawTenantList;
     return delegatedScopedTenantList(

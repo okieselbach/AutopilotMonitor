@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { compareVersions } from "@/utils/bootstrapVersion";
+import { compareVersions } from "@/lib/bootstrapVersion";
 import {
   applyObservationEnd,
   buildScriptItemLabel,
@@ -21,7 +21,7 @@ import {
   type ScriptItem,
 } from "@/lib/scriptExecutions";
 import { lookupScriptDisplayName, type DisplayNamesByRefKey } from "@/lib/scriptDisplayNames";
-import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/lib/errorCodeMap";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import PhaseDivider from "@/components/PhaseDivider";
 

@@ -1,4 +1,4 @@
-import { validateGatherRuleTarget } from "@/utils/guardValidation";
+import { validateGatherRuleTarget } from "@/lib/guardValidation";
 
 export interface GatherRule {
   ruleId: string;

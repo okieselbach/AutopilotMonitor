@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
-import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
-import type { GetGlobalMcpUsageDailyResponse, GetGlobalMcpUsageResponse, UserUsageDailySummary } from "@/utils/wire-types.generated";
+import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
+import type { GetGlobalMcpUsageDailyResponse, GetGlobalMcpUsageResponse, UserUsageDailySummary } from "@/lib/generated/wire-types.generated";
 
 interface UsageRecord {
   userId: string;

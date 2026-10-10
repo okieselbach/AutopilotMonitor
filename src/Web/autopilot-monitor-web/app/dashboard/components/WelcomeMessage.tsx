@@ -1,6 +1,6 @@
 "use client";
 
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 export function WelcomeMessage() {
   return (

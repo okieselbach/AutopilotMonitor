@@ -1,4 +1,4 @@
-import type { GlobalAverages, LocationMetrics } from "@/utils/wire-types.generated";
+import type { GlobalAverages, LocationMetrics } from "@/lib/generated/wire-types.generated";
 
 /**
  * Single source of truth for how a location is colour-coded on the Geographic Performance page.

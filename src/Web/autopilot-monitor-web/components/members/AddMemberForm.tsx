@@ -1,6 +1,6 @@
 "use client";
 
-import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
+import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
 import { MEMBER_ROLES } from "./memberListModel";
 
 interface AddMemberFormProps {

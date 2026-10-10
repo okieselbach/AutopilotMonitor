@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
-import type { EmailTemplateRequest, EmailTemplateTestSendResponse } from "@/utils/wire-types.generated";
+import type { EmailTemplateRequest, EmailTemplateTestSendResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 type TemplateKind = "welcome" | "farewell";

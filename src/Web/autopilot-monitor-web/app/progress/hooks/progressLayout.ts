@@ -1,5 +1,5 @@
 import { EnrollmentEvent, Session } from "@/types";
-import { resolvePhaseLayout } from "@/app/sessions/utils/phaseConstants";
+import { resolvePhaseLayout } from "@/app/sessions/lib/phaseConstants";
 import { isParkedAfterTechnicianPart } from "@/lib/preProvisioning";
 import { deriveOsUpdateLive, deviceNowMs, osUpdateLiveState } from "@/lib/osUpdateLive";
 

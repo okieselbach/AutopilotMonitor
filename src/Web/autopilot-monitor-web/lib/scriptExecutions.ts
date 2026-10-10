@@ -4,7 +4,7 @@
  * the UI renders. Extracted from the React component so the 2-pass reducer + label
  * mapping can be unit-tested without React Testing Library.
  */
-import { extractBootstrapVersion } from "@/utils/bootstrapVersion";
+import { extractBootstrapVersion } from "@/lib/bootstrapVersion";
 import { HISTORIC_REPLAY_THRESHOLD_MS, partitionHistoricReplayEvents, type ReplayInputEvent } from "./historicReplay";
 
 // Same minimal structural event view every replay-aware panel uses.

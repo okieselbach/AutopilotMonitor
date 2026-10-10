@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
-import type { FeedbackEntryWire, FeedbackListResponse } from "@/utils/wire-types.generated";
+import type { FeedbackEntryWire, FeedbackListResponse } from "@/lib/generated/wire-types.generated";
 import { avgRating, paginate, partitionFeedback, type FeedbackTab } from "@/lib/feedbackPartition";
 
 /** One stored feedback entry — the wire shape (fields absent on dismissals). */

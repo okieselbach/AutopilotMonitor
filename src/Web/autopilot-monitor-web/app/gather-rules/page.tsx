@@ -22,7 +22,7 @@ import { GatherRuleCard } from "./components/GatherRuleCard";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
-import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
+import type { TenantFeatureFlagsResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 import { CommunityContributionBox } from "@/components/rules/CommunityContributionBox";
 import { MySubmissionsList } from "@/components/rules/MySubmissionsList";

@@ -1,7 +1,7 @@
 /**
  * Shared test factories for wire-shaped fixtures.
  *
- * The wire types (utils/wire-types.generated.ts) carry the exact C# optionality —
+ * The wire types (lib/generated/wire-types.generated.ts) carry the exact C# optionality —
  * plain-`bool`/`int` fields are required, so hand-built object literals in tests broke
  * on every contract change. Build fixtures through these factories instead and only
  * spell out the fields the test is actually about.

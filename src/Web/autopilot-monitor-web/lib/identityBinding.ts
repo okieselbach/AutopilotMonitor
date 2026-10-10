@@ -1,5 +1,5 @@
 import type { ApiErrorCode } from "./apiErrorCodes";
-import type { AdminIdentityBinding } from "@/utils/wire-types.generated";
+import type { AdminIdentityBinding } from "@/lib/generated/wire-types.generated";
 
 /**
  * The Entra identity (home tenant + object id) a cross-tenant-role UPN is bound to, as returned by

@@ -1,5 +1,5 @@
 import { HeroShots } from "./HeroShots";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const SCENARIOS = [
   "User-driven",

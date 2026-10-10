@@ -16,7 +16,7 @@ import type {
   PushDeviceListResponse,
   SessionWatchResponse,
   TestWebhookNotificationResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 /** 409: pairing or watching needs an enabled Push channel in this scope first (K4). */
 const PUSH_CHANNEL_REQUIRED = "PushChannelRequired" satisfies ApiErrorCode;

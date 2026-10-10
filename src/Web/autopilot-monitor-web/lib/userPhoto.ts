@@ -1,4 +1,4 @@
-import { GRAPH_URL } from "@/utils/config";
+import { GRAPH_URL } from "@/lib/config";
 import { bytesToBase64 } from "@/lib/base64";
 
 /**

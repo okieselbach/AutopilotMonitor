@@ -6,7 +6,7 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { AddMemberForm } from "@/components/members/AddMemberForm";
 import { MemberList } from "@/components/members/MemberList";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { MemberKind } from "@/utils/principalKeys";
+import type { MemberKind } from "@/lib/principalKeys";
 
 interface AdminManagementSectionProps {
   admins: TenantAdmin[];

@@ -8,13 +8,13 @@ import { api } from "@/lib/api";
 import { buildAddOnGrantCommand } from "@/lib/appHoming";
 import { legacyConfigured, primaryClientId, switchAuthApp } from "@/lib/authApp";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
 import { AppHomingAddOnStep } from "../../components/AppHomingAddOnStep";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
 import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesInsights";
-import type { GetGraphPermissionsStatusResponse } from "@/utils/wire-types.generated";
+import type { GetGraphPermissionsStatusResponse } from "@/lib/generated/wire-types.generated";
 import { addOnGranted, INTUNE_ENROLLMENT_FEATURE } from "@/lib/deviceValidation";
 
 export function SectionAutopilotValidation() {

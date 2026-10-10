@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { ABOUT_FAQ } from "./faq";
 
 // FAQPage structured data mirrors the visible "Common Questions" section

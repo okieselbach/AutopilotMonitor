@@ -6,7 +6,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { GitHubStarLink } from "@/components/GitHubStarLink";
 import { SiteFooter } from "@/components/SiteFooter";
 import { CUSTOMER_QUOTE } from "@/components/landing/customerQuote";
-import { DOCS_URL, sitePageUrl } from "@/utils/config";
+import { DOCS_URL, sitePageUrl } from "@/lib/config";
 import {
   COMMUNITY_COMPANIONS,
   EVENT_PAGE_ROBOTS,

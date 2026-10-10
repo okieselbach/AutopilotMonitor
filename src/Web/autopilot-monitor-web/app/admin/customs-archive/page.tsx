@@ -8,7 +8,7 @@ import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../AdminConfigContext";
 import { AdminNotifications } from "../AdminNotifications";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
-import type { CustomsArchiveDeleteRunResponse, CustomsArchiveRunListResponse, CustomsArchiveRunSummary } from "@/utils/wire-types.generated";
+import type { CustomsArchiveDeleteRunResponse, CustomsArchiveRunListResponse, CustomsArchiveRunSummary } from "@/lib/generated/wire-types.generated";
 
 export default function CustomsArchivePage() {
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();

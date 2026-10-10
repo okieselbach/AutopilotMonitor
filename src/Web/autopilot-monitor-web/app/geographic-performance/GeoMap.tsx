@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { formatThroughput } from "@/lib/formatting";
-import type { GlobalAverages, LocationMetrics } from "@/utils/wire-types.generated";
+import type { GlobalAverages, LocationMetrics } from "@/lib/generated/wire-types.generated";
 import { bucketFilterAllows, type BucketFilter, type MapColorMode } from "./mapColorModes";
 
 interface GeoMapProps {

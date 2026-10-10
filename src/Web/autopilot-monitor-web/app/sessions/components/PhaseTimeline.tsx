@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { EnrollmentEvent } from "@/types";
-import { resolvePhaseLayout } from "../utils/phaseConstants";
+import { resolvePhaseLayout } from "../lib/phaseConstants";
 import { summarizeEventsByPhase } from "./phaseEventSummary";
 
 interface PhaseTimelineProps {

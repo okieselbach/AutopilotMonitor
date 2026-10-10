@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
-import { API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL, GRAPH_URL } from "./utils/config";
+import { API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL, GRAPH_URL } from "./lib/config";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // Full static export — the SWA serves plain files from the edge; there is no
   // managed SSR runtime (and therefore no cold start) anymore. Redirects and
   // response headers moved to staticwebapp.config.json (guarded by
-  // utils/__tests__/swaConfig.guard.test.ts); the legacy path-shaped detail
+  // lib/__tests__/swaConfig.guard.test.ts); the legacy path-shaped detail
   // URLs are handled by SWA rewrites + components/LegacyPathRedirect.tsx.
   output: "export",
   // folder/index.html output — unambiguous rewrite targets for the SWA config.

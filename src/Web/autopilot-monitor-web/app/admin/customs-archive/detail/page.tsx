@@ -8,7 +8,7 @@ import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
-import type { CustomsArchiveEntryListResponse, CustomsArchiveEntryResponse, CustomsArchiveEntrySummary, TenantOffboardingCustomsArchiveEntry } from "@/utils/wire-types.generated";
+import type { CustomsArchiveEntryListResponse, CustomsArchiveEntryResponse, CustomsArchiveEntrySummary, TenantOffboardingCustomsArchiveEntry } from "@/lib/generated/wire-types.generated";
 
 export default function CustomsArchiveDetailPage() {
   // useSearchParams() in CustomsArchiveDetailContent requires a Suspense boundary

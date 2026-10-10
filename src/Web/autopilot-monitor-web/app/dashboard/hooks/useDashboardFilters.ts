@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "@/lib/appInsights";
 import type { Session } from "../types";
-import { buildSessionSearchMatcher, parseSessionSearchQuery } from "../utils/sessionSearchQuery";
+import { buildSessionSearchMatcher, parseSessionSearchQuery } from "../lib/sessionSearchQuery";
 
 const SESSIONS_PER_PAGE_KEY = "sessionsPerPage";
 const DEFAULT_SESSIONS_PER_PAGE = 10;
@@ -119,7 +119,7 @@ export function useDashboardFilters({
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   // Search grammar (terms AND-ed, `-` excludes, quotes, `field=value`) — see
-  // utils/sessionSearchQuery. Null while the query carries no filter.
+  // lib/sessionSearchQuery. Null while the query carries no filter.
   const searchMatcher = useMemo(() => buildSessionSearchMatcher(deferredSearchQuery), [deferredSearchQuery]);
   // The client-derived `extra` text is read by free terms only (a qualified term reads its one
   // field), so it is built only while the query has one.

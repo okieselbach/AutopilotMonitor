@@ -7,9 +7,9 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import { landingTarget } from "@/lib/landingTarget";
 import { consumePostLoginReturnUrl } from "@/lib/postLoginReturn";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { BrandMark } from "../../components/BrandMark";
-import type { SaveNotificationEmailRequest } from "@/utils/wire-types.generated";
+import type { SaveNotificationEmailRequest } from "@/lib/generated/wire-types.generated";
 
 // The URL query string is fixed for the lifetime of a page load — nothing to subscribe to.
 const subscribeNever = () => () => {};

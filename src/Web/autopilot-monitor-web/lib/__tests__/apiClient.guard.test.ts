@@ -163,7 +163,7 @@ describe("apiClient ratchet", () => {
         if (/\bjsonBody\(/.test(line)) violations.push(`${rel}:${i + 1}`);
       });
     }
-    expect(violations, "jsonBody<SomeRequest>(…) — name the generated request type (utils/wire-types.generated):\n  " + violations.join("\n  ")).toEqual([]);
+    expect(violations, "jsonBody<SomeRequest>(…) — name the generated request type (lib/generated/wire-types.generated):\n  " + violations.join("\n  ")).toEqual([]);
   });
 
   it("never calls fetchJson without an explicit type argument", () => {
@@ -173,7 +173,7 @@ describe("apiClient ratchet", () => {
         if (/\b(?:fetchJson|dedupedFetchJson)\(/.test(line)) violations.push(`${rel}:${i + 1}`);
       });
     }
-    expect(violations, "fetchJson<T>(…) — name the wire type (utils/wire-types.generated):\n  " + violations.join("\n  ")).toEqual([]);
+    expect(violations, "fetchJson<T>(…) — name the wire type (lib/generated/wire-types.generated):\n  " + violations.join("\n  ")).toEqual([]);
   });
 
   it("documents every permanent exception against a file that is still in a baseline", () => {

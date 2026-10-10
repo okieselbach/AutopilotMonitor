@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { fetchJson, type GetAccessToken } from "@/lib/apiClient";
-import type { ProgressTenantStatusResponse } from "@/utils/wire-types.generated";
+import type { ProgressTenantStatusResponse } from "@/lib/generated/wire-types.generated";
 
 /**
  * One read of the caller's tenant status for the access hint, only for members without a role

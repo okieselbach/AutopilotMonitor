@@ -11,7 +11,7 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { isProViaMsp } from "@/lib/edition";
 import { buildInviteLink, describeDelegationError, holdRemainingLabel, invitationStatusLabel } from "@/lib/delegations";
-import { principalLabel } from "@/utils/principalKeys";
+import { principalLabel } from "@/lib/principalKeys";
 import type {
   CreateDelegationInvitationResponse,
   DelegationAssigneeListResponse,
@@ -21,7 +21,7 @@ import type {
   RemoveManagedTenantRequest,
   RevokeTenantManagerRequest,
   TenantManagerListResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 type Confirm =
   | { kind: "revoke"; homeTenantId: string; label: string }

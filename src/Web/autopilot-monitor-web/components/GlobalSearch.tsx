@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
-import { isGuid } from '@/utils/inputValidation';
+import { isGuid } from '@/lib/inputValidation';
 // Wire type of the typeahead endpoint — matchedField is "sessionId" | "serialNumber" |
 // "deviceName" on the wire but typed string; fieldLabel handles unknown values anyway.
-import type { QuickSearchResult } from '@/utils/wire-types.generated';
-import type { QuickSearchSessionsResponse } from "@/utils/wire-types.generated";
+import type { QuickSearchResult } from '@/lib/generated/wire-types.generated';
+import type { QuickSearchSessionsResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 
 const fieldLabel = (field: string) => {

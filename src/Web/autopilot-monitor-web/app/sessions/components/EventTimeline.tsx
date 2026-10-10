@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useState, useMemo, useDeferredValue } from "react";
 import { EnrollmentEvent, Session } from "@/types";
-import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
-import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../utils/eventSearchQuery";
-import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/utils/errorCodeMap";
+import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../lib/eventHelpers";
+import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../lib/eventSearchQuery";
+import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/lib/errorCodeMap";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
@@ -76,7 +76,7 @@ export default function EventTimeline({
   // visible rows) follows the deferred one, so a keystroke never waits for the per-phase filter pass.
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  // Terms are AND-ed, a leading minus excludes, key=value restricts — see utils/eventSearchQuery.ts.
+  // Terms are AND-ed, a leading minus excludes, key=value restricts — see lib/eventSearchQuery.ts.
   const matchesSearch = useMemo(() => buildEventSearchMatcher(deferredSearchQuery), [deferredSearchQuery]);
   const excludedTerms = useMemo(
     () => parseEventSearchQuery(deferredSearchQuery).exclude.map(formatEventSearchTerm),

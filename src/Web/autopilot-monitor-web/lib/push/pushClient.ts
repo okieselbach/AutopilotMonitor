@@ -3,7 +3,7 @@
  * subscription, the Safari hand-off cookie and the reconcile-on-open routine (K14). Every
  * function here touches window/navigator and is called from effects or event handlers only.
  */
-import { API_BASE_URL } from "@/utils/config";
+import { API_BASE_URL } from "@/lib/config";
 import {
   base64UrlToUint8Array,
   bufferToBase64Url,

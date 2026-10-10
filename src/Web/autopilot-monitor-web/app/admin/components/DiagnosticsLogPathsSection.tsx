@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { validateDiagnosticsPath } from "@/utils/guardValidation";
+import { validateDiagnosticsPath } from "@/lib/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
 import { BuiltInSectionsList } from "@/components/diagnostics/BuiltInSectionsList";
 import { DiagnosticsPathRow } from "@/components/diagnostics/DiagnosticsPathRow";

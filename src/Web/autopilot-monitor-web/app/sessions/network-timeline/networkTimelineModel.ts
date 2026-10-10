@@ -16,7 +16,7 @@
 // attributing the quiet period to the active network.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { V1_PHASE_NAMES, V2_PHASE_NAMES } from '@/app/sessions/utils/phaseConstants';
+import { V1_PHASE_NAMES, V2_PHASE_NAMES } from '@/app/sessions/lib/phaseConstants';
 import type { EnrollmentEvent, Session } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────

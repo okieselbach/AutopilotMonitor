@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
-import type { ValidationResult } from "@/utils/guardValidation";
+import type { ValidationResult } from "@/lib/guardValidation";
 
 /** Neutral gray outline pill for context labels (scope, file types, collection gate) — never a state colour. */
 export function ContextPill({

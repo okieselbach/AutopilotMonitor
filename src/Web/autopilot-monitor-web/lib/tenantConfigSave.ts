@@ -1,6 +1,6 @@
 import { fetchOk, jsonBody, type GetAccessToken } from "@/lib/apiClient";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { PatchTenantConfigurationFieldsRequest } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { PatchTenantConfigurationFieldsRequest } from "@/lib/generated/wire-types.generated";
 
 /**
  * Wire (camelCase) name of a TenantConfiguration field, typed against the generated shared

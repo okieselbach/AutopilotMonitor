@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useLatest } from "@/hooks/useLatest";
 import { useSignalRResync } from "@/contexts/SignalRContext";
-import { asGuidOrUndefined } from "@/utils/inputValidation";
-import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
-import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { asGuidOrUndefined } from "@/lib/inputValidation";
+import { boundTenantToDelegatedScope } from "@/lib/delegatedScope";
+import { isHomeTenantTarget } from "@/lib/homeTenantScope";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
-import type { SessionStatsResponse } from "@/utils/wire-types.generated";
+import type { SessionStatsResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 import { DASHBOARD_STATS_DEFAULT_DAYS } from "./sessionsPageSize";
 

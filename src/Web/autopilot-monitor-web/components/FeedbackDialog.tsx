@@ -7,8 +7,8 @@ import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { closeFeedbackDialog } from "@/lib/feedbackDialogStore";
 import { route } from "@/lib/routes";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { GeneralFeedbackRequest } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { GeneralFeedbackRequest } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "./ModalPortal";
 import { NavLink } from "./NavLink";
 

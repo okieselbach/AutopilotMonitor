@@ -14,11 +14,11 @@ import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
 import { ConfidenceBadge, SeverityBadge } from "./components/DiagnosisBadges";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { useAdminMode } from "@/hooks/useAdminMode";
-import { isGuid } from "@/utils/inputValidation";
+import { isGuid } from "@/lib/inputValidation";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetRuleResultsResponse, GetSessionEventsResponse, GetSessionResponse } from "@/utils/wire-types.generated";
+import type { GetRuleResultsResponse, GetSessionEventsResponse, GetSessionResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 import { notifyApiError } from "@/contexts/NotificationContext";
 

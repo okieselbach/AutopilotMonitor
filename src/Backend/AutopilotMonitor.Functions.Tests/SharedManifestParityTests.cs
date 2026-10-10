@@ -12,7 +12,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Cross-language parity anchor: reflects the wire-relevant catalogs out of
 /// AutopilotMonitor.Shared (models, enums, string vocabularies) into a canonical JSON
-/// manifest committed at <c>src/Web/autopilot-monitor-web/utils/shared-manifests.json</c>.
+/// manifest committed at <c>src/Web/autopilot-monitor-web/lib/generated/shared-manifests.json</c>.
 /// The web's vitest suite and compile-time checks compare their hand-written TS mirrors
 /// against that manifest — so a C# change that would silently drift a TS mirror first
 /// fails HERE, and the TS side fails until its mirror follows.
@@ -23,7 +23,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public sealed class SharedManifestParityTests
 {
-    private const string ManifestRepoPath = "src/Web/autopilot-monitor-web/utils/shared-manifests.json";
+    private const string ManifestRepoPath = "src/Web/autopilot-monitor-web/lib/generated/shared-manifests.json";
     private const string WriteEnvVar = "AM_WRITE_SHARED_MANIFESTS";
 
     [Fact]
@@ -155,7 +155,7 @@ public sealed class SharedManifestParityTests
             // the portal's counters and upload budget read the same numbers the backend enforces.
             ["submissionLimits"] = ConstInts(typeof(Constants.SubmissionLimits)),
             // Every IApiResponse + IApiRequest implementer + [WireContract] type, transitively closed —
-            // the source of utils/wire-types.generated.ts. See WireTypeManifestBuilder.
+            // the source of lib/generated/wire-types.generated.ts. See WireTypeManifestBuilder.
             ["types"] = WireTypeManifestBuilder.BuildTypesSection(),
         };
 

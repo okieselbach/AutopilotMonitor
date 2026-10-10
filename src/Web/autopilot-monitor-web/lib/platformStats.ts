@@ -1,4 +1,4 @@
-import type { PlatformStats } from "@/utils/wire-types.generated";
+import type { PlatformStats } from "@/lib/generated/wire-types.generated";
 
 /**
  * The landing page's platform stats. A public blob container holds a manifest

@@ -4,7 +4,7 @@
  * builder are unit-testable under vitest.
  */
 
-import { AGENT_DOWNLOAD_URL } from "@/utils/config";
+import { AGENT_DOWNLOAD_URL } from "@/lib/config";
 
 /** Maps the backend's flip-denial reason codes to user-facing messages. */
 export function appHomingErrorMessage(

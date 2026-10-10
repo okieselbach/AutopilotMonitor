@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
-import type { SubmitOffboardingFeedbackRequest } from "@/utils/wire-types.generated";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import type { SubmitOffboardingFeedbackRequest } from "@/lib/generated/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /** localStorage key prefix for "this user already submitted feedback for offboarding X". */
 const FEEDBACK_SUBMITTED_KEY_PREFIX = "offboard-feedback-submitted:";

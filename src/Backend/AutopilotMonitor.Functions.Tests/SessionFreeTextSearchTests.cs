@@ -15,12 +15,12 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Server-side free-text search (<c>q=</c>) for the dashboard search box. The predicate is the
 /// search grammar of <see cref="SessionSearchQuery"/> over the web dashboard's client-side
 /// searchable field set (minus derived-only tokens). Parity with the web parser is pinned by
-/// the shared case file <c>src/Web/autopilot-monitor-web/utils/session-search-syntax.cases.json</c>,
-/// which vitest runs against <c>app/dashboard/utils/sessionSearchQuery.ts</c>.
+/// the shared case file <c>src/Web/autopilot-monitor-web/app/dashboard/lib/session-search-syntax.cases.json</c>,
+/// which vitest runs against <c>app/dashboard/lib/sessionSearchQuery.ts</c>.
 /// </summary>
 public class SessionFreeTextSearchTests
 {
-    private const string CasesRepoPath = "src/Web/autopilot-monitor-web/utils/session-search-syntax.cases.json";
+    private const string CasesRepoPath = "src/Web/autopilot-monitor-web/app/dashboard/lib/session-search-syntax.cases.json";
 
     private static SessionSummary Sample() => new()
     {

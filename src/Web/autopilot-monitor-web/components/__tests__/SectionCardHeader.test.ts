@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SectionCardHeader } from "../SectionCardHeader";
 import { DocsLink } from "../DocsLink";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const ICON = "M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4";
 

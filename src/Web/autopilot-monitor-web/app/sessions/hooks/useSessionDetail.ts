@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { isGuid } from "@/utils/inputValidation";
+import { isGuid } from "@/lib/inputValidation";
 import { Session } from "@/types";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
-import type { GetSessionResponse } from "@/utils/wire-types.generated";
+import type { GetSessionResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 
 type AddNotification = (

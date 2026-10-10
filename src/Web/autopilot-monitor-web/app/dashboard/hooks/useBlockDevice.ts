@@ -5,7 +5,7 @@ import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { NotificationType } from "@/contexts/NotificationContext";
 import { BULK_CONCURRENCY, runWithConcurrency, summarizeBlockOutcomes, type BlockOutcome } from "./bulkActions";
 import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
-import type { BlockDeviceRequest } from "@/utils/wire-types.generated";
+import type { BlockDeviceRequest } from "@/lib/generated/wire-types.generated";
 
 export interface BlockTarget {
   serialNumber: string;

@@ -4,7 +4,7 @@ import {
   type ICfgSyncConfig,
 } from "@microsoft/applicationinsights-web";
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from "web-vitals";
-import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/utils/config";
+import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/lib/config";
 import type { TelemetryContext } from "./appInsights";
 import { normalizeRoute, toWebVitalTelemetry } from "./webVitals";
 import { buildOwnOriginNonApiPatterns, shouldDropDependency, stripPageViewFragments } from "./webTelemetryExclusions";

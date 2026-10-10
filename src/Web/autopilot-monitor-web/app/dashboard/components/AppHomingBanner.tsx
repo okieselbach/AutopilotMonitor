@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { trackEvent } from "@/lib/appInsights";
 

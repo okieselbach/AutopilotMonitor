@@ -150,4 +150,4 @@ export interface TenantConfiguration {
 }
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
-export type { TenantAdminRow as TenantAdmin } from "@/utils/wire-types.generated";
+export type { TenantAdminRow as TenantAdmin } from "@/lib/generated/wire-types.generated";

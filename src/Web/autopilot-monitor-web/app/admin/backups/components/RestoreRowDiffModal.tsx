@@ -8,7 +8,7 @@ import type {
   RestoreRowPreviewResponse,
   RestoreRowPropertyDiff,
   RestoreRowPropertySnapshot,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { ModalPortal } from "@/components/ModalPortal";
 

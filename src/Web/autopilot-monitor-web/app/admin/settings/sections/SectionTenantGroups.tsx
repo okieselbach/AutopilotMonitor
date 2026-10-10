@@ -14,7 +14,7 @@ import type {
   TenantGroup,
   TenantGroupListResponse,
   UpdateTenantGroupRequest,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 

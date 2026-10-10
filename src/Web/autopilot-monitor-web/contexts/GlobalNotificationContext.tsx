@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { useAuth } from './AuthContext';
 import { useSignalR, useSignalRResync } from './SignalRContext';
 import { api } from '@/lib/api';
-import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
+import type { GlobalNotificationDto, NotificationListResponse } from '@/lib/generated/wire-types.generated';
 import { fetchJson, fetchOk } from "@/lib/apiClient";
 
 // Wire type is generated from the backend DTO; the alias keeps the established local name.

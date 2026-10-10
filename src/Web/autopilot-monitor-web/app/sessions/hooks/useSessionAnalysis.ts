@@ -2,8 +2,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { api } from "@/lib/api";
 import { RuleResult } from "@/types";
-import { isGuid } from "@/utils/inputValidation";
-import type { GetRuleResultsResponse, GetVulnerabilityReportResponse } from "@/utils/wire-types.generated";
+import { isGuid } from "@/lib/inputValidation";
+import type { GetRuleResultsResponse, GetVulnerabilityReportResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 
 export function useSessionAnalysis(

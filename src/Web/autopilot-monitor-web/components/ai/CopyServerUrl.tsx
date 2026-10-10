@@ -1,7 +1,7 @@
 "use client";
 
 import { useCopy } from "@/hooks/useCopy";
-import { MCP_SERVER_URL } from "@/utils/config";
+import { MCP_SERVER_URL } from "@/lib/config";
 import { CopyIcon } from "./icons";
 
 export function CopyServerUrl() {

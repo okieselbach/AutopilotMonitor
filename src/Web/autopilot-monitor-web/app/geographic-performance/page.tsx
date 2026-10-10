@@ -19,7 +19,7 @@ import { CalculatingCard } from "@/components/CalculatingCard";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { formatThroughput } from "@/lib/formatting";
-import type { GeographicMetricsResponse } from "@/utils/wire-types.generated";
+import type { GeographicMetricsResponse } from "@/lib/generated/wire-types.generated";
 import {
   DEFAULT_MAP_COLOR_MODE,
   MAP_COLOR_MODES,

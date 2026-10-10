@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { isHomeTenantTarget } from "@/lib/homeTenantScope";
 import type { FleetSummary } from "../lib/fleetRollup";
-import type { SessionStatsResponse } from "@/utils/wire-types.generated";
+import type { SessionStatsResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson, nullOnApiError } from "@/lib/apiClient";
 
 export interface FleetSummariesState {
@@ -27,7 +27,7 @@ const CONCURRENCY = 6;
  * @param days         lookback window passed to each per-tenant stats call.
  * @param homeTenantId the caller's OWN home tenant, if it is part of tenantIds: its summary is fetched via
  *   the JWT-bound member stats endpoint — home access is member-based, and the /global/ single-tenant path
- *   is bounded to the managed set (would return empty for it). See utils/homeTenantScope.ts.
+ *   is bounded to the managed set (would return empty for it). See lib/homeTenantScope.ts.
  */
 export function useFleetSummaries(tenantIds: string[], days: number, homeTenantId?: string): FleetSummariesState {
   const { getAccessToken } = useAuth();

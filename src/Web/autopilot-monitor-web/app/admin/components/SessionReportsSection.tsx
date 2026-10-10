@@ -7,12 +7,12 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/api
 import TruncatedLabel from "@/components/TruncatedLabel";
 import type { CursorPage } from "@/lib/cursorPager";
 import { useCursorPager } from "@/hooks/useCursorPager";
-import { isGuid } from "@/utils/inputValidation";
+import { isGuid } from "@/lib/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata, UpdateSessionReportNoteRequest } from "@/utils/wire-types.generated";
+import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata, UpdateSessionReportNoteRequest } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 const PAGE_SIZE = 20;

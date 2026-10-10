@@ -12,7 +12,7 @@ import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
-import type { RuleStatsResponse } from "@/utils/wire-types.generated";
+import type { RuleStatsResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 
 interface AnalysisResultsSectionProps {

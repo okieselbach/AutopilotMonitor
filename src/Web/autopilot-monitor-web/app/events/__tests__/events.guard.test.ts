@@ -7,7 +7,7 @@ import sitemap from "../../sitemap";
 import EventFollowupPage, { generateMetadata, generateStaticParams } from "../[slug]/page";
 import { COMMUNITY_COMPANIONS, FOLLOWUP_EVENTS, WALKTHROUGH_EMAIL, walkthroughMailto } from "../events";
 import { trackIdOf } from "../eventClicks";
-import { sitePageUrl } from "@/utils/config";
+import { sitePageUrl } from "@/lib/config";
 
 /**
  * Event follow-up pages are reached only through the follow-up email: never indexed, never

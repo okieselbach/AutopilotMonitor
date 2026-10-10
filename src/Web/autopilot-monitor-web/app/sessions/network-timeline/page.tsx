@@ -16,7 +16,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { isGuid } from '@/utils/inputValidation';
+import { isGuid } from '@/lib/inputValidation';
 import { api } from '@/lib/api';
 import { extractContinuation, MAX_EAGER_PAGES } from '@/lib/paginationLink';
 import { sessionUrl } from '@/lib/routes';
@@ -24,9 +24,9 @@ import NetworkBand from './NetworkBand';
 import { buildNetworkModel, fmtDuration, NetworkModel } from './networkTimelineModel';
 import { enrollmentWindowOf, sumStandbySeconds } from '@/lib/standby';
 import type { EnrollmentEvent, Session } from '@/types';
-import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
+import type { GetSessionEventsResponse } from "@/lib/generated/wire-types.generated";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
-import type { GetSessionResponse } from "@/utils/wire-types.generated";
+import type { GetSessionResponse } from "@/lib/generated/wire-types.generated";
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 

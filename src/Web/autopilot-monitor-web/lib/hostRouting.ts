@@ -10,10 +10,10 @@
  * users to the right host before MSAL fires, so we avoid bouncing through
  * two MSAL flows during sign-in.
  *
- * Hostnames are derived from the URL registry in utils/config.ts — this file
+ * Hostnames are derived from the URL registry in lib/config.ts — this file
  * adds the routing semantics, not a second copy of the hosts.
  */
-import { PORTAL_URL, SITE_URL } from "@/utils/config";
+import { PORTAL_URL, SITE_URL } from "@/lib/config";
 
 /**
  * Paths that belong on the PUBLIC (www) host. Everything else is portal

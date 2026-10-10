@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DEVICE_VALIDATION_FIELDS, addOnGranted, hasAnyDeviceValidation, INTUNE_ENROLLMENT_FEATURE } from "../deviceValidation";
-import type { GetGraphPermissionsStatusResponse } from "@/utils/wire-types.generated";
+import type { GetGraphPermissionsStatusResponse } from "@/lib/generated/wire-types.generated";
 
 describe("DEVICE_VALIDATION_FIELDS", () => {
   it("comes from the manifest and covers every validation method", () => {

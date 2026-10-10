@@ -1,5 +1,5 @@
 import { Configuration, LogLevel, RedirectRequest } from "@azure/msal-browser";
-import { ENTRA_LOGIN_URL } from "@/utils/config";
+import { ENTRA_LOGIN_URL } from "@/lib/config";
 import { AuthApp, getBootAuthApp, legacyClientId } from "./authApp";
 
 /**

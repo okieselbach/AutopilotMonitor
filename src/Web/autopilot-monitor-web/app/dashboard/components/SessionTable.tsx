@@ -7,14 +7,14 @@ import type { Route } from "next";
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
-import { fuzzyContains } from "@/utils/fuzzy";
+import { fuzzyContains } from "@/lib/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
 import {
   SESSION_SEARCH_FIELDS,
   buildSessionSearchMatcher,
   matchedSearchField,
   parseSessionSearchQuery,
-} from "../utils/sessionSearchQuery";
+} from "../lib/sessionSearchQuery";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { TenantFilterBar } from "./TenantFilterBar";
 import type { DeleteTarget } from "../hooks/useDeleteSession";

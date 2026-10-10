@@ -38,7 +38,7 @@ describe('generated wire types freshness (MCP copy)', () => {
     const { buildMcpWireTypesSource } = require(
       join(webRoot!, 'scripts', 'generate-shared-manifest-types.js'),
     );
-    const json = readFileSync(join(webRoot!, 'utils', 'shared-manifests.json'), 'utf8');
+    const json = readFileSync(join(webRoot!, 'lib', 'generated', 'shared-manifests.json'), 'utf8');
     const committed = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', 'generated', 'wire-types.generated.ts'),
       'utf8',
@@ -59,7 +59,7 @@ describe('generated wire vocabularies freshness (MCP copy)', () => {
     const { buildMcpVocabulariesSource } = require(
       join(webRoot!, 'scripts', 'generate-shared-manifest-types.js'),
     );
-    const json = readFileSync(join(webRoot!, 'utils', 'shared-manifests.json'), 'utf8');
+    const json = readFileSync(join(webRoot!, 'lib', 'generated', 'shared-manifests.json'), 'utf8');
     const committed = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', 'generated', 'wire-vocabularies.generated.ts'),
       'utf8',

@@ -9,8 +9,8 @@
  * (AgentConfigResolverTests) — nothing is re-computed here.
  */
 import { describe, expect, it } from "vitest";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { AgentConfigResponse } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { AgentConfigResponse } from "@/lib/generated/wire-types.generated";
 import {
   ANALYZER_FIELDS,
   COLLECTOR_FIELDS,

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppHomingAddOnStep } from "../AppHomingAddOnStep";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 describe("AppHomingAddOnStep", () => {
   const roles = ["CloudPC.Read.All", "DeviceManagementScripts.Read.All"];

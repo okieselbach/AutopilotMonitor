@@ -2,7 +2,7 @@
 // page can statically import the helpers here without pulling jsPDF into the
 // route chunk (jsPDF enters only via the lazily imported appReportPdf module).
 
-import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode } from "@/lib/errorCodeMap";
 
 // Structural mirror of the fields the report uses from the page's module-local
 // AnalyticsResponse. A field rename on the page surfaces as a compile error at

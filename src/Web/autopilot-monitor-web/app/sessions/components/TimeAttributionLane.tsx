@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { SessionTimeBreakdown } from "@/utils/wire-types.generated";
+import type { SessionTimeBreakdown } from "@/lib/generated/wire-types.generated";
 import { osUpdateDetail } from "./timeAttributionLogic";
 
 /**

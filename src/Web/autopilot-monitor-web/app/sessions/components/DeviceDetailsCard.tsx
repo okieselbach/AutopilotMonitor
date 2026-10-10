@@ -5,7 +5,7 @@ import Link from "next/link";
 import { networkTimelineUrl } from "@/lib/routes";
 import { EnrollmentEvent, Session } from "@/types";
 import OobeConfigModal from "./OobeConfigModal";
-import { compareVersions, stripGitHashSuffix } from "@/utils/bootstrapVersion";
+import { compareVersions, stripGitHashSuffix } from "@/lib/bootstrapVersion";
 
 // Minimal structural shapes for the event payloads this card reads. Values arrive as
 // deserialized JSON; only the fields the JSX uses in a typed position (string props,

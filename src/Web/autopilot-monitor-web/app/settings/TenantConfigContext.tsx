@@ -30,7 +30,7 @@ import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChann
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
 import { HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS } from "./lib/helloWaitTimeout";
 import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
-import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
+import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 import type {
   AddTenantAdminRequest,
@@ -44,7 +44,7 @@ import type {
   TestNotificationChannelRequest,
   TestWebhookNotificationResponse,
   UpdateMemberPermissionsRequest,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 /**
  * Channels for display/editing from a loaded config: prefers notificationChannelsJson; while
@@ -300,7 +300,7 @@ interface TenantConfigContextValue {
   setNewAdminEmail: (v: string) => void;
   newMemberRole: string;
   setNewMemberRole: (v: string) => void;
-  /** Person (UPN) or service principal (application id) — see utils/principalKeys. */
+  /** Person (UPN) or service principal (application id) — see lib/principalKeys. */
   newMemberKind: MemberKind;
   setNewMemberKind: (v: MemberKind) => void;
   addingAdmin: boolean;

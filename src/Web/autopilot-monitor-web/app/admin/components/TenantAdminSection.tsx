@@ -6,8 +6,8 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { AddMemberForm } from "@/components/members/AddMemberForm";
 import { MemberList } from "@/components/members/MemberList";
-import type { AddTenantAdminRequest, TenantAdminRow, UpdateMemberPermissionsRequest } from "@/utils/wire-types.generated";
-import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
+import type { AddTenantAdminRequest, TenantAdminRow, UpdateMemberPermissionsRequest } from "@/lib/generated/wire-types.generated";
+import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
 type TenantAdmin = TenantAdminRow;

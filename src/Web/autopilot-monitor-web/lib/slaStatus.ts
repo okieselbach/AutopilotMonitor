@@ -1,4 +1,4 @@
-import type { SlaMetricsResponse } from "@/utils/wire-types.generated";
+import type { SlaMetricsResponse } from "@/lib/generated/wire-types.generated";
 
 export interface SlaTargetCheck {
   label: string;

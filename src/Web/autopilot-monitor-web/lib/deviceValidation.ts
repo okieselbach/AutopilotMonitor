@@ -1,5 +1,5 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { GetGraphPermissionsStatusResponse } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { GetGraphPermissionsStatusResponse } from "@/lib/generated/wire-types.generated";
 
 /**
  * Every `validate*` flag of the tenant configuration, read from the shared manifest. The agent

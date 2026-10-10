@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppHomingBanner } from "../AppHomingBanner";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 describe("AppHomingBanner", () => {
   it("renders the nudge with the settings CTA, the docs link and a per-tab dismiss control", () => {

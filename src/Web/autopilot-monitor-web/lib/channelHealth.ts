@@ -1,5 +1,5 @@
 import { formatRelativeTime } from "@/lib/push/pushFormat";
-import type { NotificationChannelHealthDto } from "@/utils/wire-types.generated";
+import type { NotificationChannelHealthDto } from "@/lib/generated/wire-types.generated";
 
 /**
  * Colour of a channel status; existing families only. No Tailwind class strings here — lib/ is

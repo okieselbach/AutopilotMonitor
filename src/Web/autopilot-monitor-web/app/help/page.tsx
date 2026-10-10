@@ -1,7 +1,7 @@
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { WhatsNewTile } from "../../components/landing/WhatsNewTile";
 import { SiteFooter } from "../../components/SiteFooter";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const GITHUB_ISSUES = "https://github.com/okieselbach/AutopilotMonitor/issues";
 const LINKEDIN_PROFILE = "https://www.linkedin.com/in/oliver-kieselbach/";

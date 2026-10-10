@@ -15,7 +15,7 @@ import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
 import { useEditionInfo } from '@/hooks/useEditionInfo';
 import GlobalSearch from './GlobalSearch';
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { WhatsNewCountBadge, WhatsNewIconBadge } from "./WhatsNewPanel";

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 /**
  * Purchase page for Pro: hands the buyer off to one of the two purchase channels. Linked from

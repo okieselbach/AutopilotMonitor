@@ -17,8 +17,8 @@ import { findUserPhaseBoundary } from '@/lib/userPhaseBoundary';
 import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
-import { isGuid } from "@/utils/inputValidation";
-import { isTerminalStatus } from "@/utils/sessionStatus";
+import { isGuid } from "@/lib/inputValidation";
+import { isTerminalStatus } from "@/lib/sessionStatus";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import { ApiError, fetchBlob, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 
@@ -48,14 +48,14 @@ import { usePageSections } from "../../hooks/usePageSections";
 import { PageSectionItem } from "../../contexts/SidebarContext";
 import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon, PencilSquareIcon } from "../../lib/sidebarIcons";
 import DeviceDetailsCard from "./components/DeviceDetailsCard";
-import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
+import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/lib/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { bytesToBase64 } from "@/lib/base64";
 import { fitsReportRequest } from "@/lib/reportAttachments";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetSessionTimeAttributionResponse, SubmitSessionReportRequest } from "@/utils/wire-types.generated";
+import type { GetSessionTimeAttributionResponse, SubmitSessionReportRequest } from "@/lib/generated/wire-types.generated";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.

@@ -19,7 +19,7 @@ import { groupRulesByCategory, categoryLabel } from "@/lib/ruleGroups";
 import { RuleCategoryGroups } from "@/components/rules/RuleCategoryGroups";
 import { useCollapsedGroups } from "@/hooks/useCollapsedGroups";
 import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, validateOnEventTypes, getCategoryColor } from "./types";
-import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
+import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/lib/generated/guardrails.generated";
 
 /** Pre-flight for the evaluation-trigger form fields; returns an error message or null. */
 function validateEvaluateOnForm(form: RuleForm): string | null {
@@ -36,7 +36,7 @@ import TemplateConfigModal from "./components/TemplateConfigModal";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
-import type { CreateAnalyzeRuleFromTemplateRequest, RuleStatsResponse, TenantConfiguration } from "@/utils/wire-types.generated";
+import type { CreateAnalyzeRuleFromTemplateRequest, RuleStatsResponse, TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import { fetchJson, jsonBody } from "@/lib/apiClient";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { utcDateDaysAgo } from "@/lib/timeWindow";

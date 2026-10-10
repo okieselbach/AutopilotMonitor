@@ -1,5 +1,5 @@
 import type { EnrollmentEvent } from "@/types";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /** Sources whose rows never set a session's start (backend `Constants.EventSources.SessionAnchorIneligible`). */
 const ANCHOR_INELIGIBLE_SOURCES: ReadonlySet<string> = new Set(SHARED_MANIFEST.sessionAnchorIneligibleSources);

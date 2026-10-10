@@ -1,4 +1,4 @@
-import type { HealthCheck } from "@/utils/wire-types.generated";
+import type { HealthCheck } from "@/lib/generated/wire-types.generated";
 
 /**
  * Presentation-side mirror of the server's operator-only rule for the detailed health report

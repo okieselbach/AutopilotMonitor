@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { nextSlotLimit, slotTenantLabel, type SlotLimitError } from "@/lib/delegatedSlots";
 import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
-import type { PatchTenantPlanRequest } from "@/utils/wire-types.generated";
+import type { PatchTenantPlanRequest } from "@/lib/generated/wire-types.generated";
 
 /**
  * Raises a managing tenant's delegated slot override via PATCH config/{tenantId}/plan (GlobalAdminOnly).

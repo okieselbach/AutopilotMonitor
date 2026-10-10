@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { patchAdminConfigFields } from "@/lib/adminConfigSave";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
-import { isApplicationKey, looksLikeGuid, principalLabel } from "@/utils/principalKeys";
+import { isApplicationKey, looksLikeGuid, principalLabel } from "@/lib/principalKeys";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type {
@@ -17,7 +17,7 @@ import type {
   PlanTierDefinition as PlanTierDefinitionWire,
   PlanTierDefinitionsResponse,
   SetUsagePlanRequest,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 /** One MCP user row and one plan tier — the wire shapes. */
 type McpUser = McpUserEntry;

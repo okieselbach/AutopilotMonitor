@@ -7,7 +7,7 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { CalculatingCard } from "@/components/CalculatingCard";
-import type { PlatformUsageMetrics } from "@/utils/wire-types.generated";
+import type { PlatformUsageMetrics } from "@/lib/generated/wire-types.generated";
 
 // A fresh cross-tenant compute takes tens of seconds server-side; the default 30s fetch timeout
 // aborted it client-side (HTTP 499 on the backend) while the server kept computing. Give this one

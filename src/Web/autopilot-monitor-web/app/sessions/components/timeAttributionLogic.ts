@@ -1,4 +1,4 @@
-import type { OsUpdateSpan } from "@/utils/wire-types.generated";
+import type { OsUpdateSpan } from "@/lib/generated/wire-types.generated";
 import type { OsUpdateOutcome } from "@/lib/osUpdateLive";
 
 /** The words the Windows Update slice names an outcome with; "unknown" names nothing. */

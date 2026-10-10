@@ -21,7 +21,7 @@ import {
   type AnnotationVerdict,
   type SessionAnnotationDto,
 } from "./sessionAnnotationLogic";
-import type { UpsertSessionAnnotationRequest } from "@/utils/wire-types.generated";
+import type { UpsertSessionAnnotationRequest } from "@/lib/generated/wire-types.generated";
 
 /**
  * Session annotations: per-lane human verdict + note about this enrollment's analysis

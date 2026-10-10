@@ -1,4 +1,4 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /**
  * SignalR message (target) names the backend can send — derived from the generated shared

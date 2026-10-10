@@ -4,7 +4,7 @@ IMPORTANT: `staticwebapp.config.json` now carries PRODUCTION routing — the
 GitBook/docs redirects, the legacy path rewrites for old /sessions/{id}-style
 deep links, the 404 override, and all security headers (incl. the CSP). Never
 delete the file or replace it wholesale; both would take those down with it.
-The file's content is guarded by utils/__tests__/swaConfig.guard.test.ts.
+The file's content is guarded by lib/__tests__/swaConfig.guard.test.ts.
 
 To ENABLE maintenance mode, insert this object as the FIRST entry of the
 existing "routes" array (SWA evaluates routes in order, so it shadows

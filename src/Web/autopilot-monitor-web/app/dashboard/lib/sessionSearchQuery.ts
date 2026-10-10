@@ -16,7 +16,7 @@
 // `foo=bar`). Qualified terms are substring matches like every other term — exact
 // matching is the column filter's job. The backend parses the SAME grammar for the
 // server-side sweep (`q=` on /api/search/sessions, SessionSearchQuery.cs); both sides
-// run utils/session-search-syntax.cases.json, so a term that matches here matches there.
+// run app/dashboard/lib/session-search-syntax.cases.json, so a term that matches here matches there.
 
 import type { Session } from "../types";
 import { literalText, tokenizeSearchQuery } from "@/lib/searchQueryTokens";

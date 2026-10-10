@@ -10,7 +10,7 @@ import type {
   PlanTierDefinitionsResponse,
   SetPlanTierDefinitionsRequest,
   UsagePlanCatalogDefaults,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 interface PlanTierDefinition {
   name: string;

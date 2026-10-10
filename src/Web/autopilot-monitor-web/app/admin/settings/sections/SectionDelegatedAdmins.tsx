@@ -9,7 +9,7 @@ import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { DelegatedAdminListResponse, GrantDelegatedAdminRequest } from "@/utils/wire-types.generated";
+import type { DelegatedAdminListResponse, GrantDelegatedAdminRequest } from "@/lib/generated/wire-types.generated";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
 interface DelegatedAssignment {

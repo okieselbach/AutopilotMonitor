@@ -11,7 +11,7 @@ import { refusedJoinStatus } from '@/lib/signalrGroupAccess';
 import { useLatest } from '@/hooks/useLatest';
 import { useAuth } from './AuthContext';
 import { ApiError, fetchOk, jsonBody, type GetAccessToken } from "@/lib/apiClient";
-import type { SignalRJoinGroupRequest, SignalRLeaveGroupRequest } from "@/utils/wire-types.generated";
+import type { SignalRJoinGroupRequest, SignalRLeaveGroupRequest } from "@/lib/generated/wire-types.generated";
 
 // Hub payloads are untyped JSON; mirror @microsoft/signalr's own callback signature so
 // consumer handlers keep their narrower parameter types without laundering here.

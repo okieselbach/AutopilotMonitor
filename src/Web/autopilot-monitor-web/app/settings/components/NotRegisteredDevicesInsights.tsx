@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
-import type { DeviceNotRegisteredResponse } from "@/utils/wire-types.generated";
+import type { DeviceNotRegisteredResponse } from "@/lib/generated/wire-types.generated";
 
 
 

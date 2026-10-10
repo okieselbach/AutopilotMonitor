@@ -7,7 +7,7 @@ import {
   validateOnEventTypes,
 } from "../types";
 import { isReservedBuiltInRuleId, RESERVED_RULE_ID_MESSAGE } from "@/lib/ruleIdPolicy";
-import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
+import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/lib/generated/guardrails.generated";
 
 interface AnalyzeRuleFormFieldsProps {
   form: RuleForm;

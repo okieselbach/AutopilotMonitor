@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { trackEvent } from "@/lib/appInsights";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { openFeedbackDialog } from "@/lib/feedbackDialogStore";

@@ -17,7 +17,7 @@ import {
   MCP_PROBE_TIMEOUT_MS,
 } from '@/lib/healthCheckView';
 import { useLatest } from '@/hooks/useLatest';
-import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/utils/wire-types.generated';
+import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/lib/generated/wire-types.generated';
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { ApiError, fetchJson } from "@/lib/apiClient";

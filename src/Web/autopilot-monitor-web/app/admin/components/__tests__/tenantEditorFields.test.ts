@@ -4,8 +4,8 @@
  * list would 400 the save — and against the manifest.
  */
 import { describe, expect, it } from "vitest";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { TenantConfiguration } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import { TENANT_EDITOR_FIELDS, tenantEditorPatch } from "../tenantEditorFields";
 
 /** BaseDeniedFields in TenantConfigPatchService, camelCased — independent copy. */

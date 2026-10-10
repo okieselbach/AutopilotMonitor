@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { EnrollmentEvent, Session } from "@/types";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
-import type { ProgressGetSessionEventsResponse, ProgressLookupSessionResponse } from "@/utils/wire-types.generated";
+import type { ProgressGetSessionEventsResponse, ProgressLookupSessionResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson, nullOnApiError } from "@/lib/apiClient";
 
 // Live refetch coalescing on SignalR signals (see lib/burstScheduler). Each refresh is two

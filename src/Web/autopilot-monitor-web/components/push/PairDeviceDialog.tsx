@@ -17,7 +17,7 @@ import {
   type PushScope,
 } from "@/lib/pushPortal";
 import { confirmPairing, createPairing, getPairingStatus, isPushChannelRequired, rejectPairing } from "@/lib/pushPortalApi";
-import type { CreatePairingResponse, PairingDeviceDto } from "@/utils/wire-types.generated";
+import type { CreatePairingResponse, PairingDeviceDto } from "@/lib/generated/wire-types.generated";
 
 const POLL_MS = 3000;
 

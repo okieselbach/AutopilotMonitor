@@ -2,7 +2,7 @@ import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { PlanCards } from "../../components/plans/PlanCards";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 /**
  * Public plans page. Deliberately named "Plans" (not "Pricing"): the message is

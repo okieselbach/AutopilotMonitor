@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HealthCheck } from "@/utils/wire-types.generated";
+import type { HealthCheck } from "@/lib/generated/wire-types.generated";
 import {
   isUrlDetail,
   visibleHealthChecks,

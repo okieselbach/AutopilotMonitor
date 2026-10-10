@@ -7,7 +7,7 @@ import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiC
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
 import { NotificationType } from "@/contexts/NotificationContext";
-import type { QueueSessionActionRequest, TenantConfiguration } from "@/utils/wire-types.generated";
+import type { QueueSessionActionRequest, TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import {
   CollectPhase,
   COLLECT_TIMEOUT_MS,

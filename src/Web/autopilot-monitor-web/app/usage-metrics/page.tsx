@@ -11,7 +11,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { PlatformUsageMetrics } from "@/utils/wire-types.generated";
+import type { PlatformUsageMetrics } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { notifyApiError } from "@/contexts/NotificationContext";

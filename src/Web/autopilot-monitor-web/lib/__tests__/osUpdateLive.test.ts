@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 import {
   AWAITING_SIGN_IN_SETTLE_MS,
   computeOsUpdateInterval,

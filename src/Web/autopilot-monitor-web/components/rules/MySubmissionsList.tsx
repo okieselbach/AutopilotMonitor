@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, nullOn404 } from "@/lib/apiClient";
-import type { RuleSubmissionItem, RuleSubmissionListResponse } from "@/utils/wire-types.generated";
+import type { RuleSubmissionItem, RuleSubmissionListResponse } from "@/lib/generated/wire-types.generated";
 import type { SubmittableRuleKind } from "./SubmitRulesModal";
 
 interface MySubmissionsListProps {

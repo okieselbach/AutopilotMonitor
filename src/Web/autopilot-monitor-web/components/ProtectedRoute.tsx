@@ -8,7 +8,7 @@ import { isOnPublicHost } from "../lib/hostRouting";
 import { consumeLoginDeclined, legacyConfigured, switchAuthApp } from "../lib/authApp";
 import { activeAuthApp } from "../lib/msalConfig";
 import { DOCS_PATHS } from "../lib/docsPaths";
-import { DOCS_URL } from "../utils/config";
+import { DOCS_URL } from "../lib/config";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { hasTenantReadScope } from "../lib/tenantScope";
 import OffboardingFeedbackForm from "./OffboardingFeedbackForm";

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { CopyServerUrl } from "./CopyServerUrl";
 import { ArrowRightIcon } from "./icons";
 

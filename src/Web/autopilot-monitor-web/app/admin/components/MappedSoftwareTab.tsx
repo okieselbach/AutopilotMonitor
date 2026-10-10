@@ -6,7 +6,7 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { CpeMappingEntry } from "./SoftwareMappingTypes";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { DeleteCustomCpeMappingRequest, GetCpeMappingsResponse, SaveCustomCpeMappingRequest } from "@/utils/wire-types.generated";
+import type { DeleteCustomCpeMappingRequest, GetCpeMappingsResponse, SaveCustomCpeMappingRequest } from "@/lib/generated/wire-types.generated";
 
 interface MappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;

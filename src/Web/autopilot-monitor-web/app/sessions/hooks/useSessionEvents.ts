@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { extractContinuation, MAX_EAGER_PAGES } from "@/lib/paginationLink";
-import { isGuid } from "@/utils/inputValidation";
-import { isTerminalStatus } from "@/utils/sessionStatus";
+import { isGuid } from "@/lib/inputValidation";
+import { isTerminalStatus } from "@/lib/sessionStatus";
 import { EnrollmentEvent, Session } from "@/types";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
-import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
+import type { GetSessionEventsResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 
 const TIMELINE_PAGE_SIZE = 200;

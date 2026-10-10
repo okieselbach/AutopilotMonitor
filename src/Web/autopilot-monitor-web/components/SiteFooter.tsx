@@ -1,5 +1,5 @@
-import { DOCS_URL } from "@/utils/config";
-import { GITHUB_REPO_URL } from "@/utils/githubStars";
+import { DOCS_URL } from "@/lib/config";
+import { GITHUB_REPO_URL } from "@/lib/githubStars";
 import { BrandMark } from "./BrandMark";
 import { GitHubIcon } from "./GitHubIcon";
 

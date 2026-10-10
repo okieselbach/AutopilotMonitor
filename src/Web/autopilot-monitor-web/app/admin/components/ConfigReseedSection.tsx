@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { ReseedFromGitHubResponse } from "@/utils/wire-types.generated";
+import type { ReseedFromGitHubResponse } from "@/lib/generated/wire-types.generated";
 
 interface ConfigReseedSectionProps {
   getAccessToken: () => Promise<string | null>;

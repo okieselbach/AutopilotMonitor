@@ -1,9 +1,9 @@
-import { GITHUB_REPO_URL, GITHUB_STARS, formatStarCount } from "@/utils/githubStars";
+import { GITHUB_REPO_URL, GITHUB_STARS, formatStarCount } from "@/lib/githubStars";
 import { GitHubIcon } from "./GitHubIcon";
 
 /**
  * "Star us" pill for the public surface: [GitHub mark] label │ ★ count.
- * The counter segment only renders when the deploy baked a star count in (utils/githubStars.ts).
+ * The counter segment only renders when the deploy baked a star count in (lib/githubStars.ts).
  * No hooks, so server components (Testimonials) and client components (LandingNavbar) share it.
  */
 export function GitHubStarLink({

@@ -10,14 +10,14 @@ import { api } from "@/lib/api";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
-import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
-import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { boundTenantToDelegatedScope } from "@/lib/delegatedScope";
+import { isHomeTenantTarget } from "@/lib/homeTenantScope";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { windowProgressKey } from "@/lib/timeWindow";
 import { GEO_DEFAULT_WINDOW_DAYS } from "../geoWindow";
 import { CalculatingCard } from "@/components/CalculatingCard";
-import type { GeographicLocationSessionsResponse, LocationSessionRow } from "@/utils/wire-types.generated";
+import type { GeographicLocationSessionsResponse, LocationSessionRow } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 
 // A cross-tenant drilldown can take tens of seconds server-side; the default 30s fetch

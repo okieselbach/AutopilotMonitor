@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { cachedAuthFetchJson, FEATURE_FLAGS_TTL_MS } from "@/lib/cachedAuthFetch";
-import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
+import type { TenantFeatureFlagsResponse } from "@/lib/generated/wire-types.generated";
 
 interface UseSessionTenantConfigReturn {
   showScriptOutput: boolean;

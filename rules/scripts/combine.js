@@ -86,12 +86,12 @@ for (const config of configs) {
 // ── Guardrails generation ───────────────────────────────────────────────────
 
 const guardrailsPath = path.join(rulesRoot, 'guardrails.json');
-// NOTE: consumers import from "@/utils/guardrails.generated" (see guardValidation.ts
+// NOTE: consumers import from "@/lib/generated/guardrails.generated" (see guardValidation.ts
 // and SectionGatherRules.tsx). The web re-org (commit a3e8e044) moved this file to
 // utils/ but left this output path pointing at the now-orphaned lib/ copy, which
 // silently froze the live allowlist. Keep this in sync with the import path.
 const guardrailsOutput = path.resolve(
-  rulesRoot, '..', 'src', 'Web', 'autopilot-monitor-web', 'utils', 'guardrails.generated.ts'
+  rulesRoot, '..', 'src', 'Web', 'autopilot-monitor-web', 'lib', 'generated', 'guardrails.generated.ts'
 );
 
 if (fs.existsSync(guardrailsPath)) {

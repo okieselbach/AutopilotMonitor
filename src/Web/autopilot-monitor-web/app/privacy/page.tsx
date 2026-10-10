@@ -1,6 +1,6 @@
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const LAST_UPDATED = "1 October 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;

@@ -5,9 +5,9 @@ import { useTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
-import { readTenantScope, writeTenantScope } from "@/utils/tenantScopeStorage";
+import { readTenantScope, writeTenantScope } from "@/lib/tenantScopeStorage";
 import { resolveDelegatedSeed, resolveGaSeed } from "@/hooks/aggregatedAdminScopeSeed";
-import { delegatedScopedTenantList, isHomeTenantTarget, upnDomain } from "@/utils/homeTenantScope";
+import { delegatedScopedTenantList, isHomeTenantTarget, upnDomain } from "@/lib/homeTenantScope";
 
 export interface AggregatedAdminScope {
   /**
@@ -90,7 +90,7 @@ export function useAggregatedAdminScope(opts?: {
   const allTenants = useTenantList(isGlobalAdmin);
   // Delegated: bound the selector to the managed allow-list (defense in depth on top of the backend-bounded
   // config/all), PLUS the caller's own home tenant when they hold a member role there (member-path access —
-  // see utils/homeTenantScope.ts). GA/Reader: the full list.
+  // see lib/homeTenantScope.ts). GA/Reader: the full list.
   const homeTenantId = user?.tenantId;
   const hasHomeRole = !!user?.role;
   const tenants = useMemo(

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { TenantAdminRow } from "@/utils/wire-types.generated";
+import type { TenantAdminRow } from "@/lib/generated/wire-types.generated";
 import {
   MEMBER_PAGE_SIZE,
   effectiveMemberFilter,

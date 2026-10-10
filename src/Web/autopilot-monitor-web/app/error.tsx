@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { isChunkLoadError, tryRecoverFromChunkError } from "@/utils/chunkReloadRecovery";
+import { isChunkLoadError, tryRecoverFromChunkError } from "@/lib/chunkReloadRecovery";
 import { trackEvent } from "@/lib/appInsights";
 
 /**
@@ -21,7 +21,7 @@ export default function Error({
   const router = useRouter();
 
   // Stale-bundle chunk failure after a deploy: reload once instead of showing the
-  // error card (utils/chunkReloadRecovery.ts — the guard prevents reload loops; a
+  // error card (lib/chunkReloadRecovery.ts — the guard prevents reload loops; a
   // repeat inside the guard window falls through to the card below).
   useEffect(() => {
     if (isChunkLoadError(error)) {

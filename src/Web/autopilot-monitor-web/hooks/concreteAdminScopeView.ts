@@ -1,4 +1,4 @@
-import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { isHomeTenantTarget } from "@/lib/homeTenantScope";
 
 /**
  * Pure projection of the aggregated admin scope onto the CONCRETE (override-only) page

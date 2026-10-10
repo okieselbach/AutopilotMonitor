@@ -18,7 +18,7 @@ import {
   BLOCKED_EVENT_LOG_CHANNELS,
   BLOCKED_COMMAND_PATTERNS,
   MAX_COMMAND_LENGTH,
-} from "./guardrails.generated";
+} from "./generated/guardrails.generated";
 
 // Re-export for consumers that imported from here
 export { ALLOWED_REGISTRY_PREFIXES, ALLOWED_FILE_PREFIXES, ALLOWED_WMI_QUERY_PREFIXES, ALLOWED_COMMANDS_LIST, ALLOWED_DIAGNOSTICS_PATH_PREFIXES, ALLOWED_EVENT_LOG_CHANNELS };

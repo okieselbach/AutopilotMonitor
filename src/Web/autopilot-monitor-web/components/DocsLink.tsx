@@ -1,4 +1,4 @@
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 interface DocsLinkProps {
   /** Path below the published docs root, with a leading slash (e.g. "/reference/settings#notifications"). */

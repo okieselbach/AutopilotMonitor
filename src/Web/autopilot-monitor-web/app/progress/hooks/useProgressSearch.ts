@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/appInsights";
 import { Session } from "@/types";
 import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
-import type { ProgressLookupSessionResponse } from "@/utils/wire-types.generated";
+import type { ProgressLookupSessionResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 import { readSerialParam, withSerialParam } from "./serialDeepLink";
 

@@ -10,7 +10,7 @@ import { ApiError, fetchJson } from "@/lib/apiClient";
 // Wire shape of the server-aggregated Fleet Health payload: the generated mirror of the
 // backend FleetHealthMetrics DTO. Presentation-only derivations (bar maxima, axis
 // labels) stay in the page.
-import type { FleetHealthMetrics } from "@/utils/wire-types.generated";
+import type { FleetHealthMetrics } from "@/lib/generated/wire-types.generated";
 
 export type FleetHealthData = FleetHealthMetrics;
 

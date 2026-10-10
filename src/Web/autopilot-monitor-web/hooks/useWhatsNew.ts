@@ -23,7 +23,7 @@ import {
   useWhatsNewState,
   type WhatsNewLoadStatus,
 } from "@/lib/whatsNewStore";
-import type { WhatsNewSeenRequest } from "@/utils/wire-types.generated";
+import type { WhatsNewSeenRequest } from "@/lib/generated/wire-types.generated";
 
 export interface UseWhatsNew {
   status: WhatsNewLoadStatus;

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchJson } from "@/lib/apiClient";
 import { describeChannelHealth, type ChannelHealthView } from "@/lib/channelHealth";
-import type { NotificationChannelHealthResponse } from "@/utils/wire-types.generated";
+import type { NotificationChannelHealthResponse } from "@/lib/generated/wire-types.generated";
 
 /**
  * Delivery status per saved channel id, read from `url` (null = caller may not read it, nothing

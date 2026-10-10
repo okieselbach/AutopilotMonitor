@@ -1,5 +1,5 @@
 // GENERATED — do not edit by hand. Second copy for the MCP server.
-// Source: src/Web/autopilot-monitor-web/utils/shared-manifests.json.
+// Source: src/Web/autopilot-monitor-web/lib/generated/shared-manifests.json.
 // Regenerate: npm run generate:manifests in src/Web/autopilot-monitor-web.
 //
 // Vocabularies reflected from AutopilotMonitor.Shared. These are VALUES (not just types)

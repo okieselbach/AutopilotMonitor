@@ -9,7 +9,7 @@ import { apiErrorText } from "@/lib/apiClient";
 import { formatRelativeTime } from "@/lib/push/pushFormat";
 import { describePortalDeviceStatus, platformLabel, statusTone, type PushScope, type StatusTone } from "@/lib/pushPortal";
 import { listPushDevices, removePushDevice, testPushDevice } from "@/lib/pushPortalApi";
-import type { PairingDeviceDto, PushDeviceDto } from "@/utils/wire-types.generated";
+import type { PairingDeviceDto, PushDeviceDto } from "@/lib/generated/wire-types.generated";
 
 /** Status chip colours: green = delivering, orange = unclear, gray = idle (no new families). */
 const CHIP_CLASSES: Record<StatusTone, string> = {

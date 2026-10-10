@@ -1,6 +1,6 @@
 // App install report PDF builder — the entry point of the lazily loaded PDF
 // chunk. This is the ONLY module that imports jsPDF at runtime; the page loads
-// it via `await import("@/utils/pdf/appReportPdf")` on button click, so jsPDF
+// it via `await import("@/lib/pdf/appReportPdf")` on button click, so jsPDF
 // never enters the route bundle.
 
 import { jsPDF } from "jspdf";

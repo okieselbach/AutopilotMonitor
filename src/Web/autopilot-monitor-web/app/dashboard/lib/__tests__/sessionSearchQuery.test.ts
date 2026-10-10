@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import cases from "@/utils/session-search-syntax.cases.json";
+import cases from "@/app/dashboard/lib/session-search-syntax.cases.json";
 import {
   SESSION_SEARCH_FIELDS,
   buildSessionSearchMatcher,

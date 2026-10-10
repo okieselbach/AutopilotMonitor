@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { asGuidOrUndefined } from "@/utils/inputValidation";
+import { asGuidOrUndefined } from "@/lib/inputValidation";
 
 /**
  * Scope-aware URL builders for the tenant/global endpoint pairs in lib/api.ts.

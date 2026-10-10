@@ -2,7 +2,7 @@
 export const dynamic = "force-static";
 
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/utils/config";
+import { SITE_URL } from "@/lib/config";
 
 // Public marketing / legal pages.
 const PUBLIC_PATHS = ["/", "/about", "/ai", "/buy", "/get-started", "/help", "/plans", "/privacy", "/terms"];

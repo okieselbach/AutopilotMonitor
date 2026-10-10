@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 
 const WEB_ROOT = path.resolve(__dirname, "..");
-const OUTPUT_FILE = path.join(WEB_ROOT, "utils/page-lastmod.generated.ts");
+const OUTPUT_FILE = path.join(WEB_ROOT, "lib/generated/page-lastmod.generated.ts");
 
 // URL path -> source file(s) relative to WEB_ROOT.
 // Must list exactly the public pages emitted by app/sitemap.ts; the sitemap

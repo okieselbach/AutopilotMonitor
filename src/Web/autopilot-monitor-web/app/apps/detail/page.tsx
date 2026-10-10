@@ -9,11 +9,11 @@ import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { getErrorCodeEntry, formatErrorCode, formatErrorCodeSource } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode, formatErrorCodeSource } from "@/lib/errorCodeMap";
 import { trackEvent } from "@/lib/appInsights";
 // Static import is safe: appReportData is pure data prep with no jsPDF dependency —
 // jsPDF itself only loads with the dynamic import inside handleExportPdf.
-import { scopeLabel } from "@/utils/pdf/appReportData";
+import { scopeLabel } from "@/lib/pdf/appReportData";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -374,7 +374,7 @@ function AppDetailContent() {
     try {
       // Lazy import keeps jsPDF out of the route bundle; a failed chunk load
       // (deploy skew, offline) lands in the catch below and is tracked too.
-      const { generateAppReportPdf } = await import("@/utils/pdf/appReportPdf");
+      const { generateAppReportPdf } = await import("@/lib/pdf/appReportPdf");
       const result = generateAppReportPdf({
         analytics,
         appName,

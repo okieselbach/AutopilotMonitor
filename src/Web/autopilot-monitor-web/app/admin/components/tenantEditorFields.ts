@@ -1,5 +1,5 @@
 import { changedTenantConfigFields, type TenantConfigFieldName } from "@/lib/tenantConfigSave";
-import type { TenantConfiguration } from "@/utils/wire-types.generated";
+import type { TenantConfiguration } from "@/lib/generated/wire-types.generated";
 
 /**
  * The fields the Global Admin tenant editor saves with its generic Save. Plan, trial, delegated

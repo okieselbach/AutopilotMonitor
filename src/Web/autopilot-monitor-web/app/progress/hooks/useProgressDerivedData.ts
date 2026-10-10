@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { computeDeviceStatus, DeviceStatus } from "./deviceStatus";
-import { detectSkipUserStatusPage } from "@/app/sessions/utils/espConfig";
-import { isTerminalStatus } from "@/utils/sessionStatus";
+import { detectSkipUserStatusPage } from "@/app/sessions/lib/espConfig";
+import { isTerminalStatus } from "@/lib/sessionStatus";
 import {
   buildProgressSteps,
   computeOverallProgress,

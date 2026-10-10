@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 import { BrandMark } from "../BrandMark";
 import { GitHubIcon } from "../GitHubIcon";
 import { GitHubStarLink } from "../GitHubStarLink";
-import { GITHUB_REPO_URL } from "@/utils/githubStars";
+import { GITHUB_REPO_URL } from "@/lib/githubStars";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 
 // Root-anchored (/#…) so the links also work from subpages

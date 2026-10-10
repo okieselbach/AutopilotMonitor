@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LocationTableNote, LOCATION_TABLE_NOTE } from "../LocationTableNote";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 describe("LocationTableNote", () => {
   const html = renderToStaticMarkup(createElement(LocationTableNote));

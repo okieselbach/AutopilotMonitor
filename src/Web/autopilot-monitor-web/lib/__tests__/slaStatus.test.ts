@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SlaMetricsResponse, SlaSnapshot } from "@/utils/wire-types.generated";
+import type { SlaMetricsResponse, SlaSnapshot } from "@/lib/generated/wire-types.generated";
 import { buildSlaChecks, formatSlaWindow, summarizeSlaChecks } from "../slaStatus";
 
 function snapshot(overrides: Partial<SlaSnapshot> = {}): SlaSnapshot {

@@ -5,7 +5,7 @@ import type {
   AdminConfiguration as WireAdminConfiguration,
   PatchAdminConfigurationRequest,
   UpdateAdminConfigurationResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 /**
  * Saves the admin configuration by sending only what changed (PATCH global/config, D-285).

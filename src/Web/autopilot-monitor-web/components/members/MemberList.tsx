@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { TenantAdminRow } from "@/utils/wire-types.generated";
-import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
+import type { TenantAdminRow } from "@/lib/generated/wire-types.generated";
+import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
 import {
   MEMBER_ROLES,
   effectiveMemberFilter,

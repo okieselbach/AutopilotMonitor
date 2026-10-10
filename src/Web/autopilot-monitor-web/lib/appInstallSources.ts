@@ -1,4 +1,4 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /** Install channels of the app rows (backend `AppInstallSources`). */
 export const APP_INSTALL_SOURCES = SHARED_MANIFEST.appInstallSources;

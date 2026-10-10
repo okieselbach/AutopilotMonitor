@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { DistressReportEntry, DistressReportListResponse } from "@/utils/wire-types.generated";
+import type { DistressReportEntry, DistressReportListResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 /** One stored distress report — the wire shape (optional where the agent sent nothing). */

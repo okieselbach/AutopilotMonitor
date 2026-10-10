@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { trackEvent } from "@/lib/appInsights";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 interface AppHomingAddOnStepProps {
   /** Optional Graph add-on roles the previous app holds but the new app still lacks. */

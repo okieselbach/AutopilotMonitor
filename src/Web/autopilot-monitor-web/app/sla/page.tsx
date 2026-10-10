@@ -36,7 +36,7 @@ import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 // Wire type of the SLA endpoint — note status is a NUMBER there (the C# SessionStatus
 // enum serialized as int; rendered via statusLabels below), unlike the string status
 // on SessionSummary.
-import type { SlaMetricsResponse } from "@/utils/wire-types.generated";
+import type { SlaMetricsResponse } from "@/lib/generated/wire-types.generated";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { fetchJson } from "@/lib/apiClient";

@@ -13,7 +13,7 @@ const config = [
       "build/**",
       "next-env.d.ts",
       "node_modules/**",
-      "utils/page-lastmod.generated.ts",
+      "lib/generated/page-lastmod.generated.ts",
     ],
   },
   ...nextVitals,

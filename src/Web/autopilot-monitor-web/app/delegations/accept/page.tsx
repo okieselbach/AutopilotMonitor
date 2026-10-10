@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { describeDelegationError, invitationStatusLabel } from "@/lib/delegations";
-import type { AcceptDelegationInvitationRequest, AcceptDelegationInvitationResponse, DelegationAcceptPreviewResponse } from "@/utils/wire-types.generated";
+import type { AcceptDelegationInvitationRequest, AcceptDelegationInvitationResponse, DelegationAcceptPreviewResponse } from "@/lib/generated/wire-types.generated";
 import { ApiError, apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 

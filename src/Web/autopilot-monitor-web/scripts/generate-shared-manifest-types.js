@@ -1,11 +1,11 @@
 /**
- * Generate utils/shared-manifests.generated.ts AND utils/wire-types.generated.ts
- * from utils/shared-manifests.json (schemaVersion 2).
+ * Generate lib/generated/shared-manifests.generated.ts AND lib/generated/wire-types.generated.ts
+ * from lib/generated/shared-manifests.json (schemaVersion 2).
  *
  * The JSON is produced by the backend reflection guard (SharedManifestParityTests,
  * regenerated via AM_WRITE_SHARED_MANIFESTS=1). This script lifts it into TS twice:
  *  - shared-manifests.generated.ts: the catalog sections as an `as const` LITERAL
- *    module (compile-time drift checks in utils/sharedManifestChecks.ts). The bulky
+ *    module (compile-time drift checks in lib/sharedManifestChecks.ts). The bulky
  *    "types" section is stripped here — it lives in the second file.
  *  - wire-types.generated.ts: one interface per wire object, one string-union per
  *    wire enum, with the C# <summary> texts as JSDoc. These are the authoritative
@@ -20,7 +20,7 @@
  *    MCP enums drift).
  *
  * Run: node scripts/generate-shared-manifest-types.js  (npm run generate:manifests)
- * Freshness of the web outputs is pinned by utils/__tests__/sharedManifestParity.test.ts,
+ * Freshness of the web outputs is pinned by lib/__tests__/sharedManifestParity.test.ts,
  * the MCP copy by the MCP suite's wire-types-freshness.test.ts.
  */
 
@@ -28,9 +28,9 @@ const fs = require("fs");
 const path = require("path");
 
 const WEB_ROOT = path.resolve(__dirname, "..");
-const SOURCE = path.join(WEB_ROOT, "utils", "shared-manifests.json");
-const DEST_MANIFEST = path.join(WEB_ROOT, "utils", "shared-manifests.generated.ts");
-const DEST_TYPES = path.join(WEB_ROOT, "utils", "wire-types.generated.ts");
+const SOURCE = path.join(WEB_ROOT, "lib", "generated", "shared-manifests.json");
+const DEST_MANIFEST = path.join(WEB_ROOT, "lib", "generated", "shared-manifests.generated.ts");
+const DEST_TYPES = path.join(WEB_ROOT, "lib", "generated", "wire-types.generated.ts");
 // Second copy for the MCP server (same repo) — its tools read the same backend wire.
 const MCP_ROOT = path.resolve(WEB_ROOT, "..", "..", "McpServer", "autopilot-monitor-mcp");
 const DEST_MCP_TYPES = path.join(MCP_ROOT, "src", "generated", "wire-types.generated.ts");
@@ -44,7 +44,7 @@ const HEADER =
 
 const MCP_HEADER =
   "// GENERATED — do not edit by hand. Second copy for the MCP server.\n" +
-  "// Source: src/Web/autopilot-monitor-web/utils/shared-manifests.json.\n" +
+  "// Source: src/Web/autopilot-monitor-web/lib/generated/shared-manifests.json.\n" +
   "// Regenerate: npm run generate:manifests in src/Web/autopilot-monitor-web.\n";
 
 /** Pure builder so the vitest freshness check can reuse it. */
@@ -57,7 +57,7 @@ function buildGeneratedSource(manifestJsonText) {
   );
 }
 
-/** Pure builder for utils/wire-types.generated.ts (same freshness contract). */
+/** Pure builder for lib/generated/wire-types.generated.ts (same freshness contract). */
 function buildWireTypesSource(manifestJsonText) {
   return buildWireTypesSourceWithHeader(manifestJsonText, HEADER);
 }

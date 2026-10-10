@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/lib/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";

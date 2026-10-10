@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
-import type { RestoreSessionRequest, SessionRestoreResponse } from "@/utils/wire-types.generated";
+import type { RestoreSessionRequest, SessionRestoreResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 interface RestoreConfirmDialogProps {

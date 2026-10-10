@@ -1,4 +1,4 @@
-import { isGuid } from "@/utils/inputValidation";
+import { isGuid } from "@/lib/inputValidation";
 
 export interface TenantFilterCandidate {
   tenantId: string;

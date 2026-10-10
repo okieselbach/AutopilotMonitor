@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { fetchJson, jsonBody } from "@/lib/apiClient";
-import type { GetScriptDisplayNamesResponse, ScriptDisplayNamesRequest } from "@/utils/wire-types.generated";
+import type { GetScriptDisplayNamesResponse, ScriptDisplayNamesRequest } from "@/lib/generated/wire-types.generated";
 
 /** Matches the shape produced by `useAuth().getAccessToken` (may return null when expired). */
 export type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;

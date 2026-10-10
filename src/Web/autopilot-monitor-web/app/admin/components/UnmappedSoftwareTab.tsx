@@ -8,7 +8,7 @@ import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
 import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
-import type { AutoResolveCpeMappingRequest, GetUnmatchedSoftwareResponse, IgnoreSoftwareRequest, SaveCustomCpeMappingRequest } from "@/utils/wire-types.generated";
+import type { AutoResolveCpeMappingRequest, GetUnmatchedSoftwareResponse, IgnoreSoftwareRequest, SaveCustomCpeMappingRequest } from "@/lib/generated/wire-types.generated";
 
 interface UnmappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;

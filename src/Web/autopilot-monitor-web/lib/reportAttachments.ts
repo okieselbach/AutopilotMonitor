@@ -1,4 +1,4 @@
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 /**
  * Attachments of the two report forms (Submit Logs, Report Session): packed the way they are

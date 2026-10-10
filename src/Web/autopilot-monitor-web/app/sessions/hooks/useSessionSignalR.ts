@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { Session, RuleResult } from "@/types";
-import { isTerminalStatus } from "@/utils/sessionStatus";
+import { isTerminalStatus } from "@/lib/sessionStatus";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import { useSignalRResync } from "@/contexts/SignalRContext";
 import type { FetchEventsReason } from "./useSessionEvents";

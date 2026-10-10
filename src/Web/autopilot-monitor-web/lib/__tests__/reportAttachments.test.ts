@@ -12,7 +12,7 @@ import {
   utf8ByteLength,
   type NamedBlob,
 } from "../reportAttachments";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 function blob(name: string, content: string | Uint8Array): NamedBlob {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;

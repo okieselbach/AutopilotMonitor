@@ -2,8 +2,8 @@
  * Typed API URL builder
  * All backend endpoint URLs are defined here for type-safety and maintainability.
  */
-import { API_BASE_URL } from "@/utils/config";
-import type { BackupOutcome } from "@/utils/wire-types.generated";
+import { API_BASE_URL } from "@/lib/config";
+import type { BackupOutcome } from "@/lib/generated/wire-types.generated";
 import { appInstallSourceParam } from "@/lib/appInstallSources";
 import type { PushScope } from "@/lib/pushPortal";
 

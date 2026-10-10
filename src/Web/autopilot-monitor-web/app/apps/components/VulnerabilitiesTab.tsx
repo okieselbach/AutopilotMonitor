@@ -5,7 +5,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import VulnerabilityExposurePanel from "@/components/VulnerabilityExposurePanel";
-import type { CveExposureSummary } from "@/utils/wire-types.generated";
+import type { CveExposureSummary } from "@/lib/generated/wire-types.generated";
 import type { SoftwareTabScope } from "./types";
 import { windowProgressKey } from "@/lib/timeWindow";
 import { ApiError, fetchJson } from "@/lib/apiClient";

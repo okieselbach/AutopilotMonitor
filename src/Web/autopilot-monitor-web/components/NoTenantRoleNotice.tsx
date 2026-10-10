@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { trackEvent } from "@/lib/appInsights";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 /**
  * Full-page notice for a signed-in member without a tenant role who opened a page that needs one

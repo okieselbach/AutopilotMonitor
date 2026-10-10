@@ -16,8 +16,8 @@ import type {
   GetMyMcpUsageResponse,
   McpOrganizationQuotaNode,
   McpUsageQuotaNode,
-} from "@/utils/wire-types.generated";
-import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
+} from "@/lib/generated/wire-types.generated";
+import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
 
 interface UsageRecord {
   userId: string;

@@ -1,4 +1,4 @@
-import { PORTAL_URL } from "@/utils/config";
+import { PORTAL_URL } from "@/lib/config";
 
 /**
  * "Auth hint": does this page load belong to a signed-in (or signing-in) browser?

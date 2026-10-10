@@ -6,7 +6,7 @@ import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { CONFIG_PATH_PREFIX, invalidateCachedAuthFetch } from "@/lib/cachedAuthFetch";
 import { parseOpsDetails, useOpsRunStatus, type OpsRunLifecycle } from "@/hooks/useOpsRunStatus";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { GetLatestVersionsResponse } from "@/utils/wire-types.generated";
+import type { GetLatestVersionsResponse } from "@/lib/generated/wire-types.generated";
 
 const LIFECYCLE: OpsRunLifecycle = {
   category: "Maintenance",

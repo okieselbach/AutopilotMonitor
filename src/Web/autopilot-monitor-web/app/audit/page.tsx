@@ -13,7 +13,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { AuditLogListResponse } from "@/utils/wire-types.generated";
+import type { AuditLogListResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
 import { notifyApiError } from "@/contexts/NotificationContext";
 

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ACCESS_HINT_DOCS_URL, ProgressAccessHint } from "../ProgressAccessHint";
 import { SUPPORT_EMAIL } from "@/lib/supportContact";
-import { DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/lib/config";
 
 const render = (hint: Parameters<typeof ProgressAccessHint>[0]["hint"]) =>
   renderToStaticMarkup(createElement(ProgressAccessHint, { hint }));

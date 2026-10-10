@@ -10,8 +10,8 @@ import { openFeedbackDialog } from "@/lib/feedbackDialogStore";
 import { ATTACHMENT_BUDGET_BYTES, fitsReportRequest, packedSize } from "@/lib/reportAttachments";
 import { useAttachmentPack } from "@/hooks/useAttachmentPack";
 import { AttachmentBudgetLine, AttachmentField } from "@/components/ReportAttachments";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { SubmitDiagFilesReportRequest } from "@/utils/wire-types.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import type { SubmitDiagFilesReportRequest } from "@/lib/generated/wire-types.generated";
 
 const LOG_ACCEPT = ".log,.txt,.zip,.json,.jsonl,.ndjson";
 const MAX_COMMENT_CHARS = SHARED_MANIFEST.submissionLimits.reportCommentMaxChars;

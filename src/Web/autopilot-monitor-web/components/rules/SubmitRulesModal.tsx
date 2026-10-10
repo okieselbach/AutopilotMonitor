@@ -10,7 +10,7 @@ import type {
   RuleSubmissionItem,
   SubmitRuleSubmissionsRequest,
   SubmitRuleSubmissionsResponse,
-} from "@/utils/wire-types.generated";
+} from "@/lib/generated/wire-types.generated";
 
 /** The rule kinds a submission can carry (mirrors C# RuleSubmissionKinds). */
 export type SubmittableRuleKind = "gather" | "analyze";

@@ -2,10 +2,10 @@
 
 import { useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
-import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
-import { detectSkipUserStatusPage } from "../utils/espConfig";
-import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
-import type { WhiteGloveDurations } from "../utils/eventHelpers";
+import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../lib/phaseConstants";
+import { detectSkipUserStatusPage } from "../lib/espConfig";
+import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../lib/eventHelpers";
+import type { WhiteGloveDurations } from "../lib/eventHelpers";
 import { enrollmentWindowOf, sumStandbySeconds } from "@/lib/standby";
 import { deriveOsUpdateLive, type OsUpdateLiveFacts } from "@/lib/osUpdateLive";
 

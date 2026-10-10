@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { describeChannelHealth } from "@/lib/channelHealth";
-import type { NotificationChannelHealthDto } from "@/utils/wire-types.generated";
+import type { NotificationChannelHealthDto } from "@/lib/generated/wire-types.generated";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 

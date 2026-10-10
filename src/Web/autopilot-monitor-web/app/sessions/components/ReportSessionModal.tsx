@@ -7,7 +7,7 @@ import { AttachmentBudgetLine, AttachmentField } from "@/components/ReportAttach
 import { useAttachmentPack } from "@/hooks/useAttachmentPack";
 import { formatBytes } from "@/lib/formatting";
 import { ATTACHMENT_BUDGET_BYTES, packedSize, type PackedAttachment } from "@/lib/reportAttachments";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
 const MAX_COMMENT_CHARS = SHARED_MANIFEST.submissionLimits.reportCommentMaxChars;
 const MAX_EMAIL_CHARS = SHARED_MANIFEST.submissionLimits.contactEmailMaxChars;

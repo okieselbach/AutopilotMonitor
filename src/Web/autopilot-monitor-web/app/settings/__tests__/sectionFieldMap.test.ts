@@ -6,7 +6,7 @@
  * (never derived from the map itself — see tasks/lessons.md on circular parity fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 import { SECTION_FIELD_MAP } from "../sectionFieldMap";
 
 const sections = Object.entries(SECTION_FIELD_MAP) as Array<

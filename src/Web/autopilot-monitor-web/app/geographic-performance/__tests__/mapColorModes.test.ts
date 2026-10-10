@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { GlobalAverages, LocationMetrics } from "@/utils/wire-types.generated";
+import type { GlobalAverages, LocationMetrics } from "@/lib/generated/wire-types.generated";
 import {
   DEFAULT_MAP_COLOR_MODE,
   MAP_COLOR_MODES,

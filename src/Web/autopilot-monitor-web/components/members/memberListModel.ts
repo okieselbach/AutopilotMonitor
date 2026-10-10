@@ -1,5 +1,5 @@
-import type { TenantAdminRow } from "@/utils/wire-types.generated";
-import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
+import type { TenantAdminRow } from "@/lib/generated/wire-types.generated";
+import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
 
 /** Tenant roles a member row can grant, highest first. */
 export const MEMBER_ROLES = ["Admin", "Operator", "Viewer"] as const;
