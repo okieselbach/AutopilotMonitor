@@ -254,41 +254,25 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Sends an alert to the specified Telegram chat.
-        /// Converts the NotificationAlert into a plain-text Telegram message with severity emoji.
-        /// Best-effort — silently no-ops on failure.
+        /// Sends an alert to the specified Telegram chat as a plain-text message with severity
+        /// emoji and reports the outcome; never throws. The one Telegram channel send path — real
+        /// deliveries and the "send test" endpoints alike (the dispatcher records the outcome).
         /// <para>
         /// Virtual: <see cref="Notifications.NotificationChannelDispatcher"/> routes Telegram
         /// channels here, and its routing tests need a seam.
         /// </para>
         /// </summary>
-        public virtual async Task SendOpsAlertAsync(string chatId, NotificationAlert alert)
-        {
-            try
-            {
-                await SendAlertWithResultAsync(chatId, alert);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send Telegram ops alert: {Title}", alert.Title);
-            }
-        }
-
-        /// <summary>
-        /// Same message as <see cref="SendOpsAlertAsync"/>, but REPORTS the outcome instead of
-        /// swallowing it — for the channel "send test" endpoints. Never throws.
-        /// </summary>
-        public virtual async Task<Notifications.WebhookTestResult> SendAlertWithResultAsync(string chatId, NotificationAlert alert)
+        public virtual async Task<Notifications.NotificationSendResult> SendAlertAsync(string chatId, NotificationAlert alert)
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(chatId))
-                    return new Notifications.WebhookTestResult { Success = false, Message = "No Telegram chat ID configured." };
+                    return new Notifications.NotificationSendResult { Success = false, Message = "No Telegram chat ID configured." };
 
                 var webhookUrl = await GetWebhookUrlAsync();
                 if (string.IsNullOrWhiteSpace(webhookUrl))
                 {
-                    return new Notifications.WebhookTestResult
+                    return new Notifications.NotificationSendResult
                     {
                         Success = false,
                         Message = "The platform Telegram bot is not configured — no message can be delivered."
@@ -301,8 +285,8 @@ namespace AutopilotMonitor.Functions.Services
                 var sent = await PostWithRetryAsync(webhookUrl!, content, $"Alert:{alert.Title}");
 
                 return sent
-                    ? new Notifications.WebhookTestResult { Success = true, Message = "Test notification sent successfully." }
-                    : new Notifications.WebhookTestResult
+                    ? new Notifications.NotificationSendResult { Success = true, Message = "Test notification sent successfully." }
+                    : new Notifications.NotificationSendResult
                     {
                         Success = false,
                         Message = "Telegram rejected the message — check the chat ID and that the bot is a member of that chat."
@@ -310,7 +294,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
-                return new Notifications.WebhookTestResult { Success = false, Message = $"Connection error: {ex.Message}" };
+                return new Notifications.NotificationSendResult { Success = false, Message = $"Connection error: {ex.Message}" };
             }
         }
 

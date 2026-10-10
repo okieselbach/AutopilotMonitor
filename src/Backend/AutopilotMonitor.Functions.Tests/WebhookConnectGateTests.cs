@@ -225,7 +225,7 @@ public class WebhookConnectGateTests
         var webhook = new WebhookNotificationService(ClientThrough(SsrfGuard.CreateConnectCallback(resolver.Resolve)),
             NullLogger<WebhookNotificationService>.Instance);
 
-        var result = await webhook.SendNotificationWithResultAsync($"https://{Host}/hook", WebhookProviderType.GenericJson,
+        var result = await webhook.SendAsync($"https://{Host}/hook", WebhookProviderType.GenericJson,
             new NotificationAlert { Title = "T", Summary = "S" });
 
         Assert.False(result.Success);

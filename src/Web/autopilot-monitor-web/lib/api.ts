@@ -189,6 +189,9 @@ export const api = {
       `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/app-homing`,
     testNotification: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/test-notification`,
+    /** GET — delivery status of the tenant's saved notification channels (admin tier, like the test). */
+    channelHealth: (tenantId: string) =>
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/notification-channel-health`,
     latestVersions: (opts?: { refresh?: boolean }) =>
       `${API_BASE_URL}/api/config/latest-versions${qs({ refresh: opts?.refresh ? "true" : undefined })}`,
   },
@@ -213,6 +216,8 @@ export const api = {
     update: () => `${API_BASE_URL}/api/global/config`,
     /** Sends a test notification to one saved platform (ops) channel. */
     testOpsChannel: () => `${API_BASE_URL}/api/global/config/test-ops-channel`,
+    /** GET — delivery status of the saved platform (ops) channels. */
+    opsChannelHealth: () => `${API_BASE_URL}/api/global/config/ops-channel-health`,
     // NOTE: there is deliberately no per-tenant variant — /api/global/config/{tenantId} does
     // not exist in the backend. A tenant's member-readable flags (incl. unrestrictedMode)
     // come from config.featureFlags, which a GA may call cross-tenant (MemberRead bypass).

@@ -14380,6 +14380,125 @@
         }
       ]
     },
+    "NotificationChannelHealthDto": {
+      "kind": "object",
+      "doc": "Delivery status of one notification channel.",
+      "fields": [
+        {
+          "name": "channelId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "enum",
+            "name": "NotificationChannelHealthStatus"
+          }
+        },
+        {
+          "name": "recentAttempts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sends among the most recent outcomes kept (at most 20)."
+        },
+        {
+          "name": "recentFailures",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Failed sends among RecentAttempts."
+        },
+        {
+          "name": "consecutiveFailures",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lastAttemptUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastSuccessUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastFailureUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "failingSinceUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "First failure of the current run of consecutive failures."
+        },
+        {
+          "name": "lastStatusCode",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastError",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Short classified reason of the last failure, e.g. \"HTTP 401 Unauthorized\" (never a response body)."
+        }
+      ]
+    },
+    "NotificationChannelHealthResponse": {
+      "kind": "object",
+      "doc": "Response of GET config/{tenantId}/notification-channel-health AND GET global/config/ops-channel-health: the delivery status of every channel in the stored configuration (Push excluded — its health is per paired device), in channel order.",
+      "fields": [
+        {
+          "name": "channels",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "NotificationChannelHealthDto"
+            }
+          }
+        }
+      ]
+    },
+    "NotificationChannelHealthStatus": {
+      "kind": "enum",
+      "doc": "Delivery status of a notification channel, derived from its NotificationChannelHealth row.",
+      "members": [
+        "Unknown",
+        "Ok",
+        "Degraded",
+        "Failing"
+      ]
+    },
     "NotificationListResponse": {
       "kind": "object",
       "doc": "Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first.",

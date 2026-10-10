@@ -2,6 +2,9 @@
 
 import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
+import { useChannelHealth } from "@/hooks/useChannelHealth";
+import { api } from "@/lib/api";
 import { PushDevicesPanel } from "@/components/push/PushDevicesPanel";
 import { hasEnabledPushChannel } from "@/lib/pushPortal";
 import { useTenantConfig } from "../../TenantConfigContext";
@@ -10,6 +13,7 @@ import NotificationsSection from "../../components/NotificationsSection";
 
 export function SectionNotifications() {
   const { user } = useAuth();
+  const { tenantId } = useTenant();
   const {
     config,
     canEditConfig,
@@ -24,6 +28,14 @@ export function SectionNotifications() {
   // option here is convenience, not the control. Follows the Global-Admin VIEW, so switching it
   // off (or presenting in demo mode) yields the real tenant-admin dropdown.
   const showTelegramProvider = useGlobalAdminUi();
+
+  // Delivery status of the saved channels — same audience as "Send Test" (the people who can fix
+  // a destination). Re-read after a save (new config object) and after every test.
+  const channelHealth = useChannelHealth(
+    canEditConfig && tenantId ? api.config.channelHealth(tenantId) : null,
+    config?.notificationChannelsJson,
+    testChannelResult,
+  );
 
   // Push devices (plan push-relay K4): the SAVED config decides, not the draft — a Push channel
   // added but not yet saved has nothing to pair against on the server. Pairing is open to
@@ -47,6 +59,7 @@ export function SectionNotifications() {
         saving={savingSection === "notifications"}
         readOnly={!canEditConfig}
         showTelegramProvider={showTelegramProvider}
+        health={channelHealth}
       />
       {showPushDevices && <PushDevicesPanel scope="tenant" />}
     </>

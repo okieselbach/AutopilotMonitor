@@ -70,7 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
-                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert, NotificationScope.Platform);
+                var result = await _channelDispatcher.SendTestAsync(channel, testAlert, NotificationScope.Platform);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new TestWebhookNotificationResponse

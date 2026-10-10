@@ -37,6 +37,8 @@ public static class TenantNotificationAudienceCatalog
         ["app_version_duration_regression"] = NotificationAudience.Admin,
         // Community rule submission decided (approved/declined): only admins submit, only admins act.
         ["rule_submission_decided"] = NotificationAudience.Admin,
+        // A notification channel stopped delivering: only admins can fix the destination.
+        ["notification_channel_failing"] = NotificationAudience.Admin,
     };
 
     public static NotificationAudience Resolve(string? type)

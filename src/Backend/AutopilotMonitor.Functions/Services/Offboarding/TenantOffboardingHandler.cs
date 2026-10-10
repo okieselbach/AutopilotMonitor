@@ -65,6 +65,8 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.RuleStates,        // runtime state — NOT customs (kept; §6.7)
             Constants.TableNames.TenantNotifications,
             Constants.TableNames.HardwareRejectionNotificationTracker,
+            // Channel delivery records (PK=tenantId; the platform partition never matches a tenant GUID).
+            Constants.TableNames.NotificationChannelHealth,
             Constants.TableNames.SlaTenantStatus,
             Constants.TableNames.DeviceSnapshot,
             Constants.TableNames.EventSessionIndex,

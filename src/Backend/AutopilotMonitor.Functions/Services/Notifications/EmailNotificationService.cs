@@ -52,27 +52,15 @@ public class EmailNotificationService : IEmailChannelSender
         return result;
     }
 
-    public async Task SendOpsAlertAsync(string recipients, NotificationAlert alert)
-    {
-        try
-        {
-            await SendAlertWithResultAsync(recipients, alert).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "E-mail alert send failed for {EventType}", alert?.EventType);
-        }
-    }
-
-    public async Task<WebhookTestResult> SendAlertWithResultAsync(string recipients, NotificationAlert alert)
+    public async Task<NotificationSendResult> SendAlertAsync(string recipients, NotificationAlert alert)
     {
         var addresses = ParseRecipients(recipients);
         if (addresses.Count == 0)
-            return new WebhookTestResult { Success = false, Message = "This e-mail channel has no recipient." };
+            return new NotificationSendResult { Success = false, Message = "This e-mail channel has no recipient." };
         if (!_email.IsConfigured)
         {
             Track("not_configured", addresses.Count, 0);
-            return new WebhookTestResult { Success = false, Message = $"The e-mail provider is not configured ({EmailService.ApiKeyConfigKey})." };
+            return new NotificationSendResult { Success = false, Message = $"The e-mail provider is not configured ({EmailService.ApiKeyConfigKey})." };
         }
 
         var subject = EmailAlertRenderer.Subject(alert);
@@ -93,7 +81,7 @@ public class EmailNotificationService : IEmailChannelSender
             _logger.LogWarning("E-mail alert {EventType}: provider accepted {Accepted} of {Attempted} recipient(s)", alert.EventType, accepted, attempted);
 
         var detail = statuses.Length > 0 ? $" Provider status: {statuses}{(ids.Length > 0 ? $", id {ids}" : string.Empty)}." : string.Empty;
-        return new WebhookTestResult
+        return new NotificationSendResult
         {
             Success = accepted > 0,
             Message = (accepted == attempted

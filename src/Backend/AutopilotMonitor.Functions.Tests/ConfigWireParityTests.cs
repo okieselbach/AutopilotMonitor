@@ -684,6 +684,65 @@ public class ConfigWireParityTests
             });
     }
 
+    // ---- Notification channel health (new endpoint, shape pinned) ------------------------
+
+    [Fact]
+    public void NotificationChannelHealthResponse_pins_the_status_shape_and_omits_unset_fields()
+    {
+        var at = new DateTime(2026, 10, 10, 8, 0, 0, DateTimeKind.Utc);
+
+        AssertParity(
+            new
+            {
+                channels = new object[]
+                {
+                    new
+                    {
+                        channelId = "c1",
+                        status = "Failing",
+                        recentAttempts = 5,
+                        recentFailures = 2,
+                        consecutiveFailures = 2,
+                        lastAttemptUtc = at,
+                        lastSuccessUtc = at.AddDays(-1),
+                        lastFailureUtc = at,
+                        failingSinceUtc = at.AddHours(-2),
+                        lastStatusCode = 401,
+                        lastError = "HTTP 401 Unauthorized",
+                    },
+                    new
+                    {
+                        channelId = "c2",
+                        status = "Unknown",
+                        recentAttempts = 0,
+                        recentFailures = 0,
+                        consecutiveFailures = 0,
+                    },
+                },
+            },
+            new NotificationChannelHealthResponse
+            {
+                Channels =
+                {
+                    new NotificationChannelHealthDto
+                    {
+                        ChannelId = "c1",
+                        Status = AutopilotMonitor.Shared.Models.Notifications.NotificationChannelHealthStatus.Failing,
+                        RecentAttempts = 5,
+                        RecentFailures = 2,
+                        ConsecutiveFailures = 2,
+                        LastAttemptUtc = at,
+                        LastSuccessUtc = at.AddDays(-1),
+                        LastFailureUtc = at,
+                        FailingSinceUtc = at.AddHours(-2),
+                        LastStatusCode = 401,
+                        LastError = "HTTP 401 Unauthorized",
+                    },
+                    new NotificationChannelHealthDto { ChannelId = "c2" },
+                },
+            });
+    }
+
     // ---- UpdateAdminConfiguration --------------------------------------------------------
 
     [Fact]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Shared.Models.Config;
+using AutopilotMonitor.Shared.Models.Notifications;
 
 namespace AutopilotMonitor.Shared.Models
 {
@@ -317,6 +318,48 @@ namespace AutopilotMonitor.Shared.Models
         public int? StatusCode { get; set; }
 
         public string Message { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Response of GET config/{tenantId}/notification-channel-health AND GET
+    /// global/config/ops-channel-health: the delivery status of every channel in the stored
+    /// configuration (Push excluded — its health is per paired device), in channel order.
+    /// </summary>
+    // Declaration order == wire order.
+    public class NotificationChannelHealthResponse : IApiResponse
+    {
+        public List<NotificationChannelHealthDto> Channels { get; set; } = new List<NotificationChannelHealthDto>();
+    }
+
+    /// <summary>Delivery status of one notification channel.</summary>
+    // Declaration order == wire order.
+    public class NotificationChannelHealthDto
+    {
+        public string ChannelId { get; set; } = default!;
+
+        public NotificationChannelHealthStatus Status { get; set; }
+
+        /// <summary>Sends among the most recent outcomes kept (at most 20).</summary>
+        public int RecentAttempts { get; set; }
+
+        /// <summary>Failed sends among <see cref="RecentAttempts"/>.</summary>
+        public int RecentFailures { get; set; }
+
+        public int ConsecutiveFailures { get; set; }
+
+        public DateTime? LastAttemptUtc { get; set; }
+
+        public DateTime? LastSuccessUtc { get; set; }
+
+        public DateTime? LastFailureUtc { get; set; }
+
+        /// <summary>First failure of the current run of consecutive failures.</summary>
+        public DateTime? FailingSinceUtc { get; set; }
+
+        public int? LastStatusCode { get; set; }
+
+        /// <summary>Short classified reason of the last failure, e.g. "HTTP 401 Unauthorized" (never a response body).</summary>
+        public string? LastError { get; set; }
     }
 
     /// <summary>

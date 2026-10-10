@@ -40,6 +40,7 @@ namespace AutopilotMonitor.Functions.DataAccess
             // What's new notifier watermark (single platform row in the AdminConfiguration table).
             services.AddSingleton<IWhatsNewNotificationStateRepository, TableWhatsNewNotificationStateRepository>();
             services.AddSingleton<IHardwareRejectionNotificationTracker, TableHardwareRejectionNotificationTracker>();
+            services.AddSingleton<INotificationChannelHealthRepository, TableNotificationChannelHealthRepository>();
             services.AddSingleton<IDeviceSecurityRepository, TableDeviceSecurityRepository>();
             services.AddSingleton<IUserUsageRepository, TableUserUsageRepository>();
             services.AddSingleton<IDelegationInvitationRepository, TableDelegationInvitationRepository>();

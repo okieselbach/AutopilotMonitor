@@ -3051,6 +3051,33 @@ export interface MetricsSummaryTenantItem {
   windowDays: number;
 }
 
+/** Delivery status of one notification channel. */
+export interface NotificationChannelHealthDto {
+  channelId: string;
+  status: NotificationChannelHealthStatus;
+  /** Sends among the most recent outcomes kept (at most 20). */
+  recentAttempts: number;
+  /** Failed sends among RecentAttempts. */
+  recentFailures: number;
+  consecutiveFailures: number;
+  lastAttemptUtc?: string;
+  lastSuccessUtc?: string;
+  lastFailureUtc?: string;
+  /** First failure of the current run of consecutive failures. */
+  failingSinceUtc?: string;
+  lastStatusCode?: number;
+  /** Short classified reason of the last failure, e.g. "HTTP 401 Unauthorized" (never a response body). */
+  lastError?: string;
+}
+
+/** Response of GET config/{tenantId}/notification-channel-health AND GET global/config/ops-channel-health: the delivery status of every channel in the stored configuration (Push excluded — its health is per paired device), in channel order. */
+export interface NotificationChannelHealthResponse {
+  channels: NotificationChannelHealthDto[];
+}
+
+/** Delivery status of a notification channel, derived from its NotificationChannelHealth row. */
+export type NotificationChannelHealthStatus = "Unknown" | "Ok" | "Degraded" | "Failing";
+
 /** Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first. */
 export interface NotificationListResponse {
   success: boolean;

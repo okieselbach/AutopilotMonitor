@@ -33,59 +33,24 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         }
 
         /// <summary>
-        /// Sends a notification (fire-and-forget, non-fatal). Exceptions are logged as warnings.
+        /// Sends a notification and reports the outcome; never throws. The one webhook send path —
+        /// real deliveries and the "send test" endpoints alike (the dispatcher records the outcome).
         /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request,
         /// e.g. an API-key/Authorization header for a ticketing system or SMTP gateway.
         /// <paramref name="signingSecret"/> (generic webhooks only) adds HMAC signature headers
         /// (see <see cref="WebhookSignatureCalculator"/>).
         /// </summary>
-        public virtual async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
-            IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
-        {
-            if (string.IsNullOrEmpty(webhookUrl) || providerType == WebhookProviderType.None)
-                return;
-
-            try
-            {
-                if (!_renderers.TryGetValue(providerType, out var renderer))
-                {
-                    _logger.LogWarning("No renderer registered for webhook provider type {ProviderType}", providerType);
-                    return;
-                }
-
-                var json = renderer.RenderToJson(alert);
-                var response = await PostAsync(webhookUrl, json, customHeaders, signingSecret);
-
-                if (response.IsSuccessStatusCode)
-                    _logger.LogInformation("Webhook notification sent: {Summary} (provider={ProviderType})", alert.Summary, providerType);
-                else
-                {
-                    var body = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("Webhook returned {StatusCode} for {Summary}: {Body}", (int)response.StatusCode, alert.Summary, body);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send webhook notification: {Summary}", alert.Summary);
-            }
-        }
-
-        /// <summary>
-        /// Sends a notification and returns the result (for test endpoint). Not fire-and-forget.
-        /// <paramref name="customHeaders"/> and <paramref name="signingSecret"/> (generic
-        /// webhooks only) are applied exactly like in <see cref="SendNotificationAsync"/>.
-        /// </summary>
-        public virtual async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
+        public virtual async Task<NotificationSendResult> SendAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
             IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
         {
             if (string.IsNullOrEmpty(webhookUrl))
-                return new WebhookTestResult { Success = false, Message = "Webhook URL is not configured." };
+                return new NotificationSendResult { Success = false, Message = "Webhook URL is not configured." };
 
             if (providerType == WebhookProviderType.None)
-                return new WebhookTestResult { Success = false, Message = "No webhook provider selected." };
+                return new NotificationSendResult { Success = false, Message = "No webhook provider selected." };
 
             if (!_renderers.TryGetValue(providerType, out var renderer))
-                return new WebhookTestResult { Success = false, Message = $"Unknown provider type: {providerType}" };
+                return new NotificationSendResult { Success = false, Message = $"Unknown provider type: {providerType}" };
 
             try
             {
@@ -95,11 +60,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return new WebhookTestResult { Success = true, StatusCode = statusCode, Message = "Test notification sent successfully." };
+                    return new NotificationSendResult { Success = true, StatusCode = statusCode, Message = "Test notification sent successfully." };
                 }
 
                 var body = await response.Content.ReadAsStringAsync();
-                return new WebhookTestResult
+                return new NotificationSendResult
                 {
                     Success = false,
                     StatusCode = statusCode,
@@ -108,11 +73,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             }
             catch (HttpRequestException ex) when (ex.InnerException is SsrfException refused)
             {
-                return new WebhookTestResult { Success = false, Message = refused.Message };
+                return new NotificationSendResult { Success = false, Message = refused.Message };
             }
             catch (Exception ex)
             {
-                return new WebhookTestResult { Success = false, Message = $"Connection error: {ex.Message}" };
+                return new NotificationSendResult { Success = false, Message = $"Connection error: {ex.Message}" };
             }
         }
 
@@ -148,17 +113,5 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             return _http.SendAsync(request);
         }
-    }
-
-    /// <summary>
-    /// Outcome of a single "send a test notification" attempt. Shared by every channel provider —
-    /// <see cref="NotificationChannelDispatcher"/> returns it for Telegram channels too, which is
-    /// why the type is not webhook-specific despite the name.
-    /// </summary>
-    public class WebhookTestResult
-    {
-        public bool Success { get; set; }
-        public int? StatusCode { get; set; }
-        public string Message { get; set; } = "";
     }
 }

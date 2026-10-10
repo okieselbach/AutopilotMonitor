@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NotificationChannel } from "@/app/settings/types";
 import { PUSH_PROVIDER } from "@/lib/pushPortal";
+import type { ChannelHealthTone, ChannelHealthView } from "@/lib/channelHealth";
 
 /**
  * Shared channel editor card, used by BOTH the tenant Notifications section and the platform
@@ -10,6 +11,14 @@ import { PUSH_PROVIDER } from "@/lib/pushPortal";
  * options, secret handling or the test flow — the only difference is that ops channels are
  * targeted by alert RULES, not by the per-channel event toggles, so those are opt-out here.
  */
+
+/** Status dot per delivery-health tone (existing colour families only). */
+const HEALTH_DOT: Record<ChannelHealthTone, string> = {
+  green: "bg-green-500",
+  amber: "bg-amber-500",
+  red: "bg-red-500",
+  gray: "bg-gray-300",
+};
 
 const GENERIC_PROVIDER = 20;
 const TELEGRAM_PROVIDER = 40;
@@ -162,6 +171,7 @@ export function ChannelEditor({
   showTelegramProvider = false,
   showEventToggles = true,
   pushDestinationHint = PUSH_DESTINATION_HINT_TENANT,
+  health = null,
 }: {
   channel: NotificationChannel;
   onChange: (next: NotificationChannel) => void;
@@ -175,6 +185,8 @@ export function ChannelEditor({
   showEventToggles?: boolean;
   /** The sentence shown in place of the URL field for a Push channel (names the host's own devices panel). */
   pushDestinationHint?: string;
+  /** Delivery status of the SAVED channel; null for an unsaved channel, a Push channel or a reader without access. */
+  health?: ChannelHealthView | null;
 }) {
   const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
   const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
@@ -187,39 +199,58 @@ export function ChannelEditor({
   const providerOptions = PROVIDERS.filter(
     (p) => !p.gaOnly || showTelegramProvider || p.value === channel.providerType,
   );
+  // A disabled channel sends nothing, so its last status would only be history.
+  const status = channel.enabled ? health : null;
 
   return (
     <div className={`rounded-lg border ${channel.enabled ? "border-gray-200" : "border-gray-100 bg-gray-50"} p-4 space-y-4`}>
-      {/* Header row: name + enable + delete */}
+      {/* Header row: name + status + enable + delete. The name keeps a minimum width (basis-48)
+          and the rest wraps below it in a narrow host instead of squeezing it. */}
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="text"
           value={channel.name}
           onChange={(e) => onChange({ ...channel, name: e.target.value })}
           placeholder="Channel name (e.g. Service Desk)"
-          className="block flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 font-medium placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
+          className="block flex-1 basis-48 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 font-medium placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
         />
-        <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
-          Enabled
+        {status && (
+          <span
+            title={status.title}
+            className={`inline-flex items-center gap-1.5 text-xs whitespace-nowrap ${status.tone === "red" ? "text-red-700 font-medium" : "text-gray-600"}`}
+          >
+            <span className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${HEALTH_DOT[status.tone]}`} aria-hidden="true" />
+            {status.label}
+          </span>
+        )}
+        {/* Toggle and delete wrap as one unit. */}
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
+            Enabled
+            <button
+              type="button"
+              onClick={() => onChange({ ...channel, enabled: !channel.enabled })}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${channel.enabled ? "bg-sky-500" : "bg-gray-300"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${channel.enabled ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </label>
           <button
             type="button"
-            onClick={() => onChange({ ...channel, enabled: !channel.enabled })}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${channel.enabled ? "bg-sky-500" : "bg-gray-300"}`}
+            onClick={onRemove}
+            className="flex-shrink-0 p-2 text-gray-400 hover:text-red-600 transition-colors"
+            aria-label="Remove channel"
           >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${channel.enabled ? "translate-x-6" : "translate-x-1"}`} />
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
           </button>
-        </label>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="flex-shrink-0 p-2 text-gray-400 hover:text-red-600 transition-colors"
-          aria-label="Remove channel"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        </button>
+        </div>
       </div>
+
+      {status?.hint && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">{status.hint}</p>
+      )}
 
       {/* Provider */}
       <div className="flex items-center gap-2">

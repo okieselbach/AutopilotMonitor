@@ -6,6 +6,7 @@ import { MAX_NOTIFICATION_CHANNELS, NotificationChannel } from "../types";
 import { ChannelEditor } from "@/components/notifications/ChannelEditor";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { ChannelHealthView } from "@/lib/channelHealth";
 
 interface NotificationsSectionProps {
   channels: NotificationChannel[];
@@ -20,6 +21,8 @@ interface NotificationsSectionProps {
   readOnly?: boolean;
   /** Global Admin: the platform-bot Telegram provider is offered in the provider dropdown. */
   showTelegramProvider?: boolean;
+  /** Delivery status per saved channel id; null when it cannot be read. */
+  health?: Map<string, ChannelHealthView> | null;
 }
 
 
@@ -34,6 +37,7 @@ export default function NotificationsSection({
   saving,
   readOnly = false,
   showTelegramProvider = false,
+  health = null,
 }: NotificationsSectionProps) {
   const addChannel = () => {
     if (channels.length >= MAX_NOTIFICATION_CHANNELS) return;
@@ -79,6 +83,7 @@ export default function NotificationsSection({
             testing={testingChannelId === channel.id}
             testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
             showTelegramProvider={showTelegramProvider}
+            health={health?.get(channel.id) ?? null}
           />
         ))}
 

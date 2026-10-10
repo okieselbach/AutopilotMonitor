@@ -7,6 +7,7 @@ import { MAX_NOTIFICATION_CHANNELS, type NotificationChannel } from "@/app/setti
 import { toggleChannelBinding } from "./opsChannelRouting";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { ChannelHealthView } from "@/lib/channelHealth";
 
 /** Destination sentence of a platform Push channel (ChannelEditor shows it in place of the URL field). */
 const PUSH_DESTINATION_HINT_OPS =
@@ -320,6 +321,8 @@ interface OpsAlertRulesSectionProps {
   onTestChannel: (channelId: string) => Promise<void>;
   testingChannelId: string | null;
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
+  /** Delivery status per saved channel id; null when it cannot be read. */
+  channelHealth?: Map<string, ChannelHealthView> | null;
 }
 
 export function OpsAlertRulesSection({
@@ -336,6 +339,7 @@ export function OpsAlertRulesSection({
   onTestChannel,
   testingChannelId,
   testChannelResult,
+  channelHealth = null,
 }: OpsAlertRulesSectionProps) {
   // Local state for editing, seeded from props
   const [rules, setRules] = useState<OpsAlertRule[]>(() => buildFullRules(opsAlertRules));
@@ -604,6 +608,7 @@ export function OpsAlertRulesSection({
               showTelegramProvider
               showEventToggles={false}
               pushDestinationHint={PUSH_DESTINATION_HINT_OPS}
+              health={channelHealth?.get(channel.id) ?? null}
             />
           ))}
 

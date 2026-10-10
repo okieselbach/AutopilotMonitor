@@ -10,9 +10,6 @@ namespace AutopilotMonitor.Functions.Services.Notifications;
 /// </summary>
 public interface IEmailChannelSender
 {
-    /// <summary>Fire-and-forget semantics for the dispatcher: logs, never throws.</summary>
-    Task SendOpsAlertAsync(string recipients, NotificationAlert alert);
-
-    /// <summary>The "send test" path: reports what the provider accepted.</summary>
-    Task<WebhookTestResult> SendAlertWithResultAsync(string recipients, NotificationAlert alert);
+    /// <summary>Sends the alert and reports what the provider accepted — real deliveries and the "send test" endpoints alike.</summary>
+    Task<NotificationSendResult> SendAlertAsync(string recipients, NotificationAlert alert);
 }

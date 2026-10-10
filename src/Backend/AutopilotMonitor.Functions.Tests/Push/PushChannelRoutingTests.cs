@@ -23,10 +23,22 @@ public class PushChannelRoutingTests
     private static readonly NotificationScope Tenant = NotificationScope.Tenant("11111111-1111-1111-1111-111111111111");
 
     private static Mock<WebhookNotificationService> WebhookMock()
-        => new(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+    {
+        var mock = new Mock<WebhookNotificationService>(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+        mock.Setup(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true });
+        return mock;
+    }
 
     private static Mock<TelegramNotificationService> TelegramMock()
-        => new(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance) { CallBase = false };
+    {
+        var mock = new Mock<TelegramNotificationService>(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance)
+        { CallBase = false };
+        mock.Setup(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true });
+        return mock;
+    }
 
     private static NotificationChannel PushChannel(string id = "push") =>
         new() { Id = id, Name = id, ProviderType = (int)WebhookProviderType.Push, Url = null, Enabled = true };
@@ -43,9 +55,9 @@ public class PushChannelRoutingTests
         await dispatcher.SendToChannelsAsync(new[] { PushChannel() }, alert, Tenant);
 
         push.Verify(p => p.SendAsync(Tenant, alert), Times.Once);
-        webhook.Verify(w => w.SendNotificationAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
+        webhook.Verify(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
             It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Never);
-        telegram.Verify(t => t.SendOpsAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
+        telegram.Verify(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
     }
 
     [Fact]
@@ -53,10 +65,10 @@ public class PushChannelRoutingTests
     {
         var push = new Mock<IPushChannelSender>();
         push.Setup(p => p.SendWithResultAsync(It.IsAny<NotificationScope>(), It.IsAny<NotificationAlert>()))
-            .ReturnsAsync(new WebhookTestResult { Success = true, Message = "ok" });
+            .ReturnsAsync(new NotificationSendResult { Success = true, Message = "ok" });
         var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, push.Object);
 
-        var result = await dispatcher.SendWithResultAsync(PushChannel(), new NotificationAlert { Title = "t", Summary = "s" }, NotificationScope.Platform);
+        var result = await dispatcher.SendTestAsync(PushChannel(), new NotificationAlert { Title = "t", Summary = "s" }, NotificationScope.Platform);
 
         Assert.True(result.Success);
         push.Verify(p => p.SendWithResultAsync(NotificationScope.Platform, It.IsAny<NotificationAlert>()), Times.Once);

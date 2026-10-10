@@ -87,18 +87,18 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         }
     }
 
-    public async Task<WebhookTestResult> SendWithResultAsync(NotificationScope scope, NotificationAlert alert)
+    public async Task<NotificationSendResult> SendWithResultAsync(NotificationScope scope, NotificationAlert alert)
     {
         try
         {
             if (!_settings.IsConfigured)
-                return new WebhookTestResult { Success = false, Message = "The push channel is not configured on the platform (VAPID key missing)." };
+                return new NotificationSendResult { Success = false, Message = "The push channel is not configured on the platform (VAPID key missing)." };
 
             var stats = await SendCoreAsync(scope, alert).ConfigureAwait(false);
             if (stats.Targets == 0)
-                return new WebhookTestResult { Success = false, Message = "No active paired device in this scope — pair a device first." };
+                return new NotificationSendResult { Success = false, Message = "No active paired device in this scope — pair a device first." };
 
-            return new WebhookTestResult
+            return new NotificationSendResult
             {
                 Success = stats.Delivered > 0,
                 Message = $"Delivered to {stats.Delivered} of {stats.Targets} paired device(s)"
@@ -107,7 +107,7 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         }
         catch (Exception ex)
         {
-            return new WebhookTestResult { Success = false, Message = $"Push send failed: {ex.Message}" };
+            return new NotificationSendResult { Success = false, Message = $"Push send failed: {ex.Message}" };
         }
     }
 

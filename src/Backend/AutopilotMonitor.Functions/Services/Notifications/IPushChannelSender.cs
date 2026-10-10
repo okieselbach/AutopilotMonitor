@@ -12,5 +12,5 @@ public interface IPushChannelSender
     Task SendAsync(NotificationScope scope, NotificationAlert alert);
 
     /// <summary>The "send test" variant: reports the outcome instead of swallowing it.</summary>
-    Task<WebhookTestResult> SendWithResultAsync(NotificationScope scope, NotificationAlert alert);
+    Task<NotificationSendResult> SendWithResultAsync(NotificationScope scope, NotificationAlert alert);
 }

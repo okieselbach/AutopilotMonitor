@@ -1542,6 +1542,11 @@ namespace AutopilotMonitor.Shared
             // PartitionKey = tenantId, RowKey = "{manufacturer-lower}|{model-lower}". Lifetime dedup.
             public const string HardwareRejectionNotificationTracker = "HardwareRejectionNotificationTracker";
 
+            // Delivery record per notification channel (PartitionKey = lowercase tenant id or the
+            // platform scope for ops channels, RowKey = channel id). Written on every channel send;
+            // also the dedup of the "channel failing" bell (one per failing episode).
+            public const string NotificationChannelHealth = "NotificationChannelHealth";
+
             // Vulnerability data cache (CPE mappings, CVE data)
             public const string VulnerabilityCache = "VulnerabilityCache";
 
@@ -1734,6 +1739,7 @@ namespace AutopilotMonitor.Shared
                 GlobalNotifications,
                 TenantNotifications,
                 HardwareRejectionNotificationTracker,
+                NotificationChannelHealth,
                 VulnerabilityCache,
                 VulnerabilityReports,
                 SoftwareInventory,

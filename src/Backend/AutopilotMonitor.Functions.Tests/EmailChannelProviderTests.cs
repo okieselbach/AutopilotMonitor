@@ -22,10 +22,30 @@ public class EmailChannelProviderTests
     private static readonly NotificationScope Platform = NotificationScope.Platform;
 
     private static Mock<WebhookNotificationService> WebhookMock()
-        => new(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+    {
+        var mock = new Mock<WebhookNotificationService>(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+        mock.Setup(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true });
+        return mock;
+    }
 
     private static Mock<TelegramNotificationService> TelegramMock()
-        => new(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance) { CallBase = false };
+    {
+        var mock = new Mock<TelegramNotificationService>(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance)
+        { CallBase = false };
+        mock.Setup(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true });
+        return mock;
+    }
+
+    private static Mock<IEmailChannelSender> EmailMock()
+    {
+        var mock = new Mock<IEmailChannelSender>();
+        mock.Setup(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true });
+        return mock;
+    }
 
     private static NotificationChannel Channel(string? url, string id = "mail", bool enabled = true)
         => new() { Id = id, Name = id, ProviderType = Email, Url = url, Enabled = enabled };
@@ -48,30 +68,30 @@ public class EmailChannelProviderTests
     {
         var webhook = WebhookMock();
         var telegram = TelegramMock();
-        var email = new Mock<IEmailChannelSender>();
+        var email = EmailMock();
         var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>(), email.Object);
         var alert = Alert();
 
         await dispatcher.SendToChannelsAsync(new[] { Channel("ops@example.invalid; two@example.invalid") }, alert, Platform);
 
-        email.Verify(e => e.SendOpsAlertAsync("ops@example.invalid; two@example.invalid", alert), Times.Once);
-        webhook.Verify(w => w.SendNotificationAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
+        email.Verify(e => e.SendAlertAsync("ops@example.invalid; two@example.invalid", alert), Times.Once);
+        webhook.Verify(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
             It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Never);
-        telegram.Verify(t => t.SendOpsAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
+        telegram.Verify(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
     }
 
     [Fact]
     public async Task Email_channel_without_recipients_is_skipped_and_the_test_path_reports_the_sender_result()
     {
-        var email = new Mock<IEmailChannelSender>();
-        email.Setup(e => e.SendAlertWithResultAsync("ops@example.invalid", It.IsAny<NotificationAlert>()))
-            .ReturnsAsync(new WebhookTestResult { Success = true, Message = "Sent to 1 recipient(s)." });
+        var email = EmailMock();
+        email.Setup(e => e.SendAlertAsync("ops@example.invalid", It.IsAny<NotificationAlert>()))
+            .ReturnsAsync(new NotificationSendResult { Success = true, Message = "Sent to 1 recipient(s)." });
         var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, Mock.Of<IPushChannelSender>(), email.Object);
 
         await dispatcher.SendToChannelsAsync(new[] { Channel(""), Channel(null, "n") }, Alert(), Platform);
-        email.Verify(e => e.SendOpsAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
+        email.Verify(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
 
-        var result = await dispatcher.SendWithResultAsync(Channel("ops@example.invalid"), Alert(), Platform);
+        var result = await dispatcher.SendTestAsync(Channel("ops@example.invalid"), Alert(), Platform);
         Assert.True(result.Success);
         Assert.Equal("Sent to 1 recipient(s).", result.Message);
     }
@@ -82,7 +102,7 @@ public class EmailChannelProviderTests
         var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, Mock.Of<IPushChannelSender>());
 
         await dispatcher.SendToChannelsAsync(new[] { Channel("ops@example.invalid") }, Alert(), Platform);   // no throw
-        var result = await dispatcher.SendWithResultAsync(Channel("ops@example.invalid"), Alert(), Platform);
+        var result = await dispatcher.SendTestAsync(Channel("ops@example.invalid"), Alert(), Platform);
 
         Assert.False(result.Success);
         Assert.Contains("not registered", result.Message);
@@ -200,7 +220,7 @@ public class EmailChannelProviderTests
         var handler = new StubHandler();
         var (service, _) = Sender(handler, apiKey: "key");
 
-        var result = await service.SendAlertWithResultAsync("ops@example.invalid; second@example.invalid", Alert());
+        var result = await service.SendAlertAsync("ops@example.invalid; second@example.invalid", Alert());
 
         Assert.True(result.Success);
         Assert.Equal("Sent to 2 recipient(s). Provider status: sent, id abc,abc.", result.Message);
@@ -219,17 +239,16 @@ public class EmailChannelProviderTests
     {
         var handler = new StubHandler { Responder = _ => StubHandler.Json(HttpStatusCode.OK, "[{\"email\":\"ops@example.invalid\",\"status\":\"rejected\",\"reject_reason\":\"hard-bounce\"}]") };
         var (service, _) = Sender(handler, apiKey: "key");
-        var rejected = await service.SendAlertWithResultAsync("ops@example.invalid", Alert());
+        var rejected = await service.SendAlertAsync("ops@example.invalid", Alert());
         Assert.False(rejected.Success);
         Assert.Contains("accepted 0 of 1", rejected.Message);
         Assert.Contains("Provider status: rejected", rejected.Message);
 
         var (unconfigured, _) = Sender(new StubHandler(), apiKey: "");
-        var skipped = await unconfigured.SendAlertWithResultAsync("ops@example.invalid", Alert());
+        var skipped = await unconfigured.SendAlertAsync("ops@example.invalid", Alert());
         Assert.False(skipped.Success);
         Assert.Contains("not configured", skipped.Message);
 
-        await unconfigured.SendOpsAlertAsync("ops@example.invalid", Alert());   // never throws
     }
 
     [Fact]

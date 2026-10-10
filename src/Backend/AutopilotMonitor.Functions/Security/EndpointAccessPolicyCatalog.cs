@@ -417,6 +417,8 @@ public static class EndpointAccessPolicyCatalog
         // SelfServiceAppHomingEnabled kill switch is on, and only after the live consent probe.
         new("POST",   "config/{tenantId}/app-homing",                                  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/test-notification",                           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Channel delivery status: same audience as the test button — whoever can fix the destination.
+        new("GET",    "config/{tenantId}/notification-channel-health",                 EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
 
         // ── Graph add-on permissions ────────────────────────────────────────
         // Script display-name resolution is a *read* surface available to every tenant
@@ -501,6 +503,7 @@ public static class EndpointAccessPolicyCatalog
         // Changed fields only (D-285); the former full-model PUT/POST is gone.
         new("PATCH",  "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config/test-ops-channel", EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/config/ops-channel-health", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
         // Transactional field-level config writes + snapshot list/revert (MCP + web Settings).
         // PATCH is TenantAdminOrGA (phase 2, the web's per-section save): RouteParam binds a
