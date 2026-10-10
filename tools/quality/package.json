@@ -7,6 +7,6 @@
     "dup:baseline": "node check-duplicates.mjs --update"
   },
   "devDependencies": {
-    "jscpd": "5.3.0"
+    "jscpd": "5.4.0"
   }
 }
