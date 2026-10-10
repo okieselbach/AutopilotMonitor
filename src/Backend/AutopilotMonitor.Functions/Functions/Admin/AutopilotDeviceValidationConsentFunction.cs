@@ -27,7 +27,6 @@ public class AutopilotDeviceValidationConsentFunction
     internal static readonly TimeSpan AccessCheckBudget = TimeSpan.FromSeconds(4);
 
     private readonly ILogger<AutopilotDeviceValidationConsentFunction> _logger;
-    private readonly IConfiguration _configuration;
     private readonly GraphTokenService _graphTokenService;
     private readonly IGraphFeatureDetector _graphFeatureDetector;
     private readonly TelemetryClient _telemetryClient;
@@ -49,7 +48,6 @@ public class AutopilotDeviceValidationConsentFunction
 
     public AutopilotDeviceValidationConsentFunction(
         ILogger<AutopilotDeviceValidationConsentFunction> logger,
-        IConfiguration configuration,
         GraphTokenService graphTokenService,
         IGraphFeatureDetector graphFeatureDetector,
         TelemetryClient telemetryClient,
@@ -60,7 +58,6 @@ public class AutopilotDeviceValidationConsentFunction
     {
         _appHomingService = appHomingService;
         _logger = logger;
-        _configuration = configuration;
         _graphTokenService = graphTokenService;
         _graphFeatureDetector = graphFeatureDetector;
         _telemetryClient = telemetryClient;

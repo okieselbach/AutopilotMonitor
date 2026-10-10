@@ -44,7 +44,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             // from a real backend). We exercise the bundle-shape contract here.
             var rcs = new AutopilotMonitor.Agent.V2.Core.Configuration.RemoteConfigService(
                 auth.BackendApiClient, "tenant-x", logger,
-                auth.EmergencyReporter, auth.DistressReporter, auth.AuthFailureTracker);
+                auth.EmergencyReporter, auth.AuthFailureTracker);
             var rc = new AgentConfigResponse();
             var merge = new RemoteConfigMergeResult();
 

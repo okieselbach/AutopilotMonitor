@@ -21,14 +21,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     public sealed class TableConfigBackupRepository : IConfigBackupRepository
     {
         private readonly TableClient _tableClient;
-        private readonly ILogger<TableConfigBackupRepository> _logger;
 
         public TableConfigBackupRepository(
-            TableStorageService storage,
-            ILogger<TableConfigBackupRepository> logger)
+            TableStorageService storage)
         {
             _tableClient = storage.GetTableClient(Constants.TableNames.ConfigurationBackups);
-            _logger = logger;
         }
 
         public Task UpsertAsync(ConfigBackupEntry entry, CancellationToken ct = default)

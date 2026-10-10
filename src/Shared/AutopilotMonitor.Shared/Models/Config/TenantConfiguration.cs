@@ -104,9 +104,8 @@ namespace AutopilotMonitor.Shared.Models
         // ===== TENANT STATUS =====
 
         /// <summary>
-        /// When this tenant was first onboarded (derived from earliest TenantAdmin AddedDate).
+        /// When this tenant was first onboarded: set to UtcNow when the tenant is created.
         /// Used for feedback eligibility checks (tenant must be old enough before prompting).
-        /// Backfilled by the maintenance job for existing tenants; set to UtcNow for new tenants.
         /// </summary>
         public DateTime? OnboardedAt { get; set; }
 

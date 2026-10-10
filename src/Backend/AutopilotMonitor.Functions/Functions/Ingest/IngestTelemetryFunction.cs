@@ -499,7 +499,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 switch (kind)
                 {
                     case TelemetryItemKind.Event:
-                        parsed = Add(batch.Events, TelemetryPayloadParser.ParseEvent(item, tenantId, sessionId));
+                        parsed = Add(batch.Events, TelemetryPayloadParser.ParseEvent(item));
                         break;
                     case TelemetryItemKind.Signal:
                         parsed = Add(batch.Signals, TelemetryPayloadParser.ParseSignal(item, tenantId, sessionId));

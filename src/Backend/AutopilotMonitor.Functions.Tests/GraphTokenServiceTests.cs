@@ -48,7 +48,6 @@ public class GraphTokenServiceTests
             NullLogger<GraphTokenService>.Instance,
             factory,
             new MemoryCache(new MemoryCacheOptions()),
-            config,
             new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance),
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
@@ -237,7 +236,6 @@ public class GraphTokenServiceTests
             NullLogger<GraphTokenService>.Instance,
             new StubHttpClientFactory(handler),
             new MemoryCache(new MemoryCacheOptions()),
-            config,
             registry,
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),

@@ -338,7 +338,6 @@ public class GraphFeatureDetectorTests
             NullLogger<GraphTokenService>.Instance,
             new SingleHandlerFactory(handler),
             cache,
-            tokenConfig,
             new EntraAppRegistry(tokenConfig, NullLogger<EntraAppRegistry>.Instance),
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
@@ -497,7 +496,6 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
-                StubEntraConfig(),
                 StubAppRegistry(),
                 StubTenantConfigService())
         {
@@ -530,7 +528,6 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
-                StubEntraConfig(),
                 StubAppRegistry(),
                 StubTenantConfigService())
         {
@@ -569,7 +566,6 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 factory,
                 cache,
-                StubEntraConfig(),
                 StubAppRegistry(),
                 StubTenantConfigService())
         {

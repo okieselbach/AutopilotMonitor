@@ -50,7 +50,6 @@ namespace AutopilotMonitor.Functions.Security
         private readonly ILogger<GraphTokenService> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IMemoryCache _cache;
-        private readonly IConfiguration _configuration;
         private readonly EntraAppRegistry _appRegistry;
         private readonly Services.TenantConfigurationService _tenantConfigService;
 
@@ -58,14 +57,12 @@ namespace AutopilotMonitor.Functions.Security
             ILogger<GraphTokenService> logger,
             IHttpClientFactory httpClientFactory,
             IMemoryCache cache,
-            IConfiguration configuration,
             EntraAppRegistry appRegistry,
             Services.TenantConfigurationService tenantConfigService)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
             _cache = cache;
-            _configuration = configuration;
             _appRegistry = appRegistry;
             _tenantConfigService = tenantConfigService;
         }

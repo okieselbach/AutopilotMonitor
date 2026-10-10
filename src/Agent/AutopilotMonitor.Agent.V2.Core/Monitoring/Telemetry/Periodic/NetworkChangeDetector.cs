@@ -26,7 +26,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
         private readonly AgentLogger _logger;
-        private readonly string _apiBaseUrl;
 
         private NetworkStateSnapshot _lastKnownState;
         private Timer _debounceTimer;
@@ -54,14 +53,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             string sessionId,
             string tenantId,
             InformationalEventPost post,
-            AgentLogger logger,
-            string apiBaseUrl = null)
+            AgentLogger logger)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _apiBaseUrl = apiBaseUrl;
         }
 
         public void Start()
@@ -225,15 +222,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         {
             if (_disposed || _connectivityCheckClient == null) return;
 
-            // Build endpoint list: static MDM endpoints + dynamic backend URL
+            // Static MDM endpoints only. The backend API stays out on purpose: enrollment does not
+            // need it, so its outage must not raise a connectivity alarm.
             var endpoints = new List<(string Name, string Url)>(MdmEndpoints);
-            // Optionally add the Autopilot Monitor API endpoint, but we don't want to cause false alarms if it's down or unreachable, 
-            // since it's not critical for enrollment success and may be available only after certain network changes (e.g. if it's behind a captive portal). 
-            // For now, we can omit it from the critical checks.
-            // if (!string.IsNullOrEmpty(_apiBaseUrl))
-            // {
-            //     endpoints.Add(("Autopilot Monitor API", _apiBaseUrl));
-            // }
 
             // Run all checks in parallel
             var tasks = endpoints.Select(ep => CheckEndpointAsync(ep.Name, ep.Url)).ToArray();

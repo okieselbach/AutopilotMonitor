@@ -247,7 +247,6 @@ public class TenantOffboardingWorkerPoisonTests
 
             Worker = new TenantOffboardingWorker(
                 MainQueue.Object, PoisonQueue.Object, handler,
-                BuildOpsService(),
                 NullLogger<TenantOffboardingWorker>.Instance);
         }
 

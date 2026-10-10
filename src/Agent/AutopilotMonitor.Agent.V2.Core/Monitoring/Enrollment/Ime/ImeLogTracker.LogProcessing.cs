@@ -882,11 +882,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         break;
 
                     case "healthscriptresult":
-                        HandleHealthScriptResult(match, pattern.Parameters);
+                        HandleHealthScriptResult(match);
                         break;
 
                     case "healthscriptdetectionresult":
-                        HandleHealthScriptDetectionResult(match, pattern.Parameters);
+                        HandleHealthScriptDetectionResult(match);
                         break;
 
                     default:

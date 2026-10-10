@@ -364,7 +364,7 @@ public class TenantOffboardingHandlerOrderingTests
 
             h.Enumerator
                 .Setup(e => e.EnumerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Returns<string, CancellationToken>((_, ct) => EmptyEnumerateAsync(ct));
+                .Returns<string, CancellationToken>((_, _) => EmptyEnumerateAsync());
 
             h.DrainProbe.Setup(p => p.IsCascadeCompletedAsync(
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -419,8 +419,7 @@ public class TenantOffboardingHandlerOrderingTests
             DrainPollCount = 0,
         };
 
-        private static async IAsyncEnumerable<string> EmptyEnumerateAsync(
-            [EnumeratorCancellation] CancellationToken ct)
+        private static async IAsyncEnumerable<string> EmptyEnumerateAsync()
         {
             await Task.CompletedTask;
             yield break;

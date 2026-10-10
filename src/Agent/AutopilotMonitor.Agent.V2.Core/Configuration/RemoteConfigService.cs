@@ -21,7 +21,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         private readonly AgentLogger _logger;
         private readonly string _cacheFilePath;
         private readonly EmergencyReporter _emergencyReporter;
-        private readonly DistressReporter _distressReporter;
         private readonly AuthFailureTracker _authFailureTracker;
 
         private AgentConfigResponse _currentConfig;
@@ -92,13 +91,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// </summary>
         public bool RecoveredAfterFetchFailure { get; private set; }
 
-        public RemoteConfigService(BackendApiClient apiClient, string tenantId, AgentLogger logger, EmergencyReporter emergencyReporter = null, DistressReporter distressReporter = null, AuthFailureTracker authFailureTracker = null)
+        public RemoteConfigService(BackendApiClient apiClient, string tenantId, AgentLogger logger, EmergencyReporter emergencyReporter = null, AuthFailureTracker authFailureTracker = null)
         {
             _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _emergencyReporter = emergencyReporter;
-            _distressReporter = distressReporter;
             _authFailureTracker = authFailureTracker;
 
             var cacheDir = Environment.ExpandEnvironmentVariables(@"%ProgramData%\AutopilotMonitor\Config");

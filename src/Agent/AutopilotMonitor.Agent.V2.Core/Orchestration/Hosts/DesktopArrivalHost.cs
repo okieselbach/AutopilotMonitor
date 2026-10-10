@@ -18,7 +18,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private readonly DesktopArrivalDetector _detector;
         private readonly DesktopArrivalDetectorAdapter _adapter;
-        private readonly AgentLogger _logger;
         private int _disposed;
 
         public DesktopArrivalHost(
@@ -30,7 +29,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string? tenantId = null,
             Action<string>? onRealUserOwnerObserved = null)
         {
-            _logger = logger;
             _detector = new DesktopArrivalDetector(logger, noCandidateTimeoutMinutes);
             _adapter = new DesktopArrivalDetectorAdapter(_detector, ingress, clock);
 

@@ -479,14 +479,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             public HashSet<string> ExistingKeys { get; } =
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            public IReadOnlyList<string> Enumerate(RegistryHive hive, string packagesPath)
+            public IReadOnlyList<string> Enumerate(RegistryHive _, string packagesPath)
             {
                 return PackagesByPath.TryGetValue(packagesPath, out var ids)
                     ? (IReadOnlyList<string>)ids
                     : Array.Empty<string>();
             }
 
-            public bool TryRead(RegistryHive hive, string packagesPath, string packageId, out RealmJoinPackageSnapshot snapshot)
+            public bool TryRead(RegistryHive _, string _1, string packageId, out RealmJoinPackageSnapshot snapshot)
             {
                 snapshot = new RealmJoinPackageSnapshot(
                     packageId: packageId,
@@ -497,7 +497,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
                 return true;
             }
 
-            public bool KeyExists(RegistryHive hive, string subPath)
+            public bool KeyExists(RegistryHive _, string subPath)
                 => ExistingKeys.Contains(subPath);
         }
 

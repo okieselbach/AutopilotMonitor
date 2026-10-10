@@ -64,7 +64,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         private void Buffer(string? rebootUri, long? recordId = null, bool isBackfill = false, DateTime? timeCreatedUtc = null, string? description = null)
         {
             _tracker.ProcessEvent(
-                eventId: MdmRebootPolicyTracker.EventId_PolicyRebootRequired,
                 recordId: recordId ?? _nextRecordId++,
                 timeCreatedUtc: timeCreatedUtc ?? At,
                 rebootUri: rebootUri,
@@ -226,13 +225,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             // The coalesced reboot restarts the agent; the post-reboot backfill re-reads the same
             // records — a FLUSHED record must be skipped by the next instance.
             var first = MakeTracker(stateDirectory: _tmp.Path);
-            first.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+            first.ProcessEvent(recordId: 500,
                 timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: false);
             first.FlushPending();
 
             var second = MakeTracker(stateDirectory: _tmp.Path);
             second.LoadWatermark();
-            second.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+            second.ProcessEvent(recordId: 500,
                 timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: true);
             second.FlushPending();
 
@@ -245,13 +244,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             // Process killed by the very reboot the records announce: nothing was flushed, so the
             // next instance must re-read and emit the records.
             var first = MakeTracker(stateDirectory: _tmp.Path);
-            first.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+            first.ProcessEvent(recordId: 500,
                 timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: false);
             // no FlushPending — simulated reboot kill
 
             var second = MakeTracker(stateDirectory: _tmp.Path);
             second.LoadWatermark();
-            second.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+            second.ProcessEvent(recordId: 500,
                 timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: true);
             second.FlushPending();
 

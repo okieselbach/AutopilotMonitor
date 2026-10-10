@@ -19,12 +19,10 @@ namespace AutopilotMonitor.Functions.Functions.Backup
     public class GetBackupManifestFunction
     {
         private readonly BlobBackupStore _store;
-        private readonly ILogger<GetBackupManifestFunction> _logger;
 
-        public GetBackupManifestFunction(BlobBackupStore store, ILogger<GetBackupManifestFunction> logger)
+        public GetBackupManifestFunction(BlobBackupStore store)
         {
             _store = store;
-            _logger = logger;
         }
 
         [Function("GetBackupManifest")]

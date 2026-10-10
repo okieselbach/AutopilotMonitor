@@ -30,14 +30,11 @@ public sealed class TableScriptNameCacheRepository : IScriptNameCacheRepository
     private const string MetaRowKeySuffix = "_$meta";
 
     private readonly TableClient _tableClient;
-    private readonly ILogger<TableScriptNameCacheRepository> _logger;
 
     public TableScriptNameCacheRepository(
-        TableStorageService storage,
-        ILogger<TableScriptNameCacheRepository> logger)
+        TableStorageService storage)
     {
         _tableClient = storage.GetTableClient(Constants.TableNames.ScriptNameCache);
-        _logger = logger;
     }
 
     public async Task<IReadOnlyDictionary<ScriptRef, ScriptDisplayNameEntry>> GetManyAsync(

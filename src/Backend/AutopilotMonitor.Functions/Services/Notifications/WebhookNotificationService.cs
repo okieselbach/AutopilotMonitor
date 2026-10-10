@@ -16,13 +16,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     public class WebhookNotificationService
     {
         private readonly HttpClient _http;
-        private readonly ILogger<WebhookNotificationService> _logger;
         private readonly Dictionary<WebhookProviderType, INotificationRenderer> _renderers;
 
-        public WebhookNotificationService(HttpClient http, ILogger<WebhookNotificationService> logger)
+        public WebhookNotificationService(HttpClient http)
         {
             _http = http;
-            _logger = logger;
             _renderers = new Dictionary<WebhookProviderType, INotificationRenderer>
             {
                 [WebhookProviderType.TeamsWorkflowWebhook] = new TeamsWorkflowAdaptiveCardRenderer(),

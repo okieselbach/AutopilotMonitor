@@ -69,20 +69,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
         private readonly AgentLogger _logger;
-        private readonly IClock? _clock;
 
         public ProvisioningPackageCollector(
             string sessionId,
             string tenantId,
             InformationalEventPost post,
-            AgentLogger logger,
-            IClock? clock = null)
+            AgentLogger logger)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _clock = clock;
         }
 
         /// <summary>

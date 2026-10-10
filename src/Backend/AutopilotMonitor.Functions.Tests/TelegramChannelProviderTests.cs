@@ -19,7 +19,7 @@ public class TelegramChannelProviderTests
 {
     private static Mock<WebhookNotificationService> WebhookMock()
     {
-        var mock = new Mock<WebhookNotificationService>(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+        var mock = new Mock<WebhookNotificationService>(new HttpClient()) { CallBase = false };
         mock.Setup(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
                 It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()))
             .ReturnsAsync(new NotificationSendResult { Success = true });

@@ -18,16 +18,13 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// </summary>
 public class DelegationSelfServiceFunction
 {
-    private readonly ILogger<DelegationSelfServiceFunction> _logger;
     private readonly DelegationSelfService _svc;
     private readonly DelegatedSlotService _slots;
 
     public DelegationSelfServiceFunction(
-        ILogger<DelegationSelfServiceFunction> logger,
         DelegationSelfService svc,
         DelegatedSlotService slots)
     {
-        _logger = logger;
         _svc = svc;
         _slots = slots;
     }

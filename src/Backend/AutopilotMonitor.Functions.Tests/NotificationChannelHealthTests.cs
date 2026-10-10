@@ -422,7 +422,7 @@ public class NotificationChannelHealthTests
     private static NotificationChannelDispatcher Dispatcher(
         Mock<INotificationChannelHealthRecorder> recorder, Func<NotificationSendResult>? webhookResult = null, Mock<IPushChannelSender>? push = null)
     {
-        var webhook = new Mock<WebhookNotificationService>(new HttpClient(), NullLogger<WebhookNotificationService>.Instance) { CallBase = false };
+        var webhook = new Mock<WebhookNotificationService>(new HttpClient()) { CallBase = false };
         if (webhookResult == null)
         {
             webhook.Setup(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),

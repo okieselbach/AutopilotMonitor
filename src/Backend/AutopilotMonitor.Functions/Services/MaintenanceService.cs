@@ -32,10 +32,8 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ISessionRepository _sessionRepo;
         private readonly IMetricsRepository _metricsRepo;
         private readonly TenantConfigurationService _tenantConfigService;
-        private readonly UsageMetricsService _usageMetricsService;
         private readonly AdminConfigurationService _adminConfigurationService;
         private readonly BlockedDeviceService _blockedDeviceService;
-        private readonly TenantAdminsService _tenantAdminsService;
         private readonly IUserUsageRepository _userUsageRepo;
         private readonly IDistressReportRepository _distressReportRepo;
         private readonly IOpsEventRepository _opsEventRepo;
@@ -70,10 +68,8 @@ namespace AutopilotMonitor.Functions.Services
             ISessionRepository sessionRepo,
             IMetricsRepository metricsRepo,
             TenantConfigurationService tenantConfigService,
-            UsageMetricsService usageMetricsService,
             AdminConfigurationService adminConfigurationService,
             BlockedDeviceService blockedDeviceService,
-            TenantAdminsService tenantAdminsService,
             IUserUsageRepository userUsageRepo,
             IDistressReportRepository distressReportRepo,
             IOpsEventRepository opsEventRepo,
@@ -102,10 +98,8 @@ namespace AutopilotMonitor.Functions.Services
             _sessionRepo = sessionRepo;
             _metricsRepo = metricsRepo;
             _tenantConfigService = tenantConfigService;
-            _usageMetricsService = usageMetricsService;
             _adminConfigurationService = adminConfigurationService;
             _blockedDeviceService = blockedDeviceService;
-            _tenantAdminsService = tenantAdminsService;
             _userUsageRepo = userUsageRepo;
             _distressReportRepo = distressReportRepo;
             _opsEventRepo = opsEventRepo;

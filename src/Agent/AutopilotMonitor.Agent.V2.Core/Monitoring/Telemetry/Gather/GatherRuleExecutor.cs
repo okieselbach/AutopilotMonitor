@@ -827,11 +827,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             sb.Append(value);
         }
 
-        private EventSeverity ParseSeverity(string severity)
-        {
-            return GatherRuleContext.ParseSeverity(severity);
-        }
-
         private void StopAllTimers()
         {
             foreach (var timer in _intervalTimers.Values)

@@ -140,8 +140,7 @@ public class CriticalTableRestoreServiceTests
                 ["IsEnabled"] = ("Boolean", true),
             });
         var sha = ComputeSha(lineBytes);
-        var manifest = MakeManifestForTable(Constants.TableNames.GlobalAdmins,
-            MakeEntry(Constants.TableNames.GlobalAdmins, sha, lineBytes.Length));
+        var manifest = MakeManifestForTable(MakeEntry(Constants.TableNames.GlobalAdmins, sha, lineBytes.Length));
 
         var fakeStore = new FakeStore(manifest, lineBytes, new ETag("\"0xABC\""));
         var tables = BuildTableStorageWithLiveRow(liveRow: null);
@@ -179,9 +178,9 @@ public class CriticalTableRestoreServiceTests
     };
 
     private static CriticalTableBackupManifest MakeManifest(CriticalTableBackupTableEntry entry) =>
-        MakeManifestForTable(Table, entry);
+        MakeManifestForTable(entry);
 
-    private static CriticalTableBackupManifest MakeManifestForTable(string tableName, CriticalTableBackupTableEntry entry) => new()
+    private static CriticalTableBackupManifest MakeManifestForTable(CriticalTableBackupTableEntry entry) => new()
     {
         SchemaVersion = 1,
         BackupId = BackupId,

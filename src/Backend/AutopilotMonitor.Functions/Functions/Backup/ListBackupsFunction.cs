@@ -20,12 +20,10 @@ namespace AutopilotMonitor.Functions.Functions.Backup
     public class ListBackupsFunction
     {
         private readonly BlobBackupStore _store;
-        private readonly ILogger<ListBackupsFunction> _logger;
 
-        public ListBackupsFunction(BlobBackupStore store, ILogger<ListBackupsFunction> logger)
+        public ListBackupsFunction(BlobBackupStore store)
         {
             _store = store;
-            _logger = logger;
         }
 
         [Function("ListBackups")]

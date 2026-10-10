@@ -20,12 +20,10 @@ namespace AutopilotMonitor.Functions.Functions.Backup
     public class GetBackupJobStatusFunction
     {
         private readonly BackupJobsRepository _jobs;
-        private readonly ILogger<GetBackupJobStatusFunction> _logger;
 
-        public GetBackupJobStatusFunction(BackupJobsRepository jobs, ILogger<GetBackupJobStatusFunction> logger)
+        public GetBackupJobStatusFunction(BackupJobsRepository jobs)
         {
             _jobs = jobs;
-            _logger = logger;
         }
 
         [Function("GetBackupJobStatus")]

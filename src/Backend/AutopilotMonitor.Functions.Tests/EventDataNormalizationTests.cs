@@ -43,7 +43,7 @@ public class EventDataNormalizationTests
     [Fact]
     public void ParseEvent_normalizes_nested_objects_to_native_types()
     {
-        var evt = TelemetryPayloadParser.ParseEvent(EventDto(HardwareSpecPayload), TenantId, SessionId);
+        var evt = TelemetryPayloadParser.ParseEvent(EventDto(HardwareSpecPayload));
 
         Assert.NotNull(evt);
         // Nested array must be a native List<object> of Dictionary<string,object>, NOT a JArray/JObject.
@@ -58,7 +58,7 @@ public class EventDataNormalizationTests
         // The actual corruption manifests when the downstream DeviceSnapshot writer re-serializes
         // Data with System.Text.Json. Before the fix this produced "disks":[[[[]],...]]; now the
         // real fields must survive a round-trip.
-        var evt = TelemetryPayloadParser.ParseEvent(EventDto(HardwareSpecPayload), TenantId, SessionId);
+        var evt = TelemetryPayloadParser.ParseEvent(EventDto(HardwareSpecPayload));
         Assert.NotNull(evt);
 
         var json = Stj.Serialize(evt!.Data);

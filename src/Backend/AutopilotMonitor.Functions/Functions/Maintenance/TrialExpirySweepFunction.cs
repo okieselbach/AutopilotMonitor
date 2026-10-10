@@ -17,8 +17,8 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance;
 /// <list type="bullet">
 ///   <item><c>TenantTrialExpired</c> (Warning) — the trial ended within the last sweep window
 ///         (24h look-back matching the daily cadence).</item>
-///   <item><c>TenantTrialExpiring</c> (Info) — the trial ends within the next
-///         <see cref="ExpiringHeadsUpDays"/> days (re-emitted each daily run until expiry —
+///   <item><c>TenantTrialExpiring</c> (Info) — the trial ends within the
+///         <see cref="ExpiringHeadsUp"/> window (re-emitted each daily run until expiry —
 ///         acceptable for an Info-tier heads-up, no dedupe state to maintain).</item>
 ///   <item><c>TenantRetentionGraceExpiring</c> / <c>TenantRetentionGraceEnded</c> (Warning) —
 ///         same window mechanics for the retention downgrade grace
@@ -34,7 +34,6 @@ public class TrialExpirySweepFunction
 {
     /// <summary>Heads-up window for TenantTrialExpiring.</summary>
     public static readonly TimeSpan ExpiringHeadsUp = TimeSpan.FromDays(3);
-    private const int ExpiringHeadsUpDays = 3;
 
     /// <summary>Look-back for TenantTrialExpired — matches the daily cadence so no expiry is skipped.</summary>
     public static readonly TimeSpan ExpiredLookBack = TimeSpan.FromHours(24);

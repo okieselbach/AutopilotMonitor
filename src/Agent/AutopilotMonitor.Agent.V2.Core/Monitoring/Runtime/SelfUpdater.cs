@@ -145,7 +145,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// On any failure, returns normally so the current version continues.
         /// </summary>
         /// <param name="forceUpdate">
-        /// When true, bypasses the IsNewerVersion check — used by the runtime-hash-mismatch trigger
+        /// When true, bypasses the version comparison — used by the runtime-hash-mismatch trigger
         /// to cover hotfixes that reuse the same version number.
         /// </param>
         /// <param name="triggerReason">
@@ -515,16 +515,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 log($"Self-update: SHA-256 verification failed — {ex.Message}. Aborting update.");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Compares two version strings. Returns true if latest is newer than current.
-        /// Strips SemVer suffixes (+metadata, -prerelease) before parsing because
-        /// System.Version cannot handle them (e.g. "1.0.386+b7f8d3c..." would fail).
-        /// </summary>
-        private static bool IsNewerVersion(string current, string latest)
-        {
-            return CompareVersions(current, latest) > 0;
         }
 
         /// <summary>

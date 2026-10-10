@@ -41,7 +41,6 @@ public class GetGraphPermissionsStatusFunction
 
     private readonly ILogger<GetGraphPermissionsStatusFunction> _logger;
     private readonly IGraphFeatureDetector _detector;
-    private readonly IConfiguration _configuration;
     private readonly TelemetryClient _telemetry;
     private readonly Security.EntraAppRegistry _appRegistry;
     private readonly Services.TenantConfigurationService _tenantConfigService;
@@ -49,14 +48,12 @@ public class GetGraphPermissionsStatusFunction
     public GetGraphPermissionsStatusFunction(
         ILogger<GetGraphPermissionsStatusFunction> logger,
         IGraphFeatureDetector detector,
-        IConfiguration configuration,
         TelemetryClient telemetry,
         Security.EntraAppRegistry appRegistry,
         Services.TenantConfigurationService tenantConfigService)
     {
         _logger = logger;
         _detector = detector;
-        _configuration = configuration;
         _telemetry = telemetry;
         _appRegistry = appRegistry;
         _tenantConfigService = tenantConfigService;

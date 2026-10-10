@@ -50,8 +50,6 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// <summary>Throttle between per-session cascade enqueues so a 10k-session tenant doesn't burst.</summary>
         internal static readonly TimeSpan PerSessionEnqueueThrottle = TimeSpan.FromMilliseconds(50);
 
-        private static readonly Dictionary<string, string> EmptyDetails = new(StringComparer.Ordinal);
-
         // Plan §6.2 — exact tenant-PK wipes (Variant A).
         private static readonly string[] TenantPartitionTables =
         {

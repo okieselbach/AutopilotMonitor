@@ -24,8 +24,7 @@ namespace AutopilotMonitor.Functions.Services
     /// <c>.Classification.cs</c> (<c>ClassifyEvents</c>, <c>IsPeriodicOrStallEvent</c>,
     /// <c>UpdateSessionStatusAsync</c>), <c>.Notifications.cs</c>
     /// (<c>SendWebhookNotificationsAsync</c>, <c>BuildSignalRMessages</c>),
-    /// <c>.RuleStats.cs</c> (<c>RecordGatherRuleStatsAsync</c>,
-    /// <c>RecordAnalyzeRuleStatsAsync</c>), <c>.AppInstall.cs</c>
+    /// <c>.RuleStats.cs</c> (<c>RecordGatherRuleStatsAsync</c>), <c>.AppInstall.cs</c>
     /// (<c>AggregateAppInstallEvent</c>).
     /// </para>
     /// </summary>
@@ -34,12 +33,9 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ILogger<EventIngestProcessor> _logger;
         private readonly ISessionRepository _sessionRepo;
         private readonly IMetricsRepository _metricsRepo;
-        private readonly IRuleRepository _ruleRepo;
         private readonly TenantConfigurationService _configService;
-        private readonly AnalyzeRuleService _analyzeRuleService;
         private readonly GatherRuleService _gatherRuleService;
         private readonly INotificationDispatchProducer _notificationProducer;
-        private readonly AdminConfigurationService _adminConfigService;
         private readonly OpsEventService _opsEventService;
         private readonly SlaBreachEvaluationService _slaBreachService;
         private readonly TelemetryClient _telemetryClient;
@@ -58,12 +54,9 @@ namespace AutopilotMonitor.Functions.Services
             ILogger<EventIngestProcessor> logger,
             ISessionRepository sessionRepo,
             IMetricsRepository metricsRepo,
-            IRuleRepository ruleRepo,
             TenantConfigurationService configService,
-            AnalyzeRuleService analyzeRuleService,
             GatherRuleService gatherRuleService,
             INotificationDispatchProducer notificationProducer,
-            AdminConfigurationService adminConfigService,
             OpsEventService opsEventService,
             SlaBreachEvaluationService slaBreachService,
             TelemetryClient telemetryClient,
@@ -80,12 +73,9 @@ namespace AutopilotMonitor.Functions.Services
             _logger = logger;
             _sessionRepo = sessionRepo;
             _metricsRepo = metricsRepo;
-            _ruleRepo = ruleRepo;
             _configService = configService;
-            _analyzeRuleService = analyzeRuleService;
             _gatherRuleService = gatherRuleService;
             _notificationProducer = notificationProducer;
-            _adminConfigService = adminConfigService;
             _opsEventService = opsEventService;
             _slaBreachService = slaBreachService;
             _telemetryClient = telemetryClient;
@@ -463,7 +453,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             await SendWebhookNotificationsAsync(
-                request, sessionPrefix, classification, updatedSession,
+                request, classification, updatedSession,
                 statusTransitioned, whiteGloveStatusTransitioned, failureReason, newRuleResults);
 
             if (statusTransitioned && updatedSession?.Status == SessionStatus.Failed)

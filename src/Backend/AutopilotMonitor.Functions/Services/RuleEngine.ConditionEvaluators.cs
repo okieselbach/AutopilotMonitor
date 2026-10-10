@@ -163,7 +163,7 @@ namespace AutopilotMonitor.Functions.Services
                             ["field"] = condition.DataField,
                             ["value"] = FormatEvidenceValue(fieldValue)
                         };
-                        AddDataFieldsToEvidence(evidence, evt, "", "");
+                        AddDataFieldsToEvidence(evidence, evt, "");
                         return (true, evidence);
                     }
                 }
@@ -188,7 +188,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["eventType"] = condition.EventType,
                 ["count"] = matchingEvents.Count
             };
-            AddDataFieldsToEvidence(existsEvidence, first, "", "");
+            AddDataFieldsToEvidence(existsEvidence, first, "");
             return (true, existsEvidence);
         }
 
@@ -236,7 +236,7 @@ namespace AutopilotMonitor.Functions.Services
                         ["field"] = condition.DataField,
                         ["value"] = FormatEvidenceValue(fieldValue)
                     };
-                    AddDataFieldsToEvidence(evidence, evt, "", "");
+                    AddDataFieldsToEvidence(evidence, evt, "");
                     return (true, evidence);
                 }
             }
@@ -1273,8 +1273,8 @@ namespace AutopilotMonitor.Functions.Services
                 };
 
                 // Add slim identifying fields from both events (no free-text fields).
-                AddDataFieldsToEvidence(pair, matchingA, "eventA_", condition.JoinField);
-                AddDataFieldsToEvidence(pair, eventB, "eventB_", condition.JoinField);
+                AddDataFieldsToEvidence(pair, matchingA, "eventA_");
+                AddDataFieldsToEvidence(pair, eventB, "eventB_");
 
                 matchedPairs.Add(pair);
             }
@@ -1324,7 +1324,7 @@ namespace AutopilotMonitor.Functions.Services
         /// deliberately excluded to keep <see cref="RuleResult.MatchedConditions"/> below Table
         /// Storage's 64KB property limit. UI fetches the full event on demand via /events/{id}.
         /// </summary>
-        private void AddDataFieldsToEvidence(Dictionary<string, object> evidence, EnrollmentEvent evt, string prefix, string joinField)
+        private void AddDataFieldsToEvidence(Dictionary<string, object> evidence, EnrollmentEvent evt, string prefix)
         {
             if (evt.Data == null) return;
 

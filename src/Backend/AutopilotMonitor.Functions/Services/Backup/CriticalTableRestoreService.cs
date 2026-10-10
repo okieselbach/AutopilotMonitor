@@ -390,33 +390,33 @@ namespace AutopilotMonitor.Functions.Services.Backup
             switch (value)
             {
                 case null:
-                    return MakeSnapshot(DeletionPropEdmType.String, JsonValueKind.Null, null);
+                    return MakeSnapshot(DeletionPropEdmType.String, null);
                 case string s:
-                    return MakeSnapshot(DeletionPropEdmType.String, JsonValueKind.String, s);
+                    return MakeSnapshot(DeletionPropEdmType.String, s);
                 case bool b:
-                    return MakeSnapshot(DeletionPropEdmType.Boolean, b ? JsonValueKind.True : JsonValueKind.False, b);
+                    return MakeSnapshot(DeletionPropEdmType.Boolean, b);
                 case int i:
-                    return MakeSnapshot(DeletionPropEdmType.Int32, JsonValueKind.Number, i);
+                    return MakeSnapshot(DeletionPropEdmType.Int32, i);
                 case long l:
-                    return MakeSnapshot(DeletionPropEdmType.Int64, JsonValueKind.Number, l);
+                    return MakeSnapshot(DeletionPropEdmType.Int64, l);
                 case double d:
-                    return MakeSnapshot(DeletionPropEdmType.Double, JsonValueKind.Number, d);
+                    return MakeSnapshot(DeletionPropEdmType.Double, d);
                 case DateTime dt:
-                    return MakeSnapshot(DeletionPropEdmType.DateTime, JsonValueKind.String,
+                    return MakeSnapshot(DeletionPropEdmType.DateTime,
                         dt.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture));
                 case DateTimeOffset dto:
-                    return MakeSnapshot(DeletionPropEdmType.DateTime, JsonValueKind.String,
+                    return MakeSnapshot(DeletionPropEdmType.DateTime,
                         dto.UtcDateTime.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
                 case Guid g:
-                    return MakeSnapshot(DeletionPropEdmType.Guid, JsonValueKind.String, g.ToString());
+                    return MakeSnapshot(DeletionPropEdmType.Guid, g.ToString());
                 case byte[] bytes:
-                    return MakeSnapshot(DeletionPropEdmType.Binary, JsonValueKind.String, Convert.ToBase64String(bytes));
+                    return MakeSnapshot(DeletionPropEdmType.Binary, Convert.ToBase64String(bytes));
                 default:
-                    return MakeSnapshot(DeletionPropEdmType.String, JsonValueKind.String, value.ToString());
+                    return MakeSnapshot(DeletionPropEdmType.String, value.ToString());
             }
         }
 
-        private static RestoreRowPropertySnapshot MakeSnapshot(string edmType, JsonValueKind kind, object? value)
+        private static RestoreRowPropertySnapshot MakeSnapshot(string edmType, object? value)
         {
             // Cheap round-trip via JsonSerializer to get a normalized JsonElement —
             // the diff serializer (BackupManifestJson.SerializerOptions) re-emits it
@@ -429,7 +429,6 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 EdmType = edmType,
                 Value = doc.RootElement.Clone(),
             };
-            // 'kind' parameter retained for self-documentation at call sites.
         }
 
         private static List<RestoreRowPropertyDiff> BuildDiff(

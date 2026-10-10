@@ -23,16 +23,13 @@ public class McpClientRegistrationFunction
     /// <summary>Per source IP and minute. Every lookup comes from the MCP server's egress IP, which caches answers for a minute.</summary>
     internal const int LookupRateLimitPerMinute = 120;
 
-    private readonly ILogger<McpClientRegistrationFunction> _logger;
     private readonly McpClientRegistrationService _service;
     private readonly RateLimitService _rateLimitService;
 
     public McpClientRegistrationFunction(
-        ILogger<McpClientRegistrationFunction> logger,
         McpClientRegistrationService service,
         RateLimitService rateLimitService)
     {
-        _logger = logger;
         _service = service;
         _rateLimitService = rateLimitService;
     }

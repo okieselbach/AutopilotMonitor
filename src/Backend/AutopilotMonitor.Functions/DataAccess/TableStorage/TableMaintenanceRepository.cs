@@ -18,12 +18,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     public class TableMaintenanceRepository : IMaintenanceRepository
     {
         private readonly TableStorageService _storage;
-        private readonly ILogger<TableMaintenanceRepository> _logger;
 
-        public TableMaintenanceRepository(TableStorageService storage, ILogger<TableMaintenanceRepository> logger)
+        public TableMaintenanceRepository(TableStorageService storage)
         {
             _storage = storage;
-            _logger = logger;
         }
 
         public Task<bool> LogAuditEntryAsync(string tenantId, string action, string entityType,

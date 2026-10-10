@@ -28,7 +28,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         private readonly ITelemetrySpool _spool;
         private readonly IBackendTelemetryUploader _uploader;
         private readonly IClock _clock;
-        private readonly int _batchSize;
         private readonly IReadOnlyList<TimeSpan> _retryBackoffs;
         private readonly SemaphoreSlim _drainGuard = new SemaphoreSlim(1, 1);
         private bool _disposed;
@@ -73,7 +72,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
 
             if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize), "BatchSize must be positive.");
-            _batchSize = batchSize;
             _effectiveBatchSize = batchSize;
 
             _retryBackoffs = retryBackoffs ?? DefaultRetryBackoffs;

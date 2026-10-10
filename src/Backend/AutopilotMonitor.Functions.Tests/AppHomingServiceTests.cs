@@ -71,7 +71,6 @@ public class AppHomingServiceTests
             NullLogger<GraphTokenService>.Instance,
             Mock.Of<System.Net.Http.IHttpClientFactory>(),
             cache,
-            configuration,
             _registry,
             _tenantConfigMock.Object)
         { CallBase = false };

@@ -235,7 +235,7 @@ public class TableLifecycleBucketTests
     /// </summary>
     private static async Task<HashSet<string>> PerSessionCascadeTablesAsync()
     {
-        var builder = new DeletionManifestBuilder(new EmptyInventoryReader(), NullLogger<DeletionManifestBuilder>.Instance);
+        var builder = new DeletionManifestBuilder(new EmptyInventoryReader());
         var manifest = await builder.BuildAsync(
             TenantId, SessionId, "lifecycle_bucket_test",
             new DeletionActor { Type = "admin", Actor = "alice@contoso.com" },

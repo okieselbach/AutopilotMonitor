@@ -14,14 +14,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// </summary>
     public class GatherRulesFunction
     {
-        private readonly ILogger<GatherRulesFunction> _logger;
         private readonly GatherRuleService _ruleService;
 
         public GatherRulesFunction(
-            ILogger<GatherRulesFunction> logger,
             GatherRuleService ruleService)
         {
-            _logger = logger;
             _ruleService = ruleService;
         }
 

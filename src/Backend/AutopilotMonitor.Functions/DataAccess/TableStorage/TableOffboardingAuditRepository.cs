@@ -28,14 +28,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     public class TableOffboardingAuditRepository : IOffboardingAuditRepository
     {
         private readonly TableClient _tableClient;
-        private readonly ILogger<TableOffboardingAuditRepository> _logger;
 
         public TableOffboardingAuditRepository(
-            TableStorageService storage,
-            ILogger<TableOffboardingAuditRepository> logger)
+            TableStorageService storage)
         {
             _tableClient = storage.GetTableClient(Constants.TableNames.OffboardingAudit);
-            _logger = logger;
         }
 
         // ── Marker ──────────────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             var remoteConfigService = new RemoteConfigService(
                 auth.BackendApiClient, agentConfig.TenantId, logger,
-                auth.EmergencyReporter, auth.DistressReporter, auth.AuthFailureTracker);
+                auth.EmergencyReporter, auth.AuthFailureTracker);
             // retryOnTransientErrors:true is essential for the initial fetch — a Function App
             // cold-start (typically 30-60 s after a deploy) will time out a single-shot call and
             // silently strand the agent on built-in defaults for the entire session. Auth

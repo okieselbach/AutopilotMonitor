@@ -1012,7 +1012,7 @@ public class SlaTenantStatusLifecycleTests
                 })
                 .Returns(Task.CompletedTask);
 
-            var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
+            var webhook = new WebhookNotificationService(new HttpClient());
             var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance), Mock.Of<IPushChannelSender>());
             var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);

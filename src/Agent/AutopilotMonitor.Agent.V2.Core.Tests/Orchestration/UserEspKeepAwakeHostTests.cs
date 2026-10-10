@@ -77,7 +77,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
 
             ing.Start();
             host.Start();
@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
 
             ing.Start();
             host.Start();
@@ -127,7 +127,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
             var progress = false;
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller,
                 espTimeoutProvider: () => null, accountSetupProgressProbe: () => Volatile.Read(ref progress));
 
             ing.Start();
@@ -156,7 +156,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
             var progress = false;
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller,
                 espTimeoutProvider: () => null, accountSetupProgressProbe: () => Volatile.Read(ref progress));
 
             ing.Start();
@@ -186,7 +186,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller,
                 espTimeoutProvider: () => null, accountSetupProgressProbe: () => true);
 
             ing.Start();
@@ -212,7 +212,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller,
                 espTimeoutProvider: () => null, accountSetupProgressProbe: () => true);
 
             ing.Start();
@@ -236,7 +236,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
 
             ing.Start();
             host.Start();
@@ -259,7 +259,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
+            var host = new UserEspKeepAwakeHost(ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
 
             ing.Start();
             host.Start();
@@ -282,7 +282,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
             var host = new UserEspKeepAwakeHost(
-                "S1", "T1", ing, clock, NewLogger(),
+                ing, clock, NewLogger(),
                 controller: controller,
                 safetyCapOverride: TimeSpan.FromMilliseconds(75),
                 espTimeoutProvider: () => null);

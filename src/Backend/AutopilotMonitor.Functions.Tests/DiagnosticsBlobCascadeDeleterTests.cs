@@ -18,7 +18,6 @@ namespace AutopilotMonitor.Functions.Tests;
 public class DiagnosticsBlobCascadeDeleterTests
 {
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
-    private const string TenantB = "22222222-2222-2222-2222-222222222222";
     private const string Filename = "AgentDiagnostics-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa-20260519T120000.zip";
 
     [Fact]

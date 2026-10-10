@@ -84,7 +84,7 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 // Aggregate rule stats from RuleResults table for this date
-                await AggregateRuleStatsForDateAsync(targetDate, targetDateSessions);
+                await AggregateRuleStatsForDateAsync(targetDate);
 
                 aggregateStart.Stop();
                 _logger.LogInformation($"Aggregated metrics for {targetDateSessions.Count} sessions from {targetDateStr} in {aggregateStart.ElapsedMilliseconds}ms");
@@ -204,7 +204,7 @@ namespace AutopilotMonitor.Functions.Services
         /// from per-tenant rows. This ensures consistency even if real-time global
         /// increments were missed (e.g. during transient failures).
         /// </summary>
-        private async Task AggregateRuleStatsForDateAsync(DateTime targetDate, List<SessionSummary> sessions)
+        private async Task AggregateRuleStatsForDateAsync(DateTime targetDate)
         {
             try
             {

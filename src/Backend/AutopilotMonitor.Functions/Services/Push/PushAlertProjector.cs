@@ -127,7 +127,7 @@ public static class PushAlertProjector
             },
             Facts = facts,
             PortalUrl = portalUrl,
-            Tag = BuildTag(eventType, portalUrl, entryId),
+            Tag = BuildTag(portalUrl, entryId),
             Scope = scope.IsPlatform ? "platform" : "tenant",
             TimestampUtc = nowUtc,
         };
@@ -272,7 +272,7 @@ public static class PushAlertProjector
     /// Session-bound alerts collapse per session where the browser honours tags (best effort,
     /// K21); everything else is its own notification.
     /// </summary>
-    private static string BuildTag(string eventType, string? portalUrl, string entryId)
+    private static string BuildTag(string? portalUrl, string entryId)
     {
         if (portalUrl == null || !portalUrl.Contains("id=", StringComparison.Ordinal))
             return entryId;

@@ -36,7 +36,7 @@ public class TelemetryPayloadParserTests
     [InlineData("null")]
     public void ParseEvent_returns_null_for_missing_or_malformed_payload(string payload)
     {
-        var result = TelemetryPayloadParser.ParseEvent(Dto("Event", payload), TenantId, SessionId);
+        var result = TelemetryPayloadParser.ParseEvent(Dto("Event", payload));
         Assert.Null(result);
     }
 
@@ -76,7 +76,7 @@ public class TelemetryPayloadParserTests
                 "\"ReceivedAt\":\"2026-04-21T10:00:01Z\"" +
             "}";
 
-        var evt = TelemetryPayloadParser.ParseEvent(Dto("Event", payload), TenantId, SessionId);
+        var evt = TelemetryPayloadParser.ParseEvent(Dto("Event", payload));
 
         Assert.NotNull(evt);
         Assert.Equal("evt-123", evt!.EventId);

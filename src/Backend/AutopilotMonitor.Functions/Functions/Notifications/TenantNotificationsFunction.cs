@@ -16,14 +16,11 @@ namespace AutopilotMonitor.Functions.Functions.Notifications;
 /// </summary>
 public class TenantNotificationsFunction
 {
-    private readonly ILogger<TenantNotificationsFunction> _logger;
     private readonly TenantNotificationService _notificationService;
 
     public TenantNotificationsFunction(
-        ILogger<TenantNotificationsFunction> logger,
         TenantNotificationService notificationService)
     {
-        _logger = logger;
         _notificationService = notificationService;
     }
 

@@ -275,7 +275,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             result.DurationMs = sw.ElapsedMilliseconds;
 
             // (6) Audit completion.
-            await AuditRestoredAsync(tenantId, sessionId, manifestId, mode, actor, operatorReason, result, ct).ConfigureAwait(false);
+            await AuditRestoredAsync(tenantId, sessionId, manifestId, mode, actor, operatorReason, result).ConfigureAwait(false);
 
             _logger.LogInformation(
                 "SessionRestoreService completed: tenant={Tenant} session={Session} manifestId={ManifestId} mode={Mode} durationMs={Duration}",
@@ -589,7 +589,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         private async Task AuditRestoredAsync(
             string tenantId, string sessionId, string manifestId, string mode, string actor,
             string? operatorReason,
-            SessionRestoreResult result, CancellationToken ct)
+            SessionRestoreResult result)
         {
             var details = new Dictionary<string, string>(StringComparer.Ordinal)
             {

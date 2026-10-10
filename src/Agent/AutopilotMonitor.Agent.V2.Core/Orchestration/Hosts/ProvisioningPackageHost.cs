@@ -60,7 +60,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             var post = new InformationalEventPost(ingress, clock, logger);
-            _collector = new ProvisioningPackageCollector(sessionId, tenantId, post, logger, clock);
+            _collector = new ProvisioningPackageCollector(sessionId, tenantId, post, logger);
             _observableIngress = ingress as SignalIngress;
         }
 

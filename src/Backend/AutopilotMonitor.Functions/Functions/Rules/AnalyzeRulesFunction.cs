@@ -13,14 +13,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// </summary>
     public class AnalyzeRulesFunction
     {
-        private readonly ILogger<AnalyzeRulesFunction> _logger;
         private readonly AnalyzeRuleService _ruleService;
 
         public AnalyzeRulesFunction(
-            ILogger<AnalyzeRulesFunction> logger,
             AnalyzeRuleService ruleService)
         {
-            _logger = logger;
             _ruleService = ruleService;
         }
 

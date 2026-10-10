@@ -87,7 +87,7 @@ public class WhatsNewNotificationServiceTests
 
         public Harness()
         {
-            var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
+            var webhook = new WebhookNotificationService(new HttpClient());
             var telegram = new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance);
             Dispatcher = new Mock<NotificationChannelDispatcher>(webhook, telegram, Mock.Of<IPushChannelSender>());
             Dispatcher

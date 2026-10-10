@@ -568,7 +568,7 @@ public class DeletionManifestBuilderTests
     // ---------------------------------------------------------------- Test-fixture plumbing ----
 
     private static DeletionManifestBuilder NewBuilder(ISessionDeletionInventoryReader reader)
-        => new DeletionManifestBuilder(reader, NullLogger<DeletionManifestBuilder>.Instance);
+        => new DeletionManifestBuilder(reader);
 
     private static ISessionDeletionInventoryReader NewReader(Action<ReaderSeed> seedAction)
     {

@@ -377,8 +377,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (analyzers.KeepAwakeDuringUserEsp)
             {
                 hosts.Add(new UserEspKeepAwakeHost(
-                    sessionId: sessionId,
-                    tenantId: tenantId,
                     ingress: ingress,
                     clock: clock,
                     logger: logger,
@@ -648,8 +646,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 tenantId: tenantId,
                 ingress: ingress,
                 clock: clock,
-                logger: logger,
-                apiBaseUrl: _agentConfig.ApiBaseUrl));
+                logger: logger));
 
             // Live AC/battery watcher — WMI Win32_PowerManagementEvent push (no polling), emits
             // power_state_change on AC↔battery transitions and 50/30/15 % downward threshold

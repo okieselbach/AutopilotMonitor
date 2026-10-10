@@ -193,7 +193,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
                 preBuilder.RealmJoinFacts = state.RealmJoinFacts
                     .WithDetected(signal.OccurredAtUtc, signal.SessionSignalOrdinal)
-                    .WithResolved(signal.OccurredAtUtc, 110, signal.SessionSignalOrdinal);
+                    .WithResolved(signal.OccurredAtUtc, RjPhaseCompletedFirstDeployment, signal.SessionSignalOrdinal);
                 var preState = preBuilder.Build();
                 var preTransition = BuildTakenTransition(
                     before: state,
@@ -205,7 +205,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             }
 
             var nextStep = state.StepIndex + 1;
-            var phase = TryReadPhase(signal) ?? 110;
+            var phase = TryReadPhase(signal) ?? RjPhaseCompletedFirstDeployment;
 
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
@@ -384,14 +384,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
             && (currentPhase == RjPhaseRunningDeployment || currentPhase == RjPhaseCompletedDeployment);
 
         /// <summary>
-        /// Phase-transition observation from the watcher. Always persists the current phase
-        /// into <see cref="RealmJoinFacts.LastDeploymentPhase"/> (restart-safe; also fixes the
-        /// <c>realmjoin_timeout</c> event reporting "last phase: 0" regardless of how far RJ
-        /// actually got). When <see cref="IsFirstDeploymentAbortTransition"/> matches, emits
-        /// the <c>realmjoin_first_deployment_incomplete</c> Warning, cancels the hard-timeout
-        /// deadline and releases the completion gate — for us RJ is finished at that point.
-        /// </summary>
-        /// <summary>
         /// RJ self-update observed after detection. Overrides the set-once version facts so
         /// <see cref="RealmJoinFacts.ProductVersion"/> / <see cref="RealmJoinFacts.ReleaseChannel"/>
         /// describe the build that actually ran the deployment. Pure bookkeeping: no gate, no
@@ -432,6 +424,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
             return new DecisionStep(bookkept, transition, Array.Empty<DecisionEffect>());
         }
 
+        /// <summary>
+        /// Phase-transition observation from the watcher. Always persists the current phase
+        /// into <see cref="RealmJoinFacts.LastDeploymentPhase"/> (restart-safe; also fixes the
+        /// <c>realmjoin_timeout</c> event reporting "last phase: 0" regardless of how far RJ
+        /// actually got). When <see cref="IsFirstDeploymentAbortTransition"/> matches, emits
+        /// the <c>realmjoin_first_deployment_incomplete</c> Warning, cancels the hard-timeout
+        /// deadline and releases the completion gate — for us RJ is finished at that point.
+        /// </summary>
         private DecisionStep HandleRealmJoinPhaseChangedV1(DecisionState state, DecisionSignal signal)
         {
             var currentPhase = TryReadPhase(signal);

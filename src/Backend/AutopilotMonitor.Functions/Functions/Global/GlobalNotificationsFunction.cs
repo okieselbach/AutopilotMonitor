@@ -14,14 +14,11 @@ namespace AutopilotMonitor.Functions.Functions.Global;
 /// </summary>
 public class GlobalNotificationsFunction
 {
-    private readonly ILogger<GlobalNotificationsFunction> _logger;
     private readonly GlobalNotificationService _notificationService;
 
     public GlobalNotificationsFunction(
-        ILogger<GlobalNotificationsFunction> logger,
         GlobalNotificationService notificationService)
     {
-        _logger = logger;
         _notificationService = notificationService;
     }
 

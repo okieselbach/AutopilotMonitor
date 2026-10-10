@@ -1382,7 +1382,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // window (user clicks "Try again" / IME re-sync flips the subcategory back
                     // to inProgress) — firing the stale args would terminate the agent on a
                     // failure Windows no longer reports, and the retry outcome is lost.
-                    recovered = IsSettledFailureRecovered(categoryName, args);
+                    recovered = IsSettledFailureRecovered(categoryName);
                     if (recovered)
                     {
                         if (args.FailedSubcategory != null
@@ -1447,7 +1447,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// and must fire (with the latched args — statusText/HRESULT of the new subcategory
         /// were never captured). Caller holds <see cref="_stateLock"/>.
         /// </summary>
-        private bool IsSettledFailureRecovered(string categoryName, EspFailureDetectedEventArgs args)
+        private bool IsSettledFailureRecovered(string categoryName)
         {
             if (_lastCategorySucceeded != null
                 && _lastCategorySucceeded.TryGetValue(categoryName, out var succeeded)

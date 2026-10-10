@@ -31,17 +31,14 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
     public sealed class TenantOffboardingWorker : QueuePollingWorker<TenantOffboardingEnvelope>
     {
         private readonly TenantOffboardingHandler _handler;
-        private readonly OpsEventService _opsEvents;
 
         public TenantOffboardingWorker(
             QueueClientFactory queueFactory,
             TenantOffboardingHandler handler,
-            OpsEventService opsEvents,
             ILogger<TenantOffboardingWorker> logger)
             : base(queueFactory, Constants.QueueNames.TenantOffboarding, logger, Constants.QueueNames.TenantOffboardingPoison)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
-            _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
         }
 
         /// <summary>Test seam — inject mocked queues + shorter intervals for unit tests.</summary>
@@ -49,14 +46,12 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             QueueClient mainQueue,
             QueueClient poisonQueue,
             TenantOffboardingHandler handler,
-            OpsEventService opsEvents,
             ILogger<TenantOffboardingWorker> logger,
             TimeSpan? heartbeatInterval = null,
             TimeSpan? pollInterval = null)
             : base(mainQueue, poisonQueue, logger, pollInterval, heartbeatInterval)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
-            _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
         }
 
         protected override bool UseHeartbeat => true;

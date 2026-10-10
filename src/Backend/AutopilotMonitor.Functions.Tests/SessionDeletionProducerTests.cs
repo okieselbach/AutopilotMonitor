@@ -228,8 +228,7 @@ public class SessionDeletionProducerTests
 
             // DeletionManifestBuilder — needs ISessionDeletionInventoryReader + ILogger.
             Builder = new Mock<DeletionManifestBuilder>(
-                Mock.Of<ISessionDeletionInventoryReader>(),
-                NullLogger<DeletionManifestBuilder>.Instance);
+                Mock.Of<ISessionDeletionInventoryReader>());
 
             // BlobStorageService — internal test ctor with managedIdentity flag.
             Blob = new Mock<BlobStorageService>(

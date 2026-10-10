@@ -990,7 +990,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// for each detection. When HS-NEW-RESULT later fires with the full payload, the UI
         /// reducer's dataCompleteness scoring keeps the more complete entry.
         /// </summary>
-        private void HandleHealthScriptDetectionResult(Match match, Dictionary<string, string> parameters)
+        private void HandleHealthScriptDetectionResult(Match match)
         {
             var id = match.Groups["id"]?.Value;
             var compliance = match.Groups["compliance"]?.Value;
@@ -1112,7 +1112,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 sample,
                 @"\[HS\] the (?<part>pre|post)-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            HandleHealthScriptDetectionResult(match, new Dictionary<string, string>());
+            HandleHealthScriptDetectionResult(match);
         }
 
         /// <summary>Test seam: seed the per-policy health-script cycle start timestamp as if an
@@ -1125,7 +1125,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             _healthScriptStartTimes[policyId] = (startedAtUtc, provenance);
         }
 
-        private void HandleHealthScriptResult(Match match, Dictionary<string, string> parameters)
+        private void HandleHealthScriptResult(Match match)
         {
             var json = match.Groups["json"]?.Value;
             if (string.IsNullOrEmpty(json))
@@ -1141,7 +1141,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>
         /// Test seam that bypasses the regex-match plumbing and feeds a raw <c>[HS] new result</c>
         /// JSON payload directly into the parser. Production code path runs through
-        /// <see cref="HandleHealthScriptResult(Match, Dictionary{string, string})"/>; this method
+        /// <see cref="HandleHealthScriptResult(Match)"/>; this method
         /// exists so unit tests can exercise the JSON parser + 1-3 phase emit logic without
         /// having to write CMTrace log files into a temp directory.
         /// </summary>

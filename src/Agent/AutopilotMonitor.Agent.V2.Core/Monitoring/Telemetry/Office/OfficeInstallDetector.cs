@@ -104,7 +104,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         private bool _preinstalledReported; // office_preinstalled_detected already emitted (emit-once guard)
         private DateTime? _startedAtUtc;
         private string? _startedTrigger;
-        private OfficeDoSample? _lastDo;
         private OfficeDoSample? _peakDo; // highest-bytes sample seen — basis for the completed doSummary
 
         public OfficeInstallDetector(
@@ -252,7 +251,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                     // _peakDo). The seed is persisted directly (it is the lifecycle's first DO sample).
                     if (_state == DetectorState.Active)
                     {
-                        _lastDo = sample;
                         _peakDo = sample;
                         PersistState(OfficeInstallStateData.StateActive);
                     }
@@ -261,7 +259,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
 
                 // Active: no progress event — the sample only updates the DO summary data. A grown
                 // peak is re-persisted (throttled) so a mid-install agent restart keeps the doSummary.
-                _lastDo = sample;
                 var peakGrew = _peakDo == null || sample.TotalBytesDownloaded > _peakDo.TotalBytesDownloaded;
                 if (peakGrew) _peakDo = sample;
                 if (peakGrew && _statePersistence != null
@@ -380,7 +377,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             // wrapper that re-runs C2R) the watcher's initial scan completes the lifecycle synchronously.
             // Emitting started first guarantees the correct order (started → completed); otherwise a
             // pre-installed Office produced completed-before-started (field session a7525e97).
-            EmitLifecycle(Constants.EventTypes.OfficeInstallStarted, snap, EventSeverity.Info, PhaseOf(snap), isTerminal: false);
+            EmitLifecycle(Constants.EventTypes.OfficeInstallStarted, snap, EventSeverity.Info, InFlightPhase, isTerminal: false);
             // Persist Active BEFORE ObserveInstallationPath: when Office is already on disk the
             // host's binary watcher completes the lifecycle synchronously from inside that callback
             // (and persists Completed) — persisting Active afterwards would overwrite the terminal.
@@ -508,7 +505,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
 
         // StreamingFinished does not exist in the C2R registry, so the in-flight phase is reported as a
         // single "Installing"; the terminal completion uses "Completed".
-        private static string PhaseOf(OfficeC2RSnapshot snap) => "Installing";
+        private const string InFlightPhase = "Installing";
 
         // -----------------------------------------------------------------------
         // Payload

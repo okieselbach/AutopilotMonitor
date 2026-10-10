@@ -11,12 +11,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     public class TableMetricsRepository : IMetricsRepository
     {
         private readonly TableStorageService _storage;
-        private readonly IDataEventPublisher _publisher;
 
-        public TableMetricsRepository(TableStorageService storage, IDataEventPublisher publisher)
+        public TableMetricsRepository(TableStorageService storage)
         {
             _storage = storage;
-            _publisher = publisher;
         }
 
         public Task<bool> SaveUsageMetricsSnapshotAsync(UsageMetricsSnapshot metrics)

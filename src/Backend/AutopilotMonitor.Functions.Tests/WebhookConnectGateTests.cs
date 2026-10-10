@@ -222,8 +222,7 @@ public class WebhookConnectGateTests
     public async Task TestNotification_ReportsTheRefusal()
     {
         var resolver = new CountingResolver("10.0.0.8");
-        var webhook = new WebhookNotificationService(ClientThrough(SsrfGuard.CreateConnectCallback(resolver.Resolve)),
-            NullLogger<WebhookNotificationService>.Instance);
+        var webhook = new WebhookNotificationService(ClientThrough(SsrfGuard.CreateConnectCallback(resolver.Resolve)));
 
         var result = await webhook.SendAsync($"https://{Host}/hook", WebhookProviderType.GenericJson,
             new NotificationAlert { Title = "T", Summary = "S" });

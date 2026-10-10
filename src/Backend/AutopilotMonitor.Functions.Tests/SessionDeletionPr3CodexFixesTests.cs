@@ -46,7 +46,7 @@ public class SessionDeletionPr3CodexFixesTests
         reader.Setup(r => r.QueryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
               .Returns(EmptyAsyncEnumerable());
 
-        var builder = new DeletionManifestBuilder(reader.Object, NullLogger<DeletionManifestBuilder>.Instance);
+        var builder = new DeletionManifestBuilder(reader.Object);
 
         const string preAllocated = "PR3-PREALLOCATED-MANIFEST-ID";
         var manifest = await builder.BuildAsync(
@@ -92,7 +92,7 @@ public class SessionDeletionPr3CodexFixesTests
         reader.Setup(r => r.QueryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
               .Returns(EmptyAsyncEnumerable());
 
-        var builder = new DeletionManifestBuilder(reader.Object, NullLogger<DeletionManifestBuilder>.Instance);
+        var builder = new DeletionManifestBuilder(reader.Object);
 
         var manifest = await builder.BuildAsync(
             TenantId, SessionId, "preview",
@@ -190,7 +190,7 @@ public class SessionDeletionPr3CodexFixesTests
                 Mock.Of<TableServiceClient>(), NullLogger<TableStorageService>.Instance);
 
             Builder = new Mock<DeletionManifestBuilder>(
-                Mock.Of<ISessionDeletionInventoryReader>(), NullLogger<DeletionManifestBuilder>.Instance);
+                Mock.Of<ISessionDeletionInventoryReader>());
 
             Blob = new Mock<BlobStorageService>(
                 new Azure.Storage.Blobs.BlobServiceClient("UseDevelopmentStorage=true"),

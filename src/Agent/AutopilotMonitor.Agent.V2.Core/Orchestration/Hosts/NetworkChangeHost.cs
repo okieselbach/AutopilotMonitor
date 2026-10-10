@@ -26,14 +26,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string tenantId,
             ISignalIngressSink ingress,
             IClock clock,
-            AgentLogger logger,
-            string? apiBaseUrl)
+            AgentLogger logger)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             _logger = logger;
             var post = new InformationalEventPost(ingress, clock);
-            _detector = new NetworkChangeDetector(sessionId, tenantId, post, logger, apiBaseUrl);
+            _detector = new NetworkChangeDetector(sessionId, tenantId, post, logger);
         }
 
         public void Start()

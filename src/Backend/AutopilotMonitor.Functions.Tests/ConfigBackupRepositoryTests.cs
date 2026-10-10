@@ -49,8 +49,7 @@ public class ConfigBackupRepositoryTests
             var serviceClient = new Mock<TableServiceClient>();
             serviceClient.Setup(c => c.GetTableClient(It.IsAny<string>())).Returns(Table.Object);
             Sut = new TableConfigBackupRepository(
-                new TableStorageService(serviceClient.Object, NullLogger<TableStorageService>.Instance),
-                NullLogger<TableConfigBackupRepository>.Instance);
+                new TableStorageService(serviceClient.Object, NullLogger<TableStorageService>.Instance));
         }
 
         public void SetupQuery(params TableEntity[] rows)

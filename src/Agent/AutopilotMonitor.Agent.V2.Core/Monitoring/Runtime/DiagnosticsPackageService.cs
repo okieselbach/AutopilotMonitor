@@ -1052,7 +1052,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             if (!IsAllowedBlobUploadUrl(blobUploadUrl))
             {
                 _logger.Warning(
-                    $"Blob upload rejected: URL is not an allowed Azure Blob Storage endpoint " +
+                    $"Blob upload of {blobName} rejected: URL is not an allowed Azure Blob Storage endpoint " +
                     $"(expected https://*.blob.core.windows.net or sovereign-cloud equivalent). " +
                     $"URL prefix: {BuildSasUrlPrefix(blobUploadUrl)}");
                 return (false, "url_host_rejected");
@@ -1086,7 +1086,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     // Auth errors (401/403) are permanent — SAS token invalid or expired, retrying won't help
                     if (statusCode == 401 || statusCode == 403)
                     {
-                        _logger.Warning($"Blob upload auth error (not retryable): {lastErrorCode} - {responseBody}");
+                        _logger.Warning($"Blob upload of {blobName}: auth error (not retryable): {lastErrorCode} - {responseBody}");
                         return (false, lastErrorCode);
                     }
 
@@ -1106,7 +1106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 }
             }
 
-            _logger.Warning($"Diagnostics package upload failed after {maxRetries} attempts");
+            _logger.Warning($"Diagnostics package upload failed after {maxRetries} attempts: {blobName}");
             return (false, lastErrorCode);
         }
     }

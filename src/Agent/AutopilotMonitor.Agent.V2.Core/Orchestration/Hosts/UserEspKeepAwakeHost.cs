@@ -91,8 +91,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private static readonly string AccountSetupPhaseName = EnrollmentPhase.AccountSetup.ToString();
 
-        private readonly string _sessionId;
-        private readonly string _tenantId;
         private readonly AgentLogger _logger;
         private readonly InformationalEventPost _post;
         private readonly KeepAwakeController _controller;
@@ -112,8 +110,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private int _disposed;
 
         public UserEspKeepAwakeHost(
-            string sessionId,
-            string tenantId,
             ISignalIngressSink ingress,
             IClock clock,
             AgentLogger logger,
@@ -125,8 +121,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
-            _sessionId = sessionId ?? string.Empty;
-            _tenantId = tenantId ?? string.Empty;
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _post = new InformationalEventPost(ingress, clock, logger);
             _controller = controller ?? new KeepAwakeController(logger);

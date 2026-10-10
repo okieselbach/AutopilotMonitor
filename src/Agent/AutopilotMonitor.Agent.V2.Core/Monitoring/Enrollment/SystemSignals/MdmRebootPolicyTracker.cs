@@ -237,7 +237,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             var rebootUri = ExtractRebootUri(ParseEventData(xml), description);
 
             ProcessEvent(
-                eventId: record.Id,
                 recordId: recordId,
                 timeCreatedUtc: record.TimeCreated?.ToUniversalTime(),
                 rebootUri: rebootUri,
@@ -251,7 +250,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// — after the debounce quiet-period, at backfill completion, or at <see cref="Stop"/>.
         /// </summary>
         internal void ProcessEvent(
-            int eventId,
             long recordId,
             DateTime? timeCreatedUtc,
             string rebootUri,

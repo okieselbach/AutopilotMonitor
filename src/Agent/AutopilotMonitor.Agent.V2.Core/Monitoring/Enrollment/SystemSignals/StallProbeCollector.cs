@@ -241,7 +241,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (alreadyFired)
                     continue;
 
-                RunProbe(probeIndex, thresholdMinutes, idleMinutes, genAtStart);
+                RunProbe(probeIndex, idleMinutes, genAtStart);
 
                 lock (_stateLock)
                 {
@@ -253,7 +253,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
-        private void RunProbe(int probeIndex, int thresholdMinutes, double idleMinutes, int generation)
+        private void RunProbe(int probeIndex, double idleMinutes, int generation)
         {
             var started = DateTime.UtcNow;
             var result = new ProbeResult { ProbeIndex = probeIndex, IdleMinutes = Math.Round(idleMinutes, 1) };

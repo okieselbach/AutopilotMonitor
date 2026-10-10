@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Functions.Services
     public sealed partial class EventIngestProcessor
     {
         private async Task SendWebhookNotificationsAsync(
-            IngestEventsRequest request, string sessionPrefix, EventClassification c,
+            IngestEventsRequest request, EventClassification c,
             SessionSummary? updatedSession, bool statusTransitioned, bool whiteGloveStatusTransitioned, string? failureReason,
             List<RuleResult> ruleResults)
         {

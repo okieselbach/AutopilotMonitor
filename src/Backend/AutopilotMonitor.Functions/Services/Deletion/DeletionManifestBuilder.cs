@@ -31,7 +31,6 @@ namespace AutopilotMonitor.Functions.Services.Deletion
     public class DeletionManifestBuilder
     {
         private readonly ISessionDeletionInventoryReader _reader;
-        private readonly ILogger<DeletionManifestBuilder> _logger;
 
         // Per-row dump for the rare 0-row table is allowed; per-class step is always emitted.
         private static readonly JsonSerializerOptions HashSerializerOptions = new JsonSerializerOptions
@@ -42,10 +41,9 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             WriteIndented = false,
         };
 
-        public DeletionManifestBuilder(ISessionDeletionInventoryReader reader, ILogger<DeletionManifestBuilder> logger)
+        public DeletionManifestBuilder(ISessionDeletionInventoryReader reader)
         {
             _reader = reader;
-            _logger = logger;
         }
 
         /// <summary>
@@ -99,16 +97,16 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             var compositeSessionPk = $"{tenantId}_{sessionId}";
 
             // ---- Steps 1-10: cascade tables, in the §3 order. ----
-            await AddPkBySessionStepAsync(manifest, order: 1, table: Constants.TableNames.Events, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
-            await AddPkBySessionStepAsync(manifest, order: 2, table: Constants.TableNames.RuleResults, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
-            await AddPropTenantPkStepAsync(manifest, order: 3, table: Constants.TableNames.AppInstallSummaries, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
+            await AddPkBySessionStepAsync(manifest, order: 1, table: Constants.TableNames.Events, safeTenantId, safeSessionId, cancellationToken);
+            await AddPkBySessionStepAsync(manifest, order: 2, table: Constants.TableNames.RuleResults, safeTenantId, safeSessionId, cancellationToken);
+            await AddPropTenantPkStepAsync(manifest, order: 3, table: Constants.TableNames.AppInstallSummaries, safeTenantId, safeSessionId, cancellationToken);
             await AddPkRkExactStepAsync(manifest, order: 4, table: Constants.TableNames.VulnerabilityReports, partitionKey: compositeSessionPk, rowKey: "report", cancellationToken);
             await AddPkRkExactStepAsync(manifest, order: 5, table: Constants.TableNames.DeviceSnapshot, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
             await AddPkRkExactStepAsync(manifest, order: 6, table: Constants.TableNames.EventSessionIndex, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
-            await AddPkBySessionStepAsync(manifest, order: 7, table: Constants.TableNames.Signals, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
-            await AddPkBySessionStepAsync(manifest, order: 8, table: Constants.TableNames.DecisionTransitions, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
-            await AddDiscriminatorPkRkSuffixStepAsync(manifest, order: 9, table: Constants.TableNames.EventTypeIndex, tenantId, sessionId, safeTenantId, cancellationToken);
-            await AddDiscriminatorPkRkExactStepAsync(manifest, order: 10, table: Constants.TableNames.CveIndex, tenantId, sessionId, safeTenantId, cancellationToken);
+            await AddPkBySessionStepAsync(manifest, order: 7, table: Constants.TableNames.Signals, safeTenantId, safeSessionId, cancellationToken);
+            await AddPkBySessionStepAsync(manifest, order: 8, table: Constants.TableNames.DecisionTransitions, safeTenantId, safeSessionId, cancellationToken);
+            await AddDiscriminatorPkRkSuffixStepAsync(manifest, order: 9, table: Constants.TableNames.EventTypeIndex, sessionId, safeTenantId, cancellationToken);
+            await AddDiscriminatorPkRkExactStepAsync(manifest, order: 10, table: Constants.TableNames.CveIndex, sessionId, safeTenantId, cancellationToken);
 
             // ---- Step 11: F1 time-attribution breakdown (PK=tenant, RK=sessionId; PR2). ----
             await AddPkRkExactStepAsync(manifest, order: 11, table: Constants.TableNames.SessionTimeBreakdowns, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
@@ -151,8 +149,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         // ============================================================ Step builders ============
 
         private async Task AddPkBySessionStepAsync(
-            DeletionManifest manifest, int order, string table,
-            string compositeSessionPk, string safeTenantId, string safeSessionId,
+            DeletionManifest manifest, int order, string table, string safeTenantId, string safeSessionId,
             CancellationToken cancellationToken)
         {
             var filter = $"PartitionKey eq '{safeTenantId}_{safeSessionId}'";
@@ -172,8 +169,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         }
 
         private async Task AddPropTenantPkStepAsync(
-            DeletionManifest manifest, int order, string table,
-            string tenantId, string sessionId, string safeTenantId, string safeSessionId,
+            DeletionManifest manifest, int order, string table, string safeTenantId, string safeSessionId,
             CancellationToken cancellationToken)
         {
             var filter = $"PartitionKey eq '{safeTenantId}' and SessionId eq '{safeSessionId}'";
@@ -214,8 +210,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         }
 
         private async Task AddDiscriminatorPkRkSuffixStepAsync(
-            DeletionManifest manifest, int order, string table,
-            string tenantId, string sessionId, string safeTenantId,
+            DeletionManifest manifest, int order, string table, string sessionId, string safeTenantId,
             CancellationToken cancellationToken)
         {
             // Server-side: PK prefix scan. Client-side: RK ends with "_{sessionId}".
@@ -240,8 +235,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         }
 
         private async Task AddDiscriminatorPkRkExactStepAsync(
-            DeletionManifest manifest, int order, string table,
-            string tenantId, string sessionId, string safeTenantId,
+            DeletionManifest manifest, int order, string table, string sessionId, string safeTenantId,
             CancellationToken cancellationToken)
         {
             // Server-side: PK prefix scan. Client-side: RK == sessionId.

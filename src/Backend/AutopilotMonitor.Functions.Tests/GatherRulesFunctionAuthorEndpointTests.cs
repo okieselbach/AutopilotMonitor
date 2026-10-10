@@ -98,7 +98,7 @@ public class GatherRulesFunctionAuthorEndpointTests
             .ReturnsAsync(true);
 
         var service = new GatherRuleService(repo.Object, NullLogger<GatherRuleService>.Instance);
-        return (new GatherRulesFunction(NullLogger<GatherRulesFunction>.Instance, service), stored);
+        return (new GatherRulesFunction(service), stored);
     }
 
     private static GatherRule SpoofedPayload() => new()

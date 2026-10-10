@@ -21,14 +21,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     public sealed class TableTenantCustomsArchiveRepository : ITenantCustomsArchiveRepository
     {
         private readonly TableClient _tableClient;
-        private readonly ILogger<TableTenantCustomsArchiveRepository> _logger;
 
         public TableTenantCustomsArchiveRepository(
-            TableStorageService storage,
-            ILogger<TableTenantCustomsArchiveRepository> logger)
+            TableStorageService storage)
         {
             _tableClient = storage.GetTableClient(Constants.TableNames.TenantOffboardingCustomsArchive);
-            _logger = logger;
         }
 
         public Task UpsertAsync(TenantOffboardingCustomsArchiveEntry entry, CancellationToken ct = default)

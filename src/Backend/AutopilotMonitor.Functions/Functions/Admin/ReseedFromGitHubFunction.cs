@@ -22,7 +22,6 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly GitHubRuleRepository _gitHubRepo;
         private readonly GatherRuleService _gatherRuleService;
         private readonly AnalyzeRuleService _analyzeRuleService;
-        private readonly ImeLogPatternService _imeLogPatternService;
         private readonly IVulnerabilityRepository _vulnRepo;
         private readonly IRuleRepository _ruleRepo;
 
@@ -31,7 +30,6 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             GitHubRuleRepository gitHubRepo,
             GatherRuleService gatherRuleService,
             AnalyzeRuleService analyzeRuleService,
-            ImeLogPatternService imeLogPatternService,
             IVulnerabilityRepository vulnRepo,
             IRuleRepository ruleRepo)
         {
@@ -39,7 +37,6 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             _gitHubRepo = gitHubRepo;
             _gatherRuleService = gatherRuleService;
             _analyzeRuleService = analyzeRuleService;
-            _imeLogPatternService = imeLogPatternService;
             _vulnRepo = vulnRepo;
             _ruleRepo = ruleRepo;
         }

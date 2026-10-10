@@ -93,7 +93,7 @@ public class AnalyzeRulesFunctionAuthorEndpointTests
             .ReturnsAsync(true);
 
         var service = new AnalyzeRuleService(repo.Object, NullLogger<AnalyzeRuleService>.Instance);
-        return (new AnalyzeRulesFunction(NullLogger<AnalyzeRulesFunction>.Instance, service), stored);
+        return (new AnalyzeRulesFunction(service), stored);
     }
 
     private static AnalyzeRule SpoofedPayload() => new()

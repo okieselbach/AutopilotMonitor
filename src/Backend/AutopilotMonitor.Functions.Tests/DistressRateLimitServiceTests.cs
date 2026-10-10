@@ -28,12 +28,6 @@ public class DistressRateLimitServiceTests
         return new DistressRateLimitService(cache, logger);
     }
 
-    private static DistressRateLimitService CreateService(IMemoryCache cache)
-    {
-        var logger = NullLogger<DistressRateLimitService>.Instance;
-        return new DistressRateLimitService(cache, logger);
-    }
-
     // =========================================================================
     // Layer 1: Per-IP Rate Limiting (5 requests / 15 minutes)
     // =========================================================================

@@ -15,10 +15,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
     {
         /// <summary>
         /// Parses an <c>Event</c> item's payload into an <see cref="EnrollmentEvent"/>.
-        /// TenantId/SessionId on the event are authoritative from the caller; any agent-supplied
-        /// values are overwritten by <see cref="IngestTelemetryFunction"/>.
+        /// TenantId/SessionId are not set here: the ingest path behind
+        /// <see cref="IngestTelemetryFunction"/> stamps them from the authenticated request,
+        /// overwriting any agent-supplied values.
         /// </summary>
-        public static EnrollmentEvent? ParseEvent(TelemetryItemDto item, string tenantId, string sessionId)
+        public static EnrollmentEvent? ParseEvent(TelemetryItemDto item)
         {
             if (string.IsNullOrEmpty(item?.PayloadJson)) return null;
             try

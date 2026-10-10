@@ -404,7 +404,7 @@ public class TableOffboardingAuditRepositoryTests
             mockServiceClient.Setup(s => s.GetTableClient(It.IsAny<string>())).Returns(mockTableClient.Object);
 
             var storage = new TableStorageService(mockServiceClient.Object, NullLogger<TableStorageService>.Instance);
-            Sut = new TableOffboardingAuditRepository(storage, NullLogger<TableOffboardingAuditRepository>.Instance);
+            Sut = new TableOffboardingAuditRepository(storage);
         }
 
         private ETag StampEtag() => new($"\"0xFAKE_{++_etagCounter}\"");

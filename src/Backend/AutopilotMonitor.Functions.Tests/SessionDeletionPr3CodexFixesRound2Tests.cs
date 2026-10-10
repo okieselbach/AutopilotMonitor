@@ -118,7 +118,7 @@ public class SessionDeletionPr3CodexFixesRound2Tests
         var harness = new ProducerHarness();
         harness.SetWrongState(SessionDeletionState.Preparing, "RACE-PREPARING");
         harness.SetSnapshotExists(true);
-        harness.SetCas2WrongState(SessionDeletionState.Queued, "OTHER-PRODUCER-WON");
+        harness.SetCas2WrongState("OTHER-PRODUCER-WON");
 
         var result = await harness.Sut.EnqueueAsync(
             TenantId, SessionId, "admin_delete",
@@ -147,7 +147,7 @@ public class SessionDeletionPr3CodexFixesRound2Tests
                 Mock.Of<TableServiceClient>(), NullLogger<TableStorageService>.Instance);
 
             Builder = new Mock<DeletionManifestBuilder>(
-                Mock.Of<ISessionDeletionInventoryReader>(), NullLogger<DeletionManifestBuilder>.Instance);
+                Mock.Of<ISessionDeletionInventoryReader>());
 
             Blob = new Mock<BlobStorageService>(
                 new Azure.Storage.Blobs.BlobServiceClient("UseDevelopmentStorage=true"),
@@ -213,7 +213,7 @@ public class SessionDeletionPr3CodexFixesRound2Tests
                 });
         }
 
-        public void SetCas2WrongState(string fromState, string actualCurrentState)
+        public void SetCas2WrongState(string actualCurrentState)
         {
             Storage.Setup(s => s.CasSetSessionDeletionStateAsync(
                     It.IsAny<string>(), It.IsAny<string>(),
