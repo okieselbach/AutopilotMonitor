@@ -16,10 +16,10 @@ on:
         type: boolean
         default: true
 
+# Every job states its own permissions. This default is what the build job runs with: wix is
+# third-party code and must never hold more than a read-only token.
 permissions:
   contents: read
-  id-token: write      # keyless Sigstore signing (artifact attestation)
-  attestations: write  # store the provenance attestation
 
 env:
   MSI_PROJECT_DIR: src/Agent/AutopilotMonitor.BootstrapMsi
@@ -34,9 +34,19 @@ env:
   CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
-  build:
+  # Signs the loader BEFORE the build: wix embeds the file as it finds it, so a loader signed
+  # afterwards would leave the copy inside the MSI unsigned. Devices under an AllSigned policy
+  # need the embedded loader to carry a signature of its own.
+  #
+  # Trust zone: only this repository's scripts, pinned actions and the pinned signing tool run
+  # here. No `environment:` yet: the code-signing credential is still bound to the ref, and a
+  # job carries exactly one OIDC subject.
+  sign-loader:
+    name: Sign bootstrap loader
     runs-on: windows-latest
-    name: Build Bootstrap MSI
+    permissions:
+      contents: read
+      id-token: write   # code-signing login
 
     steps:
       - name: Checkout repository
@@ -60,6 +70,147 @@ jobs:
           }
           Write-Host "Runner script parse + ASCII check passed"
 
+      # Every published MSI is signed; a missing variable stops the run before the build.
+      - name: Check code-signing configuration
+        shell: pwsh
+        run: |
+          foreach ($name in 'CODE_SIGN_CLIENT_ID', 'CODE_SIGN_CERTIFICATE_NAME', 'CODE_SIGN_KEY_VAULT_URL') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository variable $name is not set. Every published MSI must be Authenticode-signed."
+            }
+          }
+
+      - name: Login to Azure (code-signing identity)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Acquire Key Vault token for signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Could not acquire a Key Vault token for the code-signing identity."
+          }
+          Write-Host "::add-mask::$token"
+          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Version pinned; roll-forward because the tool targets an older runtime than the SDK.
+      - name: Install AzureSignTool
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
+
+      # A missing timestamp fails the run: without it the signature dies with the certificate.
+      - name: Sign bootstrap loader (Authenticode)
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & azuresigntool.exe sign --verbose `
+            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
+            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
+            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
+            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
+            --file-digest sha256 `
+            --description 'Autopilot Monitor bootstrap runner' `
+            --description-url 'https://www.autopilotmonitor.com' `
+            $env:RUNNER_SCRIPT
+          if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
+
+          $sig = Get-AuthenticodeSignature -FilePath $env:RUNNER_SCRIPT
+          if ($sig.Status -ne 'Valid') { throw "Signature on $env:RUNNER_SCRIPT is '$($sig.Status)', expected 'Valid'." }
+          if (-not $sig.TimeStamperCertificate) { throw "Signature on $env:RUNNER_SCRIPT carries no timestamp." }
+          if ($env:CODE_SIGN_EXPECTED_SUBJECT -and $sig.SignerCertificate.Subject -notlike $env:CODE_SIGN_EXPECTED_SUBJECT) {
+            throw "$env:RUNNER_SCRIPT was signed by '$($sig.SignerCertificate.Subject)', expected '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+          }
+          Write-Host "$env:RUNNER_SCRIPT : Valid, timestamped, signer $($sig.SignerCertificate.Subject.Split(',')[0])"
+
+      - name: Upload signed loader
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-loader-signed
+          path: ${{ env.RUNNER_SCRIPT }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Build zone: no login, no secret, no id-token. Its only output is the artifact; the
+  # release job treats that as data and never builds.
+  build:
+    name: Build MSI
+    needs: sign-loader
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download signed loader
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bootstrap-loader-signed
+          path: ${{ runner.temp }}/loader
+
+      # The signed copy replaces the checkout's unsigned one before wix embeds it.
+      - name: Put the signed loader in place
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -Path (Join-Path $env:RUNNER_TEMP 'loader/Start-AutopilotMonitor.ps1') -Destination $env:RUNNER_SCRIPT -Force
+          $sig = Get-AuthenticodeSignature -FilePath $env:RUNNER_SCRIPT
+          if ($sig.Status -ne 'Valid') { throw "Loader to embed is '$($sig.Status)', expected 'Valid'." }
+          Write-Host "Embedding the signed loader ($((Get-Item $env:RUNNER_SCRIPT).Length) bytes)"
+
+      # Exact version, not a "5.*" range: wix writes the bytes of the MSI that customers
+      # install, so a compromised or simply broken point release must not flow into a build
+      # unnoticed. Bumping is a reviewed commit.
+      - name: Install WiX toolset
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          # wix resolves File/@Source relative to the working directory, not the wxs —
+          # build from inside the project dir (same as the local build documented in the wxs).
+          $out = Join-Path (Get-Location) $env:STABLE_MSI
+          Push-Location $env:MSI_PROJECT_DIR
+          wix build Package.wxs -arch x64 -o $out
+          Pop-Location
+          if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
+          Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"
+
+      - name: Upload unsigned MSI
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-msi-unsigned
+          path: ${{ env.STABLE_MSI }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Trust zone: signs, verifies and publishes the MSI as data; never builds. No
+  # `environment:` yet, for the same reason as sign-loader.
+  release:
+    name: Sign and publish MSI
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write      # code-signing and storage logins, keyless Sigstore signing
+      attestations: write  # store the provenance attestation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Read from this job's own checkout, never handed over by the build job.
       - name: Read MSI version from Package.wxs
         id: version
         shell: pwsh
@@ -73,20 +224,19 @@ jobs:
           Write-Host "MSI version (from Package.wxs): $version"
           "version=$version" >> $env:GITHUB_OUTPUT
 
-      # Every published MSI is signed; a missing variable stops the run before the build.
-      - name: Check code-signing configuration
+      - name: Download unsigned MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bootstrap-msi-unsigned
+          path: ${{ runner.temp }}/msi
+
+      # Only the expected file leaves the download folder.
+      - name: Take the MSI from the build
         shell: pwsh
-        run: |
-          foreach ($name in 'CODE_SIGN_CLIENT_ID', 'CODE_SIGN_CERTIFICATE_NAME', 'CODE_SIGN_KEY_VAULT_URL') {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Repository variable $name is not set. Every published MSI must be Authenticode-signed."
-            }
-          }
+        run: Copy-Item -Path (Join-Path $env:RUNNER_TEMP "msi/$env:STABLE_MSI") -Destination $env:STABLE_MSI -ErrorAction Stop
 
       # Logs in FIRST and only to fetch the Key Vault token: azure/login sets the default az
-      # account, so the storage login below has to be the last one. Both federated credentials
-      # are bound to the ref, so this job must never be given an `environment:` -- that would
-      # change the OIDC subject claim and break both logins.
+      # account, so the storage login below has to be the last one.
       - name: Login to Azure (code-signing identity)
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
@@ -113,49 +263,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Exact version, not a "5.*" range: wix writes the bytes of the MSI that customers
-      # install, so a compromised or simply broken point release must not flow into a build
-      # unnoticed. Bumping is a reviewed commit.
-      - name: Install WiX toolset
-        run: dotnet tool install --global wix --version 5.0.2
-
       # Version pinned; roll-forward because the tool targets an older runtime than the SDK.
       - name: Install AzureSignTool
         env:
           DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
-
-      # BEFORE the build: wix embeds the file as it finds it, so a loader signed afterwards
-      # would leave the copy inside the MSI unsigned. Devices under an AllSigned policy need
-      # the embedded loader to carry a signature of its own.
-      - name: Sign bootstrap loader (Authenticode)
-        shell: pwsh
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & azuresigntool.exe sign --verbose `
-            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
-            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
-            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
-            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
-            --file-digest sha256 `
-            --description 'Autopilot Monitor bootstrap runner' `
-            --description-url 'https://www.autopilotmonitor.com' `
-            $env:RUNNER_SCRIPT
-          if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
-
-      - name: Build MSI
-        shell: pwsh
-        run: |
-          # wix resolves File/@Source relative to the working directory, not the wxs —
-          # build from inside the project dir (same as the local build documented in the wxs).
-          $out = Join-Path (Get-Location) $env:STABLE_MSI
-          Push-Location $env:MSI_PROJECT_DIR
-          wix build Package.wxs -arch x64 -o $out
-          Pop-Location
-          if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
-          Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"
 
       # Signing rewrites the MSI, so it runs before the hash and the upload. A missing
       # timestamp fails the run: without it the signature dies with the certificate.
@@ -176,26 +288,26 @@ jobs:
             $env:STABLE_MSI
           if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
 
-          # The MSI and the loader it carries -- verified here, before anything is published.
-          foreach ($file in @($env:STABLE_MSI, $env:RUNNER_SCRIPT)) {
-            $sig = Get-AuthenticodeSignature -FilePath $file
-            if ($sig.Status -ne 'Valid') { throw "Signature on $file is '$($sig.Status)', expected 'Valid'." }
-            if (-not $sig.TimeStamperCertificate) { throw "Signature on $file carries no timestamp." }
-            if ($env:CODE_SIGN_EXPECTED_SUBJECT -and $sig.SignerCertificate.Subject -notlike $env:CODE_SIGN_EXPECTED_SUBJECT) {
-              throw "$file was signed by '$($sig.SignerCertificate.Subject)', expected '$env:CODE_SIGN_EXPECTED_SUBJECT'."
-            }
-            Write-Host "$file : Valid, timestamped, signer $($sig.SignerCertificate.Subject.Split(',')[0])"
+          # The loader was verified in sign-loader; here the MSI, before anything is published.
+          $sig = Get-AuthenticodeSignature -FilePath $env:STABLE_MSI
+          if ($sig.Status -ne 'Valid') { throw "Signature on $env:STABLE_MSI is '$($sig.Status)', expected 'Valid'." }
+          if (-not $sig.TimeStamperCertificate) { throw "Signature on $env:STABLE_MSI carries no timestamp." }
+          if ($env:CODE_SIGN_EXPECTED_SUBJECT -and $sig.SignerCertificate.Subject -notlike $env:CODE_SIGN_EXPECTED_SUBJECT) {
+            throw "$env:STABLE_MSI was signed by '$($sig.SignerCertificate.Subject)', expected '$env:CODE_SIGN_EXPECTED_SUBJECT'."
           }
+          Write-Host "$env:STABLE_MSI : Valid, timestamped, signer $($sig.SignerCertificate.Subject.Split(',')[0])"
 
           Write-Host "SHA-256: $((Get-FileHash $env:STABLE_MSI -Algorithm SHA256).Hash.ToLowerInvariant())"
 
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
         shell: pwsh
+        env:
+          MSI_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
-          $version = "${{ steps.version.outputs.version }}"
+          $version = $env:MSI_VERSION
 
           # Same Send-Blob contract as build-agent.yml: no-cache on every blob because the
           # stable name rotates in place behind the download alias. No legacy mirror — the

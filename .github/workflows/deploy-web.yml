@@ -5,6 +5,11 @@ name: Deploy Web (Static Web App)
 # path ci.yml tests (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the
 # action's container, and the exported site is attested like the agent ZIP and the MSI.
 #
+# Three jobs, each holding only what it needs: build runs all third-party code without any
+# credential, deploy holds the SWA token alone, record attests, verifies and writes the
+# manifest. A failed record job is re-run on its own; it writes only once the live site
+# serves this commit.
+#
 # PR preview environments were dropped with the action: their per-PR URLs are never
 # registered as redirect URIs, so nobody could log in on them anyway.
 
@@ -17,10 +22,11 @@ on:
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
+# Every job states its own permissions. This default is what the build job runs with: npm ci
+# (install scripts included) and next build execute third-party code and must never hold more
+# than a read-only token.
 permissions:
   contents: read
-  id-token: write      # keyless Sigstore signing (artifact attestation)
-  attestations: write  # store the provenance attestation
 
 env:
   PORTAL_VERSION_URL: https://portal.autopilotmonitor.com/version.json
@@ -31,24 +37,20 @@ env:
   SWA_CLI_VERSION: 2.0.10
 
 jobs:
-  build_and_deploy_job:
+  # Build zone: no login, no id-token. The one secret here is the Application Insights
+  # connection string, which ships inside the public bundle anyway.
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    name: Build and Deploy Job
+    outputs:
+      docs_sha: ${{ steps.docs.outputs.sha }}
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           lfs: false
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
-
-      # Only the version manifest at the very end needs Azure; logging in here rather than
-      # next to that step keeps a credential problem from surfacing after a live deploy.
-      - name: Login to Azure (OIDC)
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # The customer docs repo is the single source of the "What's new" panel: the prebuild
       # step (scripts/whats-new/build-whats-new.js) turns changelog/*.md into
@@ -136,19 +138,37 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           sha256sum "$archive"
 
-      # Sigstore keyless provenance: binds the export digest to this workflow run (repo, ref,
-      # commit, workflow file) in a public transparency log.
-      # Verify: gh attestation verify portal-<sha>.tar.gz --repo okieselbach/AutopilotMonitor
-      - name: Attest build provenance (portal export)
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: ${{ steps.package.outputs.archive }}
-
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: portal-${{ github.sha }}
           path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+  # Holds the SWA deployment token and nothing else -- deliberately no id-token: the SWA CLI
+  # is third-party npm code whose dependencies resolve at run time.
+  deploy:
+    name: Deploy to Static Web App
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      # For staticwebapp.config.json only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: portal-${{ github.sha }}
+          path: ${{ runner.temp }}/portal
+
+      - name: Unpack export
+        run: |
+          mkdir "$WEB_DIR/out"
+          tar -xzf "$RUNNER_TEMP/portal/portal-${GITHUB_SHA::7}.tar.gz" -C "$WEB_DIR/out"
 
       # Upload only -- out/ is already built. --swa-config-location points at the app root,
       # where staticwebapp.config.json lives (next export does not copy it into out/).
@@ -162,6 +182,44 @@ jobs:
             --swa-config-location "$WEB_DIR" \
             --env production \
             --no-use-keychain
+
+  # Trust zone: only this repository's scripts and pinned actions run here. The deploy
+  # identity trusts the `production` environment, which admits main only.
+  record:
+    name: Attest, verify and record
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write      # keyless Sigstore signing, OIDC login for the manifest
+      attestations: write  # store the provenance attestation
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: portal-${{ github.sha }}
+          path: ${{ runner.temp }}/portal
+
+      - name: Locate the export archive
+        id: archive
+        run: |
+          path="$RUNNER_TEMP/portal/portal-${GITHUB_SHA::7}.tar.gz"
+          test -f "$path" || { echo "::error::Export archive for this commit is missing"; exit 1; }
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      # Sigstore keyless provenance: binds the export digest to this workflow run (repo, ref,
+      # commit, workflow file) in a public transparency log.
+      # Verify: gh attestation verify portal-<sha>.tar.gz --repo okieselbach/AutopilotMonitor
+      - name: Attest build provenance (portal export)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.archive.outputs.path }}
 
       # The CLI reporting success proves the upload, not that the production host serves the
       # new build -- verify against the live /version.json (Cache-Control: no-store via
@@ -190,18 +248,32 @@ jobs:
 
           throw "Portal did not serve commit $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
 
+      - name: Login to Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # Cross-component deploy record, written last and only on a verified deploy --
       # same contract as versions/backend.json and versions/mcp.json. docsCommit says which
       # docs revision the live What's new panel was generated from (as for the MCP corpus).
+      # The docs commit comes from the build job, so it arrives as data and is checked
+      # against the shape of a commit id before it is used.
       - name: Publish version manifest
         shell: pwsh
+        env:
+          DOCS_SHA: ${{ needs.build.outputs.docs_sha }}
         run: |
+          if ($env:DOCS_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw "The build job handed over no valid docs commit -- version manifest NOT published."
+          }
           $manifest = [ordered]@{
             component   = 'web'
             commit      = '${{ github.sha }}'.Substring(0, 7)
             deployedUtc = [DateTime]::UtcNow.ToString('o')
             runId       = '${{ github.run_id }}'
-            docsCommit  = '${{ steps.docs.outputs.sha }}'.Substring(0, 7)
+            docsCommit  = $env:DOCS_SHA.Substring(0, 7)
           } | ConvertTo-Json
 
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1

@@ -4,6 +4,7 @@
 rules:
   artipacked:
     ignore:
-      # Pushes the regenerated rule outputs to main with the job token that checkout
-      # leaves in the credential helper -- the one job that needs persisted credentials.
+      # The publish job pushes the regenerated rule outputs to main with the job token that
+      # checkout leaves in the credential helper -- the one job that needs persisted
+      # credentials. It installs no packages; the validate job beside it is read-only.
       - combine-rules.yml

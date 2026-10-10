@@ -32,10 +32,11 @@ on:
         required: false
         type: string
 
+# Every job states its own permissions. This default is what the build job runs with: it
+# executes third-party code (MSBuild targets, analyzers, test frameworks) and must never hold
+# more than a read-only token.
 permissions:
-  contents: write
-  id-token: write      # keyless Sigstore signing (artifact attestation)
-  attestations: write  # store the provenance attestation
+  contents: read
 
 # Shared with publish-scripts.yml: both write version.json (this workflow the agent fields,
 # the script publisher bootstrapVersion under If-Match). Serialising them keeps a script push
@@ -68,9 +69,19 @@ env:
   CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
-  build:
-    runs-on: windows-latest
-    name: Build Agent
+  # Runs only this repository's scripts. The deploy identity trusts the `production`
+  # environment, which admits main only.
+  reserve:
+    name: Reserve build number
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write   # OIDC federated login for the counter write
+    outputs:
+      build_number: ${{ steps.version.outputs.build_number }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Checkout repository
@@ -90,51 +101,12 @@ jobs:
           }
           Write-Host "Code-signing configuration present (certificate '$env:CODE_SIGN_CERTIFICATE_NAME')"
 
-      # Logs in FIRST and only to fetch the Key Vault token: azure/login sets the default az
-      # account, so the storage login below has to be the last one. Both federated credentials
-      # are bound to the ref, so this job must never be given an `environment:` -- that would
-      # change the OIDC subject claim and break both logins.
-      - name: Login to Azure (code-signing identity)
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-
-      - name: Acquire Key Vault token for signing
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
-            throw "Could not acquire a Key Vault token for the code-signing identity."
-          }
-          Write-Host "::add-mask::$token"
-          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      # Every storage write below (counter blob, agent ZIP, manifests, AdminConfiguration)
-      # is authorized by this federated identity -- no SAS secret. One login covers the whole
-      # job: the federated credential is bound to the ref, and a release run takes ~2 minutes,
-      # well inside the token lifetime. Only the legacy mirror still needs a SAS: that account
-      # lives in the pre-migration tenant, where this principal has no identity.
       - name: Login to Azure (OIDC)
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
-      - name: Setup .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: '10.0.x'
-
-      # Version pinned; roll-forward because the tool targets an older runtime than the SDK above.
-      - name: Install AzureSignTool
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
-        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
       # Build numbers come from the shared counter blob -- one counter and one
       # implementation for CI and the local build (.github/scripts/Request-BuildNumber.ps1).
@@ -174,6 +146,25 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
 
+  # Build zone: no login, no secret, no id-token. Its only output is the artifact; the
+  # release job treats that as data and never builds.
+  build:
+    name: Build and test
+    needs: reserve
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Restore dependencies
         run: |
           dotnet restore ${{ env.AGENT_PROJECT }}
@@ -189,7 +180,7 @@ jobs:
       - name: Run agent tests (all suites)
         shell: pwsh
         env:
-          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          BUILD_NUMBER: ${{ needs.reserve.outputs.build_number }}
         run: |
           foreach ($project in @($env:DECISIONCORE_TEST_PROJECT, $env:CORE_TEST_PROJECT, $env:DIALOG_TEST_PROJECT)) {
             dotnet test $project --configuration Release --no-restore --verbosity quiet
@@ -199,10 +190,117 @@ jobs:
       - name: Build Agent
         run: dotnet build ${{ env.AGENT_PROJECT }} --configuration Release --no-restore
         env:
-          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          BUILD_NUMBER: ${{ needs.reserve.outputs.build_number }}
 
       - name: Build SummaryDialog
         run: dotnet build ${{ env.DIALOG_PROJECT }} --configuration Release --no-restore
+
+      # One archive per output folder, unsigned. ZipFile rather than Compress-Archive, which
+      # skips hidden files.
+      - name: Package build output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $outDir = Join-Path $env:RUNNER_TEMP 'agent-unsigned'
+          New-Item -Path $outDir -ItemType Directory -Force | Out-Null
+          [System.IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $env:GITHUB_WORKSPACE $env:AGENT_OUTPUT), (Join-Path $outDir 'agent.zip'))
+          [System.IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $env:GITHUB_WORKSPACE $env:DIALOG_OUTPUT), (Join-Path $outDir 'dialog.zip'))
+          Get-ChildItem $outDir | ForEach-Object { Write-Host "$($_.Name): $([math]::Round($_.Length / 1MB, 2)) MB" }
+
+      - name: Upload unsigned build output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-unsigned
+          path: ${{ runner.temp }}/agent-unsigned
+          if-no-files-found: error
+          retention-days: 1
+
+  # Trust zone: only this repository's scripts, pinned actions and the pinned signing tool
+  # run here -- never a restore or build. The build output arrives as data.
+  #
+  # No `environment:` yet: the code-signing credential is still bound to the ref, and a job
+  # carries exactly one OIDC subject, so an environment here would break the signing login.
+  release:
+    name: Sign and publish
+    needs: [reserve, build]
+    runs-on: windows-latest
+    permissions:
+      contents: write      # tag + GitHub Release
+      id-token: write      # code-signing and storage logins, keyless Sigstore signing
+      attestations: write  # store the provenance attestation
+    env:
+      AGENT_VERSION: ${{ needs.reserve.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download unsigned build output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-unsigned
+          path: ${{ runner.temp }}/agent-unsigned
+
+      # Only the two expected archives, each into its own fresh output folder; the .NET
+      # extractor refuses entries that would land outside it. Never unpack into the checkout
+      # root: an archive could otherwise replace the scripts this job runs below.
+      - name: Unpack build output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($pair in @(@('agent.zip', $env:AGENT_OUTPUT), @('dialog.zip', $env:DIALOG_OUTPUT))) {
+            $archive = Join-Path $env:RUNNER_TEMP "agent-unsigned/$($pair[0])"
+            $target = Join-Path $env:GITHUB_WORKSPACE $pair[1]
+            if (Test-Path $target) { throw "$($pair[1]) already exists -- refusing to unpack over it." }
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($archive, $target)
+            Write-Host "Unpacked $($pair[0]) into $($pair[1])"
+          }
+
+      # Logs in FIRST and only to fetch the Key Vault token: azure/login sets the default az
+      # account, so the storage login below has to be the last one.
+      - name: Login to Azure (code-signing identity)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Acquire Key Vault token for signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Could not acquire a Key Vault token for the code-signing identity."
+          }
+          Write-Host "::add-mask::$token"
+          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Every storage write below (agent ZIP, manifests, AdminConfiguration) is authorized by
+      # this federated identity -- no SAS secret. Only the legacy mirror still needs a SAS:
+      # that account lives in the pre-migration tenant, where this principal has no identity.
+      - name: Login to Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Runtime for AzureSignTool only; nothing is built in this job.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # Version pinned; roll-forward because the tool targets an older runtime than the SDK above.
+      - name: Install AzureSignTool
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
       # Authenticode over everything we author; third-party assemblies keep their own signature.
       #
@@ -249,7 +347,7 @@ jobs:
         id: artifact
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
+          $version = $env:AGENT_VERSION
           $stagingDir = "staging/agent"
 
           if (-not (Test-Path "$env:AGENT_OUTPUT/AutopilotMonitor.Agent.exe")) {
@@ -383,6 +481,9 @@ jobs:
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
         shell: pwsh
+        env:
+          ZIP_SHA256: ${{ steps.artifact.outputs.sha256 }}
+          EXE_SHA256: ${{ steps.artifact.outputs.exe_sha256 }}
         run: |
           $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
@@ -452,9 +553,9 @@ jobs:
           if ('${{ inputs.publish_as_stable }}' -ne 'true') {
             Write-Host "SKIPPED: AdminConfiguration update (versioned-only run -- stable namespace unchanged)"
           } else {
-            $sha256 = "${{ steps.artifact.outputs.sha256 }}"
-            $exeSha256 = "${{ steps.artifact.outputs.exe_sha256 }}"
-            $agentVersion = "${{ steps.version.outputs.version }}"
+            $sha256 = $env:ZIP_SHA256
+            $exeSha256 = $env:EXE_SHA256
+            $agentVersion = $env:AGENT_VERSION
             $tableUrl = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')"
             $tableBody = @{
               LatestAgentV2Version    = $agentVersion
@@ -489,7 +590,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}
+          name: AutopilotMonitor-Agent-v${{ needs.reserve.outputs.version }}
           path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload version metadata
@@ -512,15 +613,15 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          RELEASE_NAME: Autopilot Monitor Agent ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.reserve.outputs.tag }}
+          RELEASE_NAME: Autopilot Monitor Agent ${{ needs.reserve.outputs.version }}
           RELEASE_PRERELEASE: ${{ inputs.prerelease }}
           RELEASE_ZIP: ${{ steps.artifact.outputs.versioned_zip_release }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
           RELEASE_BODY_TAIL: |
             ### Version Info
-            - **Version:** ${{ steps.version.outputs.version }}
-            - **Build Number:** ${{ steps.version.outputs.build_number }}
+            - **Version:** ${{ needs.reserve.outputs.version }}
+            - **Build Number:** ${{ needs.reserve.outputs.build_number }}
             - **SHA-256:** `${{ steps.artifact.outputs.sha256 }}`
             - **Built from:** ${{ github.sha }}
             - **Published as stable:** ${{ inputs.publish_as_stable }}
@@ -528,7 +629,7 @@ jobs:
             ### Provenance
             The executables are Authenticode-signed and timestamped. The ZIP and both executables carry a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
             ```
-            gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
+            gh attestation verify AutopilotMonitor-Agent-v${{ needs.reserve.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
             ```
         run: |
           $ErrorActionPreference = 'Stop'

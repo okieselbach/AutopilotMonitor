@@ -21,9 +21,15 @@ env:
   PACKAGE_JSON: src/McpServer/autopilot-monitor-mcp/package.json
 
 jobs:
+  # One job on purpose, unlike the other deploys: all third-party code (npm ci, the build, the
+  # embedding precompute) runs inside `docker build`, whose containers see neither the az
+  # login nor the registry credentials nor this job's OIDC request token. That container is
+  # the boundary -- never move npm onto the runner here, or the build gets the job's
+  # credentials. The deploy identity trusts the `production` environment, which admits main only.
   build-and-deploy:
     runs-on: ubuntu-latest
     name: Build and Deploy MCP Server
+    environment: production
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -3,8 +3,10 @@ name: Deploy Backend (Azure Functions)
 on:
   workflow_dispatch:
 
+# Every job states its own permissions. This default is what the build job runs with: restore
+# and build execute third-party code (NuGet MSBuild targets, the Functions worker SDK) and must
+# never hold more than a read-only token.
 permissions:
-  id-token: write   # OIDC federated login (secret-less)
   contents: read
 
 env:
@@ -14,9 +16,19 @@ env:
   CSPROJ_PATH: src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj
 
 jobs:
-  build-and-deploy:
+  # Runs only this repository's scripts. The deploy identity trusts the `production`
+  # environment, which admits main only.
+  reserve:
+    name: Reserve build number
     runs-on: ubuntu-latest
-    name: Build and Deploy Backend
+    environment: production
+    permissions:
+      contents: read
+      id-token: write   # OIDC federated login (secret-less)
+    outputs:
+      build_number: ${{ steps.version.outputs.build_number }}
+      version: ${{ steps.version.outputs.version }}
+      build_utc: ${{ steps.version.outputs.build_utc }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,11 +41,6 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: '10.0.x'
 
       # Same counter mechanism as the agent line: reserve-before-build with ETag-CAS
       # against a per-component counter blob. BuildTimestampUtc is pinned here rather
@@ -57,20 +64,86 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "build_utc=$buildUtc" >> $env:GITHUB_OUTPUT
 
+  # Build zone: no login, no secret, no id-token. Its only output is the artifact; the
+  # deploy job treats that as data and never builds.
+  build:
+    name: Build
+    needs: reserve
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Restore dependencies
         run: dotnet restore ${{ env.CSPROJ_PATH }}
 
       - name: Build
-        run: dotnet build ${{ env.CSPROJ_PATH }} --configuration Release --no-restore -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
+        run: dotnet build ${{ env.CSPROJ_PATH }} --configuration Release --no-restore -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ needs.reserve.outputs.build_number }} -p:BuildTimestampUtc=${{ needs.reserve.outputs.build_utc }}
 
       - name: Publish
-        run: dotnet publish ${{ env.CSPROJ_PATH }} --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
+        run: dotnet publish ${{ env.CSPROJ_PATH }} --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ needs.reserve.outputs.build_number }} -p:BuildTimestampUtc=${{ needs.reserve.outputs.build_utc }}
+
+      # One archive, not a folder upload: upload-artifact skips hidden files, and the
+      # isolated worker cannot start without the publish output's .azurefunctions/ folder.
+      - name: Package publish output
+        run: tar -czf "$RUNNER_TEMP/backend-publish.tgz" -C publish .
+
+      - name: Upload publish output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-publish
+          path: ${{ runner.temp }}/backend-publish.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # Trust zone: only this repository's scripts and pinned actions run here, never a restore
+  # or build. The package is unpacked outside the checkout, so nothing in it can replace the
+  # scripts this job runs.
+  deploy:
+    name: Deploy and verify
+    needs: [reserve, build]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write   # OIDC federated login (secret-less)
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download publish output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: backend-publish
+          path: ${{ runner.temp }}/backend-artifact
+
+      # GNU tar refuses members with '..' and strips leading '/'.
+      - name: Unpack publish output
+        run: |
+          mkdir "$RUNNER_TEMP/publish"
+          tar -xzf "$RUNNER_TEMP/backend-artifact/backend-publish.tgz" -C "$RUNNER_TEMP/publish"
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1.5.7
         with:
           app-name: ${{ env.FUNCTION_APP }}
-          package: ./publish
+          package: ${{ runner.temp }}/publish
 
       # A green deploy step only means the package was accepted. This gate makes the
       # workflow assert what is actually being served, so the manifest published below
@@ -78,9 +151,11 @@ jobs:
       # /api/health is IP rate-limited at 30/min; one poll per 10s stays well under.
       - name: Verify deployed build is live
         shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ needs.reserve.outputs.version }}
         run: |
           $expectedCommit = '${{ github.sha }}'.Substring(0, 7)
-          $expectedVersion = '${{ steps.version.outputs.version }}'
+          $expectedVersion = $env:EXPECTED_VERSION
           $deadline = [DateTime]::UtcNow.AddMinutes(3)
           $attempt = 0
 
@@ -107,12 +182,15 @@ jobs:
       # (rollback, stale instance) rather than a half-finished pipeline.
       - name: Publish version manifest
         shell: pwsh
+        env:
+          BACKEND_VERSION: ${{ needs.reserve.outputs.version }}
+          BACKEND_BUILD_UTC: ${{ needs.reserve.outputs.build_utc }}
         run: |
           $manifest = [ordered]@{
             component   = 'backend'
-            version     = '${{ steps.version.outputs.version }}'
+            version     = $env:BACKEND_VERSION
             commit      = '${{ github.sha }}'.Substring(0, 7)
-            buildUtc    = '${{ steps.version.outputs.build_utc }}'
+            buildUtc    = $env:BACKEND_BUILD_UTC
             deployedUtc = [DateTime]::UtcNow.ToString('o')
             runId       = '${{ github.run_id }}'
           } | ConvertTo-Json
