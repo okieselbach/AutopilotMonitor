@@ -1,0 +1,19 @@
+{
+  "format": ["csharp", "typescript", "tsx"],
+  "minTokens": 100,
+  "ignore": [
+    "**/node_modules/**",
+    "**/bin/**",
+    "**/obj/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/.next/**",
+    "**/*.Tests/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.generated.ts",
+    "**/generated/**"
+  ]
+}

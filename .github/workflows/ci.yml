@@ -1,8 +1,8 @@
 name: CI
 
 # Tests, typechecks and drift-checks every push to main and every pull request:
-# the .NET suites, the web and MCP suites, and a guard that the generated rule
-# files still match rules/guardrails.json.
+# the .NET suites, the web and MCP suites, a guard that the generated rule
+# files still match rules/guardrails.json, and the duplicate-code check.
 #
 # The deploy workflows build but never test, so this is the only place the suites
 # actually run. It does not gate anything — main is deliberately unprotected, so a
@@ -268,3 +268,28 @@ jobs:
             git diff --stat
             exit 1
           fi
+
+  duplicates:
+    name: Duplicate code
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/quality
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/quality/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      # jscpd over the C# and TypeScript sources (.jscpd.json). A clone missing from
+      # jscpd-baseline.json fails, and so does a baseline entry whose clone is gone,
+      # so the baseline only shrinks. Locally: npm run dup in tools/quality.
+      - name: Duplicate check
+        run: npm run dup

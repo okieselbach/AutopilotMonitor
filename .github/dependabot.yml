@@ -81,6 +81,23 @@ updates:
         applies-to: security-updates
         patterns: ['*']
 
+  # Duplicate-check tooling (jscpd for tools/quality/check-duplicates.mjs), installed by the
+  # CI duplicates job from this lockfile. A jscpd update can change the clone fingerprints:
+  # if its PR fails the job, regenerate the baseline (npm run dup:baseline) in that PR.
+  - package-ecosystem: npm
+    directory: /tools/quality
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      quality-tooling:
+        patterns: ['*']
+      quality-tooling-security:
+        applies-to: security-updates
+        patterns: ['*']
+
   # Every action is referenced by commit SHA with the version in a trailing comment;
   # action-pins.yml fails any workflow change that reintroduces a mutable tag. Dependabot
   # is what keeps those pins current: it rewrites the SHA and the comment together, so the

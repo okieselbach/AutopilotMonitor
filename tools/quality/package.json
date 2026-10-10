@@ -1,0 +1,12 @@
+{
+  "name": "autopilot-monitor-quality-tooling",
+  "private": true,
+  "description": "Duplicate check over the C# and TypeScript sources - the CI job installs from the lockfile.",
+  "scripts": {
+    "dup": "node check-duplicates.mjs",
+    "dup:baseline": "node check-duplicates.mjs --update"
+  },
+  "devDependencies": {
+    "jscpd": "5.3.0"
+  }
+}
