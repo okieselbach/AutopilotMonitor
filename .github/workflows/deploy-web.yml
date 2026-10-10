@@ -111,8 +111,6 @@ jobs:
           # and the default app for browsers without a stored selection (legacy|primary).
           NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID }}
           NEXT_PUBLIC_ENTRA_DEFAULT_APP: ${{ vars.NEXT_PUBLIC_ENTRA_DEFAULT_APP }}
-          NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_REDIRECT_URI }}
-          NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI }}
           NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING }}
           # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
           # the verify step below polls the deployed file for exactly this commit.
@@ -122,14 +120,18 @@ jobs:
           # Star counter from the step above; empty when the lookup failed.
           NEXT_PUBLIC_GITHUB_STARS: ${{ steps.stars.outputs.count }}
         run: |
-          # Both from the endpoint registry (Load endpoints). Empty, the portal would silently call
+          # All from the endpoint registry (Load endpoints). Empty, the portal would silently call
           # localhost:7071. The stats manifest is what browsers load the live numbers from, and the
           # build reads it once to bake the numbers of this moment into the landing page's static
-          # HTML (lib/platformStats.ts).
+          # HTML (lib/platformStats.ts). The redirect URIs are only the fallback for the static
+          # render; in the browser lib/msalConfig.ts uses window.location.origin.
           export NEXT_PUBLIC_API_BASE_URL="$API_BASE_URL"
           export NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL="$STATS_CONTAINER_URL"
+          export NEXT_PUBLIC_ENTRA_REDIRECT_URI="$WWW_BASE_URL"
+          export NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI="$WWW_BASE_URL"
           test -n "$NEXT_PUBLIC_API_BASE_URL" || { echo "::error::API_BASE_URL is empty - the portal would call localhost"; exit 1; }
           test -n "$NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL" || { echo "::error::STATS_CONTAINER_URL is empty"; exit 1; }
+          test -n "$NEXT_PUBLIC_ENTRA_REDIRECT_URI" || { echo "::error::WWW_BASE_URL is empty"; exit 1; }
           npm run build
           test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
           test -f out/whats-new.json || { echo "out/whats-new.json missing - whats-new prebuild did not run"; exit 1; }
