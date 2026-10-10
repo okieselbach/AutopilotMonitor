@@ -1353,18 +1353,20 @@ namespace AutopilotMonitor.Functions.Services
 
         private async Task<SessionStats> ComputeAllSessionStatsAsync(int days, IReadOnlyCollection<string>? allowedTenantIds, CancellationToken cancellationToken)
         {
-            var tenantIds = ApplyTenantBound(await GetTenantIdsCachedAsync(), allowedTenantIds);
-            if (tenantIds.Count == 0)
+            // Keyed on the CONFIGURED list: on an empty config table (fresh install) an UNBOUNDED caller
+            // keeps the legacy primary-table drain as its safety net, while a BOUNDED (delegated/MSP)
+            // caller gets an empty tally — never the all-tenants scan. A non-empty config whose tenants
+            // have no enrollment yet is an empty tally as well: the drain below runs over the enrolled
+            // subset (ENROLLED TENANT SNAPSHOT in TableStorageService.cs), cut by the bound.
+            if ((await GetTenantIdsCachedAsync()).Count == 0)
             {
-                // A BOUNDED (delegated/MSP) caller with no resolvable tenant gets an empty tally — never
-                // the all-tenants scan. An UNBOUNDED caller on an empty config table (fresh install)
-                // keeps the legacy primary-table drain as its safety net.
                 var sessions = allowedTenantIds != null
                     ? new List<SessionSummary>()
                     : await GetAllSessionsAsync(tenantIdFilter: null, days, allowedTenantIds: null);
                 return AggregateSessionStats(sessions, days);
             }
 
+            var tenantIds = ApplyTenantBound(await GetEnrolledTenantIdsCachedAsync(), allowedTenantIds);
             var rows = await DrainSessionsIndexWindowAsync(
                 tenantIds, startUtc: DateTime.UtcNow.AddDays(-days), endUtc: null, SessionStatsProjection, cancellationToken);
             return AggregateSessionStats(rows, days);
@@ -1537,25 +1539,31 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
 
-                // Step 1: Tenant IDs from the per-instance TenantConfiguration snapshot (one row per
-                // tenant; cached — this used to be re-scanned for every 1000-row page of a drain).
+                // Step 1: Tenant IDs from the per-instance snapshots (cached — this used to be a
+                // TenantConfiguration re-scan for every 1000-row page of a drain). The fresh-install
+                // fallback keys on the CONFIGURED list; the fan-out itself runs over the tenants with an
+                // enrollment on record, the only ones that can hold index rows (ENROLLED TENANT SNAPSHOT
+                // in TableStorageService.cs) — a configured set nobody enrolled in is an empty page.
                 // Delegated ("MSP") bound: restrict the cross-tenant fan-out to the caller's managed subset.
                 // This is the SAME per-tenant loop the Global Admin aggregate uses — only the tenant set
                 // shrinks, so the merge/cursor/pagination below stay identical.
-                var tenantIds = ApplyTenantBound(await GetTenantIdsCachedAsync(), allowedTenantIds);
+                var configuredTenantIds = await GetTenantIdsCachedAsync();
 
-                if (tenantIds.Count == 0 && string.IsNullOrEmpty(cursor))
+                if (configuredTenantIds.Count == 0 && string.IsNullOrEmpty(cursor))
                 {
-                    // A BOUNDED (delegated/MSP) request must NEVER fall back to the unbounded primary-table
-                    // scan: an empty allowed set (managed tenant has no config row, config momentarily empty,
-                    // or a casing mismatch) means "none of YOUR tenants" → empty page, not ALL tenants. The
-                    // primary-table fallback is only the GA all-tenants safety net for a fresh/empty config.
+                    // Empty config table. A BOUNDED (delegated/MSP) request must NEVER fall back to the
+                    // unbounded primary-table scan — "none of YOUR tenants" is an empty page, not ALL
+                    // tenants (a managed tenant without a config row, or a casing mismatch, lands in the
+                    // empty fan-out below for the same reason). The primary-table fallback is only the
+                    // GA all-tenants safety net for a fresh/empty config.
                     if (allowedTenantIds != null)
                         return (new List<SessionSummary>(), false, null);
 
                     var fallback = await FetchAllSessionsFromPrimaryTableInternalAsync(maxResults, days);
                     return (fallback.Sessions, fallback.HasMore, NextCursor: null);
                 }
+
+                var tenantIds = ApplyTenantBound(await GetEnrolledTenantIdsCachedAsync(), allowedTenantIds);
 
                 // Step 2: Per-tenant fan-out using RowKey ordering (inverted ticks → newest first).
                 // Parse cursor into invertedTicks prefix for cross-tenant RowKey filtering.

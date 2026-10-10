@@ -15,7 +15,7 @@ import type { Session } from "../types";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import type { BlockedDeviceListResponse, SearchSessionsResponse, SessionListResponse } from "@/utils/wire-types.generated";
 import { ApiError, fetchJson, nullOnApiError } from "@/lib/apiClient";
-import { getInitialSessionsPageSize } from "./sessionsPageSize";
+import { getSessionsFetchPageSize } from "./sessionsPageSize";
 
 // Server-side search sweep bounds: the backend scans up to 10 Azure pages per request
 // (free-text backfill) and returns only matches; the client follows nextLink until it has
@@ -222,10 +222,11 @@ export function useDashboardSessions({
   }, [getAccessToken, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
 
   // Internal batch fetcher — returns data without touching state so callers can
-  // decide how to apply it (single append vs. progressive loop). For first-page
-  // calls we use getInitialSessionsPageSize() (Pattern B2: typically 10; the auth
-  // bootstrap seeds the same URL, see lib/dashboardSeed.ts). For load-more
-  // we keep the same pageSize so the user-visible cadence is uniform.
+  // decide how to apply it (single append vs. progressive loop). First-page calls use
+  // getInitialSessionsPageSize() (Pattern B2: typically 10; the auth bootstrap seeds the
+  // same URL, see lib/dashboardSeed.ts). Own-tenant load-more keeps that size so the
+  // user-visible cadence is uniform; cross-tenant follow-up pages batch larger, because
+  // every such page costs one backend query per enrolled tenant (see sessionsPageSize.ts).
   const fetchSessionsBatch = useCallback(async (
     loadMoreContinuation?: string,
     globalTenantIdOverride?: string,
@@ -240,16 +241,17 @@ export function useDashboardSessions({
       // bounds this too; this just keeps the client from ever asking for an unmanaged tenant.
       const effectiveTenantFilter = boundTenantToDelegatedScope(
         asGuidOrUndefined(rawFilter), isDelegatedScopeRef.current, delegatedTenantIdsRef.current);
-      const pageSize = getInitialSessionsPageSize();
-      const opts = loadMoreContinuation
-        ? { pageSize, continuation: loadMoreContinuation }
-        : { pageSize };
       // A delegated ("MSP") caller filtering on their OWN home tenant routes to the JWT-bound member
       // list — their access there is member-based, and the /global/ path is bounded to the managed
       // set (would return empty). Mirrors the scope hooks' routeGlobal carve-out.
       const homeSelected = isDelegatedScopeRef.current &&
         isHomeTenantTarget(asGuidOrUndefined(rawFilter), tenantIdRef.current ?? undefined);
-      const endpoint = globalAdminModeRef.current && !homeSelected
+      const crossTenant = globalAdminModeRef.current && !homeSelected;
+      const pageSize = getSessionsFetchPageSize({ continuation: !!loadMoreContinuation, crossTenant });
+      const opts = loadMoreContinuation
+        ? { pageSize, continuation: loadMoreContinuation }
+        : { pageSize };
+      const endpoint = crossTenant
         ? api.globalSessions.list(effectiveTenantFilter, undefined, opts)
         // Own-tenant list: the backend takes the tenant from the JWT and ignores a tenantId query
         // (GetSessionsFunction, ParseQuery acceptFilterTenantId:false), so none is sent — and the

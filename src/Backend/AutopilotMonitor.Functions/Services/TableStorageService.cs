@@ -70,6 +70,64 @@ namespace AutopilotMonitor.Functions.Services
             return tenantIds.ToList();
         }
 
+        // ===== ENROLLED TENANT SNAPSHOT (session-derived fan-outs) =====
+        //
+        // Of the configured tenants only those that ever registered a session can hold rows in
+        // SessionsIndex, Sessions or AppInstallSummaries (live 2026-10-10: 127 of 353). The
+        // session-derived cross-tenant reads (list pages, stats, geo window, app summaries) fan
+        // out over this subset; the marker is the per-tenant PlatformStats counter row (D-254):
+        // created by the first fresh registration, raised to the live count by every 2-h
+        // maintenance run, so a lost first increment heals within one run. Audit logs and the
+        // maintenance paths keep the full list — audit rows exist for tenants without sessions,
+        // and maintenance prefers correctness over the saved queries. Fail-open: a failed counter
+        // scan yields the FULL configured list, never a narrower one — a missing marker can only
+        // make a tenant invisible, so the read side must not add a second way to lose it.
+        private readonly SingleFlightCache<IReadOnlyList<string>> _enrolledTenantIdCache = new();
+
+        /// <summary>
+        /// Configured tenants with at least one enrollment on record, in the order and spelling of
+        /// <see cref="GetTenantIdsCachedAsync"/> (see the ENROLLED TENANT SNAPSHOT note). Empty when
+        /// the config table is empty — callers key their fresh-install fallback on the configured
+        /// list, never on this one — and the full configured list when the counter scan fails.
+        /// </summary>
+        internal async Task<IReadOnlyList<string>> GetEnrolledTenantIdsCachedAsync()
+        {
+            var configured = await GetTenantIdsCachedAsync().ConfigureAwait(false);
+            if (configured.Count == 0)
+                return configured;
+
+            try
+            {
+                return await _enrolledTenantIdCache.GetOrAddAsync(TenantIdCacheKey, TenantIdCacheTtl,
+                    ct => QueryEnrolledTenantIdsAsync(configured, ct)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Enrolled-tenant snapshot unavailable; cross-tenant reads fan out over all {TenantCount} configured tenants",
+                    configured.Count);
+                return configured;
+            }
+        }
+
+        private async Task<IReadOnlyList<string>> QueryEnrolledTenantIdsAsync(IReadOnlyList<string> configured, CancellationToken cancellationToken)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+            var query = tableClient.QueryAsync<TableEntity>(
+                filter: $"RowKey eq '{TenantStatsRowKey}'",
+                select: new[] { "PartitionKey", nameof(TenantStats.TotalEnrollments) },
+                cancellationToken: cancellationToken);
+
+            var enrolled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await foreach (var row in query)
+            {
+                if ((row.GetInt64(nameof(TenantStats.TotalEnrollments)) ?? 0) > 0)
+                    enrolled.Add(row.PartitionKey);
+            }
+
+            return configured.Where(enrolled.Contains).ToList();
+        }
+
         /// <summary>
         /// Applies the delegated ("MSP") bound to a tenant-id set. Null bound = unchanged. Comparison
         /// is case-insensitive because AllowedTenantIds is lowercased while the config PartitionKey

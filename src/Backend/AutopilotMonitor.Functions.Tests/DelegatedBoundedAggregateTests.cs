@@ -114,8 +114,15 @@ public class DelegatedBoundedAggregateTests
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.TenantConfiguration)).Returns(config.Object);
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.Sessions)).Returns(sessions.Object);
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.SessionsIndex)).Returns(index.Object);
+        // Every tenant of these tests counts as enrolled: the bounded guard under test must not lean on the
+        // enrolled-tenant snapshot narrowing the set (CrossTenantFanOutTests covers that snapshot).
+        serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.PlatformStats)).Returns(
+            MockTableClientReturning(CounterRow(ConfigTenant), CounterRow(ManagedTenant), CounterRow(UnmanagedTenant)).Object);
         return new TableStorageService(serviceClient.Object, NullLogger<TableStorageService>.Instance);
     }
+
+    /// <summary>A per-tenant PlatformStats counter row — the enrolled-tenant marker of the cross-tenant fan-outs.</summary>
+    private static TableEntity CounterRow(string tenantId) => new(tenantId, "current") { ["TotalEnrollments"] = 1L };
 
     /// <summary>Mocks both QueryAsync overloads (string + expression filter) to return the given rows.</summary>
     private static Mock<TableClient> MockTableClientReturning(params TableEntity[] rows)

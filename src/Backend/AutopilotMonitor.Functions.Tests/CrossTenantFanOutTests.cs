@@ -26,6 +26,7 @@ public class CrossTenantFanOutTests
 {
     private const string TenantA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     private const string TenantB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    private const string TenantC = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
     [Fact]
     public async Task SessionStats_DrainsIndexPerTenant_WithRowKeyBound_AndIsCached()
@@ -33,7 +34,7 @@ public class CrossTenantFanOutTests
         var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 120), IndexRow(TenantB, "s2", SessionStatus.Failed, null));
         var sessions = MockTableClientReturning();
         var config = MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB));
-        var storage = BuildStorage(config, sessions, index, apps: new Mock<TableClient>());
+        var storage = BuildStorage(config, sessions, index, apps: new Mock<TableClient>(), counters: Counters(TenantA, TenantB));
 
         var stats = await storage.GetAllSessionStatsAsync(tenantIdFilter: null, days: 7, allowedTenantIds: null);
         var again = await storage.GetAllSessionStatsAsync(tenantIdFilter: null, days: 7, allowedTenantIds: null);
@@ -56,7 +57,7 @@ public class CrossTenantFanOutTests
     {
         var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60));
         var config = MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB));
-        var storage = BuildStorage(config, MockTableClientReturning(), index, apps: new Mock<TableClient>());
+        var storage = BuildStorage(config, MockTableClientReturning(), index, apps: new Mock<TableClient>(), counters: Counters(TenantA, TenantB));
 
         await storage.GetAllSessionStatsAsync(tenantIdFilter: null, days: 30, allowedTenantIds: new[] { TenantB.ToUpperInvariant() });
 
@@ -69,7 +70,7 @@ public class CrossTenantFanOutTests
     {
         var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60));
         var sessions = MockTableClientReturning();
-        var storage = BuildStorage(MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)), sessions, index, apps: new Mock<TableClient>());
+        var storage = BuildStorage(MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)), sessions, index, apps: new Mock<TableClient>(), counters: Counters(TenantA, TenantB));
 
         var start = DateTime.UtcNow.AddDays(-30);
         var end = DateTime.UtcNow.AddDays(1);
@@ -99,7 +100,7 @@ public class CrossTenantFanOutTests
     public async Task AppSummaries_CrossTenant_OnePartitionQueryPerTenant_SharedAcrossConcurrentCallers()
     {
         var apps = MockTableClientReturning(AppRow(TenantA, "s1", "Teams"), AppRow(TenantB, "s2", "Office"));
-        var storage = BuildStorage(MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)), MockTableClientReturning(), MockTableClientReturning(), apps);
+        var storage = BuildStorage(MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)), MockTableClientReturning(), MockTableClientReturning(), apps, counters: Counters(TenantA, TenantB));
 
         var since = DateTime.UtcNow.AddDays(-30);
         // The Installs tab fires these two at once; the usage compute adds the refs projection.
@@ -132,6 +133,114 @@ public class CrossTenantFanOutTests
         Assert.All(apps.Selects, s => Assert.Equal(TableStorageService.AppMetricsProjection, s));
     }
 
+    // ── enrolled-tenant snapshot: the fan-out width is the set of tenants with an enrollment on record ──
+
+    [Fact]
+    public async Task SessionList_FansOutOnlyOverEnrolledTenants_AndScansCountersOncePerTtl()
+    {
+        // Config knows three tenants: A enrolled, B's counter row stands at 0, C has no counter row at all.
+        var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60));
+        var counters = MockTableClientReturning(CounterRow(TenantA, 5), CounterRow(TenantB, 0));
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB), ConfigRow(TenantC)),
+            MockTableClientReturning(), index, apps: new Mock<TableClient>(), counters: counters);
+
+        var page = await storage.GetAllSessionsPageAsync(tenantIdFilter: null, days: null, pageSize: 10, continuation: null);
+        await storage.GetAllSessionsPageAsync(tenantIdFilter: null, days: null, pageSize: 10, continuation: null);
+
+        Assert.Single(page.Items);
+        // Two pages, one partition query each — only the enrolled tenant is ever asked.
+        Assert.Equal(2, index.Filters.Count);
+        Assert.All(index.Filters, f => Assert.StartsWith($"PartitionKey eq '{TenantA}'", f));
+        // The marker is one projected property-filter read per TTL, shared by both pages.
+        Assert.Equal("RowKey eq 'current'", Assert.Single(counters.Filters));
+        Assert.Equal(new[] { "PartitionKey", "TotalEnrollments" }, Assert.Single(counters.Selects));
+    }
+
+    [Fact]
+    public async Task SessionList_CounterScanFailure_FailsOpenToEveryConfiguredTenant()
+    {
+        var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60));
+        var counters = new RecordingTableClient();
+        counters.Setup(c => c.QueryAsync<TableEntity>(
+                It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .Throws(new RequestFailedException(503, "PlatformStats unavailable"));
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)),
+            MockTableClientReturning(), index, apps: new Mock<TableClient>(), counters: counters);
+
+        var page = await storage.GetAllSessionsPageAsync(tenantIdFilter: null, days: null, pageSize: 10, continuation: null);
+
+        // A failed marker read must never narrow the fan-out: every configured tenant is queried.
+        Assert.Single(page.Items);
+        Assert.Equal(2, index.Filters.Count);
+    }
+
+    [Fact]
+    public async Task SessionList_CounterRowOfAnUnconfiguredTenant_IsNeverQueried()
+    {
+        // An offboarded tenant may keep its counter row and even index rows; without a config row it is out.
+        var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60), IndexRow(TenantB, "s2", SessionStatus.Failed, null));
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA)),
+            MockTableClientReturning(), index, apps: new Mock<TableClient>(), counters: Counters(TenantA, TenantB));
+
+        var page = await storage.GetAllSessionsPageAsync(tenantIdFilter: null, days: null, pageSize: 10, continuation: null);
+
+        Assert.Single(page.Items);
+        Assert.StartsWith($"PartitionKey eq '{TenantA}'", Assert.Single(index.Filters));
+    }
+
+    [Fact]
+    public async Task SessionList_ConfiguredButNobodyEnrolled_IsAnEmptyPage_NeverTheLegacyScan()
+    {
+        // The primary-table scan is the EMPTY-CONFIG safety net only; "configured, nobody enrolled" is simply empty.
+        var sessions = MockTableClientReturning(new TableEntity(TenantA, "leak"));
+        var index = MockTableClientReturning();
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)),
+            sessions, index, apps: new Mock<TableClient>(), counters: MockTableClientReturning());
+
+        var page = await storage.GetAllSessionsPageAsync(tenantIdFilter: null, days: null, pageSize: 10, continuation: null);
+        var stats = await storage.GetAllSessionStatsAsync(tenantIdFilter: null, days: 7, allowedTenantIds: null);
+
+        Assert.Empty(page.Items);
+        Assert.Null(page.NextRawToken);
+        Assert.Equal(0, stats.TotalLastNDays);
+        AssertNeverQueried(sessions);
+        AssertNeverQueried(index);
+    }
+
+    [Fact]
+    public async Task SessionStats_BoundedCaller_IsCutToEnrolledTenants_AfterTheBound()
+    {
+        var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60), IndexRow(TenantB, "s2", SessionStatus.Succeeded, 60));
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)),
+            MockTableClientReturning(), index, apps: new Mock<TableClient>(), counters: Counters(TenantA));
+
+        // The delegated caller manages both tenants; only A ever enrolled.
+        await storage.GetAllSessionStatsAsync(tenantIdFilter: null, days: 30, allowedTenantIds: new[] { TenantA, TenantB });
+
+        Assert.StartsWith($"PartitionKey eq '{TenantA}'", Assert.Single(index.Filters));
+    }
+
+    [Fact]
+    public async Task GeoWindowAndAppSummaries_CrossTenant_SkipTenantsWithoutEnrollment()
+    {
+        var index = MockTableClientReturning(IndexRow(TenantA, "s1", SessionStatus.Succeeded, 60));
+        var apps = MockTableClientReturning(AppRow(TenantA, "s1", "Teams"));
+        var storage = BuildStorage(
+            MockTableClientReturning(ConfigRow(TenantA), ConfigRow(TenantB)),
+            MockTableClientReturning(), index, apps, counters: Counters(TenantA));
+
+        await storage.GetGeoWindowSessionsAsync(DateTime.UtcNow.AddDays(-30), DateTime.UtcNow.AddDays(1), tenantId: null);
+        await storage.GetAppMetricsSummariesAsync(DateTime.UtcNow.AddDays(-30), tenantId: null);
+
+        Assert.StartsWith($"PartitionKey eq '{TenantA}'", Assert.Single(index.Filters));
+        Assert.StartsWith($"PartitionKey eq '{TenantA}'", Assert.Single(apps.Filters));
+    }
+
     [Fact]
     public void GeoProjection_IsFullyMirroredOnSessionsIndex()
     {
@@ -161,15 +270,25 @@ public class CrossTenantFanOutTests
     private static TableEntity AppRow(string tenantId, string sessionId, string appName)
         => new(tenantId, $"{sessionId}_{appName}") { ["SessionId"] = sessionId, ["AppName"] = appName, ["StartedAt"] = DateTime.UtcNow.AddHours(-2) };
 
-    private static TableStorageService BuildStorage(RecordingTableClient config, RecordingTableClient sessions, RecordingTableClient index, Mock<TableClient> apps)
+    /// <param name="counters">PlatformStats counter rows — the enrolled-tenant marker; null = nobody has enrolled.</param>
+    private static TableStorageService BuildStorage(RecordingTableClient config, RecordingTableClient sessions, RecordingTableClient index, Mock<TableClient> apps, RecordingTableClient? counters = null)
     {
         var serviceClient = new Mock<TableServiceClient>();
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.TenantConfiguration)).Returns(config.Object);
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.Sessions)).Returns(sessions.Object);
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.SessionsIndex)).Returns(index.Object);
         serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.AppInstallSummaries)).Returns(apps.Object);
+        serviceClient.Setup(s => s.GetTableClient(Constants.TableNames.PlatformStats)).Returns((counters ?? MockTableClientReturning()).Object);
         return new TableStorageService(serviceClient.Object, NullLogger<TableStorageService>.Instance);
     }
+
+    /// <summary>A per-tenant counter row (PlatformStats, RowKey "current") — the enrolled-tenant marker.</summary>
+    private static TableEntity CounterRow(string tenantId, long totalEnrollments)
+        => new(tenantId, "current") { ["TotalEnrollments"] = totalEnrollments };
+
+    /// <summary>Counter rows marking every given tenant as enrolled.</summary>
+    private static RecordingTableClient Counters(params string[] tenantIds)
+        => MockTableClientReturning(tenantIds.Select(t => CounterRow(t, 1)).ToArray());
 
     /// <summary>Mock TableClient that records the filter + select of every string-filter QueryAsync call.</summary>
     private sealed class RecordingTableClient : Mock<TableClient>

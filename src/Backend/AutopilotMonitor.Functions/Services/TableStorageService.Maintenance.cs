@@ -588,14 +588,16 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
-                var tenantIds = !string.IsNullOrEmpty(tenantId)
-                    ? new List<string> { tenantId! }
-                    : (await GetTenantIdsCachedAsync()).ToList();
+                if (!string.IsNullOrEmpty(tenantId))
+                    return await DrainSessionsIndexWindowAsync(new List<string> { tenantId! }, startDate, endDate, GeoMetricsSessionProjection, cancellationToken);
 
                 // Empty config table (fresh install): keep the legacy Sessions scan as the safety net.
-                if (tenantIds.Count == 0)
+                if ((await GetTenantIdsCachedAsync()).Count == 0)
                     return await QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, GeoMetricsSessionProjection, cancellationToken);
 
+                // Cross-tenant: only tenants with an enrollment on record hold index rows
+                // (ENROLLED TENANT SNAPSHOT in TableStorageService.cs).
+                var tenantIds = await GetEnrolledTenantIdsCachedAsync();
                 return await DrainSessionsIndexWindowAsync(tenantIds, startDate, endDate, GeoMetricsSessionProjection, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

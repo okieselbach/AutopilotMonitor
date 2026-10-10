@@ -25,3 +25,25 @@ export function getInitialSessionsPageSize(): number {
   const value = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PAGE_SIZE;
   return Math.min(value, MAX_PAGE_SIZE);
 }
+
+/**
+ * Follow-up pages (continuation set) of the CROSS-TENANT list fetch at least this many rows.
+ * Every cross-tenant page costs the backend one partition query per enrolled tenant whatever
+ * the page size, and a sweep (load-all, auto-load-more) walks hundreds of pages at 10 — so
+ * follow-up pages in that mode batch 100 (audit 2026-10-10: a full sweep drops from 1,679 to
+ * 168 pages). The FIRST page keeps the small first-paint size, and the own-tenant list keeps
+ * its cadence: one page there is one query. The continuation token does not bind the page
+ * size (it is a RowKey watermark), so the size may change between pages.
+ */
+export const CROSS_TENANT_FOLLOWUP_PAGE_SIZE = 100;
+
+export function resolveSessionsFetchPageSize(
+  initial: number,
+  opts: { continuation: boolean; crossTenant: boolean },
+): number {
+  return opts.continuation && opts.crossTenant ? Math.max(initial, CROSS_TENANT_FOLLOWUP_PAGE_SIZE) : initial;
+}
+
+export function getSessionsFetchPageSize(opts: { continuation: boolean; crossTenant: boolean }): number {
+  return resolveSessionsFetchPageSize(getInitialSessionsPageSize(), opts);
+}

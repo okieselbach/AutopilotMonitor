@@ -708,13 +708,15 @@ namespace AutopilotMonitor.Functions.Services
             var windowFilter = AppSummaryWindowFilter(sinceUtc);
             var select = CrossTenantAppScanProjection.Value;
 
-            var tenantIds = await GetTenantIdsCachedAsync();
-            if (tenantIds.Count == 0)
+            if ((await GetTenantIdsCachedAsync()).Count == 0)
             {
                 // Empty config table (fresh install): the legacy cross-partition scan is the safety net.
                 return await ScanAppInstallSummariesAsync(tableClient, windowFilter, select, cancellationToken);
             }
 
+            // Only tenants with an enrollment on record hold app summaries (ENROLLED TENANT SNAPSHOT
+            // in TableStorageService.cs); every other configured tenant would be one empty partition query.
+            var tenantIds = await GetEnrolledTenantIdsCachedAsync();
             return await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency,
                 (tenantId, ct) => ScanAppInstallSummariesAsync(tableClient, $"PartitionKey eq '{tenantId}' and {windowFilter}", select, ct),
                 cancellationToken);
