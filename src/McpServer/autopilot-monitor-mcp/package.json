@@ -16,6 +16,7 @@
     "docker:build": "docker build -f Dockerfile -t autopilotmonitor-mcp:local ../../../",
     "docker:run": "docker run --rm -p 8080:8080 -e AUTOPILOT_API_URL=https://autopilotmonitor-api-eu.azurewebsites.net autopilotmonitor-mcp:local",
     "lint": "eslint .",
+    "knip": "knip",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -39,6 +40,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.4",
     "eslint": "^9.39.5",
+    "knip": "^6.37.0",
     "tsx": "^4.23.15",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.65.0",

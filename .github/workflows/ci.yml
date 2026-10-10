@@ -160,6 +160,12 @@ jobs:
       - name: Lint
         run: npm run lint -- --max-warnings 0
 
+      # Unused files, exports and dependencies (knip.json). Its own script on
+      # purpose: chained into `lint`, the `-- --max-warnings 0` above would be
+      # handed to knip and ESLint would lose its cap.
+      - name: Unused code
+        run: npm run knip
+
       - name: Tests
         run: npm test
 
@@ -191,6 +197,9 @@ jobs:
       # raise the cap.
       - name: Lint
         run: npm run lint -- --max-warnings 0
+
+      - name: Unused code
+        run: npm run knip
 
       # The vector-search tests tokenize with the real all-MiniLM-L6-v2 model
       # (~23 MB tokenizer + ONNX weights). transformers.js caches under

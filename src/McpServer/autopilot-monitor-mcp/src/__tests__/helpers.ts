@@ -24,10 +24,6 @@ export function getToken(): string {
   return TOKEN;
 }
 
-export function getBaseUrl(): string {
-  return BASE_URL;
-}
-
 interface ApiFetchOptions extends RequestInit {
   expectStatus?: number;
 }
@@ -68,14 +64,4 @@ export async function apiFetch<T = unknown>(path: string, options: ApiFetchOptio
   }
 
   return res.json() as Promise<T>;
-}
-
-/** Build query string from params, skipping null/undefined values. */
-export function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v != null && v !== '') p.set(k, String(v));
-  }
-  const s = p.toString();
-  return s ? `?${s}` : '';
 }

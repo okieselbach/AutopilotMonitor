@@ -70,5 +70,3 @@ export function PageSkeleton({
     </div>
   );
 }
-
-export default PageSkeleton;

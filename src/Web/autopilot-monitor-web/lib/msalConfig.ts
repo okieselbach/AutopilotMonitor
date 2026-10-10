@@ -143,14 +143,3 @@ export const buildLoginRequest = (app: AuthApp): RedirectRequest => ({
 });
 
 export const loginRequest: RedirectRequest = buildLoginRequest(activeAuthApp);
-
-/**
- * Protected resource map for token acquisition
- * Maps API endpoints to their required scopes
- */
-export const protectedResources = {
-  api: {
-    endpoint: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7071",
-    scopes: apiRequest.scopes,
-  },
-};

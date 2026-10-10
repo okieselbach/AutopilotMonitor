@@ -5,12 +5,9 @@
  */
 export * from "../../public/push/sw-core.js";
 export type {
-  Fact,
-  FragmentTarget,
   HistoryEntry,
   Platform,
   PlatformInput,
-  PushApiRequest,
   Severity,
   TraceRecord,
 } from "../../public/push/sw-core.js";

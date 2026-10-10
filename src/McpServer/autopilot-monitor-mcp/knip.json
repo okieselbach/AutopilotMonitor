@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/precompute-embeddings.ts", "scripts/*.ts"],
+  "ignore": ["src/generated/**"],
+  "ignoreExportsUsedInFile": true
+}

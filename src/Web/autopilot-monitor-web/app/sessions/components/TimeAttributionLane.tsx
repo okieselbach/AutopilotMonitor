@@ -13,37 +13,6 @@ import { osUpdateDetail } from "./timeAttributionLogic";
  * the session's DurationSeconds (WhiteGlove pause excluded by design).
  */
 
-export interface TimeAttributionSpanDto {
-  segmentKey: string;
-  startUtc: string;
-  endUtc: string;
-  seconds: number;
-}
-
-export interface BlockingAppIntervalDto {
-  appId: string;
-  appName: string;
-  startUtc: string;
-  endUtc: string;
-  seconds: number;
-}
-
-export interface RebootSpanDto {
-  startUtc: string;
-  endUtc: string;
-  seconds: number;
-  segmentKey: string;
-}
-
-export interface SleepSpanDto {
-  startUtc: string;
-  endUtc: string;
-  seconds: number;
-  segmentKey: string;
-  /** "sleep" | "hibernate" | "modern_standby" (from the system_sleep_episode payload). */
-  kind: string;
-}
-
 /** The session time breakdown (wire shape). */
 export type SessionTimeBreakdownDto = SessionTimeBreakdown;
 

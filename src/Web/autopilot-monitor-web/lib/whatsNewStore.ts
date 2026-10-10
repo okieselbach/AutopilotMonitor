@@ -122,9 +122,3 @@ export function recordSessionSeen(channel: WhatsNewChannel, seenUtc: string): vo
   if (next === state.sessionSeen[channel]) return;
   setState({ sessionSeen: { ...state.sessionSeen, [channel]: next } });
 }
-
-/** Test seam. */
-export function resetWhatsNewStoreForTests(): void {
-  state = INITIAL;
-  inflight = null;
-}

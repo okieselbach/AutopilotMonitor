@@ -31,8 +31,3 @@ export interface IgnoredSoftwareEntry {
   reason: string;
   ignoredAt: string;
 }
-
-export interface TabProps {
-  getAccessToken: () => Promise<string | null>;
-  setError: (error: string | null) => void;
-}

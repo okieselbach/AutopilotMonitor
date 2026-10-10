@@ -16,9 +16,6 @@ import type {
 } from "@/lib/generated/wire-types.generated";
 import { pushApiRequest } from "./pushCore";
 
-/** The wire carries `status` as a string; these are its documented values. */
-export type DeviceStatus = "Pending" | "Active" | "Paused" | "Stale";
-
 export type PairBeginResponse = BeginPairResponse;
 export type PairRequest = RedeemPairRequest;
 export type PairResponse = RedeemPairResponse;

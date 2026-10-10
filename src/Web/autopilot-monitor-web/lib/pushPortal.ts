@@ -14,9 +14,6 @@ export const PUSH_PROVIDER = 50;
 /** Which route family a panel talks to: `push/…` (own tenant) or `global/push/…` (platform). */
 export type PushScope = "tenant" | "platform";
 
-/** The wire carries `status` as a string; these are its documented values (PushDeviceDto). */
-export type PushDeviceStatus = "Pending" | "Active" | "Paused" | "Stale";
-
 /** PairingStatusResponse.status values. */
 export type PairingStatus = "Pending" | "Redeemed" | "Confirmed" | "Rejected" | "Expired";
 

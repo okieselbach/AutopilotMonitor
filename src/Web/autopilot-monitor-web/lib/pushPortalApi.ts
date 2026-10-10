@@ -20,15 +20,9 @@ import type {
 
 /** 409: pairing or watching needs an enabled Push channel in this scope first (K4). */
 const PUSH_CHANNEL_REQUIRED = "PushChannelRequired" satisfies ApiErrorCode;
-/** 403: the caller has no table-backed Admin/Operator (or GlobalAdmin) row in this scope (K2). */
-const PUSH_NOT_ELIGIBLE = "PushNotEligible" satisfies ApiErrorCode;
 
 export function isPushChannelRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === PUSH_CHANNEL_REQUIRED;
-}
-
-export function isPushNotEligible(err: unknown): boolean {
-  return err instanceof ApiError && err.code === PUSH_NOT_ELIGIBLE;
 }
 
 export function createPairing(scope: PushScope, getAccessToken: GetAccessToken): Promise<CreatePairingResponse> {

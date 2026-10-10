@@ -78,5 +78,3 @@ export function TableSkeleton({
     </div>
   );
 }
-
-export default TableSkeleton;

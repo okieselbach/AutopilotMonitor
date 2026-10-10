@@ -3,6 +3,4 @@
 export type {
   EnrollmentEvent,
   RuleResult,
-  RemediationStep,
-  RelatedDoc,
 } from "@/lib/generated/wire-types.generated";

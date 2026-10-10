@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["lib/sharedManifestChecks.ts"],
+  "ignore": ["lib/generated/**"],
+  "ignoreExportsUsedInFile": true
+}

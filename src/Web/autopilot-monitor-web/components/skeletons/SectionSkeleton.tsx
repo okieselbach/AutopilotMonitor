@@ -35,5 +35,3 @@ export function SectionSkeleton({
     </div>
   );
 }
-
-export default SectionSkeleton;
