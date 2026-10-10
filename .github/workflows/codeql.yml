@@ -28,6 +28,7 @@ on:
       # Every other workflow: none of them changes the C# or TypeScript CodeQL analyzes.
       # paths-ignore cannot negate, so they are listed one by one; codeql.yml itself and
       # .github/codeql/ stay out of the list. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/action-pins.yml'
       - '.github/workflows/bootstrap-script-gates.yml'
       - '.github/workflows/build-agent.yml'
       - '.github/workflows/build-msi.yml'
@@ -59,6 +60,7 @@ on:
       # Every other workflow: none of them changes the C# or TypeScript CodeQL analyzes.
       # paths-ignore cannot negate, so they are listed one by one; codeql.yml itself and
       # .github/codeql/ stay out of the list. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/action-pins.yml'
       - '.github/workflows/bootstrap-script-gates.yml'
       - '.github/workflows/build-agent.yml'
       - '.github/workflows/build-msi.yml'
