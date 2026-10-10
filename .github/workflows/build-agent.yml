@@ -48,7 +48,9 @@ env:
   LINE_MAJOR: 2
   AGENT_PROJECT: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
   DIALOG_PROJECT: src/Agent/AutopilotMonitor.SummaryDialog/AutopilotMonitor.SummaryDialog.csproj
-  TEST_PROJECT: src/Agent/AutopilotMonitor.DecisionCore.Tests/AutopilotMonitor.DecisionCore.Tests.csproj
+  DECISIONCORE_TEST_PROJECT: src/Agent/AutopilotMonitor.DecisionCore.Tests/AutopilotMonitor.DecisionCore.Tests.csproj
+  CORE_TEST_PROJECT: src/Agent/AutopilotMonitor.Agent.V2.Core.Tests/AutopilotMonitor.Agent.V2.Core.Tests.csproj
+  DIALOG_TEST_PROJECT: src/Agent/AutopilotMonitor.SummaryDialog.Tests/AutopilotMonitor.SummaryDialog.Tests.csproj
   CSPROJ_PATH: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
   BOOTSTRAP_SOURCE: scripts/Bootstrap/Install-AutopilotMonitor.ps1
   AGENT_OUTPUT: src/Agent/AutopilotMonitor.Agent.V2/bin/Release/net48
@@ -176,7 +178,23 @@ jobs:
         run: |
           dotnet restore ${{ env.AGENT_PROJECT }}
           dotnet restore ${{ env.DIALOG_PROJECT }}
-          dotnet restore ${{ env.TEST_PROJECT }}
+          dotnet restore ${{ env.DECISIONCORE_TEST_PROJECT }}
+          dotnet restore ${{ env.CORE_TEST_PROJECT }}
+          dotnet restore ${{ env.DIALOG_TEST_PROJECT }}
+
+      # Every agent suite runs before the release build. ORDER AND BUILD_NUMBER ARE LOAD-BEARING:
+      # Agent.V2.Core.Tests references the agent exe, so the test build compiles it. With the
+      # reserved number it stamps the release version and the Build Agent step is up to date; run
+      # after that step or without the number, it would rewrite the binaries with another version.
+      - name: Run agent tests (all suites)
+        shell: pwsh
+        env:
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: |
+          foreach ($project in @($env:DECISIONCORE_TEST_PROJECT, $env:CORE_TEST_PROJECT, $env:DIALOG_TEST_PROJECT)) {
+            dotnet test $project --configuration Release --no-restore --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw "Tests failed: $project" }
+          }
 
       - name: Build Agent
         run: dotnet build ${{ env.AGENT_PROJECT }} --configuration Release --no-restore
@@ -185,9 +203,6 @@ jobs:
 
       - name: Build SummaryDialog
         run: dotnet build ${{ env.DIALOG_PROJECT }} --configuration Release --no-restore
-
-      - name: Run Agent unit tests
-        run: dotnet test ${{ env.TEST_PROJECT }} --configuration Release --no-restore --verbosity quiet
 
       # Authenticode over everything we author; third-party assemblies keep their own signature.
       #
