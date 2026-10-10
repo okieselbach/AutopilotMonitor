@@ -3,24 +3,34 @@ name: IndexNow Notify (Bing/Yandex)
 on:
   workflow_dispatch:
 
-# The job only talks to public endpoints; it never needs a repository token.
-permissions: {}
+# Read-only, for the checkout of the endpoint registry; beyond that the job only talks to
+# public endpoints.
+permissions:
+  contents: read
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     name: Submit URLs to IndexNow
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
+
       - name: Notify IndexNow
         run: |
-          URLS=$(curl -s https://www.autopilotmonitor.com/sitemap.xml | grep -oP '<loc>\K[^<]+')
+          URLS=$(curl -s "$WWW_BASE_URL/sitemap.xml" | grep -oP '<loc>\K[^<]+')
           URL_JSON=$(echo "$URLS" | jq -R -s 'split("\n") | map(select(length > 0))')
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.indexnow.org/indexnow" \
             -H "Content-Type: application/json" \
             -d "{
-              \"host\": \"www.autopilotmonitor.com\",
+              \"host\": \"${WWW_BASE_URL#https://}\",
               \"key\": \"8f1710b5-f14b-477e-938b-6c01ef851661\",
-              \"keyLocation\": \"https://www.autopilotmonitor.com/IndexNow.txt\",
+              \"keyLocation\": \"$WWW_BASE_URL/IndexNow.txt\",
               \"urlList\": $URL_JSON
             }")
           echo "IndexNow response: HTTP $RESPONSE"

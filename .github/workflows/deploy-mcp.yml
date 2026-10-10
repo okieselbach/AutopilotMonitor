@@ -16,9 +16,8 @@ env:
   # reference — with a sha-only tag `az containerapp update` saw the same image
   # and silently created no revision (2026-08-28).
   IMAGE_TAG: ${{ github.sha }}-${{ github.run_number }}
-  HEALTH_URL: https://mcp.autopilotmonitor.com/health
-  VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
   PACKAGE_JSON: src/McpServer/autopilot-monitor-mcp/package.json
+  # Hosts (MCP, versions container) come from .github/scripts/Get-Endpoints.ps1.
 
 jobs:
   # One job on purpose, unlike the other deploys: all third-party code (npm ci, the build, the
@@ -35,6 +34,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
 
       # The published customer documentation lives in its own PUBLIC repo and is
       # baked into the image as the search_docs corpus (see the Dockerfile). No
@@ -68,7 +71,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/mcp.txt"
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "$env:VERSIONS_CONTAINER_URL/mcp.txt"
 
           $pkgVersion = (Get-Content ${{ env.PACKAGE_JSON }} -Raw | ConvertFrom-Json).version
           $prefix = ($pkgVersion -split '\.')[0..1] -join '.'
@@ -123,7 +126,7 @@ jobs:
           while ([DateTime]::UtcNow -lt $deadline) {
             $attempt++
             try {
-              $health = Invoke-RestMethod -Uri '${{ env.HEALTH_URL }}' -Method Get -TimeoutSec 60
+              $health = Invoke-RestMethod -Uri "$env:MCP_BASE_URL/health" -Method Get -TimeoutSec 60
               if ($health.commit -eq $expectedCommit -and $health.version -eq $expectedVersion) {
                 Write-Host "Live after $attempt attempt(s): $($health.version) @ $($health.commit), docs $($health.docs.commit) ($($health.docs.chunks) chunks)"
                 exit 0
@@ -154,7 +157,7 @@ jobs:
           } | ConvertTo-Json
 
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
-          $url = "${{ env.VERSIONS_CONTAINER }}/mcp.json"
+          $url = "$env:VERSIONS_CONTAINER_URL/mcp.json"
           # no-cache: rotating pointer, must never be served stale by any fronting cache.
           Invoke-RestMethod -Uri $url -Method Put -Headers ($authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' }) -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/mcp.json"

@@ -81,7 +81,6 @@ param(
     [string]$SigningToken,
     [string]$KeyVaultUrl,
     [string]$CertificateName,
-    [string]$TimestampUrl = 'http://timestamp.acs.microsoft.com',
     [string]$ExpectedPublisher,
     [string]$SignedOutputDir,
     [switch]$DryRun
@@ -93,10 +92,13 @@ if (-not $RepoRoot) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 }
 
-$ContainerUrl       = 'https://autopilotmonitoreu.blob.core.windows.net/agent'
-$LegacyContainerUrl = 'https://autopilotmonitor.blob.core.windows.net/agent'
-$AliasUrl           = 'https://download.autopilotmonitor.com/agent'
-$TableUrl           = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')"
+# Every host, the timestamp server included, from the one endpoint registry.
+$Endpoints          = & (Join-Path $PSScriptRoot 'Get-Endpoints.ps1')
+$ContainerUrl       = $Endpoints.AGENT_CONTAINER_URL
+$LegacyContainerUrl = $Endpoints.LEGACY_AGENT_CONTAINER_URL
+$AliasUrl           = $Endpoints.DOWNLOAD_ALIAS_URL
+$TableUrl           = $Endpoints.ADMIN_CONFIG_URL
+$TimestampUrl       = $Endpoints.CODE_SIGN_TIMESTAMP_URL
 
 $BootstrapSource   = Join-Path $RepoRoot 'scripts/Bootstrap/Install-AutopilotMonitor.ps1'
 $BootstrapBlob     = 'Install-AutopilotMonitor.ps1'
@@ -210,7 +212,7 @@ function Set-PublishSetSignature {
         --timestamp-rfc3161 $TimestampUrl `
         --file-digest sha256 `
         --description 'Autopilot Monitor bootstrap' `
-        --description-url 'https://www.autopilotmonitor.com' `
+        --description-url $Endpoints.WWW_BASE_URL `
         $paths
 
     # Native tool: PowerShell does not throw on a non-zero exit, and an unnoticed signing
@@ -327,8 +329,10 @@ $loaderVersion = Get-BootstrapScriptVersion -Content $loaderContent -Origin $Loa
 Write-Host "Loader script version: $loaderVersion"
 
 # ------------------------------------------------------------------ 2. dev render
-$stableUrlLiteral = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip"'
-$devUrlLiteral    = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent-dev.zip"'
+# The anchors are the customer scripts' own text, built from the alias in the registry. Should
+# the alias ever move, the scripts have to move with it -- until they do, the render stops here.
+$stableUrlLiteral = '$AgentDownloadUrl = "' + $AliasUrl + '/AutopilotMonitor-Agent.zip"'
+$devUrlLiteral    = '$AgentDownloadUrl = "' + $AliasUrl + '/AutopilotMonitor-Agent-dev.zip"'
 $stableManLiteral = '$VersionJsonName = "version.json"'
 $devManLiteral    = '$VersionJsonName = "version-dev.json"'
 
@@ -339,8 +343,8 @@ $devContent = $sourceContent.Replace($stableUrlLiteral, $devUrlLiteral).Replace(
 Write-Host "Rendered $DevBlob (dev agent URL + version-dev.json)"
 
 # The dev loader must fetch the dev bootstrap, or a dev device would run the stable chain.
-$stableLoaderLiteral = '$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1"'
-$devLoaderLiteral    = '$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor-Dev.ps1"'
+$stableLoaderLiteral = '$BootstrapUrl = "' + $AliasUrl + '/Install-AutopilotMonitor.ps1"'
+$devLoaderLiteral    = '$BootstrapUrl = "' + $AliasUrl + '/Install-AutopilotMonitor-Dev.ps1"'
 
 if ($loaderContent.IndexOf($stableLoaderLiteral) -lt 0) {
     throw "Loader dev-render: anchor literal missing in $LoaderSource"

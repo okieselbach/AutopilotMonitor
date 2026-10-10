@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       upload_blob:
-        description: 'Upload to blob (customer-facing via download.autopilotmonitor.com/agent/)'
+        description: 'Upload to blob (customer-facing through the download alias)'
         required: true
         type: boolean
         default: true
@@ -25,13 +25,13 @@ env:
   MSI_PROJECT_DIR: src/Agent/AutopilotMonitor.BootstrapMsi
   RUNNER_SCRIPT: scripts/Bootstrap/Start-AutopilotMonitor.ps1
   STABLE_MSI: AutopilotMonitor-Bootstrap.msi
-  # Authenticode via Azure Key Vault; identity and vault come from repository variables.
+  # Authenticode via Azure Key Vault; identity and vault come from repository variables, the
+  # timestamp server (CODE_SIGN_TIMESTAMP_URL) from the endpoint registry like every host here.
   # CODE_SIGN_EXPECTED_SUBJECT is optional and pins the publisher in the verify steps.
   CODE_SIGN_CLIENT_ID: ${{ vars.CODE_SIGN_CLIENT_ID }}
   CODE_SIGN_CERTIFICATE_NAME: ${{ vars.CODE_SIGN_CERTIFICATE_NAME }}
   CODE_SIGN_KEY_VAULT_URL: ${{ vars.CODE_SIGN_KEY_VAULT_URL }}
   CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
-  CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
   # Signs the loader BEFORE the build: wix embeds the file as it finds it, so a loader signed
@@ -53,6 +53,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # Every host in this workflow comes from the one endpoint registry.
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
 
       # The loader executes as SYSTEM on every enrolling device — a parse error or
       # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
@@ -118,7 +123,7 @@ jobs:
             --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
             --file-digest sha256 `
             --description 'Autopilot Monitor bootstrap runner' `
-            --description-url 'https://www.autopilotmonitor.com' `
+            --description-url $env:WWW_BASE_URL `
             $env:RUNNER_SCRIPT
           if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
 
@@ -210,6 +215,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
+
       # Read from this job's own checkout, never handed over by the build job.
       - name: Read MSI version from Package.wxs
         id: version
@@ -284,7 +293,7 @@ jobs:
             --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
             --file-digest sha256 `
             --description 'Autopilot Monitor Bootstrap' `
-            --description-url 'https://www.autopilotmonitor.com' `
+            --description-url $env:WWW_BASE_URL `
             $env:STABLE_MSI
           if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
 
@@ -305,7 +314,7 @@ jobs:
         env:
           MSI_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
+          $containerUrl = $env:AGENT_CONTAINER_URL
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
           $version = $env:MSI_VERSION
 
@@ -338,14 +347,14 @@ jobs:
         shell: pwsh
         run: |
           $localSize = (Get-Item $env:STABLE_MSI).Length
-          $resp = Invoke-WebRequest -Uri "https://download.autopilotmonitor.com/agent/$env:STABLE_MSI" -Method Head -UseBasicParsing
+          $resp = Invoke-WebRequest -Uri "$env:DOWNLOAD_ALIAS_URL/$env:STABLE_MSI" -Method Head -UseBasicParsing
           if ($resp.StatusCode -ne 200) { Write-Error "Alias HEAD returned $($resp.StatusCode)"; exit 1 }
           $remoteSize = [long]$resp.Headers['Content-Length'][0]
           if ($remoteSize -ne $localSize) {
             Write-Error "Size mismatch: alias serves $remoteSize bytes, local MSI is $localSize bytes"
             exit 1
           }
-          Write-Host "Alias verified: https://download.autopilotmonitor.com/agent/$env:STABLE_MSI ($remoteSize bytes)"
+          Write-Host "Alias verified: $env:DOWNLOAD_ALIAS_URL/$env:STABLE_MSI ($remoteSize bytes)"
 
       # Sigstore keyless provenance, same as the agent ZIP; covers the signed bytes. Skipped
       # on runs that publish nothing -- no log entry for bytes nobody receives. Verify:

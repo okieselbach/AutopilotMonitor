@@ -36,13 +36,13 @@ concurrency:
 
 # Authenticode for the customer scripts. Same identity and same repository variables as
 # build-agent.yml -- the loader on every device pins this publisher, so the two must not
-# drift apart.
+# drift apart. The publisher takes every host, the timestamp server included, from
+# .github/scripts/Get-Endpoints.ps1.
 env:
   CODE_SIGN_CLIENT_ID: ${{ vars.CODE_SIGN_CLIENT_ID }}
   CODE_SIGN_CERTIFICATE_NAME: ${{ vars.CODE_SIGN_CERTIFICATE_NAME }}
   CODE_SIGN_KEY_VAULT_URL: ${{ vars.CODE_SIGN_KEY_VAULT_URL }}
   CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
-  CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
   # $/ is the self-repository form: this repository at the running commit, never a
@@ -124,7 +124,6 @@ jobs:
             -SigningToken $env:CODE_SIGN_AKV_ACCESS_TOKEN `
             -KeyVaultUrl $env:CODE_SIGN_KEY_VAULT_URL `
             -CertificateName $env:CODE_SIGN_CERTIFICATE_NAME `
-            -TimestampUrl $env:CODE_SIGN_TIMESTAMP_URL `
             -ExpectedPublisher $env:CODE_SIGN_EXPECTED_SUBJECT `
             -SignedOutputDir "$env:RUNNER_TEMP/signed-scripts" `
             -DryRun:$dryRun

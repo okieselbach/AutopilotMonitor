@@ -1,12 +1,15 @@
 name: Workflow gates
 
-# Two checks over the workflow files themselves:
+# Three checks over the workflow files and their helper scripts:
 #   * verify-pins -- every third-party action is referenced by a full commit SHA plus a
 #                    version comment (stricter than zizmor's unpinned-uses audit).
 #   * zizmor      -- static analysis of every workflow (permissions, credential
 #                    persistence, template injection, ...). Configuration and the
 #                    reasoned ignores live in zizmor.yml at the repository root; the
 #                    same run is expected locally before a workflow change is committed.
+#   * hosts       -- no workflow or .github/scripts helper spells out a host; every one
+#                    comes from .github/scripts/Get-Endpoints.ps1, CI's member of the URL
+#                    registry (the C#, web and MCP registries have guard tests of their own).
 #
 # Every third-party action must be referenced by a full commit SHA, never by a tag.
 # Tags are mutable: whoever controls an action repository can repoint v4 at new code,
@@ -34,10 +37,10 @@ name: Workflow gates
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/**', '.github/dependabot.yml', 'zizmor.yml']
+    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', 'zizmor.yml']
   pull_request:
     branches: [main]
-    paths: ['.github/workflows/**', '.github/dependabot.yml', 'zizmor.yml']
+    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', 'zizmor.yml']
   workflow_dispatch:
 
 permissions:
@@ -106,3 +109,17 @@ jobs:
         with:
           version: 1.30.1
           min-severity: low
+
+  hosts:
+    name: Hosts only from the endpoint registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The enforced host list is derived from the registry itself, plus every Azure storage,
+      # App Service and autopilotmonitor.com host, so it cannot fall behind a new entry.
+      - name: No host literal outside .github/scripts/Get-Endpoints.ps1
+        shell: pwsh
+        run: ./.github/scripts/Assert-HostsFromRegistry.ps1

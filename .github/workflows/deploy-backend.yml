@@ -9,10 +9,9 @@ on:
 permissions:
   contents: read
 
+# Hosts (API, versions container) come from .github/scripts/Get-Endpoints.ps1.
 env:
   FUNCTION_APP: autopilotmonitor-api-eu
-  HEALTH_URL: https://autopilotmonitor-api-eu.azurewebsites.net/api/health
-  VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
   CSPROJ_PATH: src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj
 
 jobs:
@@ -35,6 +34,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
+
       - name: Login to Azure (OIDC)
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
@@ -50,7 +53,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/backend.txt"
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "$env:VERSIONS_CONTAINER_URL/backend.txt"
 
           $csproj = Get-Content ${{ env.CSPROJ_PATH }} -Raw
           if ($csproj -notmatch '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
@@ -120,6 +123,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Load endpoints
+        shell: pwsh
+        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
+
       - name: Download publish output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -162,7 +169,7 @@ jobs:
           while ([DateTime]::UtcNow -lt $deadline) {
             $attempt++
             try {
-              $health = Invoke-RestMethod -Uri '${{ env.HEALTH_URL }}' -Method Get -TimeoutSec 30
+              $health = Invoke-RestMethod -Uri "$env:API_BASE_URL/api/health" -Method Get -TimeoutSec 30
               if ($health.commitHash -eq $expectedCommit -and $health.version -eq $expectedVersion) {
                 Write-Host "Live after $attempt attempt(s): $($health.version) @ $($health.commitHash), built $($health.buildUtc)"
                 exit 0
@@ -196,7 +203,7 @@ jobs:
           } | ConvertTo-Json
 
           $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
-          $url = "${{ env.VERSIONS_CONTAINER }}/backend.json"
+          $url = "$env:VERSIONS_CONTAINER_URL/backend.json"
           # no-cache: rotating pointer, must never be served stale by any fronting cache.
           Invoke-RestMethod -Uri $url -Method Put -Headers ($authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' }) -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/backend.json"
