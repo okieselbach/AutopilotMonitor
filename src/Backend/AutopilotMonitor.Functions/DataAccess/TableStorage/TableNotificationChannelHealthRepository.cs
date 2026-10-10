@@ -71,6 +71,35 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return result;
         }
 
+        public async Task<List<(NotificationChannelHealth Row, string ETag)>> ListAllAsync()
+        {
+            var result = new List<(NotificationChannelHealth, string)>();
+            try
+            {
+                await foreach (var entity in _table.QueryAsync<TableEntity>().ConfigureAwait(false))
+                    result.Add((MapFromEntity(entity), entity.ETag.ToString()));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Table not created yet: nothing to sweep.
+            }
+            return result;
+        }
+
+        public async Task<bool> TryDeleteAsync(NotificationChannelHealth row, string ifMatchETag)
+        {
+            try
+            {
+                await _table.DeleteEntityAsync(row.ScopeKey, row.ChannelId, new ETag(ifMatchETag)).ConfigureAwait(false);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404 || ex.Status == 412)
+            {
+                // 404: already gone; 412: a send rewrote the row since the sweep read it.
+                return false;
+            }
+        }
+
         // ── Mapping ───────────────────────────────────────────────────────────
 
         internal static TableEntity MapToEntity(NotificationChannelHealth h)

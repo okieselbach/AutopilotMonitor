@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -258,6 +259,45 @@ public class NotificationChannelHealthTests
         {
             lock (_gate) return Task.FromResult(_rows.Where(r => r.Key.Item1 == scopeKey).Select(r => r.Value.Row).ToList());
         }
+
+        public Task<List<(NotificationChannelHealth Row, string ETag)>> ListAllAsync()
+        {
+            if (Throw) throw new InvalidOperationException("storage down");
+            lock (_gate) return Task.FromResult(_rows.Values.Select(v => (v.Row, v.Version.ToString())).ToList());
+        }
+
+        public Task<bool> TryDeleteAsync(NotificationChannelHealth row, string ifMatchETag)
+        {
+            var hook = BeforeWrite;
+            BeforeWrite = null;
+            hook?.Invoke(this);
+            lock (_gate)
+            {
+                var key = (row.ScopeKey, row.ChannelId);
+                if (!_rows.TryGetValue(key, out var current) || current.Version.ToString() != ifMatchETag)
+                    return Task.FromResult(false);
+                _rows.Remove(key);
+                return Task.FromResult(true);
+            }
+        }
+
+        /// <summary>Seeds a row as if its channel last sent at <paramref name="lastAttempt"/>.</summary>
+        public void Seed(string scope, string channelId, DateTime lastAttempt)
+        {
+            lock (_gate)
+            {
+                var version = _rows.TryGetValue((scope, channelId), out var existing) ? existing.Version + 1 : 1;
+                _rows[(scope, channelId)] = (new NotificationChannelHealth
+                {
+                    ScopeKey = scope, ChannelId = channelId, Fingerprint = "f", Recent = "1", LastAttemptUtc = lastAttempt, LastSuccessUtc = lastAttempt,
+                }, version);
+            }
+        }
+
+        public bool Has(string scope, string channelId)
+        {
+            lock (_gate) return _rows.ContainsKey((scope, channelId));
+        }
     }
 
     private sealed class Harness
@@ -471,6 +511,138 @@ public class NotificationChannelHealthTests
         Assert.Equal("HTTP 401 Unauthorized", response.Channels[1].LastError);
         Assert.Equal(NotificationChannelHealthStatus.Unknown, response.Channels[2].Status);   // destination changed since
         Assert.Null(response.Channels[2].LastAttemptUtc);
+    }
+
+    // ── Orphan sweep (maintenance run) ────────────────────────────────────
+
+    private const string OtherTenant = "22222222-2222-2222-2222-222222222222";
+    private static readonly DateTime Old = T0.AddDays(-NotificationChannelHealthMaintenance.OrphanRetentionDays - 1);
+    private static readonly DateTime Recent = T0.AddDays(-NotificationChannelHealthMaintenance.OrphanRetentionDays + 1);
+
+    private static TenantConfiguration TenantWith(string tenantId, params string[] channelIds)
+    {
+        var config = TenantConfiguration.CreateDefault(tenantId);
+        config.NotificationChannelsJson = NotificationChannel.SerializeList(channelIds.Select(id => Webhook(id: id)));
+        return config;
+    }
+
+    private static NotificationChannelHealthMaintenance Sweep(FakeRepository repository, Mock<IConfigRepository> configs)
+        => new(repository, configs.Object, NullLogger<NotificationChannelHealthMaintenance>.Instance);
+
+    [Fact]
+    public async Task The_sweep_deletes_old_rows_of_deleted_channels_and_keeps_everything_else()
+    {
+        var repository = new FakeRepository();
+        repository.Seed(TenantKey, "live-old", Old);        // channel still configured, silent for a month
+        repository.Seed(TenantKey, "gone-old", Old);        // channel deleted, last send older than the grace
+        repository.Seed(TenantKey, "gone-recent", Recent);  // channel deleted, still inside the grace
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetTenantConfigurationAsync(TenantKey)).ReturnsAsync(TenantWith(TenantKey, "live-old", "never-sent"));
+
+        var result = await Sweep(repository, configs).RunAsync(T0);
+
+        Assert.True(repository.Has(TenantKey, "live-old"));
+        Assert.False(repository.Has(TenantKey, "gone-old"));
+        Assert.True(repository.Has(TenantKey, "gone-recent"));
+        Assert.Equal(3, result.RowsScanned);
+        Assert.Equal(1, result.RowsDeleted);
+        Assert.Equal(0, result.ScopesSkipped);
+    }
+
+    [Fact]
+    public async Task A_failed_config_read_skips_the_scope_and_deletes_nothing_there()
+    {
+        var repository = new FakeRepository();
+        repository.Seed(TenantKey, "gone-old", Old);
+        repository.Seed(OtherTenant, "gone-old", Old);
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetTenantConfigurationAsync(TenantKey)).ThrowsAsync(new InvalidOperationException("storage down"));
+        configs.Setup(c => c.GetTenantConfigurationAsync(OtherTenant)).ReturnsAsync(TenantWith(OtherTenant, "live"));
+
+        var result = await Sweep(repository, configs).RunAsync(T0);
+
+        Assert.True(repository.Has(TenantKey, "gone-old"));       // read failure never reads as "no channels"
+        Assert.False(repository.Has(OtherTenant, "gone-old"));    // the other scope is still swept
+        Assert.Equal(1, result.ScopesSkipped);
+    }
+
+    [Fact]
+    public async Task A_tenant_without_a_configuration_has_no_channels_left()
+    {
+        var repository = new FakeRepository();
+        repository.Seed(TenantKey, "any", Old);
+        repository.Seed(TenantKey, "fresh", Recent);
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetTenantConfigurationAsync(TenantKey)).ReturnsAsync((TenantConfiguration?)null);
+
+        await Sweep(repository, configs).RunAsync(T0);
+
+        Assert.False(repository.Has(TenantKey, "any"));
+        Assert.True(repository.Has(TenantKey, "fresh"));
+    }
+
+    [Fact]
+    public async Task The_synthesized_legacy_channel_counts_as_live()
+    {
+        var repository = new FakeRepository();
+        repository.Seed(TenantKey, TenantConfiguration.LegacyChannelId, Old);
+        var legacy = TenantConfiguration.CreateDefault(TenantKey);
+        legacy.WebhookUrl = "https://hooks.example.invalid/legacy";
+        legacy.WebhookProviderType = (int)WebhookProviderType.GenericJson;
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetTenantConfigurationAsync(TenantKey)).ReturnsAsync(legacy);
+
+        await Sweep(repository, configs).RunAsync(T0);
+
+        Assert.True(repository.Has(TenantKey, TenantConfiguration.LegacyChannelId));
+    }
+
+    [Fact]
+    public async Task Ops_rows_follow_the_ops_channel_list_and_a_missing_admin_configuration_touches_nothing()
+    {
+        var repository = new FakeRepository();
+        repository.Seed("platform", "ops-live", Old);
+        repository.Seed("platform", "ops-gone", Old);
+        var admin = AdminConfiguration.CreateDefault();
+        admin.OpsNotificationChannelsJson = NotificationChannel.SerializeList(new[] { Webhook(id: "ops-live") });
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetAdminConfigurationAsync()).ReturnsAsync(admin);
+
+        await Sweep(repository, configs).RunAsync(T0);
+        Assert.True(repository.Has("platform", "ops-live"));
+        Assert.False(repository.Has("platform", "ops-gone"));
+
+        repository.Seed("platform", "ops-gone", Old);
+        configs.Setup(c => c.GetAdminConfigurationAsync()).ReturnsAsync((AdminConfiguration?)null);
+        var result = await Sweep(repository, configs).RunAsync(T0);
+        Assert.True(repository.Has("platform", "ops-gone"));
+        Assert.Equal(1, result.ScopesSkipped);
+    }
+
+    [Fact]
+    public async Task A_row_a_send_rewrote_during_the_sweep_survives()
+    {
+        var repository = new FakeRepository();
+        repository.Seed(TenantKey, "gone-old", Old);
+        var configs = new Mock<IConfigRepository>();
+        configs.Setup(c => c.GetTenantConfigurationAsync(TenantKey)).ReturnsAsync(TenantWith(TenantKey));
+        // A revert brought the channel back and it sent between the sweep's read and its delete.
+        repository.BeforeWrite = repo => repo.Seed(TenantKey, "gone-old", T0);
+
+        var result = await Sweep(repository, configs).RunAsync(T0);
+
+        Assert.True(repository.Has(TenantKey, "gone-old"));
+        Assert.Equal(0, result.RowsDeleted);
+    }
+
+    [Fact]
+    public async Task A_failed_listing_never_reaches_the_maintenance_run()
+    {
+        var repository = new FakeRepository { Throw = true };
+
+        var result = await Sweep(repository, new Mock<IConfigRepository>()).RunAsync(T0);
+
+        Assert.Equal(0, result.RowsScanned);
     }
 
     // ── Table mapping ─────────────────────────────────────────────────────

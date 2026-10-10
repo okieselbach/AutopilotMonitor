@@ -486,6 +486,8 @@ builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Notifications.INotificationChannelHealthRecorder,
     AutopilotMonitor.Functions.Services.Notifications.NotificationChannelHealthRecorder>();
+// Deletes the health rows of deleted channels from the 2-hourly maintenance timer.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelHealthMaintenance>();
 // E-mail as a channel provider (GA-gated): renders the alert and sends through EmailService's
 // provider path. Transient like the dispatcher; EmailService is a typed HttpClient.
 builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.EmailNotificationService>();

@@ -24,5 +24,14 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>Every row of one scope (a tenant's or the platform's channels).</summary>
         Task<List<NotificationChannelHealth>> ListAsync(string scopeKey);
+
+        /// <summary>Every row with its ETag — the maintenance sweep's input (one row per channel, a few dozen in total).</summary>
+        Task<List<(NotificationChannelHealth Row, string ETag)>> ListAllAsync();
+
+        /// <summary>
+        /// Deletes the row only if it is unchanged since it was read; false when a send rewrote it
+        /// in the meantime or it is already gone.
+        /// </summary>
+        Task<bool> TryDeleteAsync(NotificationChannelHealth row, string ifMatchETag);
     }
 }

@@ -13,15 +13,18 @@ namespace AutopilotMonitor.Functions.Functions.Admin
     {
         private readonly MaintenanceService _maintenanceService;
         private readonly Services.Push.PushMaintenanceService _pushMaintenance;
+        private readonly Services.Notifications.NotificationChannelHealthMaintenance _channelHealthMaintenance;
         private readonly ILogger<MaintenanceFunction> _logger;
 
         public MaintenanceFunction(
             MaintenanceService maintenanceService,
             Services.Push.PushMaintenanceService pushMaintenance,
+            Services.Notifications.NotificationChannelHealthMaintenance channelHealthMaintenance,
             ILogger<MaintenanceFunction> logger)
         {
             _maintenanceService = maintenanceService;
             _pushMaintenance = pushMaintenance;
+            _channelHealthMaintenance = channelHealthMaintenance;
             _logger = logger;
         }
 
@@ -40,6 +43,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             await _maintenanceService.RunAllAsync();
             // Push channel retention rides on this timer (no timer of its own — K27); fail-soft inside.
             await _pushMaintenance.RunAsync();
+            // Health rows of deleted notification channels (D-342); fail-soft inside.
+            await _channelHealthMaintenance.RunAsync();
         }
     }
 }
