@@ -59,6 +59,19 @@ const FEATURES = [
     color: "red",
     bullets: ["Admin action history", "Configurable retention policies", "Tenant-scoped audit log"],
   },
+  {
+    title: "AI Investigation & Rule Authoring",
+    description:
+      "Connect the AI assistant you already use through the built-in MCP server and ask about one enrollment or the whole fleet. When no rule explains a failure, it investigates the session and drafts an analyze rule that a Tenant Admin can dry-run and switch on.",
+    color: "indigo",
+    bullets: [
+      "Claude, ChatGPT, VS Code with GitHub Copilot, Claude Code, Codex, Gemini CLI",
+      "Read-only, Microsoft sign-in, access follows your portal role",
+      "Built-in prompts such as debug-session and author-rule",
+    ],
+    // The seventh card spans both columns instead of standing alone in the last row.
+    wide: true,
+  },
 ];
 
 // Landing v2: one accent, no rainbow — every feature card uses the
@@ -110,6 +123,13 @@ export default function AboutPage() {
             every event — app installs, policy applications, phase transitions, errors, and performance
             data — into a central dashboard with intelligent analysis built in.
           </p>
+          <p className="text-gray-700 leading-relaxed mb-4">
+            The evidence of every enrollment is recorded while it runs, so it is still there after someone
+            resets the device. Analyze rules flag the failure patterns they know; when no rule explains a
+            failure yet, an AI assistant connected through the built-in MCP server investigates the session —
+            clients that work with files, such as Claude Code, down to the raw IME logs when a diagnostics
+            package was uploaded — and drafts an analyze rule that catches the next occurrence.
+          </p>
           <p className="text-gray-700 leading-relaxed">
             Deployed by assigning a signed loader script in Intune, the platform requires no infrastructure
             changes and no additional certificates on end user devices. It runs entirely on
@@ -129,7 +149,7 @@ export default function AboutPage() {
             {FEATURES.map((f) => {
               const c = colorMap[f.color];
               return (
-                <div key={f.title} className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6">
+                <div key={f.title} className={`bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6${f.wide ? " sm:col-span-2" : ""}`}>
                   <h3 className={`text-base font-semibold mb-2 ${c.text}`}>{f.title}</h3>
                   <p className="text-sm text-gray-600 leading-relaxed mb-3">{f.description}</p>
                   <ul className="space-y-1">
@@ -251,6 +271,7 @@ export default function AboutPage() {
                   "Microsoft Teams, Slack, Discord & generic JSON webhooks — start, success, failure, hardware rejection and SLA alerts",
                   "Intune Management Extension (IME) log — event source for log pattern detection",
                   "WMI & Registry — extended data gather rules",
+                  "Model Context Protocol (MCP) server — AI assistants query sessions, fleet metrics and diagnostics (read-only)",
                 ],
               },
             ].map((group) => (
