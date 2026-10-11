@@ -28,6 +28,10 @@ import type { DocsSearchBundle } from './search-provider.js';
  * express on its own: hiding the one ungated platform-only tool (get_ime_version_history) and exposing a
  * required `tenantId` selector on get_software_inventory. A caller that is BOTH platform AND delegated is
  * treated as platform (ga=true ⇒ delegated=false at the call site), so this never strips a GA's tools.
+ *
+ * `ruleDryRun` gates the two rule dry-runs (test_analyze_rule / test_log_pattern): their backend routes are
+ * TenantAdminOrGlobalReader, so they are listed only for a platform role or a Tenant Admin of the token's
+ * tenant (client.ts canRunRuleDryRun) — an Operator or Viewer would only collect a 403.
  */
 export function registerTools(
   server: McpServer,
@@ -37,11 +41,12 @@ export function registerTools(
   ga: boolean,
   strictGa: boolean = ga,
   delegated: boolean = false,
+  ruleDryRun: boolean = ga,
 ): void {
   registerSessionTools(server, ga, delegated);
   registerSearchTools(server, knowledgeBase, eventTypeIndex, docs, ga, delegated);
   registerAdminTools(server, ga, strictGa, delegated);
-  registerRuleTools(server, ga);
+  registerRuleTools(server, ga, ruleDryRun);
   sortToolCatalog(server);
 }
 

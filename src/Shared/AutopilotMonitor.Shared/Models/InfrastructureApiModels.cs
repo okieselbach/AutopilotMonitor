@@ -194,6 +194,13 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>"DelegatedAdmin" | "DelegatedReader"; omitted without delegated scope.</summary>
         public string? DelegatedRole { get; set; }
+
+        /// <summary>
+        /// "Admin" | "Operator" | "Viewer": the caller's member role in the tenant the token was issued for
+        /// (client-capped like every tenant endpoint); omitted without a role and for platform roles. The MCP
+        /// server registers tools whose backend route needs a role (the rule dry-runs) only for callers holding it.
+        /// </summary>
+        public string? TenantRole { get; set; }
     }
 
     /// <summary>

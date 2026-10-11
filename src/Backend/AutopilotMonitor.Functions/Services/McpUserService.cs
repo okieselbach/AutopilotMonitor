@@ -139,6 +139,14 @@ public class McpUserService
         // The explicit grants below hold under BOTH remaining policies; AllMembers only ADDS the tenant-role
         // path at the end. Same order everywhere so the reported AccessGrant is policy-independent.
 
+        // The caller's member role in the tenant the token was issued for. Reported, never used to grant:
+        // the MCP server registers tools whose backend route needs a role (the rule dry-runs are
+        // TenantAdminOrGlobalReader) only for callers who hold it. Platform roles skip it — their global
+        // scope already covers those routes.
+        async Task<string?> HomeTenantRoleAsync() => string.IsNullOrWhiteSpace(homeTenantId)
+            ? null
+            : (await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles, clientCapped))?.Role;
+
         // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access
         // (unless explicitly disabled via the kill-switch above).
         if (globalRole != null)
@@ -165,11 +173,13 @@ public class McpUserService
         if (!delegatedScope.IsEmpty)
             return McpAccessCheckResult.Allowed(
                 upn, "DelegatedAdmin", isGlobalAdmin: false, globalRole: null,
-                delegatedTenantIds: delegatedTenantIds, delegatedRole: delegatedRole);
+                delegatedTenantIds: delegatedTenantIds, delegatedRole: delegatedRole,
+                tenantRole: await HomeTenantRoleAsync());
 
         // An enabled McpUsers row is an explicit per-account grant under both policies.
         if (whitelistState == McpWhitelistState.Enabled)
-            return McpAccessCheckResult.Allowed(upn, "McpUser", false, null, delegatedTenantIds, delegatedRole);
+            return McpAccessCheckResult.Allowed(
+                upn, "McpUser", false, null, delegatedTenantIds, delegatedRole, await HomeTenantRoleAsync());
 
         if (policy != McpAccessPolicy.AllMembers)
             // Surfaced verbatim to the end user by the MCP server's access guard. Keep it
@@ -183,11 +193,9 @@ public class McpUserService
         // issued for — the same resolver the policy middleware uses on every tenant endpoint. A token from
         // an organization that never onboarded, or from an employee without a role (Progress Portal
         // end-users), resolves to no role and is denied here instead of failing on every tool call.
-        var memberRole = string.IsNullOrWhiteSpace(homeTenantId)
-            ? null
-            : await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles, clientCapped);
+        var memberRole = await HomeTenantRoleAsync();
         if (memberRole != null)
-            return McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole);
+            return McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole, memberRole);
         return McpAccessCheckResult.Denied(Constants.PrincipalKeys.IsApplication(upn)
             ? "Service principal not enabled for MCP usage (the application is not a member of its tenant — ask a Tenant Admin to add it under Members as a service principal)"
             : "User not enabled for MCP usage (account has no role in its organization's tenant — ask a Tenant Admin to add you)");
@@ -374,13 +382,20 @@ public class McpAccessCheckResult
     /// </summary>
     public string? DelegatedRole { get; init; }
 
+    /// <summary>
+    /// The caller's member role ("Admin" | "Operator" | "Viewer") in the tenant the token was issued for,
+    /// client-capped; null without a role and for platform roles. Never a grant by itself.
+    /// </summary>
+    public string? TenantRole { get; init; }
+
     public static McpAccessCheckResult Allowed(
         string upn,
         string accessGrant,
         bool isGlobalAdmin = false,
         string? globalRole = null,
         IReadOnlyCollection<string>? delegatedTenantIds = null,
-        string? delegatedRole = null) => new()
+        string? delegatedRole = null,
+        string? tenantRole = null) => new()
     {
         IsAllowed = true,
         Upn = upn,
@@ -388,7 +403,8 @@ public class McpAccessCheckResult
         IsGlobalAdmin = isGlobalAdmin,
         GlobalRole = globalRole,
         DelegatedTenantIds = delegatedTenantIds,
-        DelegatedRole = delegatedRole
+        DelegatedRole = delegatedRole,
+        TenantRole = tenantRole
     };
 
     public static McpAccessCheckResult Denied(string reason) => new()

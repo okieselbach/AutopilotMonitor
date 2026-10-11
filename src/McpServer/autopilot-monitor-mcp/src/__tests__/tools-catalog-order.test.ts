@@ -23,11 +23,11 @@ import { registerTools } from '../tools.js';
 import { GA_STRICT_TOOL_NAMES } from '../tools/admin.js';
 import type { SearchProvider } from '../search-provider.js';
 
-function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
+function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boolean = false, ruleDryRun: boolean = ga): string[] {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   // knowledgeBase / eventTypeIndex are optional — pass undefined so this stays a
   // pure unit test with no search-provider or backend dependency.
-  registerTools(server, undefined, undefined, undefined, ga, strictGa, delegated);
+  registerTools(server, undefined, undefined, undefined, ga, strictGa, delegated, ruleDryRun);
   const internal = server as unknown as { _registeredTools: Record<string, unknown> };
   return Object.keys(internal._registeredTools);
 }
@@ -177,10 +177,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'search_sessions',
     'search_sessions_by_cve',
     'search_sessions_by_event',
-    // Rule-authoring trio, available to every role: validate_rule is MCP-local
-    // (no backend call at all); test_analyze_rule's dryrun endpoint and
-    // test_log_pattern's test-pattern endpoint enforce TenantAdminOrGlobalReader
-    // server-side (a Viewer's call 403s there).
+    // Rule-authoring trio: validate_rule is MCP-local (no backend call) and listed
+    // for every role; test_analyze_rule and test_log_pattern call routes that are
+    // TenantAdminOrGlobalReader, so they are listed only where the backend would
+    // answer (RULE_DRY_RUN below).
     'test_analyze_rule',
     'test_log_pattern',
     'update_tenant_config',
@@ -256,6 +256,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // subset-tier routes it calls to the caller's managed set (never a client-side fan-out).
   const DELEGATED_ADDED = ['get_fleet_overview', 'list_tenants'];
 
+  // Rule dry-runs: listed for platform roles and a Tenant Admin of the token's tenant only
+  // (ruleDryRun gate = client.ts canRunRuleDryRun); an Operator or Viewer would only collect a 403.
+  const RULE_DRY_RUN = ['test_analyze_rule', 'test_log_pattern'];
+
   const without = (set: string[], remove: string[]) => set.filter((n) => !remove.includes(n));
 
   it('Global Admin sees exactly the master set', () => {
@@ -267,14 +271,24 @@ describe('role catalog snapshot — privilege-leak guard', () => {
       without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT, ...RULE_SUBMISSION_WRITE_GA_STRICT]));
   });
 
-  it('tenant user = GA minus all platform-only tools', () => {
-    expect(registeredToolNames(false, false, false)).toEqual(without(GA_FULL, PLATFORM_ONLY));
+  it('Tenant Admin = GA minus all platform-only tools', () => {
+    expect(registeredToolNames(false, false, false, true)).toEqual(without(GA_FULL, PLATFORM_ONLY));
   });
 
-  it('delegated (MSP) caller = tenant user minus the global IME archive, plus list_tenants + get_fleet_overview', () => {
-    const tenant = without(GA_FULL, PLATFORM_ONLY);
+  it('tenant Operator / Viewer = Tenant Admin minus the rule dry-runs', () => {
+    expect(registeredToolNames(false, false, false, false)).toEqual(without(GA_FULL, [...PLATFORM_ONLY, ...RULE_DRY_RUN]));
+  });
+
+  it('delegated (MSP) caller = tenant member minus the global IME archive, plus list_tenants + get_fleet_overview', () => {
+    const tenant = without(GA_FULL, [...PLATFORM_ONLY, ...RULE_DRY_RUN]);
     const expected = [...without(tenant, DELEGATED_HIDDEN), ...DELEGATED_ADDED].sort();
     expect(registeredToolNames(false, false, true)).toEqual(expected);
+  });
+
+  it('a delegated caller who is Tenant Admin of the home tenant keeps the rule dry-runs', () => {
+    const tenant = without(GA_FULL, PLATFORM_ONLY);
+    const expected = [...without(tenant, DELEGATED_HIDDEN), ...DELEGATED_ADDED].sort();
+    expect(registeredToolNames(false, false, true, true)).toEqual(expected);
   });
 
   // ── Consistency of the difference lists themselves (catch stale entries). ──
@@ -287,6 +301,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
       ['PLATFORM_ONLY', PLATFORM_ONLY],
       ['DELEGATED_HIDDEN', DELEGATED_HIDDEN],
       ['DELEGATED_ADDED', DELEGATED_ADDED],
+      ['RULE_DRY_RUN', RULE_DRY_RUN],
     ] as const) {
       const stale = list.filter((n) => !GA_FULL.includes(n));
       expect(stale, `${label} lists tools not present in the GA master set`).toEqual([]);

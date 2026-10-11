@@ -636,7 +636,7 @@ function lintLogparserParameters(rule: Record<string, unknown>): ValidationFindi
     level: 'info',
     message:
       'logparser matching is case-SENSITIVE and runs on the agent\'s .NET regex engine — a pattern verified in a JS/PHP/Python tester can behave differently. ' +
-      'Test it with test_log_pattern(pattern, sampleLines) against real lines from the log file before deploying.',
+      'Test it with test_log_pattern(pattern, sampleLines) against real lines from the log file before deploying (Tenant Admin).',
   });
 
   const format = parameters.format;

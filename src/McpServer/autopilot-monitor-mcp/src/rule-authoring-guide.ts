@@ -33,13 +33,17 @@ export const RULE_AUTHORING_GUIDE = {
     '4. For analyze rules: call test_analyze_rule with the draft plus a sessionId of a real ' +
       'session from your tenant (ideally one where the rule SHOULD fire and one where it should ' +
       'NOT). The dry-run returns a per-condition trace with evidence — iterate until the verdict ' +
-      'matches your expectation. Nothing is persisted by a dry-run.',
+      'matches your expectation. Nothing is persisted by a dry-run. test_analyze_rule and ' +
+      'test_log_pattern are listed for Tenant Admins and platform roles only; other roles hand the ' +
+      'validated draft to a Tenant Admin.',
     '5. Gather rules cannot be dry-run against a session (they execute on devices). For logparser ' +
       'rules, test the regex with test_log_pattern against sample lines pasted from the real log ' +
       'file — it uses the agent\'s exact .NET matching semantics. Then deploy to a test device/VM; ' +
       'the agent debug log setting for gather rules shows per-rule execution detail on-device.',
-    '6. Create the finished rule in the portal (Settings → Gather Rules / Analyze Rules). Custom ' +
-      'rules are tenant-scoped. Well-tested rules can be proposed as community rules via GitHub.',
+    '6. Create the finished rule in the portal (Rules → Gather Rules / Analyze Rules; Create Custom ' +
+      'Rule accepts the JSON, and the analyze-rule editor can test it against a session). Custom rules ' +
+      'are tenant-scoped. A Tenant Admin can submit well-tested rules to the community pool from the ' +
+      'same page; accepted rules ship to every tenant after review.',
   ],
 
   ids: {

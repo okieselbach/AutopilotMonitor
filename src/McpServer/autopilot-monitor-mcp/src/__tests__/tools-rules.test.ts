@@ -15,10 +15,11 @@ vi.mock('../client.js', async (importOriginal) => {
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
 
-function captureToolHandlers(ga: boolean): Record<string, Handler> {
+/** ruleDryRun defaults to true: the handler tests below act as a Tenant Admin, who gets all three tools. */
+function captureToolHandlers(ga: boolean, ruleDryRun: boolean = true): Record<string, Handler> {
   const handlers: Record<string, Handler> = {};
   const fake = { registerTool: (name: string, _def: unknown, handler: Handler) => { handlers[name] = handler; } };
-  registerRuleTools(fake as never, ga);
+  registerRuleTools(fake as never, ga, ruleDryRun);
   return handlers;
 }
 
@@ -91,6 +92,23 @@ describe('test_analyze_rule', () => {
     const handlers = captureToolHandlers(false);
     const res = await handlers.test_analyze_rule({ sessionId: SESSION, rule: ANALYZE_DRAFT });
     expect(res.isError).toBe(true);
+  });
+});
+
+describe('registration by role', () => {
+  it('a Tenant Admin (or platform role) gets validate_rule plus both dry-runs', () => {
+    expect(Object.keys(captureToolHandlers(false, true)).sort()).toEqual(['test_analyze_rule', 'test_log_pattern', 'validate_rule']);
+  });
+
+  it('an Operator or Viewer gets validate_rule only, and its next step hands the draft to a Tenant Admin', async () => {
+    const handlers = captureToolHandlers(false, false);
+    expect(Object.keys(handlers)).toEqual(['validate_rule']);
+
+    const res = await handlers.validate_rule({ rule: ANALYZE_DRAFT });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.valid).toBe(true);
+    expect(payload.nextStep).toContain('Tenant Admin');
+    expect(payload.nextStep).not.toContain('Dry-run it now');
   });
 });
 

@@ -76,6 +76,20 @@ public class McpUserServiceAllMembersTests
         Assert.Equal("AllMembers", result.AccessGrant);
         Assert.False(result.IsGlobalAdmin);
         Assert.Null(result.GlobalRole);
+        Assert.Equal(role, result.TenantRole);
+    }
+
+    [Fact]
+    public async Task ClientCappedMember_ReportsViewer()
+    {
+        // The application cap applies to the reported role exactly as to every tenant endpoint, so a person
+        // reached through an admitted foreign client is never offered the Admin-only dry-run tools.
+        MemberOf(HomeTenant, Constants.TenantRoles.Admin);
+
+        var result = await _sut.IsAllowedAsync(Upn, HomeTenant, Oid, appRoles: null, clientCapped: true);
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal(Constants.TenantRoles.Viewer, result.TenantRole);
     }
 
     [Fact]
@@ -144,13 +158,15 @@ public class McpUserServiceAllMembersTests
         Assert.True(result.IsAllowed);
         Assert.Equal(Constants.GlobalRoles.GlobalAdmin, result.AccessGrant);
         Assert.True(result.IsGlobalAdmin);
+        Assert.Null(result.TenantRole);
         Assert.Empty(_memberRoles.Lookups);
     }
 
     [Fact]
     public async Task DelegatedAdmin_WithoutHomeMembership_IsAllowed()
     {
-        // An MSP whose own home tenant is not a customer: no home role, but a curated delegated scope.
+        // An MSP whose own home tenant is not a customer: no home role, but a curated delegated scope. The
+        // home role is looked up only to report it — it grants nothing here.
         _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<AdminIdentity?>()))
             .ReturnsAsync(new DelegatedScope(new Dictionary<string, string>
             {
@@ -162,7 +178,8 @@ public class McpUserServiceAllMembersTests
         Assert.True(result.IsAllowed);
         Assert.Equal("DelegatedAdmin", result.AccessGrant);
         Assert.Equal(new[] { ManagedTenant }, result.DelegatedTenantIds);
-        Assert.Empty(_memberRoles.Lookups);
+        Assert.Null(result.TenantRole);
+        Assert.Equal(new[] { (HomeTenant, Upn) }, _memberRoles.Lookups);
     }
 
     [Fact]
@@ -175,7 +192,21 @@ public class McpUserServiceAllMembersTests
 
         Assert.True(result.IsAllowed);
         Assert.Equal("McpUser", result.AccessGrant);
-        Assert.Empty(_memberRoles.Lookups);
+        Assert.Null(result.TenantRole);
+    }
+
+    [Fact]
+    public async Task EnabledMcpUsersRow_ReportsTheHomeRole()
+    {
+        MemberOf(HomeTenant, Constants.TenantRoles.Admin);
+        _adminRepo.Setup(x => x.GetMcpUserAsync(Upn))
+            .ReturnsAsync(new McpUserEntry { Upn = Upn, IsEnabled = true });
+
+        var result = await _sut.IsAllowedAsync(Upn, HomeTenant, Oid);
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal("McpUser", result.AccessGrant);
+        Assert.Equal(Constants.TenantRoles.Admin, result.TenantRole);
     }
 
     [Fact]

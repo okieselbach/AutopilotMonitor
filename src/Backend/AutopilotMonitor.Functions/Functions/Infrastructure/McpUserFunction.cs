@@ -273,6 +273,7 @@ public class McpUserFunction
             GlobalRole = string.IsNullOrEmpty(result.GlobalRole) ? null : result.GlobalRole,
             DelegatedTenantIds = result.DelegatedTenantIds is { Count: > 0 } ? result.DelegatedTenantIds : null,
             DelegatedRole = string.IsNullOrEmpty(result.DelegatedRole) ? null : result.DelegatedRole,
+            TenantRole = string.IsNullOrEmpty(result.TenantRole) ? null : result.TenantRole,
         });
         return response;
     }

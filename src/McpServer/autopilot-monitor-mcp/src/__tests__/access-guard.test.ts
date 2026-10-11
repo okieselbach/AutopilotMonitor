@@ -22,7 +22,7 @@ process.env.MCP_RATE_LIMIT_PER_MINUTE = '2';
 const { accessGuard } = await import('../access-guard.js');
 // Same ESM singleton the guard uses internally — so the context set by
 // runWithCaller inside next() is observable here.
-const { isGlobalAdmin, hasGlobalScope, getCurrentToken, isDelegated, getDelegatedTenantIds } =
+const { isGlobalAdmin, hasGlobalScope, getCurrentToken, isDelegated, getDelegatedTenantIds, canRunRuleDryRun } =
   await import('../client.js');
 
 /** Build an unsigned JWT-shaped token carrying the given claims. */
@@ -80,7 +80,7 @@ function mockRes(): CapturedRes {
 interface GuardOutcome {
   nextCalled: boolean;
   /** caller context captured INSIDE next() (only meaningful when nextCalled) */
-  ctx?: { token: string | undefined; ga: boolean; scope?: boolean; delegated?: boolean; managed?: string[] };
+  ctx?: { token: string | undefined; ga: boolean; scope?: boolean; delegated?: boolean; managed?: string[]; dryRun?: boolean };
   status: number | null;
   body: unknown;
   headers: Record<string, string>;
@@ -117,6 +117,7 @@ function runGuard(req: Request): Promise<GuardOutcome> {
           scope: hasGlobalScope(),
           delegated: isDelegated(),
           managed: getDelegatedTenantIds(),
+          dryRun: canRunRuleDryRun(),
         },
         status: cap.statusCode,
         body: cap.body,
@@ -290,7 +291,28 @@ describe('accessGuard — allow path', () => {
 
     expect(out.nextCalled).toBe(true);
     expect(out.status).toBeNull(); // no response sent on the allow path
-    expect(out.ctx).toEqual({ token, ga: true, scope: true, delegated: false, managed: undefined });
+    expect(out.ctx).toEqual({ token, ga: true, scope: true, delegated: false, managed: undefined, dryRun: true });
+  });
+
+  it('threads tenantRole=Admin into the context: the rule dry-runs are offered without platform scope', async () => {
+    stubBackend({ body: { allowed: true, accessGrant: 'AllMembers', tenantRole: 'Admin' } });
+    const out = await runGuard(mockReq(`Bearer ${validToken(uniqueUpn())}`));
+    expect(out.nextCalled).toBe(true);
+    expect(out.ctx?.scope).toBe(false);
+    expect(out.ctx?.dryRun).toBe(true);
+  });
+
+  it('withholds the rule dry-runs from an Operator, a Viewer and a backend that sends no role', async () => {
+    for (const body of [
+      { allowed: true, accessGrant: 'AllMembers', tenantRole: 'Operator' },
+      { allowed: true, accessGrant: 'AllMembers', tenantRole: 'Viewer' },
+      { allowed: true, accessGrant: 'AllMembers' },
+    ]) {
+      stubBackend({ body });
+      const out = await runGuard(mockReq(`Bearer ${validToken(uniqueUpn())}`));
+      expect(out.nextCalled).toBe(true);
+      expect(out.ctx?.dryRun, JSON.stringify(body)).toBe(false);
+    }
   });
 
   it('propagates isGlobalAdmin:false through the caller context', async () => {

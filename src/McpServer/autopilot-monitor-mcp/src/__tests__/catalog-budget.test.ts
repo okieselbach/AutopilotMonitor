@@ -34,14 +34,19 @@ interface Role {
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
   delegatedTenantIds?: string[];
+  /** Member role in the token's tenant; "Admin" adds the rule dry-runs (client.ts canRunRuleDryRun). */
+  tenantRole?: string;
   /** Ratchet: serialized `tools` array of tools/list, in characters (post-diet baseline 2026-09-22 + ~3 %). */
   maxCatalogChars: number;
 }
 const ROLES: Role[] = [
   { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 92_000 },
   { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 77_000 },
-  { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false, maxCatalogChars: 53_000 },
-  { label: 'delegated', isGlobalAdmin: false, isGlobalReader: false, delegatedTenantIds: ['11111111-1111-4111-8111-111111111111'], maxCatalogChars: 58_000 },
+  { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_000 },
+  // Lowered 2026-10-11: Operators/Viewers and delegated callers without the home Admin role no longer
+  // list the two rule dry-runs (measured 49,385 and 53,645 chars).
+  { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false, maxCatalogChars: 51_000 },
+  { label: 'delegated', isGlobalAdmin: false, isGlobalReader: false, delegatedTenantIds: ['11111111-1111-4111-8111-111111111111'], maxCatalogChars: 55_500 },
 ];
 
 /**
@@ -79,6 +84,7 @@ beforeAll(async () => {
         isGlobalReader: role.isGlobalReader,
         upn: 'caller@contoso.com',
         ...(role.delegatedTenantIds ? { delegatedTenantIds: role.delegatedTenantIds } : {}),
+        ...(role.tenantRole ? { tenantRole: role.tenantRole } : {}),
       },
       () => handler(req, res),
     ),

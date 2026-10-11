@@ -14,7 +14,20 @@ import { z } from 'zod';
  * with Zod but keep types as strings; numeric/optional semantics are described
  * in the argument text for the model.
  */
-export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolean): void {
+/**
+ * The closing step of the two investigation prompts: a cause that can recur becomes an analyze rule. The
+ * dry-run sentence names test_analyze_rule only for a caller it is registered for (ruleDryRun).
+ */
+function ruleFromFindingStep(n: number, ruleDryRun: boolean): string {
+  return `${n}. If the root cause could happen again and no existing rule names it, draft an analyze rule that would ` +
+    'flag it next time: read get_resource(name="rule_authoring_guide") and check the draft with validate_rule. ' +
+    (ruleDryRun
+      ? 'Then dry-run it with test_analyze_rule against this session (it should fire) and against a successful ' +
+        'session (it should stay silent), and hand over the final JSON.\n'
+      : 'Hand the validated JSON to a Tenant Admin, who can dry-run it and create it under Rules → Analyze Rules.\n');
+}
+
+export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolean, ruleDryRun: boolean = ga): void {
   server.registerPrompt(
     'investigate-failed-session',
     {
@@ -43,7 +56,8 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
               '3. Cross-check the rule analysis (it carries probable cause + remediation). If the summary ' +
               'reported keyEventsTruncated, pull the raw events rather than trusting the capped list.\n\n' +
               'Then report: (a) final outcome and phase reached, (b) the single most likely root cause with ' +
-              'the event evidence that supports it, (c) concrete remediation steps, (d) confidence level.',
+              'the event evidence that supports it, (c) concrete remediation steps, (d) confidence level.\n\n' +
+              ruleFromFindingStep(4, ruleDryRun),
           },
         },
       ],
@@ -100,7 +114,8 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
                 : '') +
               '\nThen report: (a) final outcome + phase reached, (b) the single most likely root cause with ' +
               'the specific evidence (agent-log line AND/OR backend event), (c) concrete remediation, ' +
-              '(d) confidence level. Cite both client and backend sources where they corroborate.',
+              '(d) confidence level. Cite both client and backend sources where they corroborate.\n\n' +
+              ruleFromFindingStep(strictGa ? 5 : 4, ruleDryRun),
           },
         },
       ],
@@ -174,12 +189,16 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
               '(evaluate existing events), or both? If both, draft the gather rule first and reference ' +
               'its outputEventType from the analyze rule.\n' +
               '3. Draft the rule JSON and call validate_rule with it. Fix every error; explain warnings you keep.\n' +
-              (sessionId
-                ? `4. Dry-run the analyze rule: test_analyze_rule(sessionId="${sessionId}", rule=<draft>). ` +
-                  'Walk through the per-condition trace; iterate until the verdict matches the expectation, and check the interpolated explanation reads well.\n'
-                : '4. Ask me for a recent sessionId (one where the rule SHOULD fire and ideally one where it should not) and dry-run the analyze rule with test_analyze_rule.\n') +
+              (!ruleDryRun
+                ? '4. The dry-run (test_analyze_rule) needs the Tenant Admin role and is not available to me. Point out the ' +
+                  'session where the rule should fire, so a Tenant Admin can dry-run the draft before creating it.\n'
+                : sessionId
+                  ? `4. Dry-run the analyze rule: test_analyze_rule(sessionId="${sessionId}", rule=<draft>). ` +
+                    'Walk through the per-condition trace; iterate until the verdict matches the expectation, and check the interpolated explanation reads well.\n'
+                  : '4. Ask me for a recent sessionId (one where the rule SHOULD fire and ideally one where it should not) and dry-run the analyze rule with test_analyze_rule.\n') +
               '5. Present the final rule JSON with a short explanation of when it fires, its confidence ' +
-              'model, and how to create it in the portal (Settings → Gather Rules / Analyze Rules).',
+              'model, and how to create it in the portal (Rules → Gather Rules / Analyze Rules, Create Custom Rule ' +
+              'in JSON mode).',
           },
         },
       ],

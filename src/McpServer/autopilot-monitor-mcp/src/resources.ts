@@ -83,7 +83,7 @@ export function registerResources(server: McpServer): void {
         'Complete guide for authoring gather and analyze rules: collector types, triggers, ' +
         'condition sources, operators, confidence model, {{token}} interpolation, guardrail ' +
         'semantics and common pitfalls. Read together with rule_schemas and rule_guardrails; ' +
-        'validate drafts with validate_rule and dry-run analyze rules with test_analyze_rule.',
+        'validate drafts with validate_rule and dry-run analyze rules with test_analyze_rule (Tenant Admin).',
     },
     async () => ({
       contents: [

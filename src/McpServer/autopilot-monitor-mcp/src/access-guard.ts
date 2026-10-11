@@ -89,6 +89,8 @@ interface AccessCacheEntry {
   // scope and downgrade the caller to home-tenant-only routing.
   delegatedTenantIds?: string[];
   delegatedRole?: string;
+  // Member role in the token's tenant (gates the rule dry-run tools); cached for the same reason.
+  tenantRole?: string;
   // The backend refused the TOKEN itself (401) — cached like a deny so a replayed bad token costs
   // one backend call per TTL, but answered 401 + challenge, never "not enabled".
   unauthenticated?: boolean;
@@ -112,6 +114,9 @@ interface AccessCheckResult {
   // routing bounded to this set; every delegated tool call must name one of these tenants.
   delegatedTenantIds?: string[];
   delegatedRole?: string;
+  // "Admin" | "Operator" | "Viewer" in the tenant the token was issued for (client-capped by the
+  // backend); undefined without a role, for platform roles, and from a backend that predates the field.
+  tenantRole?: string;
   // The backend — the only party holding the JWKS — rejected the token (signature, issuer,
   // audience, lifetime). That is "invalid token": the spec says it MUST be answered 401 with a
   // WWW-Authenticate challenge so the client re-authenticates, not 403 ("insufficient
@@ -169,6 +174,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
       isGlobalReader: cached.isGlobalReader,
       delegatedTenantIds: cached.delegatedTenantIds,
       delegatedRole: cached.delegatedRole,
+      tenantRole: cached.tenantRole,
       unauthenticated: cached.unauthenticated,
       // Only genuine backend verdicts are ever cached (infra errors return early
       // below without caching), so a cache hit is never an infra error.
@@ -235,6 +241,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
       isGlobalReader: data.globalRole === 'GlobalReader',
       delegatedTenantIds: delegatedTenantIds && delegatedTenantIds.length > 0 ? delegatedTenantIds : undefined,
       delegatedRole: data.delegatedRole,
+      tenantRole: typeof data.tenantRole === 'string' && data.tenantRole ? data.tenantRole : undefined,
       // The backend reached a verdict — a deny here is a genuine authorization
       // decision (e.g. not whitelisted), not an infrastructure problem.
       infraError: false,
@@ -251,6 +258,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
       isGlobalReader: result.isGlobalReader,
       delegatedTenantIds: result.delegatedTenantIds,
       delegatedRole: result.delegatedRole,
+      tenantRole: result.tenantRole,
       expiresAt: Date.now() + ACCESS_CACHE_TTL_MS,
     }, MAX_ACCESS_CACHE_ENTRIES);
     return result;
@@ -539,6 +547,7 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           isGlobalReader: result.isGlobalReader,
           delegatedTenantIds: result.delegatedTenantIds,
           delegatedRole: result.delegatedRole,
+          tenantRole: result.tenantRole,
           // Home tenant from the JWT `tid` (lowercased). Lets a delegated (MSP) admin who is also a member
           // of their own home tenant keep reading it via the tenant-scoped member path — see client.ts
           // enforceDelegatedTenant / pickGlobalOrTenantPath. Harmless for GA / plain tenant callers.

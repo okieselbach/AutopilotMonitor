@@ -90,6 +90,12 @@ interface CallerContext {
   /** Strongest delegated role ("DelegatedAdmin" | "DelegatedReader"); informational (read-only server). */
   delegatedRole?: string;
   /**
+   * The caller's member role ("Admin" | "Operator" | "Viewer") in the tenant the token was issued for, as the
+   * backend's access check reports it (client-capped). Gates the tools whose backend route needs the
+   * Tenant Admin role — see `canRunRuleDryRun`. Absent without a role and for platform roles.
+   */
+  tenantRole?: string;
+  /**
    * The caller's home tenant (lowercase JWT `tid`). Set for every caller (harmless for GA / plain tenant
    * users, who never consult it). Its purpose is the delegated (MSP) case: a delegated caller who is ALSO
    * a member/operator of their OWN home tenant must keep reading it over MCP. That access is member-based
@@ -176,6 +182,15 @@ export function isGlobalAdmin(): boolean {
 export function hasGlobalScope(): boolean {
   const store = callerStore.getStore();
   return store?.isGlobalAdmin === true || store?.isGlobalReader === true;
+}
+
+/**
+ * True when the current caller may run the rule dry-runs (test_analyze_rule / test_log_pattern): their
+ * backend routes are TenantAdminOrGlobalReader, so a platform role or the Tenant Admin role in the token's
+ * tenant. Everyone else would only collect a 403, so those tools are not registered for them.
+ */
+export function canRunRuleDryRun(): boolean {
+  return hasGlobalScope() || callerStore.getStore()?.tenantRole === 'Admin';
 }
 
 /**

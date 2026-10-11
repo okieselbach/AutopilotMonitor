@@ -220,6 +220,32 @@ public class InfrastructureWireParityTests
     }
 
     [Fact]
+    public void CheckMcpAccessResponse_matches_the_member_shape()
+    {
+        // A tenant member reports the role of the token's tenant last; the MCP server gates the rule
+        // dry-run tools on it.
+        var payload = new Dictionary<string, object?>
+        {
+            ["allowed"] = true,
+            ["upn"] = "admin@contoso.com",
+            ["accessGrant"] = "AllMembers",
+            ["reason"] = "",
+            ["tenantRole"] = "Admin",
+        };
+
+        AssertParity(
+            payload,
+            new CheckMcpAccessResponse
+            {
+                Allowed = true,
+                Upn = "admin@contoso.com",
+                AccessGrant = "AllMembers",
+                Reason = "",
+                TenantRole = "Admin",
+            });
+    }
+
+    [Fact]
     public void CheckMcpAccessResponse_matches_the_denied_shape()
     {
         // 403 body: same shape, allowed=false, no conditional keys. isGlobalAdmin must never
@@ -244,6 +270,7 @@ public class InfrastructureWireParityTests
                 GlobalRole = null,
                 DelegatedTenantIds = null,
                 DelegatedRole = null,
+                TenantRole = null,
             });
     }
 

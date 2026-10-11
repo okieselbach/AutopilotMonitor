@@ -15,13 +15,14 @@ import type {
 } from '../generated/wire-types.generated.js';
 
 /**
- * Rule-authoring tools: validate a draft gather/analyze rule locally, and dry-run a
- * draft analyze rule against a real session via the backend's side-effect-free
- * dryrun endpoint. Registered for EVERY role — tenant admins are the primary
- * audience (the backend still enforces its own authorization: the dryrun route is
- * TenantAdmin / Global Admin / read-only Global Reader).
+ * Rule-authoring tools: validate a draft gather/analyze rule locally (every role), and
+ * dry-run a draft against the backend's side-effect-free test endpoints. The dry-runs are
+ * registered only when `ruleDryRun` is set — their routes are TenantAdmin / Global Admin /
+ * read-only Global Reader, so any other caller would only collect a 403 (see
+ * client.ts canRunRuleDryRun). The texts of validate_rule name them accordingly.
  */
-export function registerRuleTools(server: McpServer, ga: boolean): void {
+export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: boolean = ga): void {
+  const dryRunNote = ruleDryRun ? '' : ' (a Tenant Admin runs it)';
   // Tool: validate_rule (MCP-local, no backend call)
   server.registerTool(
     'validate_rule',
@@ -33,7 +34,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
         'event-log allowlists with the agent\'s matching semantics) and semantic lint (unreachable confidence ' +
         'threshold, non-evaluable confidenceFactor conditions, unknown event types, unanchored allow-list regex, ' +
         'unresolvable {{token}} placeholders). Returns findings as error/warning/info. Fix all errors, then dry-run ' +
-        'analyze rules with test_analyze_rule against a real session. Read get_resource(name="rule_authoring_guide") ' +
+        `analyze rules with test_analyze_rule against a real session${dryRunNote}. Read get_resource(name="rule_authoring_guide") ` +
         'first when authoring from scratch.',
       inputSchema: {
         rule: z.record(z.string(), z.unknown()).describe('The draft rule JSON object (gather or analyze — detected automatically)'),
@@ -51,9 +52,13 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
             findings: result.findings,
             nextStep: result.valid
               ? (result.ruleType === 'analyze'
-                ? 'No errors. Dry-run it now: test_analyze_rule(sessionId=<recent session>, rule=<this draft>) — once against a session where it SHOULD fire, once where it should not.'
+                ? (ruleDryRun
+                  ? 'No errors. Dry-run it now: test_analyze_rule(sessionId=<recent session>, rule=<this draft>) — once against a session where it SHOULD fire, once where it should not.'
+                  : 'No errors. The dry-run (test_analyze_rule) needs the Tenant Admin role: hand this draft to a Tenant Admin, who can dry-run it in their AI client or under Rules → Analyze Rules (Test against a session) and create it there.')
                 : (args.rule as Record<string, unknown>).collectorType === 'logparser'
-                  ? 'No errors. Now test the regex with the agent\'s exact .NET engine: test_log_pattern(pattern=<parameters.pattern>, sampleLines=<raw lines from the log file>, format=<parameters.format>) — then deploy to a test device.'
+                  ? (ruleDryRun
+                    ? 'No errors. Now test the regex with the agent\'s exact .NET engine: test_log_pattern(pattern=<parameters.pattern>, sampleLines=<raw lines from the log file>, format=<parameters.format>) — then deploy to a test device.'
+                    : 'No errors. Testing the regex with the agent\'s exact .NET engine (test_log_pattern) needs the Tenant Admin role: hand this draft and sample log lines to a Tenant Admin.')
                   : 'No errors. Gather rules run on-device and cannot be dry-run server-side — deploy to a test device and check the emitted events (the gather debug log setting shows per-rule detail).')
               : 'Fix the error-level findings and validate again.',
           },
@@ -66,7 +71,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
   );
 
   // Tool: test_log_pattern (backend .NET-regex test for logparser gather rules)
-  server.registerTool(
+  if (ruleDryRun) server.registerTool(
     'test_log_pattern',
     {
       title: 'Test Logparser Pattern Against Sample Lines',
@@ -102,7 +107,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
   );
 
   // Tool: test_analyze_rule (backend dry-run, side-effect free)
-  server.registerTool(
+  if (ruleDryRun) server.registerTool(
     'test_analyze_rule',
     {
       title: 'Test Analyze Rule Against Session (Dry-Run)',

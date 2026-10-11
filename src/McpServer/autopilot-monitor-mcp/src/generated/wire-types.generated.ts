@@ -1043,6 +1043,8 @@ export interface CheckMcpAccessResponse {
   delegatedTenantIds?: string[];
   /** "DelegatedAdmin" | "DelegatedReader"; omitted without delegated scope. */
   delegatedRole?: string;
+  /** "Admin" | "Operator" | "Viewer": the caller's member role in the tenant the token was issued for (client-capped like every tenant endpoint); omitted without a role and for platform roles. The MCP server registers tools whose backend route needs a role (the rule dry-runs) only for callers holding it. */
+  tenantRole?: string;
 }
 
 /** Configuration for optional agent collectors */

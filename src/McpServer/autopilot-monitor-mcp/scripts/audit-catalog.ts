@@ -26,10 +26,11 @@ const DEPS: ServerDeps = {
   docs: { vector: stub(), sections: ['concepts', 'trust'] },
 };
 
-type Role = { label: string; isGlobalAdmin: boolean; isGlobalReader: boolean; delegatedTenantIds?: string[] };
+type Role = { label: string; isGlobalAdmin: boolean; isGlobalReader: boolean; delegatedTenantIds?: string[]; tenantRole?: string };
 const ROLES: Role[] = [
   { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false },
   { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true },
+  { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin' },
   { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false },
   { label: 'delegated', isGlobalAdmin: false, isGlobalReader: false, delegatedTenantIds: ['00000000-0000-0000-0000-000000000001'] },
 ];
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
   const handler = createMcpRequestHandler(() => createServerForCaller(DEPS), { onerror: (e) => console.error(e.message) });
   app.post('/mcp', (req, res) =>
     runWithCaller(
-      { token: 't', isGlobalAdmin: role.isGlobalAdmin, isGlobalReader: role.isGlobalReader, upn: 'a@contoso.com', ...(role.delegatedTenantIds ? { delegatedTenantIds: role.delegatedTenantIds } : {}) } as never,
+      { token: 't', isGlobalAdmin: role.isGlobalAdmin, isGlobalReader: role.isGlobalReader, upn: 'a@contoso.com', ...(role.delegatedTenantIds ? { delegatedTenantIds: role.delegatedTenantIds } : {}), ...(role.tenantRole ? { tenantRole: role.tenantRole } : {}) } as never,
       () => handler(req, res),
     ),
   );

@@ -10,7 +10,7 @@ import { registerTools } from './tools.js';
 import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import type { DocsSearchBundle, SearchProvider } from './search-provider.js';
-import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId } from './client.js';
+import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId, canRunRuleDryRun } from './client.js';
 import { WEBSITE_BASE_URL } from './config.js';
 
 /**
@@ -116,7 +116,7 @@ const RESOURCE_CACHE_TTL_MS = 60 * 60 * 1000;
  * role: a non-Global-Admin never sees GA-only tools or any cross-tenant / GA
  * wording — reducing both confusion and attack surface.
  */
-export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): McpServer {
+export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string, ruleDryRun: boolean = ga): McpServer {
   const s = new McpServer(
     { ...SERVER_INFO, version: deps.serverVersion },
     {
@@ -148,14 +148,14 @@ export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean
       },
     },
   );
-  registerTools(s, deps.knowledgeBase, deps.eventTypeIndex, deps.docs, ga, strictGa, delegated);
+  registerTools(s, deps.knowledgeBase, deps.eventTypeIndex, deps.docs, ga, strictGa, delegated, ruleDryRun);
   stripSchemaUrls(s);
   registerResources(s);
   // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
   // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user. strictGa
   // gates the prompt steps that name the strictGa-only raw tools (a Reader must not be told to
-  // call tools it cannot see).
-  registerPrompts(s, ga, strictGa);
+  // call tools it cannot see); ruleDryRun does the same for the dry-run steps.
+  registerPrompts(s, ga, strictGa, ruleDryRun);
   return s;
 }
 
@@ -178,6 +178,6 @@ export function createServerForCaller(deps: ServerDeps): McpServer {
   // Home tenant is only surfaced to a delegated caller (for the "you may also query your home tenant" hint);
   // GA / plain tenant users don't need it in their instructions.
   const homeTenantId = delegated ? getHomeTenantId() : undefined;
-  return createMcpServer(deps, ga, isGlobalAdmin(), delegated, managedTenants, homeTenantId);
+  return createMcpServer(deps, ga, isGlobalAdmin(), delegated, managedTenants, homeTenantId, canRunRuleDryRun());
 }
 
