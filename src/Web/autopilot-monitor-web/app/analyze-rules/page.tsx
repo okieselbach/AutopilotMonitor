@@ -18,7 +18,9 @@ import { isTemplateRule } from "@/lib/analyzeRuleTabs";
 import { groupRulesByCategory, categoryLabel } from "@/lib/ruleGroups";
 import { RuleCategoryGroups } from "@/components/rules/RuleCategoryGroups";
 import { useCollapsedGroups } from "@/hooks/useCollapsedGroups";
-import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, validateOnEventTypes, getCategoryColor } from "./types";
+import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, formRuleBody, validateOnEventTypes, getCategoryColor } from "./types";
+import { RuleDryRunPanel } from "./components/RuleDryRunPanel";
+import { editorDraft } from "./ruleDryRunLogic";
 import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/lib/generated/guardrails.generated";
 
 /** Pre-flight for the evaluation-trigger form fields; returns an error message or null. */
@@ -370,19 +372,7 @@ function AnalyzeRulesContent() {
       tags: form.tags ?? [],
       markSessionAsFailedDefault: form.markSessionAsFailedDefault ?? false,
       ruleId: form.ruleId.trim(),
-      title: form.title.trim(),
-      description: form.description.trim(),
-      severity: form.severity,
-      category: form.category,
-      trigger: form.trigger,
-      explanation: form.explanation.trim(),
-      baseConfidence: form.baseConfidence,
-      confidenceThreshold: form.confidenceThreshold,
-      preconditions: form.preconditions.filter(p => p.eventType.trim() && p.operator.trim()),
-      conditions: form.conditions.filter(c => c.signal.trim()),
-      confidenceFactors: form.confidenceFactors.filter(f => f.signal.trim()),
-      remediation: form.remediation.filter(r => r.title.trim()),
-      relatedDocs: form.relatedDocs.filter(d => d.title.trim() && d.url.trim()),
+      ...formRuleBody(form),
     };
 
     const result = await mutate(
@@ -429,19 +419,7 @@ function AnalyzeRulesContent() {
       evaluateOn: formToEvaluateOn(form) ?? null,
       // From the form (not ...rule) so tag changes pasted in JSON mode survive the save.
       tags: form.tags ?? rule.tags ?? [],
-      title: form.title.trim(),
-      description: form.description.trim(),
-      severity: form.severity,
-      category: form.category,
-      trigger: form.trigger,
-      explanation: form.explanation.trim(),
-      baseConfidence: form.baseConfidence,
-      confidenceThreshold: form.confidenceThreshold,
-      preconditions: form.preconditions.filter(p => p.eventType.trim() && p.operator.trim()),
-      conditions: form.conditions.filter(c => c.signal.trim()),
-      confidenceFactors: form.confidenceFactors.filter(f => f.signal.trim()),
-      remediation: form.remediation.filter(r => r.title.trim()),
-      relatedDocs: form.relatedDocs.filter(d => d.title.trim() && d.url.trim()),
+      ...formRuleBody(form),
       version: bumpVersion(rule.version),
     };
 
@@ -861,6 +839,7 @@ function AnalyzeRulesContent() {
                     >
                       <AnalyzeRuleFormFields form={newRule} setForm={setNewRule} showRuleId={true} existingRuleIds={rulesList.map(r => r.ruleId)} />
                     </FormJsonToggle>
+                    <RuleDryRunPanel idPrefix="create" getDraft={() => editorDraft(jsonModeCreate, jsonText, newRule)} />
                     <div className="flex items-center justify-end space-x-3 pt-4 mt-5 border-t border-gray-200">
                       <button onClick={() => { setShowCreateForm(false); setJsonModeCreate(false); setJsonError(null); setNewRule({ ...EMPTY_FORM, conditions: [{ ...EMPTY_CONDITION }] }); }} disabled={creating} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium">Cancel</button>
                       <button onClick={() => {

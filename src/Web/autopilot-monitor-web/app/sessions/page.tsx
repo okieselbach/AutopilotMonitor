@@ -37,6 +37,9 @@ import TimeAttributionLane, { SessionTimeBreakdownDto } from "./components/TimeA
 import OsUpdateLiveHint from "./components/OsUpdateLiveHint";
 import EventTimeline from "./components/EventTimeline";
 import AnalysisResultsSection from "./components/AnalysisResultsSection";
+import { DiagnosticsSetupHint } from "./components/DiagnosticsSetupHint";
+import { showDiagnosticsSetupHint, showInvestigateHint } from "./components/sessionHintsLogic";
+import { InvestigateWithAiHint } from "@/components/InvestigateWithAiHint";
 import VulnerabilityReportSection from "./components/VulnerabilityReportSection";
 import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
@@ -201,7 +204,7 @@ function SessionDetailContent() {
   // Returns an empty map when the tenant hasn't granted DeviceManagementScripts.Read.All.
   // Map keys are "{Kind}:{Id}" -- the renderer uses lookupScriptDisplayName to read them.
   const scriptDisplayNamesByRefKey = useScriptDisplayNames(sessionTenantId ?? tenantId, events, getAccessToken);
-  const { analysisResults, loadingAnalysis, vulnerabilityReport, fetchAnalysisResults, fetchVulnerabilityReport, persistFailureRuleIds } = analysis;
+  const { analysisResults, loadingAnalysis, analysisLoaded, vulnerabilityReport, fetchAnalysisResults, fetchVulnerabilityReport, persistFailureRuleIds } = analysis;
   const { showScriptOutput, enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer } = tenantConfig;
   const {
     filteredEvents,
@@ -606,6 +609,14 @@ function SessionDetailContent() {
               ntpOffset={ntpOffset}
               configMgrDetected={configMgrDetected}
               standbySeconds={standbySeconds}
+              footerHint={showDiagnosticsSetupHint({
+                status: session.status,
+                hasDiagnosticsPackage: !!session.diagnosticsBlobName,
+                featureFlagsLoaded: tenantConfig.featureFlagsLoaded,
+                diagnosticsUploadConfigured: tenantConfig.diagnosticsUploadConfigured,
+                isCrossTenantView,
+                isGatherRulesSession,
+              }) ? <DiagnosticsSetupHint canConfigure={(user?.isTenantAdmin ?? false) || (user?.isGlobalAdmin ?? false)} /> : null}
             />
             </div>
           )}
@@ -673,6 +684,23 @@ function SessionDetailContent() {
               canReanalyze={!isReadOnlyView && ((user?.isTenantAdmin ?? false) || (user?.isGlobalAdmin ?? false) || user?.role === "Operator")}
               persistFailureRuleIds={persistFailureRuleIds}
               sessionTenantId={sessionTenantId || undefined}
+              emptyState={showInvestigateHint({
+                status: session?.status,
+                analysisLoaded,
+                loadingAnalysis,
+                findingCount: analysisResults.length,
+              }) ? (
+                <InvestigateWithAiHint
+                  sessionId={sessionId}
+                  tenantId={isCrossTenantView ? viewedTenantId : undefined}
+                  mcpAccess={user?.hasMcpAccess ?? false}
+                  // The dry-run route resolves another tenant's session only for a platform role; a Tenant
+                  // Admin's dry-run stays in their own tenant.
+                  canDryRun={(user?.isGlobalAdmin ?? false) || (user?.isGlobalReader ?? false) || ((user?.isTenantAdmin ?? false) && !isCrossTenantView)}
+                  canReport={canReportSession && !isReadOnlyView}
+                  source="analysis"
+                />
+              ) : undefined}
             />
             </div>
           )}

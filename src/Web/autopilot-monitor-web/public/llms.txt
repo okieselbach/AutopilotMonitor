@@ -1,6 +1,6 @@
 # Autopilot Monitor
 
-> Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments managed through Microsoft Intune. A lightweight, temporary agent streams enrollment events to a web portal, analyze rules flag failure patterns automatically, and a Model Context Protocol (MCP) server lets AI assistants query the data. Created and maintained by Oliver Kieselbach (Microsoft MVP); the hosted service is operated by glueckkanja AG and runs in Azure Germany West Central.
+> Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments managed through Microsoft Intune. A lightweight, temporary agent streams enrollment events to a web portal while the device enrolls, so the evidence survives a device reset. Analyze rules flag known failure patterns automatically; for the rest, a Model Context Protocol (MCP) server lets AI assistants investigate the session, down to the IME logs when diagnostics upload is on, and draft an analyze rule that catches the failure next time. Created and maintained by Oliver Kieselbach (Microsoft MVP); the hosted service is operated by glueckkanja AG and runs in Azure Germany West Central.
 
 Autopilot Monitor is for IT administrators, helpdesk engineers, and managed service providers who deploy Windows devices with Intune and Autopilot. The Community plan is free and stays free: live monitoring, the full rules engine, fleet analytics, and AI integration (MCP) within usage limits. The optional Pro plan adds 365-day instead of 90-day retention, higher usage limits, delegated administration across customer tenants, OOBE bootstrap sessions, reliability commitments, and priority support; it is sold through Microsoft Marketplace and Cleverbridge, and a tenant administrator can try it free for 30 days.
 
@@ -8,7 +8,7 @@ Autopilot Monitor is for IT administrators, helpdesk engineers, and managed serv
 
 - [Home](https://www.autopilotmonitor.com/): product overview
 - [About](https://www.autopilotmonitor.com/about/): what it is, how it works, common questions
-- [AI analysis](https://www.autopilotmonitor.com/ai/): ask about your enrollments in your own AI assistant through the MCP server
+- [AI analysis](https://www.autopilotmonitor.com/ai/): ask about your enrollments in your own AI assistant through the MCP server, and turn findings into analyze rules
 - [Get started](https://www.autopilotmonitor.com/get-started/): first steps for a new tenant
 - [Plans](https://www.autopilotmonitor.com/plans/): Community vs. Pro
 - [Get Pro](https://www.autopilotmonitor.com/buy/): purchase options and the free 30-day trial
@@ -33,8 +33,8 @@ Autopilot Monitor is for IT administrators, helpdesk engineers, and managed serv
 - [AI integration (MCP)](https://docs.autopilotmonitor.com/integrations/ai-integration-mcp)
 - [Settings reference](https://docs.autopilotmonitor.com/reference/settings)
 - [Plans](https://docs.autopilotmonitor.com/plans)
-- [FAQ](https://docs.autopilotmonitor.com/troubleshooting/faq)
-- [Security & privacy FAQ](https://docs.autopilotmonitor.com/trust/security-faq): data residency, isolation, sub-processors
+- [FAQ](https://docs.autopilotmonitor.com/troubleshooting-and-support/faq)
+- [Security & privacy FAQ](https://docs.autopilotmonitor.com/trust-and-security/security-faq): data residency, isolation, sub-processors
 - [Platform changelog](https://docs.autopilotmonitor.com/changelog/platform-changelog)
 - [Agent changelog](https://docs.autopilotmonitor.com/changelog/agent-changelog)
 

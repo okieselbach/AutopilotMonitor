@@ -40,10 +40,10 @@ const PAGES: { name: string; Page: ComponentType; sections: string[] }[] = [
   {
     name: "landing",
     Page: Landing,
-    sections: ["hero", "stats", "just_ask", "story", "capabilities", "comparison", "how_it_works", "testimonials", "final_cta"],
+    sections: ["hero", "stats", "evidence_loop", "just_ask", "story", "capabilities", "comparison", "how_it_works", "testimonials", "final_cta"],
   },
   { name: "get-started", Page: GetStartedPage, sections: ["steps", "signup"] },
-  { name: "ai", Page: AiPage, sections: ["hero", "structured", "questions", "architecture", "connect", "closing"] },
+  { name: "ai", Page: AiPage, sections: ["hero", "structured", "questions", "rules", "architecture", "connect", "closing"] },
 ];
 
 describe("marketing page tracking", () => {
@@ -61,9 +61,9 @@ describe("marketing page tracking", () => {
     });
   }
 
-  it("the landing links to the AI page from the navbar, Then just ask and the footer", () => {
+  it("the landing links to the AI page from the navbar, the evidence loop, Then just ask and the footer", () => {
     const ids = trackIds(render(Landing));
-    expect(ids).toEqual(expect.arrayContaining(["nav_ai", "just_ask_ai", "footer_ai"]));
+    expect(ids).toEqual(expect.arrayContaining(["nav_ai", "evidence_loop_ai", "just_ask_ai", "footer_ai"]));
   });
 
   it("the AI page carries every question text in its static HTML", () => {

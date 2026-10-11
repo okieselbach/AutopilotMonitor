@@ -4,6 +4,8 @@ import { useState } from "react";
 import { AnalyzeRule, RuleForm, PastedAnalyzeJson, getSeverityColor, getCategoryColor, interimTriggerLabels, jsonToForm } from "../types";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
+import { RuleDryRunPanel } from "./RuleDryRunPanel";
+import { editorDraft } from "../ruleDryRunLogic";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
@@ -666,6 +668,7 @@ export default function AnalyzeRuleCard({
           >
             <AnalyzeRuleFormFields form={editForm} setForm={setEditForm} showRuleId={false} />
           </FormJsonToggle>
+          <RuleDryRunPanel idPrefix={`edit-${rule.ruleId}`} getDraft={() => editorDraft(jsonModeEdit, jsonText, editForm, rule)} />
 
           <div className="flex items-center justify-end space-x-3 pt-4 mt-5 border-t border-gray-200">
             <button onClick={onCancelEdit} disabled={saving} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium">Cancel</button>

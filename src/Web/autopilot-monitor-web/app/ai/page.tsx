@@ -4,6 +4,7 @@ import { MarketingTracker } from "../../components/MarketingTracker";
 import { AiHero } from "../../components/ai/AiHero";
 import { StructuredFacts } from "../../components/ai/StructuredFacts";
 import { QuestionsSection } from "../../components/ai/QuestionsSection";
+import { RuleLoopSection } from "../../components/ai/RuleLoopSection";
 import { ArchitectureSection } from "../../components/ai/ArchitectureSection";
 import { ConnectSection } from "../../components/ai/ConnectSection";
 import { ClosingCta } from "../../components/ai/ClosingCta";
@@ -21,6 +22,7 @@ export default function AiPage() {
           <AiHero />
           <StructuredFacts />
           <QuestionsSection />
+          <RuleLoopSection />
           <ArchitectureSection />
           <ConnectSection />
           <ClosingCta />

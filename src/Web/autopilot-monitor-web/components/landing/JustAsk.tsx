@@ -13,8 +13,8 @@ export function JustAsk() {
             Then just ask.
           </h2>
           <p className="mt-3 text-[15px] text-[var(--lp-ink-soft)] leading-relaxed">
-            Your AI assistant reads the whole session for you — and finds the root cause a human
-            would dig for all afternoon. This analysis is real.
+            Your AI assistant reads the whole session for you, finds the root cause a human would dig
+            for all afternoon, and writes the rule that catches it next time. This analysis is real.
           </p>
           <Link
             href="/ai"

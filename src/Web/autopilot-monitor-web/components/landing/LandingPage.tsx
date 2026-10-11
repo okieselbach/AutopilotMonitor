@@ -2,6 +2,7 @@ import { AuthGate } from "./AuthGate";
 import { LandingNavbar } from "./LandingNavbar";
 import { Hero } from "./Hero";
 import { StatsBand } from "./StatsBand";
+import { EvidenceLoop } from "./EvidenceLoop";
 import { JustAsk } from "./JustAsk";
 import { Story } from "./Story";
 import { CapabilitiesStrip } from "./CapabilitiesStrip";
@@ -32,6 +33,7 @@ export function LandingPage({ statsSnapshot }: { statsSnapshot: PlatformStatsSna
         <LandingNavbar />
         <Hero />
         <StatsBand snapshot={statsSnapshot} />
+        <EvidenceLoop />
         <JustAsk />
         <Story />
         <CapabilitiesStrip />

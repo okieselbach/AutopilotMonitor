@@ -50,11 +50,12 @@ export function StructuredFacts() {
         <div className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--lp-accent-ink)]">Structured from the start</p>
           <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-[var(--lp-ink)] sm:text-4xl">
-            Your assistant reads facts, not log files.
+            Facts first. Raw logs when it matters.
           </h2>
           <p className="mt-4 text-lg leading-relaxed text-[var(--lp-ink-soft)]">
-            The agent turns each enrollment into typed events while it runs. Your assistant queries them through dedicated
-            tools, so its answers rest on data instead of guesswork.
+            The agent turns each enrollment into typed events while it runs. Your assistant starts there, so its answers
+            rest on data instead of guesswork. When the facts run out, clients that work with files can fetch the
+            session&apos;s diagnostics package and read the original log lines.
           </p>
         </div>
 
@@ -85,6 +86,17 @@ export function StructuredFacts() {
               {"“Contoso CRM exited with 60001, a code the app has no mapping for, so the ESP stopped. The retry an hour later installed cleanly.”"}
             </blockquote>
           </figure>
+        </div>
+
+        {/* The way back: from the answer to the line it came from, when the facts are not enough. */}
+        <div className="mt-5 flex items-center gap-3 text-[13px] text-[var(--lp-ink-soft)]">
+          <ArrowRightIcon className="h-5 w-5 shrink-0 rotate-180 text-[var(--lp-accent-ink)]" />
+          <span aria-hidden="true" className="hidden flex-1 border-t-2 border-dashed border-[var(--lp-accent-line)] lg:block" />
+          <p className="m-0 min-w-0">
+            <span className="font-mono font-semibold text-[var(--lp-ink)]">get_session_diagnostics</span>
+            {" — back to the original line, for clients that work with files"}
+          </p>
+          <span aria-hidden="true" className="hidden flex-1 border-t-2 border-dashed border-[var(--lp-accent-line)] lg:block" />
         </div>
 
         <ul className="mt-14 grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">

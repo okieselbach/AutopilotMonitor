@@ -31,7 +31,7 @@ const CAPABILITIES = [
   },
   {
     title: "MCP server for AI",
-    detail: "Query sessions, metrics, and docs from your AI assistant.",
+    detail: "Ask about sessions and the fleet, dig into diagnostics, draft new rules.",
   },
   {
     title: "Audit log & open source",

@@ -13,6 +13,9 @@ export function useSessionAnalysis(
 ) {
   const [analysisResults, setAnalysisResults] = useState<RuleResult[]>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  // True after the first successful read: before it (and after only failed reads) an empty list means
+  // "unknown", not "no rule fired" — the failed-session hint must not claim the latter on a guess.
+  const [analysisLoaded, setAnalysisLoaded] = useState(false);
   const [vulnerabilityReport, setVulnerabilityReport] = useState<unknown>(null);
   // Rule IDs whose results failed to persist during the most recent reanalyze.
   // Backend reports them in /sessions/{id}/analysis response so the UI can render
@@ -35,6 +38,7 @@ export function useSessionAnalysis(
       // more StoreRuleResultAsync calls returned false during the reanalyze loop. We always
       // set it so a successful retry clears a previous warning.
       setPersistFailureRuleIds(Array.isArray(data.persistFailureRuleIds) ? data.persistFailureRuleIds : []);
+      setAnalysisLoaded(true);
     } catch (error) {
       console.error("Failed to fetch analysis results:", error);
     } finally {
@@ -72,6 +76,7 @@ export function useSessionAnalysis(
   return {
     analysisResults,
     loadingAnalysis,
+    analysisLoaded,
     vulnerabilityReport,
     setVulnerabilityReport,
     fetchAnalysisResults,

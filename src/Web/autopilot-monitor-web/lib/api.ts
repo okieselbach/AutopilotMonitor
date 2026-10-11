@@ -275,6 +275,9 @@ export const api = {
       `${API_BASE_URL}/api/rules/analyze/${encodeURIComponent(ruleId)}`,
     analyzeRuleFromTemplate: (ruleId: string) =>
       `${API_BASE_URL}/api/rules/analyze/${encodeURIComponent(ruleId)}/create-from-template`,
+    // Side-effect-free dry-run of a draft against one session; a platform role may name any tenant's
+    // session (the backend resolves its tenant), everyone else stays in the token's tenant.
+    analyzeDryRun: () => `${API_BASE_URL}/api/rules/analyze/dryrun`,
     globalAnalyze: (tenantId?: string) =>
       `${API_BASE_URL}/api/global/rules/analyze${qs({ tenantId })}`,
     // Cross-tenant edit/toggle/delete of an existing analyze rule (Global Admin override). PUT/DELETE

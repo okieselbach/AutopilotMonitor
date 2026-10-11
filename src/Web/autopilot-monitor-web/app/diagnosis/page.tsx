@@ -17,6 +17,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { isGuid } from "@/lib/inputValidation";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
 import { DocsLink } from "@/components/DocsLink";
+import { InvestigateWithAiHint } from "@/components/InvestigateWithAiHint";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { GetRuleResultsResponse, GetSessionEventsResponse, GetSessionResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
@@ -41,6 +42,8 @@ function DiagnosisContent() {
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null);
   const [events, setEvents] = useState<EnrollmentEvent[]>([]);
   const [analysisResults, setAnalysisResults] = useState<RuleResult[]>([]);
+  // Any stored finding, resolved ones included: only a session without any may say "no rule flagged it".
+  const [hasAnyRuleResult, setHasAnyRuleResult] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
   const [showEvidence, setShowEvidence] = useState<string | null>(null);
@@ -64,7 +67,7 @@ function DiagnosisContent() {
 
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, user } = useAuth();
   const { addNotification } = useNotifications();
   
   const { globalAdminMode } = useAdminMode();
@@ -120,6 +123,7 @@ function DiagnosisContent() {
       const data = await fetchJson<GetRuleResultsResponse>(api.sessions.analysis(sessionId, effectiveTenantId), getAccessToken);
       {
         if (data.results) {
+          setHasAnyRuleResult(data.results.length > 0);
           // Resolved findings (no longer detected by a later evaluation) are audit-only —
           // the diagnosis flow must not present them as the probable cause.
           setAnalysisResults(
@@ -268,6 +272,9 @@ function DiagnosisContent() {
   }
 
   const primaryResult = analysisResults[0] || null;
+  // Global Admin / MSP drill-in into another tenant's session: the copied prompt names the tenant, and
+  // the actions that stay in the viewer's own tenant (dry-run as Tenant Admin, Report Session) drop out.
+  const crossTenant = !!sessionTenantId && !!tenantId && sessionTenantId.toLowerCase() !== tenantId.toLowerCase();
   const otherResults = analysisResults.slice(1);
   const primaryDocUrl = safeHttpUrl(primaryResult?.relatedDocs?.[0]?.url);
 
@@ -369,13 +376,26 @@ function DiagnosisContent() {
               <h2 className="text-xl font-semibold text-gray-900 mb-2">
                 No Diagnosis Available
               </h2>
-              <p className="text-gray-500 mb-4">
-                {session?.status === "InProgress"
-                  ? "Analysis results will appear here as they are generated during the enrollment."
-                  : session?.status === "Succeeded"
-                  ? "This session completed successfully. No issues were detected."
-                  : "No analysis rules matched for this session. Check the event timeline for more details."}
-              </p>
+              {session?.status === "Failed" && !hasAnyRuleResult ? (
+                <div className="mx-auto mb-4 max-w-lg">
+                  <InvestigateWithAiHint
+                    sessionId={sessionId}
+                    tenantId={crossTenant ? sessionTenantId ?? undefined : undefined}
+                    mcpAccess={user?.hasMcpAccess ?? false}
+                    canDryRun={(user?.isGlobalAdmin ?? false) || (user?.isGlobalReader ?? false) || ((user?.isTenantAdmin ?? false) && !crossTenant)}
+                    canReport={!crossTenant && ((user?.isTenantAdmin ?? false) || user?.role === "Operator" || (user?.isGlobalAdmin ?? false))}
+                    source="diagnosis"
+                  />
+                </div>
+              ) : (
+                <p className="text-gray-500 mb-4">
+                  {session?.status === "InProgress"
+                    ? "Analysis results will appear here as they are generated during the enrollment."
+                    : session?.status === "Succeeded"
+                    ? "This session completed successfully. No issues were detected."
+                    : "No analysis rules matched for this session. Check the event timeline for more details."}
+                </p>
+              )}
               {errorEvents.length > 0 && (
                 <div className="mt-6 text-left max-w-lg mx-auto">
                   <h3 className="text-sm font-medium text-gray-700 mb-2">

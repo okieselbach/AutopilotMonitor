@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { RuleResult } from "@/types";
@@ -36,6 +36,9 @@ interface AnalysisResultsSectionProps {
    * drill-in) the rule-stats fetch switches to the global route scoped to THIS tenant, so the
    * hit-rate and fleet-context numbers describe the session's fleet — not the viewer's. */
   sessionTenantId?: string;
+  /** Replaces the generic "No issues detected yet" text when the page knows better (a failed session no
+   * rule explains gets the way to an AI investigation instead of a dead end). */
+  emptyState?: ReactNode;
 }
 
 export default function AnalysisResultsSection({
@@ -47,6 +50,7 @@ export default function AnalysisResultsSection({
   persistFailureRuleIds,
   canReanalyze = true,
   sessionTenantId,
+  emptyState,
 }: AnalysisResultsSectionProps) {
   const { getAccessToken } = useAuth();
   const { tenantId } = useTenant();
@@ -187,6 +191,8 @@ export default function AnalysisResultsSection({
           )}
           {loadingAnalysis && analysisResults.length === 0 ? (
             <div className="text-center py-4 text-gray-500">Running analysis...</div>
+          ) : openResults.length === 0 && resolvedResults.length === 0 && emptyState ? (
+            emptyState
           ) : openResults.length === 0 && resolvedResults.length === 0 ? (
             <div className="text-center py-4 text-gray-400 text-sm">
               {canReanalyze

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Session } from "@/types";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import FailureSnapshotBlock from "./FailureSnapshotBlock";
@@ -16,9 +16,11 @@ interface SessionInfoCardProps {
   configMgrDetected?: { ccmVersion?: string; ccmServiceState?: string; siteCode?: string; confidenceScore?: number } | null;
   /** Sleep/standby seconds inside the enrollment window (system_sleep_episode ground truth) — explains an inflated wall-clock duration. */
   standbySeconds?: number | null;
+  /** A page-decided hint rendered after the card's own hints (e.g. the missing-diagnostics hint of a failed session). */
+  footerHint?: ReactNode;
 }
 
-export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected, standbySeconds }: SessionInfoCardProps) {
+export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected, standbySeconds, footerHint }: SessionInfoCardProps) {
   const lastContactTooltip = session.lastEventAt
     ? `Last contact: ${new Date(session.lastEventAt).toLocaleString([], { dateStyle: "short", timeStyle: "medium" })}`
     : undefined;
@@ -145,6 +147,7 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           </span>
         </div>
       )}
+      {footerHint}
       <FailureSnapshotBlock failureSnapshotJson={session.failureSnapshotJson} />
     </div>
   );

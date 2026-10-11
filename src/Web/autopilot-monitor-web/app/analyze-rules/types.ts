@@ -304,6 +304,39 @@ export function formToEvaluateOn(form: RuleForm): string[] | undefined {
 }
 
 /**
+ * The rule body every write builds from the form: create, save and the dry-run send the same fields,
+ * trimmed and with half-filled list rows dropped, so a test runs exactly what a save would store.
+ */
+export function formRuleBody(form: RuleForm) {
+  return {
+    title: form.title.trim(),
+    description: form.description.trim(),
+    severity: form.severity,
+    category: form.category,
+    trigger: form.trigger,
+    explanation: form.explanation.trim(),
+    baseConfidence: form.baseConfidence,
+    confidenceThreshold: form.confidenceThreshold,
+    preconditions: form.preconditions.filter(p => p.eventType.trim() && p.operator.trim()),
+    conditions: form.conditions.filter(c => c.signal.trim()),
+    confidenceFactors: form.confidenceFactors.filter(f => f.signal.trim()),
+    remediation: form.remediation.filter(r => r.title.trim()),
+    relatedDocs: form.relatedDocs.filter(d => d.title.trim() && d.url.trim()),
+  };
+}
+
+/** The draft a dry-run sends: the stored body plus the fields the engine reads besides it. */
+export function formToDryRunRule(form: RuleForm) {
+  return {
+    ...formRuleBody(form),
+    ruleId: form.ruleId.trim() || "DRAFT",
+    evaluateOn: formToEvaluateOn(form),
+    markSessionAsFailedDefault: form.markSessionAsFailedDefault ?? false,
+    tags: form.tags ?? [],
+  };
+}
+
+/**
  * Client-side pre-flight for the on_event list (the backend enforces the same rules on save):
  * lowercase snake_case event types, none of the hard-blocked high-frequency telemetry types.
  * Returns an error message or null.

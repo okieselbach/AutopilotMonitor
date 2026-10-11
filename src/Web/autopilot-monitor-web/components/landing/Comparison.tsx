@@ -46,6 +46,11 @@ const ROWS = [
     monitor: "Drill into per-event timeline, IME log patterns, and analyze results",
     standard: "Manual IME log hunting — slow and error-prone",
   },
+  {
+    label: "Unknown failures",
+    monitor: "Evidence already saved — investigate it with AI, then turn the finding into a rule",
+    standard: "Reproduce the failure and collect the logs again",
+  },
 ];
 
 export function Comparison() {

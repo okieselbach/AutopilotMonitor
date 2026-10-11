@@ -49,8 +49,8 @@ export function Hero() {
         {/* Sub left, CTAs right */}
         <div className="mt-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <p className="text-lg sm:text-xl text-[var(--lp-ink-soft)] leading-relaxed max-w-xl">
-            Real-time monitoring, automated root-cause analysis, and on-demand diagnostics for
-            Windows Autopilot — deployed once via Intune, live minutes later.
+            Real-time monitoring, automated root-cause analysis, and evidence that survives a
+            device reset — deployed once via Intune, live minutes later.
           </p>
           <div className="shrink-0">
             <div className="flex items-center gap-3">

@@ -35,6 +35,11 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
       "Yes. Dozens of built-in, community-maintained analyze rules run automatically on every session and report confidence-scored findings with remediation steps. You can write your own rules, add Intune Management Extension (IME) log patterns, and gather registry, file, or WMI data on any event. Regression detection alerts tenant admins when a rule starts firing more often than usual.",
   },
   {
+    question: "What if no analyze rule explains why my enrollment failed?",
+    answer:
+      "The evidence is still there. Every session keeps its timeline for your retention period, even after the device was reset, and with diagnostics upload set to On Failure Only, failed enrollments also keep their agent and IME logs. Connect your AI assistant through the MCP server and let it investigate the session: clients that work with files, such as Claude Code, can download the diagnostics package and search the raw IME logs, and the built-in debug-session prompt walks through these steps. Once the cause is found, the assistant can draft an analyze rule, and a Tenant Admin can dry-run it against real sessions, create it in the portal, and submit it to the community pool, where accepted rules ship to every tenant after review. If the product should detect a case on its own, Report Session sends it to the maintainers.",
+  },
+  {
     question: "How do I get alerted when an Autopilot enrollment fails?",
     answer:
       "Configure a notification channel for Microsoft Teams, Slack, Discord, or a generic JSON webhook and choose which triggers fire: enrollment start, success, or failure. The same channel carries SLA breach and resolution alerts, consecutive-failure alerts, and hardware rejection notices. Configuration and hardware alerts also appear as bell notifications in the portal.",

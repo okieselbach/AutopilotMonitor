@@ -14,7 +14,10 @@ type Step =
  * Scripted MCP session, based on a real production analysis (anonymized):
  * a failed first attempt whose ESP HRESULT decodes to an unmapped
  * installer exit code — the kind of root cause that costs a human an
- * afternoon. Tool names mirror the actual MCP server.
+ * afternoon. Tool names mirror the actual MCP server. The second half turns
+ * the finding into a rule: validate_rule and both test_analyze_rule verdicts
+ * are the real results of a dry-run against the same two sessions
+ * (2026-10-11), anonymized like the rest.
  */
 const SCRIPT: Step[] = [
   { kind: "user", text: "CONTOSO-3812 failed enrollment this morning — what happened?" },
@@ -36,7 +39,20 @@ const SCRIPT: Step[] = [
   { kind: "out", text: "Recommendation  Map exit code 60001 in the Win32 app — better, fix the", accent: "success" },
   { kind: "out", text: "                PSADT package to log and handle the underlying error.", accent: "success" },
   { kind: "gap" },
-  { kind: "out", text: "Want me to pull the diagnostics ZIP and extract the installer log?" },
+  { kind: "out", text: "Want me to write a rule so this gets flagged automatically next time?" },
+  { kind: "gap" },
+  { kind: "user", text: "Yes — and test it on both attempts." },
+  { kind: "tool", text: "validate_rule({ rule })" },
+  { kind: "tool", text: 'test_analyze_rule({ sessionId: "e6a1…f43b", rule })' },
+  { kind: "tool", text: 'test_analyze_rule({ sessionId: "98db…16af", rule })' },
+  { kind: "gap" },
+  { kind: "out", text: 'ANALYZE-CUSTOM-110 "Unmapped installer exit code stopped the ESP"' },
+  { kind: "out", text: "  valid · 0 errors · 0 warnings", accent: "dim" },
+  { kind: "out", text: "  #1  fired · confidence 85 · exit 60001 ↔ ESP 0x8007EA61", accent: "success" },
+  { kind: "out", text: "  #2  required_condition_not_met · stays silent", accent: "dim" },
+  { kind: "gap" },
+  { kind: "out", text: "Paste the JSON under Rules → Analyze Rules → Create Custom Rule," },
+  { kind: "out", text: "or submit it for the community pool." },
 ];
 
 const TYPE_MS = 32;
@@ -76,9 +92,21 @@ export function McpTerminalDemo() {
     }
 
     const delay = step.kind === "tool" ? TOOL_MS : step.kind === "user" ? 500 : OUT_MS;
-    const timer = window.setTimeout(() => setStepIndex(i => i + 1), delay);
+    const timer = window.setTimeout(() => {
+      setStepIndex(i => i + 1);
+      // Every user line types from its first character, not from where the previous one ended.
+      setCharCount(0);
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [active, reduced, stepIndex, charCount]);
+
+  // The transcript outgrows the fixed-height window: keep the newest line in view, like a terminal.
+  // Reduced motion shows the whole transcript at once and leaves scrolling to the reader.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && !reduced) el.scrollTop = el.scrollHeight;
+  }, [reduced, stepIndex, charCount]);
 
   const finished = effectiveStepIndex >= SCRIPT.length;
 
@@ -142,7 +170,10 @@ export function McpTerminalDemo() {
           AI assistant — connected to Autopilot Monitor MCP
         </span>
       </div>
-      <div className="px-4 sm:px-5 py-4 font-mono text-[11px] sm:text-[12.5px] leading-[1.7] h-[430px] sm:h-[460px] overflow-y-hidden overflow-x-auto">
+      <div
+        ref={scrollRef}
+        className={`px-4 sm:px-5 py-4 font-mono text-[11px] sm:text-[12.5px] leading-[1.7] h-[430px] sm:h-[460px] overflow-x-auto ${reduced ? "overflow-y-auto" : "overflow-y-hidden"}`}
+      >
         {SCRIPT.map(renderStep)}
         {finished && !reduced && (
           <div className="mt-2 flex gap-2">

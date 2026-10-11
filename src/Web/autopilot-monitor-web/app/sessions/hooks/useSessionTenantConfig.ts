@@ -11,6 +11,8 @@ interface UseSessionTenantConfigReturn {
   enableIntegrityBypassAnalyzer: boolean;
   /** Whether an on-demand diagnostics upload can succeed right now (drives the Collect Logs button). */
   diagnosticsUploadConfigured: boolean;
+  /** True once the flags were actually read — before that (and after a failed read) the values are defaults. */
+  featureFlagsLoaded: boolean;
   /** Optimistic flip after a successful quick-config from the session page — avoids a refetch round-trip. */
   markDiagnosticsConfigured: () => void;
 }
@@ -28,6 +30,7 @@ export function useSessionTenantConfig(
   const [enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer] = useState(false);
   const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
   const [diagnosticsUploadConfigured, setDiagnosticsUploadConfigured] = useState(false);
+  const [featureFlagsLoaded, setFeatureFlagsLoaded] = useState(false);
 
   useEffect(() => {
     if (!sessionTenantId) return;
@@ -43,6 +46,7 @@ export function useSessionTenantConfig(
         setEnableSoftwareInventoryAnalyzer(cfg.enableSoftwareInventoryAnalyzer ?? false);
         setEnableIntegrityBypassAnalyzer(cfg.enableIntegrityBypassAnalyzer ?? true);
         setDiagnosticsUploadConfigured(cfg.diagnosticsUploadConfigured ?? false);
+        setFeatureFlagsLoaded(true);
       } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
@@ -55,6 +59,7 @@ export function useSessionTenantConfig(
     enableSoftwareInventoryAnalyzer,
     enableIntegrityBypassAnalyzer,
     diagnosticsUploadConfigured,
+    featureFlagsLoaded,
     markDiagnosticsConfigured,
   };
 }
