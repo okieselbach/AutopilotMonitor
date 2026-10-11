@@ -57,14 +57,18 @@ function formatDate(dateStr: string): string {
 }
 
 export default function LocationSessionsPage() {
+  // ProtectedRoute stays outermost: the content's loading card must never render for a signed-out
+  // tab, or the login redirect would never fire.
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    }>
-      <LocationSessionsContent />
-    </Suspense>
+    <ProtectedRoute>
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-gray-600">Loading...</div>
+        </div>
+      }>
+        <LocationSessionsContent />
+      </Suspense>
+    </ProtectedRoute>
   );
 }
 
@@ -180,222 +184,220 @@ function LocationSessionsContent() {
   }
 
   return (
-    <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
-        {/* Delegated ("MSP") admin: blue cross-tenant banner (GA gets the purple one below). */}
-        <GlobalAdminBanner show={isDelegatedScope} delegated subtitle="viewing one managed tenant" />
-        {globalAdminMode && (
-          <div className="bg-purple-700 text-white text-sm px-4 py-2 flex items-center justify-center space-x-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <div className="min-h-screen bg-gray-50">
+      {/* Delegated ("MSP") admin: blue cross-tenant banner (GA gets the purple one below). */}
+      <GlobalAdminBanner show={isDelegatedScope} delegated subtitle="viewing one managed tenant" />
+      {globalAdminMode && (
+        <div className="bg-purple-700 text-white text-sm px-4 py-2 flex items-center justify-center space-x-2">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="font-medium">Global Admin View</span>
+          <span className="text-purple-300">&mdash; aggregating data across all tenants</span>
+        </div>
+      )}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <button
+            onClick={() => {
+              router.push(days === GEO_DEFAULT_WINDOW_DAYS ? "/geographic-performance" : `/geographic-performance?days=${days}`);
+            }}
+            className="text-sm text-gray-600 hover:text-gray-900 mb-2 flex items-center"
+          >
+            &larr; Back to Geographic Performance
+          </button>
+          <div className="flex items-center space-x-3">
+            <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span className="font-medium">Global Admin View</span>
-            <span className="text-purple-300">&mdash; aggregating data across all tenants</span>
+            <div>
+              <h1 className="text-2xl font-normal text-gray-900">{locationKey}</h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {timeLabel} &middot; grouped by {groupBy}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* Summary Stats */}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Sessions</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4" title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
+              <div className="text-sm font-medium text-gray-500">API Latency</div>
+              <div className={`text-2xl font-bold ${stats.medianApiLatency > 0 ? "text-gray-900" : "text-gray-400"}`}>
+                {stats.medianApiLatency > 0 ? `${stats.medianApiLatency} ms` : "—"}
+              </div>
+              <div className="text-xs text-gray-400">
+                {stats.latencySessions > 0 ? `${stats.latencySessions} session(s) with data` : "requires latency-reporting agent"}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Succeeded</div>
+              <div className="text-2xl font-bold text-green-600">{stats.succeeded}</div>
+              <div className="text-xs text-gray-400">
+                {stats.total > 0 ? `${Math.round((stats.succeeded / stats.total) * 100)}%` : "—"}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Failed</div>
+              <div className={`text-2xl font-bold ${stats.failed > 0 ? "text-red-600" : "text-gray-400"}`}>
+                {stats.failed}
+              </div>
+              <div className="text-xs text-gray-400">
+                {stats.total > 0 && stats.failed > 0 ? `${Math.round((stats.failed / stats.total) * 100)}%` : "—"}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Avg Duration</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {stats.avgDuration > 0 ? `${stats.avgDuration} min` : "—"}
+              </div>
+              <div className="text-xs text-gray-400">succeeded sessions</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">DO Peers</div>
+              <div className={`text-2xl font-bold ${
+                stats.doSessions === 0 ? "text-gray-400" :
+                stats.avgDoPercent >= 50 ? "text-green-600" :
+                stats.avgDoPercent >= 10 ? "text-yellow-600" :
+                "text-gray-600"
+              }`}>
+                {stats.doSessions > 0 ? `${stats.avgDoPercent}%` : "—"}
+              </div>
+              <div className="text-xs text-gray-400">
+                {stats.doSessions > 0 ? `${stats.doSessions} of ${stats.total} sessions` : "no DO telemetry"}
+              </div>
+            </div>
           </div>
         )}
-        <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <button
-              onClick={() => {
-                router.push(days === GEO_DEFAULT_WINDOW_DAYS ? "/geographic-performance" : `/geographic-performance?days=${days}`);
-              }}
-              className="text-sm text-gray-600 hover:text-gray-900 mb-2 flex items-center"
-            >
-              &larr; Back to Geographic Performance
-            </button>
-            <div className="flex items-center space-x-3">
-              <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <div>
-                <h1 className="text-2xl font-normal text-gray-900">{locationKey}</h1>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {timeLabel} &middot; grouped by {groupBy}
-                </p>
-              </div>
-            </div>
-          </div>
-        </header>
 
-        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          {/* Summary Stats */}
-          {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Sessions</div>
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4" title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
-                <div className="text-sm font-medium text-gray-500">API Latency</div>
-                <div className={`text-2xl font-bold ${stats.medianApiLatency > 0 ? "text-gray-900" : "text-gray-400"}`}>
-                  {stats.medianApiLatency > 0 ? `${stats.medianApiLatency} ms` : "—"}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {stats.latencySessions > 0 ? `${stats.latencySessions} session(s) with data` : "requires latency-reporting agent"}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Succeeded</div>
-                <div className="text-2xl font-bold text-green-600">{stats.succeeded}</div>
-                <div className="text-xs text-gray-400">
-                  {stats.total > 0 ? `${Math.round((stats.succeeded / stats.total) * 100)}%` : "—"}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Failed</div>
-                <div className={`text-2xl font-bold ${stats.failed > 0 ? "text-red-600" : "text-gray-400"}`}>
-                  {stats.failed}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {stats.total > 0 && stats.failed > 0 ? `${Math.round((stats.failed / stats.total) * 100)}%` : "—"}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Avg Duration</div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {stats.avgDuration > 0 ? `${stats.avgDuration} min` : "—"}
-                </div>
-                <div className="text-xs text-gray-400">succeeded sessions</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">DO Peers</div>
-                <div className={`text-2xl font-bold ${
-                  stats.doSessions === 0 ? "text-gray-400" :
-                  stats.avgDoPercent >= 50 ? "text-green-600" :
-                  stats.avgDoPercent >= 10 ? "text-yellow-600" :
-                  "text-gray-600"
-                }`}>
-                  {stats.doSessions > 0 ? `${stats.avgDoPercent}%` : "—"}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {stats.doSessions > 0 ? `${stats.doSessions} of ${stats.total} sessions` : "no DO telemetry"}
-                </div>
-              </div>
+        {/* Session Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Sessions ({data?.totalCount ?? 0})
+            </h2>
+          </div>
+          {!data?.sessions?.length ? (
+            <div className="p-8 text-center text-gray-500">
+              No sessions found for this location.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Device Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Serial Number
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Model
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Duration
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Agent→backend HTTP round-trip measured on the device">
+                      API Latency
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      DO Peers
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Started At
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {data.sessions.map((session) => (
+                    <tr
+                      key={session.sessionId}
+                      onClick={() => router.push(sessionUrl(session.sessionId))}
+                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                        {session.deviceName || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {session.serialNumber || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {session.model || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <SessionStatusBadge status={session.status} failureReason={session.failureReason} espSoftFailure={session.espSoftFailure} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {formatDuration(session.durationSeconds)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {(session.avgApiLatencyMs ?? 0) > 0 ? (
+                          <span title={`across ${session.apiRequestCount ?? "?"} requests`}>
+                            {Math.round(session.avgApiLatencyMs!)} ms
+                          </span>
+                        ) : (
+                          <span className="text-gray-300" title="No latency data (requires latency-reporting agent)">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {session.hasDoTelemetry ? (
+                          <div
+                            title={
+                              `Peers: ${formatBytes(session.doBytesFromPeers ?? 0)} | HTTP: ${formatBytes(session.doBytesFromHttp ?? 0)} | MCC: ${formatBytes(session.doBytesFromCacheServer ?? 0)} | Total: ${formatBytes(session.doTotalBytesDownloaded ?? 0)}\n` +
+                              `LAN: ${formatBytes((session.doBytesFromLanPeers ?? 0) + (session.doBytesFromLinkLocalPeers ?? 0))} | Group: ${formatBytes(session.doBytesFromGroupPeers ?? 0)} | Internet: ${formatBytes(session.doBytesFromInternetPeers ?? 0)}`
+                            }
+                          >
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                (session.doPercentPeerCaching ?? 0) >= 50
+                                  ? "bg-green-100 text-green-800"
+                                  : (session.doPercentPeerCaching ?? 0) >= 10
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {(session.doPercentPeerCaching ?? 0).toFixed(1)}%
+                            </span>
+                            <span className="text-xs text-gray-400 ml-1">
+                              ({session.doAppCount}/{session.totalAppCount})
+                            </span>
+                          </div>
+                        ) : (
+                          <span
+                            className="text-gray-300"
+                            title={
+                              (session.totalAppCount ?? 0) > 0
+                                ? `${session.totalAppCount} app(s) installed, no DO telemetry`
+                                : "no app install data"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500">
+                        {formatDate(session.startedAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-
-          {/* Session Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Sessions ({data?.totalCount ?? 0})
-              </h2>
-            </div>
-            {!data?.sessions?.length ? (
-              <div className="p-8 text-center text-gray-500">
-                No sessions found for this location.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Device Name
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Serial Number
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Model
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Duration
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Agent→backend HTTP round-trip measured on the device">
-                        API Latency
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        DO Peers
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Started At
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {data.sessions.map((session) => (
-                      <tr
-                        key={session.sessionId}
-                        onClick={() => router.push(sessionUrl(session.sessionId))}
-                        className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
-                        <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                          {session.deviceName || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {session.serialNumber || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {session.model || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <SessionStatusBadge status={session.status} failureReason={session.failureReason} espSoftFailure={session.espSoftFailure} />
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {formatDuration(session.durationSeconds)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {(session.avgApiLatencyMs ?? 0) > 0 ? (
-                            <span title={`across ${session.apiRequestCount ?? "?"} requests`}>
-                              {Math.round(session.avgApiLatencyMs!)} ms
-                            </span>
-                          ) : (
-                            <span className="text-gray-300" title="No latency data (requires latency-reporting agent)">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          {session.hasDoTelemetry ? (
-                            <div
-                              title={
-                                `Peers: ${formatBytes(session.doBytesFromPeers ?? 0)} | HTTP: ${formatBytes(session.doBytesFromHttp ?? 0)} | MCC: ${formatBytes(session.doBytesFromCacheServer ?? 0)} | Total: ${formatBytes(session.doTotalBytesDownloaded ?? 0)}\n` +
-                                `LAN: ${formatBytes((session.doBytesFromLanPeers ?? 0) + (session.doBytesFromLinkLocalPeers ?? 0))} | Group: ${formatBytes(session.doBytesFromGroupPeers ?? 0)} | Internet: ${formatBytes(session.doBytesFromInternetPeers ?? 0)}`
-                              }
-                            >
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                  (session.doPercentPeerCaching ?? 0) >= 50
-                                    ? "bg-green-100 text-green-800"
-                                    : (session.doPercentPeerCaching ?? 0) >= 10
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : "bg-gray-100 text-gray-600"
-                                }`}
-                              >
-                                {(session.doPercentPeerCaching ?? 0).toFixed(1)}%
-                              </span>
-                              <span className="text-xs text-gray-400 ml-1">
-                                ({session.doAppCount}/{session.totalAppCount})
-                              </span>
-                            </div>
-                          ) : (
-                            <span
-                              className="text-gray-300"
-                              title={
-                                (session.totalAppCount ?? 0) > 0
-                                  ? `${session.totalAppCount} app(s) installed, no DO telemetry`
-                                  : "no app install data"
-                              }
-                            >
-                              —
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {formatDate(session.startedAt)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
-    </ProtectedRoute>
+        </div>
+      </main>
+    </div>
   );
 }

@@ -59,10 +59,14 @@ const formatBytes = (bytes: number) => {
 
 export default function GeographicPerformancePage() {
   // useSearchParams (the ?days= window) requires a Suspense boundary under the static export.
+  // ProtectedRoute stays outermost: the content's loading card waits for a tenant scope that a
+  // signed-out tab never gets, so rendered outside it the login redirect would never fire.
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
-      <GeographicPerformanceContent />
-    </Suspense>
+    <ProtectedRoute>
+      <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+        <GeographicPerformanceContent />
+      </Suspense>
+    </ProtectedRoute>
   );
 }
 
@@ -168,429 +172,427 @@ function GeographicPerformanceContent() {
   }
 
   return (
-    <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
-        <GlobalAdminBanner
-          show={scope.isGlobalAdmin}
-          delegated={scope.isDelegatedScope}
-          subtitle={globalAdminSubtitle(scope, "aggregating data across all tenants")}
-        />
-        <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex flex-wrap items-center justify-between gap-y-3">
-              <div>
-                <div className="flex items-center space-x-3">
-                  <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <h1 className="text-2xl font-normal text-gray-900">Geographic Performance</h1>
-                </div>
+    <div className="min-h-screen bg-gray-50">
+      <GlobalAdminBanner
+        show={scope.isGlobalAdmin}
+        delegated={scope.isDelegatedScope}
+        subtitle={globalAdminSubtitle(scope, "aggregating data across all tenants")}
+      />
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-y-3">
+            <div>
+              <div className="flex items-center space-x-3">
+                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h1 className="text-2xl font-normal text-gray-900">Geographic Performance</h1>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <TenantScopeSelector scope={scope} allowAggregated />
-                {/* Time Range Toggle */}
-                <SegmentedControl
-                  options={WINDOW_PRESET_OPTIONS}
-                  value={days}
-                  onChange={setDays}
-                />
-                {/* Group By Toggle */}
-                <SegmentedControl
-                  options={[
-                    { value: "city", label: "City" },
-                    { value: "region", label: "Region" },
-                    { value: "country", label: "Country" },
-                  ]}
-                  value={groupBy}
-                  onChange={(v) => setGroupBy(v as GroupBy)}
-                />
-                <DocsLink path={DOCS_PATHS.geographicPerformance} label="Docs" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <TenantScopeSelector scope={scope} allowAggregated />
+              {/* Time Range Toggle */}
+              <SegmentedControl
+                options={WINDOW_PRESET_OPTIONS}
+                value={days}
+                onChange={setDays}
+              />
+              {/* Group By Toggle */}
+              <SegmentedControl
+                options={[
+                  { value: "city", label: "City" },
+                  { value: "region", label: "Region" },
+                  { value: "country", label: "Country" },
+                ]}
+                value={groupBy}
+                onChange={(v) => setGroupBy(v as GroupBy)}
+              />
+              <DocsLink path={DOCS_PATHS.geographicPerformance} label="Docs" />
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* Geo Disabled Warning */}
+        {geoMetrics && !geoMetrics.geoLocationEnabled && !isAggregatedGlobalView && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start space-x-3">
+            <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <div>
+              <div className="text-sm font-medium text-amber-800">Geo-Location collection is disabled</div>
+              <div className="text-sm text-amber-700 mt-0.5">
+                New sessions will not collect location data. Enable geo-location in{" "}
+                <a href="/settings/" className="underline hover:text-amber-900">Configuration</a>{" "}
+                to start collecting geographic data for future enrollments.
               </div>
             </div>
           </div>
-        </header>
+        )}
 
-        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          {/* Geo Disabled Warning */}
-          {geoMetrics && !geoMetrics.geoLocationEnabled && !isAggregatedGlobalView && (
-            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start space-x-3">
-              <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
+        {/* Coverage Info */}
+        {geoMetrics && (
+          <div className="mb-4 text-sm text-gray-500">
+            {geoMetrics.locationsWithData} of {geoMetrics.totalSessions} sessions have location data
+            {geoMetrics.locationsWithData < geoMetrics.totalSessions && (
+              <span className="ml-1 text-gray-400">(older sessions may lack geo data)</span>
+            )}
+          </div>
+        )}
+
+        {/* Summary Cards */}
+        {geoMetrics && stats && (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Locations Tracked</div>
+              <div className="text-2xl font-bold text-gray-900">{geoMetrics.locations.length}</div>
+              <div className="text-xs text-gray-400">{geoMetrics.locationsWithData} sessions with geo</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Outliers Detected</div>
+              <div className={`text-2xl font-bold ${stats.outliers > 0 ? "text-red-600" : "text-green-600"}`}>
+                {stats.outliers}
+              </div>
+              <div className="text-xs text-gray-400">&gt;2 std deviations from mean</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Fastest Location</div>
+              <TruncatedLabel text={stats.fastest?.locationKey || "—"} className="block text-lg font-bold text-green-600" />
+              <div className="text-xs text-gray-400">
+                {stats.fastest ? `${Math.round(stats.fastest.avgDurationMinutes)} min avg` : "No data"}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">Slowest Location</div>
+              <TruncatedLabel text={stats.slowest?.locationKey || "—"} className="block text-lg font-bold text-red-600" />
+              <div className="text-xs text-gray-400">
+                {stats.slowest ? `${Math.round(stats.slowest.avgDurationMinutes)} min avg` : "No data"}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-500">DO Peer Efficiency</div>
+              <div className={`text-2xl font-bold ${
+                geoMetrics.globalAverages.avgDoPercentPeerCaching > 30 ? "text-green-600" :
+                geoMetrics.globalAverages.avgDoPercentPeerCaching > 0 ? "text-yellow-600" : "text-gray-400"
+              }`}>
+                {geoMetrics.globalAverages.avgDoPercentPeerCaching > 0
+                  ? `${geoMetrics.globalAverages.avgDoPercentPeerCaching}%`
+                  : "—"}
+              </div>
+              <div className="text-xs text-gray-400">
+                {geoMetrics.globalAverages.totalDoBytesFromPeers > 0
+                  ? `${formatBytes(geoMetrics.globalAverages.totalDoBytesFromPeers)} from peers / ${formatBytes(geoMetrics.globalAverages.totalDoBytesFromPeers + geoMetrics.globalAverages.totalDoBytesFromHttp)} total`
+                  : "No DO data yet"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Map */}
+        {geoMetrics && geoMetrics.locations.length > 0 && (
+          <div className="bg-white rounded-lg shadow mb-6">
+            <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <h2 className="text-lg font-semibold text-gray-900">Performance Map</h2>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                Color by
+                <select
+                  value={colorModeId}
+                  onChange={(e) => {
+                    if (!isMapColorModeId(e.target.value)) return;
+                    setColorModeId(e.target.value);
+                    setBucketFilter(NO_BUCKET_FILTER);
+                  }}
+                  className="border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                >
+                  {MAP_COLOR_MODES.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="p-4" style={{ height: "450px" }}>
+              <GeoMap
+                locations={geoMetrics.locations}
+                globalAverages={geoMetrics.globalAverages}
+                colorMode={colorMode}
+                bucketFilter={bucketFilter}
+                selectedLocation={selectedLocation}
+                onLocationSelect={setSelectedLocation}
+              />
+            </div>
+            <div className="px-4 pb-3">
+              <MapLegend mode={colorMode} filter={bucketFilter} onFilterChange={setBucketFilter} />
+            </div>
+          </div>
+        )}
+
+        {/* Global Averages Banner */}
+        {geoMetrics && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="text-sm font-medium text-blue-800">Global Averages (Benchmark)</div>
+            <div className="text-xs text-blue-700 mb-2">
+              Computed over the sessions on this page, not over other customers — every vs Global figure compares against this line.
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
+              <div title="Average of the per-location Avg Duration values (locations with 3+ sessions) — every location counts once, so one large site does not set the benchmark">
+                <span className="text-blue-600 font-medium">Avg Duration:</span>{" "}
+                <span className="text-blue-900">{geoMetrics.globalAverages.avgDurationMinutes} min</span>
+              </div>
+              <div title="Median of the per-location Avg Duration values — half of your locations are faster, half slower">
+                <span className="text-blue-600 font-medium">Median:</span>{" "}
+                <span className="text-blue-900">{geoMetrics.globalAverages.medianDurationMinutes} min</span>
+              </div>
               <div>
-                <div className="text-sm font-medium text-amber-800">Geo-Location collection is disabled</div>
-                <div className="text-sm text-amber-700 mt-0.5">
-                  New sessions will not collect location data. Enable geo-location in{" "}
-                  <a href="/settings/" className="underline hover:text-amber-900">Configuration</a>{" "}
-                  to start collecting geographic data for future enrollments.
-                </div>
+                <span className="text-blue-600 font-medium">Avg Min/App:</span>{" "}
+                <span className="text-blue-900">{geoMetrics.globalAverages.avgMinutesPerApp} min</span>
               </div>
-            </div>
-          )}
-
-          {/* Coverage Info */}
-          {geoMetrics && (
-            <div className="mb-4 text-sm text-gray-500">
-              {geoMetrics.locationsWithData} of {geoMetrics.totalSessions} sessions have location data
-              {geoMetrics.locationsWithData < geoMetrics.totalSessions && (
-                <span className="ml-1 text-gray-400">(older sessions may lack geo data)</span>
-              )}
-            </div>
-          )}
-
-          {/* Summary Cards */}
-          {geoMetrics && stats && (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Locations Tracked</div>
-                <div className="text-2xl font-bold text-gray-900">{geoMetrics.locations.length}</div>
-                <div className="text-xs text-gray-400">{geoMetrics.locationsWithData} sessions with geo</div>
+              <div>
+                <span className="text-blue-600 font-medium">Avg Throughput:</span>{" "}
+                <span className="text-blue-900">{formatThroughput(geoMetrics.globalAverages.avgThroughputBytesPerSec)}</span>
               </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Outliers Detected</div>
-                <div className={`text-2xl font-bold ${stats.outliers > 0 ? "text-red-600" : "text-green-600"}`}>
-                  {stats.outliers}
-                </div>
-                <div className="text-xs text-gray-400">&gt;2 std deviations from mean</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Fastest Location</div>
-                <TruncatedLabel text={stats.fastest?.locationKey || "—"} className="block text-lg font-bold text-green-600" />
-                <div className="text-xs text-gray-400">
-                  {stats.fastest ? `${Math.round(stats.fastest.avgDurationMinutes)} min avg` : "No data"}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">Slowest Location</div>
-                <TruncatedLabel text={stats.slowest?.locationKey || "—"} className="block text-lg font-bold text-red-600" />
-                <div className="text-xs text-gray-400">
-                  {stats.slowest ? `${Math.round(stats.slowest.avgDurationMinutes)} min avg` : "No data"}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-sm font-medium text-gray-500">DO Peer Efficiency</div>
-                <div className={`text-2xl font-bold ${
-                  geoMetrics.globalAverages.avgDoPercentPeerCaching > 30 ? "text-green-600" :
-                  geoMetrics.globalAverages.avgDoPercentPeerCaching > 0 ? "text-yellow-600" : "text-gray-400"
-                }`}>
+              <div>
+                <span className="text-blue-600 font-medium">DO P2P:</span>{" "}
+                <span className="text-blue-900">
                   {geoMetrics.globalAverages.avgDoPercentPeerCaching > 0
-                    ? `${geoMetrics.globalAverages.avgDoPercentPeerCaching}%`
-                    : "—"}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {geoMetrics.globalAverages.totalDoBytesFromPeers > 0
-                    ? `${formatBytes(geoMetrics.globalAverages.totalDoBytesFromPeers)} from peers / ${formatBytes(geoMetrics.globalAverages.totalDoBytesFromPeers + geoMetrics.globalAverages.totalDoBytesFromHttp)} total`
-                    : "No DO data yet"}
-                </div>
+                    ? `${geoMetrics.globalAverages.avgDoPercentPeerCaching}% peers`
+                    : "No data"}
+                </span>
+              </div>
+              <div title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
+                <span className="text-blue-600 font-medium">API Latency:</span>{" "}
+                <span className="text-blue-900">
+                  {geoMetrics.globalAverages.medianApiLatencyMs > 0
+                    ? `${Math.round(geoMetrics.globalAverages.medianApiLatencyMs)} ms`
+                    : "No data"}
+                </span>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Map */}
-          {geoMetrics && geoMetrics.locations.length > 0 && (
-            <div className="bg-white rounded-lg shadow mb-6">
-              <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <h2 className="text-lg font-semibold text-gray-900">Performance Map</h2>
-                <label className="flex items-center gap-2 text-sm text-gray-600">
-                  Color by
-                  <select
-                    value={colorModeId}
-                    onChange={(e) => {
-                      if (!isMapColorModeId(e.target.value)) return;
-                      setColorModeId(e.target.value);
-                      setBucketFilter(NO_BUCKET_FILTER);
-                    }}
-                    className="border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  >
-                    {MAP_COLOR_MODES.map((m) => (
-                      <option key={m.id} value={m.id}>{m.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="p-4" style={{ height: "450px" }}>
-                <GeoMap
-                  locations={geoMetrics.locations}
-                  globalAverages={geoMetrics.globalAverages}
-                  colorMode={colorMode}
-                  bucketFilter={bucketFilter}
-                  selectedLocation={selectedLocation}
-                  onLocationSelect={setSelectedLocation}
-                />
-              </div>
-              <div className="px-4 pb-3">
-                <MapLegend mode={colorMode} filter={bucketFilter} onFilterChange={setBucketFilter} />
-              </div>
+        {/* Heatmap Table */}
+        {geoMetrics && (
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Location Performance</h2>
             </div>
-          )}
-
-          {/* Global Averages Banner */}
-          {geoMetrics && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <div className="text-sm font-medium text-blue-800">Global Averages (Benchmark)</div>
-              <div className="text-xs text-blue-700 mb-2">
-                Computed over the sessions on this page, not over other customers — every vs Global figure compares against this line.
+            {sortedLocations.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                No geographic data available for the selected time range.
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
-                <div title="Average of the per-location Avg Duration values (locations with 3+ sessions) — every location counts once, so one large site does not set the benchmark">
-                  <span className="text-blue-600 font-medium">Avg Duration:</span>{" "}
-                  <span className="text-blue-900">{geoMetrics.globalAverages.avgDurationMinutes} min</span>
-                </div>
-                <div title="Median of the per-location Avg Duration values — half of your locations are faster, half slower">
-                  <span className="text-blue-600 font-medium">Median:</span>{" "}
-                  <span className="text-blue-900">{geoMetrics.globalAverages.medianDurationMinutes} min</span>
-                </div>
-                <div>
-                  <span className="text-blue-600 font-medium">Avg Min/App:</span>{" "}
-                  <span className="text-blue-900">{geoMetrics.globalAverages.avgMinutesPerApp} min</span>
-                </div>
-                <div>
-                  <span className="text-blue-600 font-medium">Avg Throughput:</span>{" "}
-                  <span className="text-blue-900">{formatThroughput(geoMetrics.globalAverages.avgThroughputBytesPerSec)}</span>
-                </div>
-                <div>
-                  <span className="text-blue-600 font-medium">DO P2P:</span>{" "}
-                  <span className="text-blue-900">
-                    {geoMetrics.globalAverages.avgDoPercentPeerCaching > 0
-                      ? `${geoMetrics.globalAverages.avgDoPercentPeerCaching}% peers`
-                      : "No data"}
-                  </span>
-                </div>
-                <div title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
-                  <span className="text-blue-600 font-medium">API Latency:</span>{" "}
-                  <span className="text-blue-900">
-                    {geoMetrics.globalAverages.medianApiLatencyMs > 0
-                      ? `${Math.round(geoMetrics.globalAverages.medianApiLatencyMs)} ms`
-                      : "No data"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Heatmap Table */}
-          {geoMetrics && (
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">Location Performance</h2>
-              </div>
-              {sortedLocations.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  No geographic data available for the selected time range.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Location
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("sessionCount")}
-                        >
-                          Sessions <SortIcon col="sessionCount" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Success
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("avgDurationMinutes")}
-                          title="Average enrollment duration of the succeeded sessions at this location in the selected range"
-                        >
-                          Avg Duration <SortIcon col="avgDurationMinutes" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                          title="95th percentile: 95 out of 100 succeeded enrollments at this location finished within this time"
-                        >
-                          P95
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("appLoadScore")}
-                        >
-                          App-Load-Score <SortIcon col="appLoadScore" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("avgThroughputBytesPerSec")}
-                        >
-                          Throughput <SortIcon col="avgThroughputBytesPerSec" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("medianApiLatencyMs")}
-                          title="Agent→backend HTTP round-trip measured on the devices (median per location) — high values indicate network distance to the backend region"
-                        >
-                          API Latency <SortIcon col="medianApiLatencyMs" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("avgDoPercentPeerCaching")}
-                        >
-                          P2P % <SortIcon col="avgDoPercentPeerCaching" sortBy={sortBy} sortDesc={sortDesc} />
-                        </th>
-                        <th
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                          title="Avg Duration of this location against the benchmark's Avg Duration (your own fleet, same range) — positive = slower, negative = faster"
-                        >
-                          vs Global
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {sortedLocations.map((loc) => (
-                        <tr
-                          key={loc.locationKey}
-                          id={`loc-${loc.locationKey.replace(/[^a-zA-Z0-9]/g, "-")}`}
-                          className={`hover:bg-gray-50 transition-colors cursor-pointer ${
-                            selectedLocation === loc.locationKey ? "bg-blue-50" : ""
-                          }`}
-                          onClick={() => {
-                            // Carry the selected tenant into the drill-in so a cross-tenant caller (GA override
-                            // or delegated/MSP) scopes the session list to it. Empty = GA all-tenants aggregate.
-                            const tenantParam = selectedTenantId ? `&tenantId=${selectedTenantId}` : "";
-                            router.push(`/geographic-performance/sessions?locationKey=${encodeURIComponent(loc.locationKey)}&days=${days}&groupBy=${groupBy}${tenantParam}`);
-                          }}
-                          onMouseEnter={() => setSelectedLocation(loc.locationKey)}
-                        >
-                          {/* Outlier accent on the cell, not the row: the tbody's divide color overrides a row's border-color. */}
-                          <td className={`px-4 py-3 text-sm text-gray-900 ${loc.isOutlier ? "border-l-4 border-l-red-400" : ""}`}>
-                            <div className="flex items-center">
-                              <span className="font-medium">{loc.locationKey}</span>
-                              {loc.isOutlier && (
-                                <span
-                                  className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                    loc.outlierDirection === "slow"
-                                      ? "bg-red-100 text-red-800"
-                                      : "bg-green-100 text-green-800"
-                                  }`}
-                                >
-                                  {loc.outlierDirection === "slow" ? "Slow" : "Fast"}
-                                </span>
-                              )}
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Location
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("sessionCount")}
+                      >
+                        Sessions <SortIcon col="sessionCount" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Success
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("avgDurationMinutes")}
+                        title="Average enrollment duration of the succeeded sessions at this location in the selected range"
+                      >
+                        Avg Duration <SortIcon col="avgDurationMinutes" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        title="95th percentile: 95 out of 100 succeeded enrollments at this location finished within this time"
+                      >
+                        P95
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("appLoadScore")}
+                      >
+                        App-Load-Score <SortIcon col="appLoadScore" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("avgThroughputBytesPerSec")}
+                      >
+                        Throughput <SortIcon col="avgThroughputBytesPerSec" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("medianApiLatencyMs")}
+                        title="Agent→backend HTTP round-trip measured on the devices (median per location) — high values indicate network distance to the backend region"
+                      >
+                        API Latency <SortIcon col="medianApiLatencyMs" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                        onClick={() => handleSort("avgDoPercentPeerCaching")}
+                      >
+                        P2P % <SortIcon col="avgDoPercentPeerCaching" sortBy={sortBy} sortDesc={sortDesc} />
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        title="Avg Duration of this location against the benchmark's Avg Duration (your own fleet, same range) — positive = slower, negative = faster"
+                      >
+                        vs Global
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {sortedLocations.map((loc) => (
+                      <tr
+                        key={loc.locationKey}
+                        id={`loc-${loc.locationKey.replace(/[^a-zA-Z0-9]/g, "-")}`}
+                        className={`hover:bg-gray-50 transition-colors cursor-pointer ${
+                          selectedLocation === loc.locationKey ? "bg-blue-50" : ""
+                        }`}
+                        onClick={() => {
+                          // Carry the selected tenant into the drill-in so a cross-tenant caller (GA override
+                          // or delegated/MSP) scopes the session list to it. Empty = GA all-tenants aggregate.
+                          const tenantParam = selectedTenantId ? `&tenantId=${selectedTenantId}` : "";
+                          router.push(`/geographic-performance/sessions?locationKey=${encodeURIComponent(loc.locationKey)}&days=${days}&groupBy=${groupBy}${tenantParam}`);
+                        }}
+                        onMouseEnter={() => setSelectedLocation(loc.locationKey)}
+                      >
+                        {/* Outlier accent on the cell, not the row: the tbody's divide color overrides a row's border-color. */}
+                        <td className={`px-4 py-3 text-sm text-gray-900 ${loc.isOutlier ? "border-l-4 border-l-red-400" : ""}`}>
+                          <div className="flex items-center">
+                            <span className="font-medium">{loc.locationKey}</span>
+                            {loc.isOutlier && (
+                              <span
+                                className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  loc.outlierDirection === "slow"
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-green-100 text-green-800"
+                                }`}
+                              >
+                                {loc.outlierDirection === "slow" ? "Slow" : "Fast"}
+                              </span>
+                            )}
+                          </div>
+                          {loc.avgAppCount > 0 && (
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              ~{loc.avgAppCount} apps/session &middot; {formatBytes(loc.totalDownloadBytes)} total
                             </div>
-                            {loc.avgAppCount > 0 && (
-                              <div className="text-xs text-gray-400 mt-0.5">
-                                ~{loc.avgAppCount} apps/session &middot; {formatBytes(loc.totalDownloadBytes)} total
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700 font-medium">{loc.sessionCount}</td>
-                          <td className="px-4 py-3 text-sm">
-                            {/* Rate is over finished enrollments (succeeded + failed) only; a
-                                location where everything is still in flight has no rate yet. */}
-                            {loc.succeeded + loc.failed > 0 ? (
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.success.resolve(loc, geoMetrics.globalAverages).className}`}
-                              >
-                                {loc.successRate}%
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500"
-                                title="No finished enrollments yet"
-                              >
-                                —
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 font-medium">{loc.sessionCount}</td>
+                        <td className="px-4 py-3 text-sm">
+                          {/* Rate is over finished enrollments (succeeded + failed) only; a
+                              location where everything is still in flight has no rate yet. */}
+                          {loc.succeeded + loc.failed > 0 ? (
                             <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.duration.resolve(loc, geoMetrics.globalAverages).className}`}
-                              title={loc.avgDurationMinutes > 0 ? undefined : "No succeeded enrollments yet"}
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.success.resolve(loc, geoMetrics.globalAverages).className}`}
                             >
-                              {loc.avgDurationMinutes > 0 ? `${Math.round(loc.avgDurationMinutes)} min` : "—"}
+                              {loc.successRate}%
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">
-                            {loc.p95DurationMinutes > 0 ? `${Math.round(loc.p95DurationMinutes)} min` : "—"}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className={`font-medium ${MAP_COLOR_MODE_BY_ID.score.resolve(loc, geoMetrics.globalAverages).className}`}>
-                              {loc.appLoadScore > 0 ? Math.round(loc.appLoadScore) : "—"}
+                          ) : (
+                            <span
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500"
+                              title="No finished enrollments yet"
+                            >
+                              —
                             </span>
-                            {loc.minutesPerApp > 0 && (
-                              <span className="text-xs text-gray-400 ml-1">
-                                ({loc.minutesPerApp.toFixed(1)} min/app)
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.duration.resolve(loc, geoMetrics.globalAverages).className}`}
+                            title={loc.avgDurationMinutes > 0 ? undefined : "No succeeded enrollments yet"}
+                          >
+                            {loc.avgDurationMinutes > 0 ? `${Math.round(loc.avgDurationMinutes)} min` : "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {loc.p95DurationMinutes > 0 ? `${Math.round(loc.p95DurationMinutes)} min` : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`font-medium ${MAP_COLOR_MODE_BY_ID.score.resolve(loc, geoMetrics.globalAverages).className}`}>
+                            {loc.appLoadScore > 0 ? Math.round(loc.appLoadScore) : "—"}
+                          </span>
+                          {loc.minutesPerApp > 0 && (
+                            <span className="text-xs text-gray-400 ml-1">
+                              ({loc.minutesPerApp.toFixed(1)} min/app)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {formatThroughput(loc.avgThroughputBytesPerSec)}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {loc.medianApiLatencyMs > 0 ? (
+                            <div title={`Median across ${loc.apiLatencySessionCount} session(s) with latency data · weighted avg ${Math.round(loc.avgApiLatencyMs)} ms${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.latency.resolve(loc, geoMetrics.globalAverages).className}`}>
+                                {Math.round(loc.medianApiLatencyMs)} ms
                               </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            {formatThroughput(loc.avgThroughputBytesPerSec)}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {loc.medianApiLatencyMs > 0 ? (
-                              <div title={`Median across ${loc.apiLatencySessionCount} session(s) with latency data · weighted avg ${Math.round(loc.avgApiLatencyMs)} ms${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.latency.resolve(loc, geoMetrics.globalAverages).className}`}>
-                                  {Math.round(loc.medianApiLatencyMs)} ms
-                                </span>
-                                <span className="text-xs text-gray-400 ml-1">({loc.apiLatencySessionCount})</span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-300" title="No sessions with latency data yet (requires agent ≥ 2.0 with latency reporting)">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {loc.doSessionCount > 0 ? (
-                              <div title={
-                                loc.totalDoBytesFromPeers > 0
-                                  ? `LAN: ${formatBytes(loc.totalDoBytesFromLanPeers)} | Group: ${formatBytes(loc.totalDoBytesFromGroupPeers)} | Internet: ${formatBytes(loc.totalDoBytesFromInternetPeers)}`
-                                  : `${loc.doSessionCount} session(s) with DO data`
-                              }>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.do.resolve(loc, geoMetrics.globalAverages).className}`}>
-                                  {loc.avgDoPercentPeerCaching > 0 ? `${loc.avgDoPercentPeerCaching}%` : "0%"}
-                                </span>
-                                <span className="text-xs text-gray-400 ml-1">
-                                  ({loc.doSessionCount})
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <div className="flex items-center justify-between">
-                              {loc.avgDurationMinutes > 0 && loc.durationVsGlobalPct !== 0 ? (
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                    loc.durationVsGlobalPct > 0
-                                      ? "bg-red-50 text-red-700"
-                                      : "bg-green-50 text-green-700"
-                                  }`}
-                                >
-                                  {loc.durationVsGlobalPct > 0 ? "+" : ""}
-                                  {loc.durationVsGlobalPct.toFixed(0)}%
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">—</span>
-                              )}
-                              <svg className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
+                              <span className="text-xs text-gray-400 ml-1">({loc.apiLatencySessionCount})</span>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {sortedLocations.length > 0 && <LocationTableNote />}
-            </div>
-          )}
+                          ) : (
+                            <span className="text-gray-300" title="No sessions with latency data yet (requires agent ≥ 2.0 with latency reporting)">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {loc.doSessionCount > 0 ? (
+                            <div title={
+                              loc.totalDoBytesFromPeers > 0
+                                ? `LAN: ${formatBytes(loc.totalDoBytesFromLanPeers)} | Group: ${formatBytes(loc.totalDoBytesFromGroupPeers)} | Internet: ${formatBytes(loc.totalDoBytesFromInternetPeers)}`
+                                : `${loc.doSessionCount} session(s) with DO data`
+                            }>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.do.resolve(loc, geoMetrics.globalAverages).className}`}>
+                                {loc.avgDoPercentPeerCaching > 0 ? `${loc.avgDoPercentPeerCaching}%` : "0%"}
+                              </span>
+                              <span className="text-xs text-gray-400 ml-1">
+                                ({loc.doSessionCount})
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            {loc.avgDurationMinutes > 0 && loc.durationVsGlobalPct !== 0 ? (
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  loc.durationVsGlobalPct > 0
+                                    ? "bg-red-50 text-red-700"
+                                    : "bg-green-50 text-green-700"
+                                }`}
+                              >
+                                {loc.durationVsGlobalPct > 0 ? "+" : ""}
+                                {loc.durationVsGlobalPct.toFixed(0)}%
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                            <svg className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {sortedLocations.length > 0 && <LocationTableNote />}
+          </div>
+        )}
 
-          {/* No data state */}
-          {!geoMetrics && !loading && (
-            <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-              Failed to load geographic metrics. Please try again later.
-            </div>
-          )}
-        </main>
-      </div>
-    </ProtectedRoute>
+        {/* No data state */}
+        {!geoMetrics && !loading && (
+          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+            Failed to load geographic metrics. Please try again later.
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
