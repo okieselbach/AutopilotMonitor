@@ -142,7 +142,7 @@ export default function AdminManagementSection({
             </svg>
             <p className="text-sm text-yellow-800">
               <strong>Important:</strong> Make sure to keep at least one Admin in the list to maintain full access!
-              The first user to log in was automatically made an admin.
+              The first member of your organization to log in was automatically made an admin.
             </p>
           </div>
         </div>

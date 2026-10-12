@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Middleware;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
@@ -34,12 +35,13 @@ public class AuthenticationMiddlewareTokenValidationTests
         string audience = ClientId,
         string tid = Tid,
         DateTime? notBefore = null,
-        DateTime? expires = null)
+        DateTime? expires = null,
+        IEnumerable<Claim>? extraClaims = null)
     {
         var token = new JwtSecurityToken(
             issuer: issuer ?? V2Issuer,
             audience: audience,
-            claims: new[] { new Claim("tid", tid) },
+            claims: new[] { new Claim("tid", tid) }.Concat(extraClaims ?? Array.Empty<Claim>()),
             notBefore: notBefore ?? DateTime.UtcNow.AddMinutes(-5),
             expires: expires ?? DateTime.UtcNow.AddMinutes(30),
             signingCredentials: creds); // null creds → alg "none", unsigned
@@ -134,6 +136,39 @@ public class AuthenticationMiddlewareTokenValidationTests
         var forged = Mint(new SigningCredentials(otherKey, SecurityAlgorithms.RsaSha256));
 
         Assert.ThrowsAny<SecurityTokenException>(() => Validate(forged));
+    }
+
+    // ── External identity: the guest signals survive inbound claim mapping ──
+    // A validated token carries tid and idp only under their mapped names, so a classifier reading the raw
+    // names would call every member with an idp external, or every guest a member.
+
+    [Theory]
+    [InlineData("https://sts.windows.net/bbbbbbbb-1111-2222-3333-444444444444/", true)] // a guest of another Entra tenant
+    [InlineData("live.com", true)]                                                     // a personal Microsoft account
+    [InlineData("https://sts.windows.net/" + Tid + "/", false)]                        // a member: own tenant, v1 form under the v2 issuer
+    public void IdpClaim_after_validation_decides_external_identity(string idp, bool external)
+    {
+        var principal = Validate(Mint(RsaCreds, extraClaims: new[] { new Claim("idp", idp) }));
+
+        Assert.Equal(external, principal.IsExternalIdentity());
+    }
+
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("0", false)]
+    public void AcctClaim_after_validation_is_read_as_the_number_Entra_sends(string acct, bool external)
+    {
+        var principal = Validate(Mint(RsaCreds, extraClaims: new[] { new Claim("acct", acct, ClaimValueTypes.Integer32) }));
+
+        Assert.Equal(external, principal.IsExternalIdentity());
+    }
+
+    [Fact]
+    public void MemberToken_without_guest_signals_is_not_external()
+    {
+        var principal = Validate(Mint(RsaCreds, extraClaims: new[] { new Claim("upn", "alice@contoso.example") }));
+
+        Assert.False(principal.IsExternalIdentity());
     }
 
     // ── IsValidTenantId: pre-signature tid GUID gate ─────────────────────

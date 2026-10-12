@@ -21,6 +21,7 @@ public class TenantApprovalServiceTests
 
     private readonly Mock<PreviewWhitelistService> _previewMock;
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
+    private readonly Mock<TenantAdminsService> _tenantAdminsMock;
     private readonly Mock<IEmailService> _emailMock;
     private readonly List<OpsEventEntry> _opsEvents = new();
     private readonly TenantApprovalService _sut;
@@ -53,12 +54,15 @@ public class TenantApprovalServiceTests
             configRepo, NullLogger<AdminConfigurationService>.Instance, cache);
         var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
+        // IsTenantAdminAsync is not virtual: it runs for real against the empty repository (no member yet).
+        _tenantAdminsMock = new Mock<TenantAdminsService>(
+            Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance);
+
         _sut = new TenantApprovalService(
             NullLogger<TenantApprovalService>.Instance,
             _previewMock.Object,
             _tenantConfigMock.Object,
-            new Mock<TenantAdminsService>(
-                Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
+            _tenantAdminsMock.Object,
             _emailMock.Object,
             new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch));
     }
@@ -95,8 +99,8 @@ public class TenantApprovalServiceTests
     {
         _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(true);
         _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync((string?)null);
-        // Default config has no OnboardedBy/UpdatedBy UPN → auto-promote is skipped by the
-        // shape guard; no notification email → no mail. Only the return value is under test.
+        // Default config has no OnboardedBy → nothing to promote; no notification email → no
+        // mail. Only the return value is under test.
         _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId))
             .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
 
@@ -104,6 +108,55 @@ public class TenantApprovalServiceTests
 
         Assert.True(newlyApproved);
         _previewMock.Verify(x => x.GetNotificationEmailAsync(TenantId), Times.Once);
+    }
+
+    // --- Auto-promote on activation: only the onboarding member (OnboardedBy) becomes Tenant Admin.
+
+    private void ArrangeNewlyApproved(string? onboardedBy, string updatedBy = "System")
+    {
+        var config = ConfigWith(contactEmail: null);
+        config.OnboardedBy = onboardedBy;
+        config.UpdatedBy = updatedBy;
+        _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(true);
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync((string?)null);
+        _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId)).ReturnsAsync(config);
+    }
+
+    private void VerifyNoPromotion() =>
+        _tenantAdminsMock.Verify(
+            x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+
+    [Fact]
+    public async Task NewlyApproved_PromotesTheOnboardingMember()
+    {
+        // A sync job clobbering UpdatedBy with its sentinel once leaked into TenantAdmins; OnboardedBy decides alone.
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example", updatedBy: "System (Global Rate Limit Sync)");
+
+        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        _tenantAdminsMock.Verify(
+            x => x.AddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
+    }
+
+    [Fact]
+    public async Task NewlyApproved_NeverPromotesAnExternalAccountsUpn()
+    {
+        ArrangeNewlyApproved(onboardedBy: "alice_fabrikam.example#EXT#@contoso.example");
+
+        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        VerifyNoPromotion();
+    }
+
+    [Fact]
+    public async Task NewlyApproved_WithoutOnboardedBy_NeverFallsBackToTheLastWriter()
+    {
+        // UpdatedBy is whoever wrote the row last (any signed-in user can, e.g. by accepting the DPA), not the requester.
+        ArrangeNewlyApproved(onboardedBy: null, updatedBy: "first.member@contoso.example");
+
+        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        VerifyNoPromotion();
     }
 
     // --- TrySendWelcomeEmailAsync: the once-only send shared by the approval path and the

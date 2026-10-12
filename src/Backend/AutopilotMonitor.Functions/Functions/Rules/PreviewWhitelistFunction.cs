@@ -169,16 +169,18 @@ public class PreviewWhitelistFunction
         var principal = context.GetUser();
         var tenantId = principal?.GetTenantId();
 
-        if (string.IsNullOrWhiteSpace(tenantId))
+        if (principal == null || string.IsNullOrWhiteSpace(tenantId))
         {
             return await req.BadRequestAsync("Could not determine tenant");
         }
 
-        if (!await MayWriteNotificationEmailAsync(req.GetRequestContext(), tenantId, _tenantAdminsService))
+        var externalIdentity = principal.IsExternalIdentity();
+        if (!await MayWriteNotificationEmailAsync(req.GetRequestContext(), externalIdentity, tenantId, _tenantAdminsService))
         {
             _logger.LogWarning(
-                "Preview notification email write denied for roleless caller {Upn} — tenant {TenantId} already has members",
-                principal?.GetUserPrincipalName() ?? "unknown", tenantId);
+                "Preview notification email write denied for roleless caller {Upn} in tenant {TenantId}: {Reason}",
+                principal.GetUserPrincipalName() ?? "unknown", tenantId,
+                externalIdentity ? "external identity" : "the tenant already has members");
             return await req.ForbiddenAsync("A tenant member role is required to change the notification email");
         }
 
@@ -218,15 +220,18 @@ public class PreviewWhitelistFunction
     /// offboarding farewell, operator contact). A member role (or platform scope) always may write
     /// it. A roleless caller may write it ONLY while the tenant has no enabled member at all — the
     /// first-touch signup window, where the activating user is still roleless because the requester
-    /// is auto-promoted to Admin only on approval. Once any member exists, that window is closed for
-    /// good: an ordinary employee with a valid JWT but no product role must not be able to redirect
-    /// or suppress the tenant's correspondence.
+    /// is auto-promoted to Admin only on approval. The window is never an external identity's: it
+    /// neither onboards a tenant nor is promoted on activation. Once any member exists, that window is
+    /// closed for good: an ordinary employee with a valid JWT but no product role must not be able to
+    /// redirect or suppress the tenant's correspondence.
     /// </summary>
     internal static async Task<bool> MayWriteNotificationEmailAsync(
-        RequestContext ctx, string tenantId, TenantAdminsService tenantAdminsService)
+        RequestContext ctx, bool externalIdentity, string tenantId, TenantAdminsService tenantAdminsService)
     {
         if (ctx.IsTenantMemberOrGlobalAdmin())
             return true;
+        if (externalIdentity)
+            return false;
 
         var members = await tenantAdminsService.GetTenantAdminsAsync(tenantId);
         return !members.Any(m => m.IsEnabled);

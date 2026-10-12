@@ -1,4 +1,4 @@
-using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services;
@@ -54,22 +54,23 @@ public class TenantApprovalService
 
         _logger.LogInformation("Tenant activated: {TenantId} by {ApprovedBy}", tenantId, approvedBy);
 
-        // Auto-promote the tenant requester (first user who triggered tenant config creation)
-        // as TenantAdmin if they are not already one.
+        // Auto-promote the onboarding member (OnboardedBy, written once by the first member login and
+        // never by an external identity) as TenantAdmin if they are not already one.
         // This ensures whoever signed up doesn't need manual admin assignment after activation.
+        // Never UpdatedBy: that is the last writer, not the requester, and any signed-in user sets it.
         try
         {
             var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            var requesterUpn = PickRequesterUpn(tenantConfig);
+            var requesterUpn = tenantConfig.OnboardedBy;
 
             // Positive UPN-shape validation: real Azure AD UPNs always contain '@', while
             // every system-written sentinel ("System", "System (auto-re-enable)",
             // "System (Global Rate Limit Sync)", …) does not. An equality list against
             // known sentinels previously missed a third sentinel and corrupted 10 tenants'
             // TenantAdmins rows — keep this check shape-based, not enumeration-based.
-            if (IsRealUserUpn(requesterUpn))
+            if (IsPromotableUpn(requesterUpn))
             {
-                // IsRealUserUpn returned true → requesterUpn is non-null, non-empty, contains '@'
+                // IsPromotableUpn returned true → requesterUpn is non-null, non-empty, contains '@'
                 var validUpn = requesterUpn!;
                 var isAlreadyAdmin = await _tenantAdminsService.IsTenantAdminAsync(tenantId, validUpn);
                 if (!isAlreadyAdmin)
@@ -89,8 +90,8 @@ public class TenantApprovalService
             else
             {
                 _logger.LogInformation(
-                    "No valid tenant requester UPN found in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}', UpdatedBy: '{UpdatedBy}') — skipping auto-promote",
-                    tenantId, tenantConfig.OnboardedBy ?? "<null>", tenantConfig.UpdatedBy ?? "<null>");
+                    "No promotable onboarding UPN in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}') — skipping auto-promote",
+                    tenantId, tenantConfig.OnboardedBy ?? "<null>");
             }
 
         }
@@ -213,32 +214,15 @@ public class TenantApprovalService
     }
 
     /// <summary>
-    /// Picks the UPN of the user to auto-promote as TenantAdmin on activation.
-    /// Prefers <see cref="TenantConfiguration.OnboardedBy"/> (immutable, set once on first
-    /// user login) over <see cref="TenantConfiguration.UpdatedBy"/> (mutable, can be
-    /// clobbered by background jobs such as the global rate-limit sync). Fall back to
-    /// <see cref="TenantConfiguration.UpdatedBy"/> for tenants onboarded before
-    /// <see cref="TenantConfiguration.OnboardedBy"/> existed — callers still guard the
-    /// result with <see cref="IsRealUserUpn"/> so a sentinel value cannot leak into
-    /// the TenantAdmins table.
+    /// True when a stored onboarding UPN may be promoted to TenantAdmin: shaped like a real user
+    /// principal name (contains '@', no "System" sentinel prefix) and not an external account's
+    /// resource-tenant UPN (<c>#EXT#</c>), which no member login writes.
     /// </summary>
-    internal static string? PickRequesterUpn(TenantConfiguration config)
-    {
-        if (config == null) return null;
-        return !string.IsNullOrWhiteSpace(config.OnboardedBy)
-            ? config.OnboardedBy
-            : config.UpdatedBy;
-    }
-
-    /// <summary>
-    /// True when the value looks like a real Azure AD user principal name
-    /// (contains '@' and does not start with the "System" sentinel prefix
-    /// used by background jobs that touch <see cref="TenantConfiguration.UpdatedBy"/>).
-    /// </summary>
-    internal static bool IsRealUserUpn(string? upn)
+    internal static bool IsPromotableUpn(string? upn)
     {
         if (string.IsNullOrWhiteSpace(upn)) return false;
         if (upn.StartsWith("System", StringComparison.OrdinalIgnoreCase)) return false;
+        if (ClaimsPrincipalExtensions.IsExternalUpn(upn)) return false;
         return upn.Contains('@');
     }
 }

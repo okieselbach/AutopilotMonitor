@@ -22,6 +22,8 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure;
 /// </summary>
 public class AuthFunction
 {
+    private static readonly LogThrottle ExternalIdentityLog = new(TimeSpan.FromHours(1));
+
     private readonly ILogger<AuthFunction> _logger;
     private readonly GlobalAdminService _globalAdminService;
     private readonly DelegatedAdminService _delegatedAdminService;
@@ -162,8 +164,13 @@ public class AuthFunction
         // excluded, so a read-only MSP login does not phantom-onboard its home tenant (false signup, default
         // config row). A delegated user who legitimately participates in their own tenant (member/global)
         // still onboards normally; the handlers self-gate when the config already exists.
+        // An external identity (a guest: this tid is not its home) never participates, whatever it was
+        // granted: its home domain would become this tenant's DomainName, which resolves cross-tenant grants,
+        // and its UPN the OnboardedBy that activation promotes to Tenant Admin.
         var isDelegated = delegatedTenantIds.Count > 0;
-        var isHomeTenantParticipant = !isDelegated || isGlobalAdmin || isGlobalReader || memberRole != null;
+        var isExternalIdentity = principal.IsExternalIdentity();
+        var isHomeTenantParticipant = !isExternalIdentity
+            && (!isDelegated || isGlobalAdmin || isGlobalReader || memberRole != null);
         // Which app registration minted this login's token (dual app-reg window) — drives the
         // onboarding homing decision and the per-tenant last-seen provenance below.
         var tokenAudience = principal.GetAudience();
@@ -176,6 +183,14 @@ public class AuthFunction
             await HandleAutoReEnableAsync(tenantConfig, tenantId);
             await HandleAuthClientIdTrackingAsync(tenantConfig, tenantId, tokenAudience);
         }
+        else if (isExternalIdentity && string.IsNullOrEmpty(tenantConfig.DomainName)
+                 && ExternalIdentityLog.ShouldLog($"{tenantId}|{objectId}"))
+        {
+            // The activation page polls auth/me, so this is throttled per caller.
+            _logger.LogWarning(
+                "External identity {Upn} signed in to tenant {TenantId}, which no member has onboarded yet; it does not onboard it",
+                upn, tenantId);
+        }
 
         // --- Pure decision logic (tested by AuthFunctionTests) ---
         var decision = BuildAuthResult(
@@ -186,7 +201,8 @@ public class AuthFunction
             homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary",
             whatsNewSeenPlatformUtc: whatsNewSeen.PlatformUtc,
             whatsNewSeenAgentUtc: whatsNewSeen.AgentUtc,
-            mcpClientRegistrationEnabled: (await _adminConfigService.GetConfigurationAsync())?.McpClientRegistrationEnabled ?? false);
+            mcpClientRegistrationEnabled: (await _adminConfigService.GetConfigurationAsync())?.McpClientRegistrationEnabled ?? false,
+            isExternalIdentity: isExternalIdentity);
 
         if (!decision.IsSuccess)
         {
@@ -723,7 +739,8 @@ public class AuthFunction
         string homedApp = "primary",
         DateTime? whatsNewSeenPlatformUtc = null,
         DateTime? whatsNewSeenAgentUtc = null,
-        bool mcpClientRegistrationEnabled = false)
+        bool mcpClientRegistrationEnabled = false,
+        bool isExternalIdentity = false)
     {
         // A delegated ("MSP") admin manages a subset of OTHER tenants. They are explicitly authorized, so —
         // like a Global Admin / Reader — they bypass the private-preview gate even when their own home tenant
@@ -773,9 +790,10 @@ public class AuthFunction
         // to manage OTHER tenants and bypassed the preview gate; auto-admining their own (possibly
         // non-customer) home tenant would convert a read-only delegated assignment into write authority over
         // it. A delegated user who legitimately administers their own tenant has a TenantAdmins row (memberRole
-        // != null), so this only suppresses the silent grant, never an existing right.
+        // != null), so this only suppresses the silent grant, never an existing right. The same holds for an
+        // external identity (a guest), which is not a member of this tenant at all.
         bool isTenantAdmin = memberRole?.Role == Constants.TenantRoles.Admin;
-        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated;
+        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated && !isExternalIdentity;
         if (needsAutoAdmin)
         {
             isTenantAdmin = true;

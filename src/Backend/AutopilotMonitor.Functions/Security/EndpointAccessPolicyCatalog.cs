@@ -274,7 +274,8 @@ public static class EndpointAccessPolicyCatalog
         // AuthenticatedUserWithRole (not plain AuthenticatedUser): the activating user is still
         // roleless during first-touch signup, so the tier must admit non-members — but the address is
         // tenant-shared state feeding the welcome/farewell mails, so the function re-gates on the
-        // resolved role: roleless callers may only write while the tenant has no member yet.
+        // resolved role: roleless callers may only write while the tenant has no member yet, and never
+        // as an external identity, which does not activate a tenant.
         new("PUT",    "preview/notification-email", EndpointPolicy.AuthenticatedUserWithRole),
         new("GET",    "feedback/status",           EndpointPolicy.AuthenticatedUser),
         new("POST",   "feedback",                  EndpointPolicy.AuthenticatedUser),

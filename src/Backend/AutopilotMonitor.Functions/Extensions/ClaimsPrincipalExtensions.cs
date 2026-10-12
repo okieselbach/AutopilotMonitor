@@ -86,6 +86,75 @@ public static class ClaimsPrincipalExtensions
     public static bool IsCappedPrincipal(this ClaimsPrincipal principal)
         => principal.IsApplicationPrincipal() || principal.IsClientCapped();
 
+    private const string ExternalUpnMarker = "#EXT#";
+    private const string IdentityProviderClaimType = "http://schemas.microsoft.com/identity/claims/identityprovider";
+
+    // Raw and inbound-mapped names of the claims that carry a user name — never the display name ("name").
+    private static readonly string[] UserNameClaimTypes =
+        { "upn", ClaimTypes.Upn, "preferred_username", "unique_name", ClaimTypes.Name };
+
+    // idp values that only an external account carries in a workforce tenant: a personal Microsoft account,
+    // an email one-time passcode, the social sign-in providers.
+    private static readonly HashSet<string> ExternalOnlyIdentityProviders =
+        new(StringComparer.OrdinalIgnoreCase) { "live.com", "mail", "google.com", "facebook.com" };
+
+    // The Entra token service: an idp URI on one of these hosts names the authenticating tenant first.
+    private static readonly HashSet<string> EntraSignInHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        new Uri(AutopilotMonitor.Shared.Constants.EntraLoginBaseUrl).Host, "sts.windows.net", "login.windows.net", "login.microsoft.com",
+    };
+
+    private static readonly Guid PersonalMicrosoftAccountTenantId = new("9188040d-6c67-4c5b-b112-36a304b66dad");
+
+    /// <summary>
+    /// True when the token shows that the caller is not a member of the token's tenant (<c>tid</c>): a B2B guest
+    /// or another external identity. Such a caller keeps what the tenant grants it explicitly but never claims the
+    /// tenant — no first-login seed, no first-user Tenant Admin, no activation promotion, no write in the roleless
+    /// signup window. Positive evidence only; a token without any of these signals is a member's:
+    /// <list type="bullet">
+    /// <item><c>acct = 1</c>, Entra's guest flag (an optional claim of the API app registration);</item>
+    /// <item><c>#EXT#</c> in a user-name claim, the resource-tenant UPN Entra gives external accounts;</item>
+    /// <item>an <c>idp</c> naming a personal Microsoft account, an external sign-in provider, or another tenant on
+    /// an Entra sign-in host. A member's token carries no <c>idp</c> or one naming its own tenant. An <c>idp</c> on
+    /// any other host is no evidence: a false positive would silently strand a genuine first sign-in.</item>
+    /// </list>
+    /// Inbound claim mapping renames <c>tid</c> and <c>idp</c>, so both are read in either form.
+    /// </summary>
+    public static bool IsExternalIdentity(this ClaimsPrincipal principal)
+    {
+        if (string.Equals(principal.FindFirst("acct")?.Value?.Trim(), "1", StringComparison.Ordinal))
+            return true;
+
+        if (UserNameClaimTypes.Any(type => IsExternalUpn(principal.FindFirst(type)?.Value)))
+            return true;
+
+        var identityProvider = principal.FindFirst("idp")?.Value ?? principal.FindFirst(IdentityProviderClaimType)?.Value;
+        return IsForeignIdentityProvider(identityProvider, principal.GetTenantId());
+    }
+
+    /// <summary>True when a user name carries the <c>#EXT#</c> marker of an external account's resource-tenant UPN.</summary>
+    internal static bool IsExternalUpn(string? userName)
+        => userName != null && userName.Contains(ExternalUpnMarker, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when an <c>idp</c> claim value shows that the account authenticated outside <paramref name="tenantId"/>.
+    /// </summary>
+    internal static bool IsForeignIdentityProvider(string? identityProvider, string? tenantId)
+    {
+        var idp = identityProvider?.Trim();
+        if (string.IsNullOrEmpty(idp))
+            return false;
+        if (ExternalOnlyIdentityProviders.Contains(idp))
+            return true;
+        if (!Uri.TryCreate(idp, UriKind.Absolute, out var uri) || !EntraSignInHosts.Contains(uri.Host))
+            return false;
+        if (!Guid.TryParse(uri.AbsolutePath.Trim('/').Split('/')[0], out var authenticatingTenant))
+            return false;
+        return authenticatingTenant == PersonalMicrosoftAccountTenantId
+            || !Guid.TryParse(tenantId, out var tokenTenant)
+            || authenticatingTenant != tokenTenant;
+    }
+
     /// <summary>
     /// The caller's rate-limit budget class (<see cref="Security.ThrottleSurface"/>), from signed claims
     /// only: <c>appidacr</c> (v1.0) / <c>azpacr</c> (v2.0) say how the CLIENT authenticated — <c>0</c> is a

@@ -31,6 +31,8 @@ public class AuthFunctionSideEffectTests
 
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
     private readonly Mock<TenantAdminsService> _tenantAdminsMock;
+    private readonly Mock<PreviewWhitelistService> _previewMock;
+    private readonly Mock<McpUserService> _mcpUserMock;
     private readonly Mock<TelegramNotificationService> _telegramMock;
     private readonly Mock<OpsEventService> _opsEventsMock;
     private readonly Mock<GlobalNotificationService> _globalNotificationMock;
@@ -71,7 +73,7 @@ public class AuthFunctionSideEffectTests
             adminRepo, cache, Mock.Of<ILogger<TenantAdminsService>>())
         { CallBase = false };
 
-        var previewMock = new Mock<PreviewWhitelistService>(
+        _previewMock = new Mock<PreviewWhitelistService>(
             configRepo, cache, Mock.Of<ILogger<PreviewWhitelistService>>(), _tenantConfigMock.Object)
         { CallBase = false };
 
@@ -87,7 +89,7 @@ public class AuthFunctionSideEffectTests
             configRepo, Mock.Of<ILogger<AdminConfigurationService>>(), cache)
         { CallBase = false };
 
-        var mcpUserMock = new Mock<McpUserService>(
+        _mcpUserMock = new Mock<McpUserService>(
             adminRepo, new StubAdminIdentityBindingService(bound: true), cache, Mock.Of<ILogger<McpUserService>>(),
             globalAdminMock.Object, delegatedAdminMock.Object, adminConfigService.Object,
             new TenantMemberRoleResolver(_tenantAdminsMock.Object, _tenantConfigMock.Object), _tenantConfigMock.Object)
@@ -107,10 +109,10 @@ public class AuthFunctionSideEffectTests
             _tenantConfigMock.Object,
             _tenantAdminsMock.Object,
             _metricsRepoMock.Object,
-            previewMock.Object,
+            _previewMock.Object,
             _telegramMock.Object,
             _globalNotificationMock.Object,
-            mcpUserMock.Object,
+            _mcpUserMock.Object,
             _autoApproveEnqueuerMock.Object,
             new AutopilotMonitor.Functions.Security.EntraAppRegistry(
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
@@ -170,16 +172,19 @@ public class AuthFunctionSideEffectTests
 
     private static (HttpRequestData Req, FunctionContext Ctx) BuildAuthenticatedRequest(string callerUpn, string? tenantId = null)
     {
+        var claims = new List<Claim> { new("preferred_username", callerUpn) };
+        if (tenantId != null) claims.Add(new Claim("tid", tenantId));
+        return BuildRequest(new ClaimsPrincipal(new ClaimsIdentity(claims, "test")));
+    }
+
+    private static (HttpRequestData Req, FunctionContext Ctx) BuildRequest(ClaimsPrincipal principal)
+    {
         var services = new ServiceCollection();
         services.AddOptions();
         services.Configure<WorkerOptions>(o => o.Serializer =
             new Azure.Core.Serialization.JsonObjectSerializer(
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
         var provider = services.BuildServiceProvider();
-
-        var claims = new List<Claim> { new("preferred_username", callerUpn) };
-        if (tenantId != null) claims.Add(new Claim("tid", tenantId));
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "test"));
 
         var context = new Mock<FunctionContext>();
         context.SetupGet(c => c.Items).Returns(
@@ -845,5 +850,87 @@ public class AuthFunctionSideEffectTests
         // Auto-admin is NOT fire-and-forget — exception must propagate
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId));
+    }
+
+    // -------------------------------------------------------------------------
+    // GetCurrentUser end to end: an external identity never claims the tenant
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// A validated token as the middleware hands it on: tid, oid and idp only under their mapped names. The
+    /// member's idp names its own tenant, the guest's another one — the same principal shape otherwise.
+    /// </summary>
+    private static ClaimsPrincipal SignedIn(bool external) => new(new ClaimsIdentity(new[]
+    {
+        new Claim("http://schemas.microsoft.com/identity/claims/tenantid", TenantId),
+        new Claim("http://schemas.microsoft.com/identity/claims/objectidentifier", ObjectId),
+        new Claim(ClaimTypes.Upn, Upn),
+        new Claim("http://schemas.microsoft.com/identity/claims/identityprovider", external
+            ? "https://sts.windows.net/bbbbbbbb-1111-2222-3333-444444444444/"
+            : $"https://sts.windows.net/{TenantId}/"),
+    }, "test"));
+
+    private void ArrangeAuthMe(TenantConfiguration config, bool exists, bool approved)
+    {
+        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId)).ReturnsAsync((config, exists));
+        _previewMock.Setup(x => x.IsApprovedAsync(TenantId)).ReturnsAsync(approved);
+        _tenantAdminsMock.Setup(x => x.GetTenantAdminsAsync(TenantId)).ReturnsAsync(new List<TenantAdminRow>());
+        _mcpUserMock
+            .Setup(x => x.IsAllowedAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<bool>()))
+            .ReturnsAsync(McpAccessCheckResult.Denied("not allowed"));
+        _metricsRepoMock.Setup(x => x.GetUserWhatsNewSeenAsync(TenantId, Upn)).ReturnsAsync(new UserWhatsNewSeen());
+    }
+
+    private static async Task<string> ReadBodyAsync(HttpResponseData response)
+    {
+        response.Body.Position = 0;
+        return await new StreamReader(response.Body).ReadToEndAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetCurrentUser_FirstSignInOfANewTenant_OnlyAMemberOnboardsIt(bool external)
+    {
+        // The pointer read stays healthy on purpose: a throwing read would skip the seed for the guest too, and
+        // the test would pass for the wrong reason.
+        ArrangeAuthMe(DefaultConfig(), exists: false, approved: false);
+        var (req, ctx) = BuildRequest(SignedIn(external));
+
+        var response = await _sut.GetCurrentUser(req, ctx);
+
+        // Both wait at the activation gate; only the member's sign-in seeded the tenant and queued its activation.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("PendingActivation", await ReadBodyAsync(response));
+        Assert.Equal(external ? 0 : 1, _store.Writes.Count);
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
+            It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), external ? Times.Never() : Times.Once());
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), external ? Times.Never() : Times.Once());
+        if (!external)
+            Assert.Equal(Upn, _store.Row!.OnboardedBy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetCurrentUser_ActivatedTenantWithoutAdmins_OnlyAMemberBecomesItsFirstAdmin(bool external)
+    {
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        ArrangeAuthMe(config, exists: true, approved: true);
+        _tenantAdminsMock
+            .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
+            .ReturnsAsync(new TenantAdminRow());
+        var (req, ctx) = BuildRequest(SignedIn(external));
+
+        var response = await _sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        _tenantAdminsMock.Verify(
+            x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            external ? Times.Never() : Times.Once());
+        Assert.Contains(external ? "\"isTenantAdmin\":false" : "\"isTenantAdmin\":true", await ReadBodyAsync(response));
     }
 }

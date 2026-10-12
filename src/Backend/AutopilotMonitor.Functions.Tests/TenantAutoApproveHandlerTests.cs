@@ -181,6 +181,6 @@ public class TenantAutoApproveHandlerTests
     {
         // The sentinel must never pass the promotable-user shape check — that is the
         // defense against writing a system string into the TenantAdmins table.
-        Assert.False(TenantApprovalService.IsRealUserUpn(TenantAutoApproveHandler.AutoApprovedBy));
+        Assert.False(TenantApprovalService.IsPromotableUpn(TenantAutoApproveHandler.AutoApprovedBy));
     }
 }

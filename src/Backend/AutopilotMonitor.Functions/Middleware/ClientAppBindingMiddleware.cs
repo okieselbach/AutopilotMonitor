@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Extensions;
@@ -21,12 +20,9 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// </summary>
 public class ClientAppBindingMiddleware : IFunctionsWorkerMiddleware
 {
-    private static readonly TimeSpan LogInterval = TimeSpan.FromHours(1);
-    private const int MaxLogKeys = 1000;
-
     // Worker traces reach App Insights at Warning+ only; the request dimensions carry the per-request
     // measurement, this line makes a new (tenant, client, outcome) visible without flooding.
-    private static readonly ConcurrentDictionary<string, DateTime> LastLogged = new();
+    private static readonly LogThrottle OutcomeLog = new(TimeSpan.FromHours(1));
 
     private readonly ILogger<ClientAppBindingMiddleware> _logger;
     private readonly IConfiguration _configuration;
@@ -118,13 +114,8 @@ public class ClientAppBindingMiddleware : IFunctionsWorkerMiddleware
 
     private void LogOncePerInterval(string? tenantId, string? clientAppId, string outcome, bool enforced)
     {
-        var key = $"{tenantId}|{clientAppId}|{outcome}|{enforced}";
-        var now = DateTime.UtcNow;
-        if (LastLogged.TryGetValue(key, out var last) && now - last < LogInterval)
+        if (!OutcomeLog.ShouldLog($"{tenantId}|{clientAppId}|{outcome}|{enforced}"))
             return;
-        if (LastLogged.Count >= MaxLogKeys)
-            LastLogged.Clear();
-        LastLogged[key] = now;
 
         _logger.LogWarning(
             "[ClientAppBinding] Delegated token from client app {ClientAppId} (tid={TenantId}): {Outcome}, enforced={Enforced}",

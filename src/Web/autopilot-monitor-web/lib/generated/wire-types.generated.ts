@@ -4961,13 +4961,13 @@ export interface TenantConfigPatchOutcomeResponse {
 export interface TenantConfiguration {
   /** Tenant ID (PartitionKey in Table Storage) */
   tenantId: string;
-  /** Domain name extracted from the first user's UPN Used for display purposes (e.g., contoso.com) */
+  /** Domain of the onboarding member's UPN (e.g. contoso.com), seeded once by the first member login and never from an external identity. Tenant identity, not only display: transactional mails render it, and cross-tenant grants resolve a never-signed-in UPN's home tenant through it. */
   domainName: string;
   /** When the configuration was last updated */
   lastUpdated: string;
   /** Updated by (user email or system) */
   updatedBy: string;
-  /** UPN of the user whose first login created this tenant configuration. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten. Used by the preview-approval auto-promote path so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel string into the TenantAdmins table. Null on rows that pre-date the OnboardedBy field — auto-promote falls back to UpdatedBy with a UPN-shape guard. */
+  /** UPN of the member whose first login onboarded this tenant. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten; an external identity (guest) never sets it. Activation promotes this UPN, and only this one, to Tenant Admin, so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel or a last writer into the TenantAdmins table. Null on rows that pre-date the field: such a tenant gets no promotion on activation. */
   onboardedBy?: string | null;
   /** Version of the data processing agreement this tenant accepted — CurrentDpaVersion at that moment. Written once: with the onboarding when the first sign-in came through the get-started tick, otherwise when the portal's acceptance dialog is confirmed (DpaAcceptancePending). Never client-writable. Null on tenants onboarded before the field existed. */
   dpaVersion?: string | null;

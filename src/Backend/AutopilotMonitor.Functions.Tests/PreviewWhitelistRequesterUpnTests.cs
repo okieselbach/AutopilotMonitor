@@ -1,37 +1,29 @@
 using AutopilotMonitor.Functions.Services;
-using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Unit tests for the static helpers <c>TenantApprovalService.PickRequesterUpn</c>
-/// and <c>TenantApprovalService.IsRealUserUpn</c>.
+/// Unit tests for <c>TenantApprovalService.IsPromotableUpn</c>, the shape guard on the stored onboarding UPN that
+/// activation promotes to TenantAdmin.
 /// <para>
-/// These guard the auto-promote-on-preview-approval path, which previously corrupted
-/// 10 tenants' TenantAdmins rows by writing the sentinel string
-/// <c>"System (Global Rate Limit Sync)"</c> as a TenantAdmin Upn. The fixes:
-/// <list type="number">
-/// <item>shape-based UPN validation (no enumeration of sentinel strings),</item>
-/// <item>prefer the immutable <see cref="TenantConfiguration.OnboardedBy"/> over the
-/// mutable <see cref="TenantConfiguration.UpdatedBy"/>.</item>
-/// </list>
+/// The auto-promote-on-approval path once corrupted 10 tenants' TenantAdmins rows by writing the sentinel string
+/// <c>"System (Global Rate Limit Sync)"</c> as a TenantAdmin Upn. The guard is therefore shape-based (no
+/// enumeration of sentinel strings), and it also refuses an external account's resource-tenant UPN. Which value is
+/// promoted at all (OnboardedBy only, never UpdatedBy) is pinned in <see cref="TenantApprovalServiceTests"/>.
 /// </para>
 /// </summary>
 public class PreviewWhitelistRequesterUpnTests
 {
-    // -------------------------------------------------------------------------
-    // IsRealUserUpn — positive shape check, immune to new sentinel strings
-    // -------------------------------------------------------------------------
-
     [Theory]
     [InlineData("user@contoso.com")]
     [InlineData("admin@tenant.onmicrosoft.com")]
     [InlineData("first.last@example.de")]
     [InlineData("cadm_user@contoso.onmicrosoft.com")]
-    public void IsRealUserUpn_AcceptsRealUpnShapes(string upn)
+    [InlineData("m.muster_ext_@contoso.example")] // a member naming scheme, not the external marker
+    public void IsPromotableUpn_AcceptsRealUpnShapes(string upn)
     {
-        Assert.True(TenantApprovalService.IsRealUserUpn(upn));
+        Assert.True(TenantApprovalService.IsPromotableUpn(upn));
     }
 
     [Theory]
@@ -41,12 +33,20 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("System (Global Rate Limit Sync)")]
     [InlineData("system (global rate limit sync)")]
     [InlineData("System (whatever-future-sentinel)")]
-    public void IsRealUserUpn_RejectsAnySystemPrefixSentinel(string upn)
+    public void IsPromotableUpn_RejectsAnySystemPrefixSentinel(string upn)
     {
         // The shape-based prefix check is exactly the defense against the corruption
         // pattern: any new "System (...)" sentinel introduced anywhere in the codebase
         // is rejected without anyone needing to remember to update this method.
-        Assert.False(TenantApprovalService.IsRealUserUpn(upn));
+        Assert.False(TenantApprovalService.IsPromotableUpn(upn));
+    }
+
+    [Theory]
+    [InlineData("alice_fabrikam.example#EXT#@contoso.example")]
+    [InlineData("alice_fabrikam.example#ext#@contoso.example")]
+    public void IsPromotableUpn_RejectsAnExternalAccountsResourceTenantUpn(string upn)
+    {
+        Assert.False(TenantApprovalService.IsPromotableUpn(upn));
     }
 
     [Theory]
@@ -55,80 +55,8 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("   ")]
     [InlineData("nodomain")]
     [InlineData("just-a-string")]
-    public void IsRealUserUpn_RejectsNullOrNonEmailShapes(string? upn)
+    public void IsPromotableUpn_RejectsNullOrNonEmailShapes(string? upn)
     {
-        Assert.False(TenantApprovalService.IsRealUserUpn(upn));
-    }
-
-    // -------------------------------------------------------------------------
-    // PickRequesterUpn — prefer OnboardedBy, fall back to UpdatedBy
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void PickRequesterUpn_PrefersOnboardedByEvenWhenUpdatedByIsClean()
-    {
-        var cfg = new TenantConfiguration
-        {
-            OnboardedBy = "onboarder@contoso.com",
-            UpdatedBy = "editor@contoso.com",
-        };
-
-        Assert.Equal("onboarder@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
-    }
-
-    [Fact]
-    public void PickRequesterUpn_FallsBackToUpdatedByWhenOnboardedByNull()
-    {
-        var cfg = new TenantConfiguration
-        {
-            OnboardedBy = null,
-            UpdatedBy = "editor@contoso.com",
-        };
-
-        Assert.Equal("editor@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
-    }
-
-    [Fact]
-    public void PickRequesterUpn_FallsBackToUpdatedByWhenOnboardedByEmpty()
-    {
-        var cfg = new TenantConfiguration
-        {
-            OnboardedBy = "",
-            UpdatedBy = "editor@contoso.com",
-        };
-
-        Assert.Equal("editor@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
-    }
-
-    [Fact]
-    public void PickRequesterUpn_ShieldsAgainstUpdatedByClobberWhenOnboardedBySet()
-    {
-        // Regression: this is the exact scenario that corrupted 10 tenants.
-        // The global rate-limit sync clobbered UpdatedBy with the sentinel string;
-        // OnboardedBy preserves the real requester so auto-promote still picks them.
-        var cfg = new TenantConfiguration
-        {
-            OnboardedBy = "real.requester@contoso.com",
-            UpdatedBy = "System (Global Rate Limit Sync)",
-        };
-
-        Assert.Equal("real.requester@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
-        Assert.True(TenantApprovalService.IsRealUserUpn(TenantApprovalService.PickRequesterUpn(cfg)));
-    }
-
-    [Fact]
-    public void PickRequesterUpn_LegacyTenant_NoOnboardedBy_SentinelInUpdatedBy_IsRejectedByGuard()
-    {
-        // Defense-in-depth: even without OnboardedBy (pre-fix tenants), the IsRealUserUpn
-        // guard alone prevents the sentinel from leaking into TenantAdmins.
-        var cfg = new TenantConfiguration
-        {
-            OnboardedBy = null,
-            UpdatedBy = "System (Global Rate Limit Sync)",
-        };
-
-        var picked = TenantApprovalService.PickRequesterUpn(cfg);
-        Assert.Equal("System (Global Rate Limit Sync)", picked);
-        Assert.False(TenantApprovalService.IsRealUserUpn(picked));
+        Assert.False(TenantApprovalService.IsPromotableUpn(upn));
     }
 }

@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Functions.Services.Activation
     public class TenantAutoApproveHandler
     {
         /// <summary>ApprovedBy sentinel. Deliberately without '@' so the shape-based
-        /// <see cref="TenantApprovalService.IsRealUserUpn"/> guard can never treat it as a
+        /// <see cref="TenantApprovalService.IsPromotableUpn"/> guard can never treat it as a
         /// promotable user.</summary>
         public const string AutoApprovedBy = "System (auto-approve)";
 

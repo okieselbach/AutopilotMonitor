@@ -414,6 +414,43 @@ public class AuthFunctionTests
         Assert.Null((string?)body.role);
     }
 
+    [Fact]
+    public void AutoAdmin_ExternalIdentityFirstUser_IsNeverTheFirstAdmin()
+    {
+        // A guest signing in to an activated tenant that has no admins yet must not be made its Tenant Admin:
+        // it is not a member of the tenant at all.
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId,
+            isExternalIdentity: true);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Null((string?)body.role);
+        Assert.False((bool)body.canManageBootstrapTokens);
+    }
+
+    [Fact]
+    public void ExternalIdentity_KeepsARoleTheTenantGrantedExplicitly()
+    {
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: AdminRole(), mcpCheck: McpDenied(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId,
+            isExternalIdentity: true);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.True((bool)body.isTenantAdmin);
+        Assert.Equal(Constants.TenantRoles.Admin, (string)body.role);
+    }
+
     // -------------------------------------------------------------------------
     // Auto-Admin Logic
     // -------------------------------------------------------------------------

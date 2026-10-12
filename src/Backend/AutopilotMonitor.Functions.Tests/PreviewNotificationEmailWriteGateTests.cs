@@ -19,6 +19,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// farewell mails. The route must admit roleless callers (first-touch signup) but only while the
 /// tenant has no member yet — afterwards a member role is required, so an ordinary employee with a
 /// valid JWT and no product role can no longer redirect or suppress the tenant's correspondence.
+/// The window is never an external identity's: it does not activate the tenant.
 /// </summary>
 public class PreviewNotificationEmailWriteGateTests
 {
@@ -43,7 +44,7 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = AdminsWith(enabledMember: true);
         var ctx = new RequestContext { UserRole = role };
 
-        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, TenantId, admins.Object));
+        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: false, TenantId, admins.Object));
         admins.Verify(a => a.GetTenantAdminsAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -53,7 +54,7 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = AdminsWith(enabledMember: true);
         var ctx = new RequestContext { IsGlobalAdmin = true };
 
-        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, TenantId, admins.Object));
+        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: false, TenantId, admins.Object));
     }
 
     [Fact]
@@ -62,7 +63,7 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = AdminsWith(enabledMember: false);
         var ctx = new RequestContext { UserRole = "Authenticated" };
 
-        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, TenantId, admins.Object));
+        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: false, TenantId, admins.Object));
     }
 
     [Fact]
@@ -71,7 +72,7 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = AdminsWith(enabledMember: true);
         var ctx = new RequestContext { UserRole = "Authenticated" };
 
-        Assert.False(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, TenantId, admins.Object));
+        Assert.False(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: false, TenantId, admins.Object));
     }
 
     [Fact]
@@ -86,7 +87,26 @@ public class PreviewNotificationEmailWriteGateTests
         });
         var ctx = new RequestContext { UserRole = "Authenticated" };
 
-        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, TenantId, admins.Object));
+        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: false, TenantId, admins.Object));
+    }
+
+    [Fact]
+    public async Task External_identity_never_writes_in_the_signup_window()
+    {
+        // The window exists for the activating user, and an external identity never activates a tenant.
+        var admins = AdminsWith(enabledMember: false);
+        var ctx = new RequestContext { UserRole = "Authenticated" };
+
+        Assert.False(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: true, TenantId, admins.Object));
+    }
+
+    [Fact]
+    public async Task External_identity_with_a_role_the_tenant_granted_may_write()
+    {
+        var admins = AdminsWith(enabledMember: true);
+        var ctx = new RequestContext { UserRole = Constants.TenantRoles.Admin };
+
+        Assert.True(await PreviewWhitelistFunction.MayWriteNotificationEmailAsync(ctx, externalIdentity: true, TenantId, admins.Object));
     }
 
     private static Mock<TenantAdminsService> AdminsWith(bool enabledMember)
