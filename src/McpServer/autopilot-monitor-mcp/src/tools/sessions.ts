@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApiError, apiFetch, buildQuery, jsonBody, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, foreignSuccessRunIds, isCorrectedForeignFailure, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, foreignSuccessRunIds, isCorrectedForeignFailure, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, ContinuationSchema, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
 import { withEventTypeNote, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
@@ -174,7 +174,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         ),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for full sweeps.')),
-        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
+        continuation: ContinuationSchema.optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -227,7 +227,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for full sweeps.')),
-        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
+        continuation: ContinuationSchema.optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -410,7 +410,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           .describe('Projection. Omitted on an UNFILTERED read = lean default "' + LEAN_EVENT_FIELDS + '" without the multi-KB "data" payload (omittedFields says so); omitted on a FILTERED read = full events incl. "data". List "data" for the whole payload or "data.<key>" (e.g. "data.errorCode") for single keys. Further keys: eventId, sessionId, tenantId, receivedAt, sentAt, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
+        continuation: ContinuationSchema.optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -749,7 +749,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         overallRisk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for a full exposure audit.')),
-        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
+        continuation: ContinuationSchema.optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },

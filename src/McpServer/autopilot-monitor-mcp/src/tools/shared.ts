@@ -372,6 +372,13 @@ export function pageSizeDescription(defaultSize: number, max = 1000, note?: stri
 export const CONTINUATION_DESCRIPTION =
   'The whole nextLink string from the previous response (preferred — it carries the resolved filters) or its opaque continuation value.';
 
+/**
+ * continuation: a server-emitted nextLink or its opaque token; real ones stay under 1 KB. The bound
+ * matters: a pageSize/fields override re-sets params on the caller's link (withQueryOverrides), and
+ * URLSearchParams.set drops duplicate keys one at a time — quadratic in a forged link's duplicates.
+ */
+export const ContinuationSchema = z.string().max(4096);
+
 /** days: a trailing window ending now. */
 export function daysDescription(defaultDays: number, max: number, note?: string): string {
   return `Trailing window in days (1-${max}; default ${defaultDays}).${note ? ` ${note}` : ''}`;

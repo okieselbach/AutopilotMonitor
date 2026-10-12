@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanWithTimeoutFallback, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, withEventTypeNote, RESOURCE_NAMES } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, ContinuationSchema, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
 import { collectDeploymentState } from '../deployment-state.js';
@@ -430,7 +430,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         daily: z.boolean().optional().default(false).describe('Return daily aggregated summary instead of per-endpoint breakdown'),
         pageSize: z.coerce.number().int().min(1).max(2000).optional().default(50)
           .describe(pageSizeDescription(50, 2000)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,
@@ -512,7 +512,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe(daysDescription(30, 365)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(50)
           .describe(pageSizeDescription(50)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,
@@ -770,7 +770,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe(daysDescription(7, 365, 'Applies to the stats and the session list.')),
         pageSize: z.coerce.number().int().min(1).max(200).optional()
           .describe(pageSizeDescription(FLEET_OVERVIEW_PAGE_SIZE, 200)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -835,7 +835,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
                     'included; default: all safe fields. Applied server-side; unknown/secret keys are ignored.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(100, 1000, 'Ignored in filter mode (query/tenantId).')),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION + ' Ignored in filter mode.'),
       },
       annotations: READ_ONLY,
@@ -939,7 +939,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         entityId: z.string().optional().describe('Exact-match filter on the affected entity id (e.g. a tenantId, deviceId, or report id).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -995,7 +995,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the window.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1082,7 +1082,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1125,7 +1125,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('One effective status. "published" lists the approved submissions whose rule is live in the global catalog.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1400,7 +1400,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1496,7 +1496,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Keep-list of column names; PartitionKey + RowKey always kept. Columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Default: all but DataJson on an unfiltered read; the full row on a filtered read (eventType/severity/source).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Index rows walked per call. When the projection includes DataJson the ceiling is ' + RAW_EVENTS_PAYLOAD_PAGE_MAX + ' (default ' + RAW_EVENTS_PAYLOAD_PAGE_DEFAULT + '); a larger value is refused.')),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1579,7 +1579,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         fields: z.string().optional().describe('Keep-list of literal column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); PartitionKey + RowKey are always kept. Omit for the full raw row.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -1654,7 +1654,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
                     'client-side. PartitionKey and RowKey are always kept.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
@@ -2195,7 +2195,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         ...inventoryScopeShape,
         pageSize: z.coerce.number().int().min(1).max(500).optional().default(100)
           .describe(pageSizeDescription(100, 500)),
-        continuation: z.string().optional()
+        continuation: ContinuationSchema.optional()
           .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,

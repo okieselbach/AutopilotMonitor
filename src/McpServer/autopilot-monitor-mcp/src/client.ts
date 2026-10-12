@@ -523,8 +523,10 @@ async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise
 
 function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
   const p = new URLSearchParams();
+  // append, not set: object keys are unique, and set() searches the whole list on every call —
+  // quadratic for a caller-sized key set such as search_sessions' deviceProperties.
   for (const [k, v] of Object.entries(params)) {
-    if (v != null && v !== '') p.set(k, String(v));
+    if (v != null && v !== '') p.append(k, String(v));
   }
   const s = p.toString();
   return s ? `?${s}` : '';

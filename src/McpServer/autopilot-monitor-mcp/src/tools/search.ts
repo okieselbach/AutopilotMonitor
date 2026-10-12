@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { apiFetch, buildQuery, enforceDelegatedTenant, followNextLink, pickGlobalOrTenantPath } from '../client.js';
+import { apiFetch, buildQuery, enforceDelegatedTenant, followNextLink, getCallerSignal, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry, logSearchZeroHit } from '../telemetry.js';
 import type { SearchProvider, DocsSearchBundle } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
@@ -159,6 +159,26 @@ const DEPTH_PRESETS = {
   fast: { budget: SEMANTIC_BUDGET, defaultTopK: 10, defaultMinScore: 0.1 },
   deep: { budget: DEEP_BUDGET, defaultTopK: 20, defaultMinScore: 0.05 },
 } as const;
+
+// ── Input bounds ────────────────────────────────────────────────────────
+//
+// One process serves every tenant, and every fetched event is scored against every query keyword,
+// so the keyword count multiplies the work of a call. These bounds keep one request's cost a small
+// multiple of its event volume; real queries stay far below them.
+
+/** Longest `query` the three search tools accept. */
+export const MAX_SEARCH_QUERY_CHARS = 1000;
+/** Most caller-supplied `keywords` per search_events call. */
+export const MAX_SEARCH_KEYWORDS = 20;
+/** Longest caller-supplied keyword. */
+export const MAX_SEARCH_KEYWORD_CHARS = 100;
+/** Distinct keywords one search scores (caller keywords first, then the query's words); the rest is reported as dropped. */
+export const MAX_SCORED_KEYWORDS = 32;
+const KEYWORDS_DROPPED_NOTE =
+  `Only the first ${MAX_SCORED_KEYWORDS} distinct keywords were scored (your keywords first, then words from the ` +
+  'query); shorten the query to choose which ones count.';
+/** Longest search_docs `section` (a top-level folder of the docs bundle). */
+const MAX_DOCS_SECTION_CHARS = 100;
 
 /**
  * EventSeverity enum (C# `EnrollmentEvent.EventSeverity`) → name. The raw endpoint stores
@@ -561,6 +581,9 @@ export function resolveQueryKeywords(query: string, callerKeywords?: string[]): 
 
 // ── Error-code fallback ─────────────────────────────────────────────────
 
+/** Error codes one query contributes to the literal fallback. */
+export const MAX_ERROR_CODE_NEEDLES = 10;
+
 /**
  * Pull opaque error-code tokens (HRESULT / Win32 / NTSTATUS hex) out of a query. These embed
  * poorly — to a sentence-transformer "0x87D1041C" is near-random noise — so a semantic search can
@@ -572,15 +595,22 @@ export function resolveQueryKeywords(query: string, callerKeywords?: string[]): 
  * Bare (un-prefixed) hex must contain at least one a-f letter and be 6-8 chars, so plain decimal
  * numbers — dates, counts, build numbers — never trigger the fallback. `0x`-prefixed tokens are
  * always codes, so those accept 4-8 digits (covers short Win32 HRESULTs like 0x801c03ed).
+ *
+ * At most MAX_ERROR_CODE_NEEDLES distinct codes, `0x`-prefixed ones first: every needle is scanned
+ * against every document of the corpus.
  */
 export function extractErrorCodeNeedles(query: string): string[] {
   const needles = new Set<string>();
   // 0x-prefixed hex (0x80070002, 0x87D1041C). The `x` is not in [0-9a-f], so the bare-hex pass
   // below can never re-match the same digits — no double counting.
-  for (const m of query.matchAll(/\b0x([0-9a-f]{4,8})\b/gi)) needles.add(m[1].toLowerCase());
+  for (const m of query.matchAll(/\b0x([0-9a-f]{4,8})\b/gi)) {
+    if (needles.size >= MAX_ERROR_CODE_NEEDLES) return [...needles];
+    needles.add(m[1].toLowerCase());
+  }
   // Bare HRESULT-shaped hex: 6-8 chars with at least one a-f letter (87D1041C) — the letter
   // requirement excludes pure decimals that aren't error codes.
   for (const m of query.matchAll(/\b([0-9a-f]{6,8})\b/gi)) {
+    if (needles.size >= MAX_ERROR_CODE_NEEDLES) break;
     if (/[a-f]/i.test(m[1])) needles.add(m[1].toLowerCase());
   }
   return [...needles];
@@ -613,6 +643,8 @@ export function queryHasProblemIntent(keywords: string[]): boolean {
 }
 
 const MIN_PREFIX_LEN = 4;
+/** A prefix comparison looks at no more than this many leading characters. */
+const MAX_PREFIX_LEN = MIN_PREFIX_LEN + 2;
 
 /** Split text into word tokens for prefix matching (same delimiters everywhere). */
 function splitWords(text: string): string[] {
@@ -624,7 +656,7 @@ function sharesWordPrefix(words: string[], keyword: string): boolean {
   if (keyword.length < MIN_PREFIX_LEN) return false;
   for (const word of words) {
     if (word.length < MIN_PREFIX_LEN) continue;
-    const prefixLen = Math.min(word.length, keyword.length, MIN_PREFIX_LEN + 2);
+    const prefixLen = Math.min(word.length, keyword.length, MAX_PREFIX_LEN);
     if (word.slice(0, prefixLen) === keyword.slice(0, prefixLen)) return true;
   }
   return false;
@@ -730,7 +762,7 @@ export function orderBySelectivity(types: string[], keywords: string[], specific
  * non-canonical words (e.g. "restarted" for system_reboot_detected, "stuck" for a timeout).
  * Groups are symmetric — every term maps to the whole group.
  */
-const KEYWORD_SYNONYM_GROUPS: readonly string[][] = [
+export const KEYWORD_SYNONYM_GROUPS: readonly string[][] = [
   ['reboot', 'rebooted', 'restart', 'restarted', 'reset'],
   ['timeout', 'timedout', 'stall', 'stalled', 'stuck', 'hang', 'hung'],
   ['hello', 'whfb', 'passwordless'],
@@ -750,7 +782,7 @@ const SYNONYM_LOOKUP: ReadonlyMap<string, readonly string[]> = (() => {
 /**
  * Collapse query keywords that fall in the SAME synonym group down to one representative concept
  * (first occurrence kept), preserving order and keeping non-synonym keywords as-is. Because
- * keywordMatchesField already expands a single keyword to its whole group, one representative per
+ * compileConcepts already expands a single keyword to its whole group, one representative per
  * group is sufficient — and it stops a query that spells the same concept two ways (e.g. "stuck"
  * AND "timeout") from counting as two matched keywords, which inflated coverage for off-topic types.
  * A no-op for queries with no intra-group duplicates.
@@ -769,37 +801,6 @@ export function dedupeSynonymConcepts(keywords: string[]): string[] {
   return out;
 }
 
-/**
- * Match a SYNONYM at word granularity (whole word, or a shared word-prefix of >= MIN_PREFIX_LEN),
- * never as a mid-word substring. Synonyms are short (stall/hang/reset/…) and the loose substring
- * check used for literal keywords would mis-fire — e.g. "stall" sits inside "in[stall]", "hang"
- * inside "c[hang]e" — making a "timeout" query spuriously match every app_install_* event. Word-
- * level matching keeps the useful equivalences (reboot↔restart, stuck↔timeout) without those
- * false positives.
- */
-function synonymMatchesWord(text: string, term: string): boolean {
-  if (term.length < MIN_PREFIX_LEN) return false;
-  for (const word of text.split(/[\s_\-.:,/]+/)) {
-    if (word === term) return true;
-    if (word.length >= MIN_PREFIX_LEN) {
-      const prefixLen = Math.min(word.length, term.length, MIN_PREFIX_LEN + 2);
-      if (word.slice(0, prefixLen) === term.slice(0, prefixLen)) return true;
-    }
-  }
-  return false;
-}
-
-/** True if the keyword (loose, prefix-aware) or any of its synonyms (word-level) matches `text`. */
-function keywordMatchesField(text: string, keyword: string): boolean {
-  if (prefixAwareMatch(text, keyword)) return true;
-  const group = SYNONYM_LOOKUP.get(keyword);
-  if (!group) return false;
-  for (const term of group) {
-    if (term !== keyword && synonymMatchesWord(text, term)) return true;
-  }
-  return false;
-}
-
 /** Field weights for scoring — eventType is the most discriminating field. */
 const FIELD_WEIGHTS = {
   eventType: 3.0,
@@ -808,6 +809,92 @@ const FIELD_WEIGHTS = {
   severity: 1.0,
   data: 0.5,
 } as const;
+
+/**
+ * The scored fields in DESCENDING weight order: a concept counts once, at the first field it matches,
+ * which is only its strongest field while this order holds.
+ */
+export const SCORED_FIELDS: ReadonlyArray<{ name: string; weight: number; text: (e: EventEntry) => string }> = [
+  { name: 'eventType', weight: FIELD_WEIGHTS.eventType, text: (e) => (e.eventType ?? '').toLowerCase() },
+  { name: 'message', weight: FIELD_WEIGHTS.message, text: (e) => (e.message ?? '').toLowerCase() },
+  { name: 'source', weight: FIELD_WEIGHTS.source, text: (e) => (e.source ?? '').toLowerCase() },
+  { name: 'severity', weight: FIELD_WEIGHTS.severity, text: (e) => (e.severity ?? '').toLowerCase() },
+  { name: 'data', weight: FIELD_WEIGHTS.data, text: (e) => (e.data ? JSON.stringify(e.data).toLowerCase() : '') },
+];
+
+/** One word-prefix term of a concept (the keyword or one of its synonyms), cut to MAX_PREFIX_LEN. */
+type PrefixTerm = { concept: number; head: string };
+
+/**
+ * A query's concepts, compiled once per search so that scoring an event splits each field into words
+ * once — the per-event cost does not grow with the number of keywords.
+ *
+ * A concept matches a field when its keyword is a substring of the field, or when a field word shares a
+ * prefix with one of the concept's terms: the shorter of the two MAX_PREFIX_LEN-character heads is a
+ * prefix of the longer, both at least MIN_PREFIX_LEN long (the sharesWordPrefix rule). The terms are
+ * the keyword and, for a synonym, its whole group. Synonyms match at word granularity only, never as a
+ * mid-word substring: they are short (stall/hang/reset/…), "stall" sits inside "in[stall]" and "hang"
+ * inside "c[hang]e", so a substring check would make a "timeout" query match every app_install_* event.
+ */
+export type ConceptMatcher = {
+  readonly concepts: readonly string[];
+  /** Terms by the headKey of their first three characters. */
+  readonly termsByKey: ReadonlyMap<number, readonly PrefixTerm[]>;
+};
+
+/** Map key of a string's first three UTF-16 code units, so a field word is looked up without cutting a substring. */
+function headKey(s: string): number {
+  return s.charCodeAt(0) * 0x1_0000_0000 + s.charCodeAt(1) * 0x1_0000 + s.charCodeAt(2);
+}
+
+export function compileConcepts(queryKeywords: string[]): ConceptMatcher {
+  const concepts = dedupeSynonymConcepts(queryKeywords);
+  const termsByKey = new Map<number, PrefixTerm[]>();
+  concepts.forEach((keyword, concept) => {
+    for (const term of SYNONYM_LOOKUP.get(keyword) ?? [keyword]) {
+      if (term.length < MIN_PREFIX_LEN) continue;
+      const head = term.slice(0, MAX_PREFIX_LEN);
+      const key = headKey(head);
+      const terms = termsByKey.get(key);
+      if (!terms) termsByKey.set(key, [{ concept, head }]);
+      else if (!terms.some((t) => t.concept === concept && t.head === head)) terms.push({ concept, head });
+    }
+  });
+  return { concepts, termsByKey };
+}
+
+/**
+ * For each concept, the index into SCORED_FIELDS of the strongest field it matches, or -1. A concept is
+ * tested only until it matched, so `data` is serialized only while a concept is still open.
+ */
+export function matchConcepts(e: EventEntry, { concepts, termsByKey }: ConceptMatcher): number[] {
+  const fieldOf: number[] = new Array(concepts.length).fill(-1);
+  let open = concepts.length;
+  for (let f = 0; f < SCORED_FIELDS.length && open > 0; f++) {
+    const text = SCORED_FIELDS[f].text(e);
+    if (!text) continue;
+    for (let c = 0; c < concepts.length; c++) {
+      if (fieldOf[c] < 0 && text.includes(concepts[c])) {
+        fieldOf[c] = f;
+        open--;
+      }
+    }
+    if (open === 0 || termsByKey.size === 0) continue;
+    for (const word of splitWords(text)) {
+      if (word.length < MIN_PREFIX_LEN) continue;
+      const terms = termsByKey.get(headKey(word));
+      if (!terms) continue;
+      for (const { concept, head } of terms) {
+        if (fieldOf[concept] < 0 && (word.length >= head.length ? word.startsWith(head) : head.startsWith(word))) {
+          fieldOf[concept] = f;
+          open--;
+        }
+      }
+      if (open === 0) break;
+    }
+  }
+  return fieldOf;
+}
 
 type ScoredEvent = {
   index: number;
@@ -856,6 +943,9 @@ function severityIntentFactor(e: EventEntry, boostFailures: boolean, entityTypeM
  * non-problem keyword matches the event TYPE, the event is the specifically-named entity and
  * earns the ENTITY_BOOST (not the benign-Info damp) on a problem query — see severityIntentFactor.
  * Omitted → no entity boost (old behavior), which is why the existing unit tests are unaffected.
+ *
+ * `matcher` is the query compiled by compileConcepts. It is query-invariant, so scoreEvents compiles it
+ * once for every fetched event; standalone callers (unit tests) omit it and get it compiled here.
  */
 export function scoreEvent(
   e: EventEntry,
@@ -863,49 +953,30 @@ export function scoreEvent(
   boostFailures = false,
   semanticTypeScores?: Map<string, number>,
   keywordSpecificity?: Map<string, number>,
-  precomputedConcepts?: string[],
+  matcher: ConceptMatcher = compileConcepts(queryKeywords),
 ): ScoredEvent | null {
-  const fields: Array<{ name: string; text: string; weight: number }> = [
-    { name: 'eventType', text: (e.eventType ?? '').toLowerCase(), weight: FIELD_WEIGHTS.eventType },
-    { name: 'message', text: (e.message ?? '').toLowerCase(), weight: FIELD_WEIGHTS.message },
-    { name: 'source', text: (e.source ?? '').toLowerCase(), weight: FIELD_WEIGHTS.source },
-    { name: 'severity', text: (e.severity ?? '').toLowerCase(), weight: FIELD_WEIGHTS.severity },
-    { name: 'data', text: e.data ? JSON.stringify(e.data).toLowerCase() : '', weight: FIELD_WEIGHTS.data },
-  ];
-
-  // Collapse query keywords that share a synonym group to a single concept so two query words
-  // expressing ONE idea (e.g. "stuck" + "timeout") don't double-count coverage/score against an
-  // off-topic type (hello_wait_timeout) and outrank the actually-named entity (app_download_started).
-  // This is query-invariant, so the cross-session loop computes it once and passes it in to avoid
-  // recomputing the dedupe (and its Set/Map allocations) for every one of potentially thousands of
-  // fetched events; standalone callers (unit tests) omit it and get the same value computed here.
-  const concepts = precomputedConcepts ?? dedupeSynonymConcepts(queryKeywords);
+  // The concepts are the keywords collapsed to one per synonym group, so two query words expressing ONE
+  // idea (e.g. "stuck" + "timeout") don't double-count coverage/score against an off-topic type
+  // (hello_wait_timeout) and outrank the actually-named entity (app_download_started).
+  const { concepts } = matcher;
+  const fieldOf = matchConcepts(e, matcher);
 
   let totalScore = 0;
   const matched: string[] = [];
   const bestFields = new Set<string>();
   let entityTypeMatch = false;
 
-  for (const kw of concepts) {
-    let kwBestWeight = 0;
-    let kwBestField = '';
-    for (const field of fields) {
-      if (field.text && keywordMatchesField(field.text, kw)) {
-        if (field.weight > kwBestWeight) {
-          kwBestWeight = field.weight;
-          kwBestField = field.name;
-        }
-      }
-    }
-    if (kwBestWeight > 0) {
-      totalScore += kwBestWeight;
-      matched.push(kw);
-      bestFields.add(kwBestField);
-      // A rare, non-problem keyword matching the event TYPE marks this as the named entity.
-      if (kwBestField === 'eventType' && !isProblemIntentKeyword(kw)
-        && (keywordSpecificity?.get(kw) ?? Infinity) <= RARE_THRESHOLD) {
-        entityTypeMatch = true;
-      }
+  for (let c = 0; c < concepts.length; c++) {
+    if (fieldOf[c] < 0) continue;
+    const kw = concepts[c];
+    const field = SCORED_FIELDS[fieldOf[c]];
+    totalScore += field.weight;
+    matched.push(kw);
+    bestFields.add(field.name);
+    // A rare, non-problem keyword matching the event TYPE marks this as the named entity.
+    if (field.name === 'eventType' && !isProblemIntentKeyword(kw)
+      && (keywordSpecificity?.get(kw) ?? Infinity) <= RARE_THRESHOLD) {
+      entityTypeMatch = true;
     }
   }
 
@@ -938,6 +1009,36 @@ export function scoreEvent(
     // No literal keyword hit → the event surfaced purely on semantic type-relevance.
     bestFields: matched.length > 0 ? Array.from(bestFields) : ['eventType(semantic)'],
   };
+}
+
+/** Events scored between two yields to the event loop. */
+const SCORE_YIELD_INTERVAL = 256;
+
+/**
+ * Score fetched events against the query, keeping those at or above `minScore`. Yields to the event
+ * loop every SCORE_YIELD_INTERVAL events: one process serves every tenant, and a cross-session search
+ * ranks tens of thousands of events, which in one synchronous pass would stall every other request
+ * (and /health) until it finished. Stops once the caller has gone, since nobody reads the result.
+ */
+export async function scoreEvents(
+  events: EventEntry[],
+  queryKeywords: string[],
+  boostFailures: boolean,
+  semanticTypeScores: Map<string, number>,
+  keywordSpecificity: Map<string, number>,
+  minScore: number,
+): Promise<Array<ScoredEvent & { event: EventEntry }>> {
+  const matcher = compileConcepts(queryKeywords);
+  const scored: Array<ScoredEvent & { event: EventEntry }> = [];
+  for (let i = 0; i < events.length; i++) {
+    if (i > 0 && i % SCORE_YIELD_INTERVAL === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      getCallerSignal()?.throwIfAborted();
+    }
+    const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity, matcher);
+    if (result && result.score >= minScore) scored.push({ ...result, index: i, event: events[i] });
+  }
+  return scored;
 }
 
 /**
@@ -1066,7 +1167,7 @@ export function registerSearchTools(
         'even when it sits inside another event\'s data — pass a sessionId for a complete scan of every event field. ' +
         '`truncated: true` means incomplete recall: narrow per `recallNote` or use depth="deep".',
       inputSchema: {
-        query: z.string().describe('Natural-language description of what to find (e.g. "machine restarted unexpectedly", "app download stuck", "certificate error")'),
+        query: z.string().max(MAX_SEARCH_QUERY_CHARS).describe('Natural-language description of what to find (e.g. "machine restarted unexpectedly", "app download stuck", "certificate error")'),
         sessionId: SessionIdSchema.optional().describe('Search within one session (complete scan). Omitted: cross-session search by event type.'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         depth: z.enum(['fast', 'deep']).optional().default('fast')
@@ -1075,7 +1176,7 @@ export function registerSearchTools(
           .describe('Number of matching events to return (1-50). Defaults: 10 (fast) / 20 (deep).'),
         minScore: z.coerce.number().min(0).max(1).optional()
           .describe('Minimum relevance score (0-1). Defaults: 0.1 (fast) / 0.05 (deep). Lower surfaces weaker matches.'),
-        keywords: z.array(z.string()).optional()
+        keywords: z.array(z.string().max(MAX_SEARCH_KEYWORD_CHARS)).max(MAX_SEARCH_KEYWORDS).optional()
           .describe('Additional exact keywords, merged (case-insensitively) with those auto-extracted from the query.'),
         guaranteedTopRanked: z.coerce.number().min(0).max(50).optional().default(3)
           .describe('How many top hits (by pure score) stay at the head in rank order, exempt from cross-session diversification (default 3). Set =topK to disable diversification, 0 for maximum session spread. Ignored with sessionId.'),
@@ -1091,8 +1192,11 @@ export function registerSearchTools(
         const topK = args.topK ?? preset.defaultTopK;
         const minScore = args.minScore ?? preset.defaultMinScore;
 
-        // Extract keywords FIRST so we can use them for index-based pre-filtering
-        const queryKeywords = resolveQueryKeywords(query, keywords);
+        // Extract keywords FIRST so we can use them for index-based pre-filtering. Everything below
+        // sees only the first MAX_SCORED_KEYWORDS; the response reports the rest as dropped.
+        const allKeywords = resolveQueryKeywords(query, keywords);
+        const queryKeywords = allKeywords.slice(0, MAX_SCORED_KEYWORDS);
+        const keywordsDropped = allKeywords.length - queryKeywords.length;
         if (queryKeywords.length === 0) {
           logSearchZeroHit('search_events', query, { reason: 'no_keywords' });
           return toolResultText(
@@ -1108,16 +1212,7 @@ export function registerSearchTools(
           await fetchSessionEvents(sessionId, tenantId, queryKeywords, preset.budget, query, eventTypeIndex, keywordSpecificity);
 
         const boostFailures = queryHasProblemIntent(queryKeywords);
-        // Synonym-collapse the query keywords ONCE — scoreEvent runs per fetched event (potentially
-        // thousands), and the concept set is identical across all of them.
-        const concepts = dedupeSynonymConcepts(queryKeywords);
-        const scored: Array<ScoredEvent & { event: EventEntry }> = [];
-        for (let i = 0; i < events.length; i++) {
-          const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity, concepts);
-          if (result && result.score >= minScore) {
-            scored.push({ ...result, index: i, event: events[i] });
-          }
-        }
+        const scored = await scoreEvents(events, queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity, minScore);
 
         scored.sort((a, b) => b.score - a.score);
         const results = diversifyBySession(scored, topK, 2, guaranteedTopRanked).map((s) => ({
@@ -1153,6 +1248,7 @@ export function registerSearchTools(
           depth,
           searchMethod,
           keywordsUsed: queryKeywords,
+          ...(keywordsDropped > 0 ? { keywordsDropped, keywordNote: KEYWORDS_DROPPED_NOTE } : {}),
           sessionsSearchedCount: sessionIds.length,
           eventsFetched: events.length,
           eventsMatched: scored.length,
@@ -1186,7 +1282,7 @@ export function registerSearchTools(
         'because opaque codes embed poorly. For one known code, lookup_error_code is the direct answer (accepts ' +
         'decimal, symbol and enforcement-state input too).',
       inputSchema: {
-        query: z.string().describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
+        query: z.string().max(MAX_SEARCH_QUERY_CHARS).describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
         topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
         type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern', 'error-code']).optional().default('all')
           .describe('Filter by document type. Default: search all types.'),
@@ -1333,9 +1429,9 @@ export function registerSearchTools(
           'Rule of thumb: "how does X work?" → search_docs; "why did this session fail?" → search_knowledge or ' +
           'get_session_summary.',
         inputSchema: {
-          query: z.string().describe('Natural language question (e.g. "how do I deploy the agent with Intune", "where is my data stored", "which roles exist")'),
+          query: z.string().max(MAX_SEARCH_QUERY_CHARS).describe('Natural language question (e.g. "how do I deploy the agent with Intune", "where is my data stored", "which roles exist")'),
           topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
-          section: z.string().optional()
+          section: z.string().max(MAX_DOCS_SECTION_CHARS).optional()
             .describe('Restrict to one documentation area, matching the bundle\'s top-level folder ' +
               `(one of: ${docs.sections.join(', ')}). Omit to search everything.`),
           minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
