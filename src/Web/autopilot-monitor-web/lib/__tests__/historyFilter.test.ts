@@ -44,6 +44,8 @@ describe("classifyEntry", () => {
     expect(classifyEntry(entry("b", "X", "platform", [{ name: "Category", value: "Consent" }]))).toEqual({ group: "platform", kind: "consent", label: "Consent" });
     expect(classifyEntry(entry("c", "test", "platform"))).toEqual({ group: "platform", kind: "other", label: "Other" });
     expect(classifyEntry(entry("d", "enrollment_succeeded"))).toEqual({ group: "enrollment", kind: "enrollment_succeeded", label: "Enrollment succeeded" });
+    // The WhiteGlove seal travels on the Success toggle as its own alert kind.
+    expect(classifyEntry(entry("f", "preprovisioning_completed"))).toEqual({ group: "enrollment", kind: "preprovisioning_completed", label: "Pre-provisioning completed" });
     expect(classifyEntry(entry("e", "some_new_kind"))).toEqual({ group: "enrollment", kind: "some_new_kind", label: "Some new kind" });
   });
 });

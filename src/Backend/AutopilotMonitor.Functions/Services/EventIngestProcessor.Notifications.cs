@@ -2,6 +2,7 @@ using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using System.Linq;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Functions.Services.Push;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
@@ -27,11 +28,13 @@ namespace AutopilotMonitor.Functions.Services
             var failureVerdictApplies = c.FailureEvent != null && failureReason != null;
             var reachedTerminalStatus = statusTransitioned && (c.CompletionEvent != null || failureVerdictApplies);
 
-            // Session watches ("notify me when this session ends") fire on the same terminal gate
-            // as the enrollment alert, independent of any channel configuration. Fail-soft inside.
-            if (reachedTerminalStatus && _pushWatchNotifier != null)
+            // Session watches ("notify me when this session ends") fire on the same gates as the
+            // enrollment and pre-provisioning alerts, independent of any channel configuration.
+            // Fail-soft inside.
+            var watchOutcome = WatchOutcomeFor(statusTransitioned, whiteGloveStatusTransitioned, c, failureReason);
+            if (watchOutcome != null && _pushWatchNotifier != null)
             {
-                await _pushWatchNotifier.NotifyAsync(request.TenantId, request.SessionId, c.CompletionEvent != null,
+                await _pushWatchNotifier.NotifyAsync(request.TenantId, request.SessionId, watchOutcome.Value,
                     updatedSession?.DeviceName, updatedSession?.SerialNumber).ConfigureAwait(false);
             }
 
@@ -124,6 +127,24 @@ namespace AutopilotMonitor.Functions.Services
 
                 await EnqueueNotificationAsync(request, failureChannels, alert).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// What a session watch fires on for this batch, or null: the terminal status on the
+        /// enrollment alert's gate, else the first genuine WhiteGlove seal on the pre-provisioning
+        /// alert's gate (never the duplicate <c>whiteglove_complete</c>, which leaves
+        /// <paramref name="whiteGloveStatusTransitioned"/> false). The seal consumes the watch.
+        /// </summary>
+        internal static SessionWatchOutcome? WatchOutcomeFor(
+            bool statusTransitioned, bool whiteGloveStatusTransitioned, EventClassification c, string? failureReason)
+        {
+            if (statusTransitioned && c.CompletionEvent != null)
+                return SessionWatchOutcome.Succeeded;
+            if (statusTransitioned && c.FailureEvent != null && failureReason != null)
+                return SessionWatchOutcome.Failed;
+            if (whiteGloveStatusTransitioned && c.WhiteGloveEvent != null)
+                return SessionWatchOutcome.Sealed;
+            return null;
         }
 
         /// <summary>

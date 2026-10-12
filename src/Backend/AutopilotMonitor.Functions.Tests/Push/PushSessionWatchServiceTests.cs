@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Services.Push;
 using AutopilotMonitor.Push;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -15,8 +16,8 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 /// Session watches ("notify my devices when this session ends"): the watch row lives in the
 /// SESSION's tenant, the devices it fires on are the watcher's OWN scopes (home tenant, plus the
 /// platform partition for a Global Admin), gated by an enabled Push channel and the role check at
-/// watch time and again at notify time. 48-hour lifetime, one-hour push TTL, consumed at the
-/// terminal status, fail-soft towards the ingest path.
+/// watch time and again at notify time. 48-hour lifetime (30 days on a sealed session), one-hour
+/// push TTL, consumed at the terminal status or the WhiteGlove seal, fail-soft towards the ingest path.
 /// </summary>
 public class PushSessionWatchServiceTests
 {
@@ -40,7 +41,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("d1", Admin, HomeTenantId);
         h.Eligibility.Setup(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>())).ReturnsAsync(false);
 
-        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, Admin);
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.InProgress, Admin);
 
         Assert.Equal(PushOpError.ChannelRequired, result.Error);
         Assert.Empty(h.Repo.Watches);
@@ -53,7 +54,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("d1", Admin, HomeTenantId);
         h.Eligibility.Setup(e => e.IsEligibleAsync(Home, Admin.Upn, Admin.ObjectId, Admin.HomeTenantId)).ReturnsAsync(false);
 
-        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, Admin);
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.InProgress, Admin);
 
         Assert.Equal(PushOpError.NotEligible, result.Error);
         Assert.Empty(h.Repo.Watches);
@@ -68,7 +69,7 @@ public class PushSessionWatchServiceTests
         var h = new Harness();
         h.AddDevice("d1", Admin, HomeTenantId, status);
 
-        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, Admin);
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.InProgress, Admin);
 
         Assert.Equal(PushOpError.Conflict, result.Error);
         Assert.Empty(h.Repo.Watches);
@@ -80,7 +81,7 @@ public class PushSessionWatchServiceTests
         var h = new Harness();
         h.AddDevice("d1", Operator, HomeTenantId);
 
-        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, Admin);
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.InProgress, Admin);
 
         Assert.Equal(PushOpError.Conflict, result.Error);
         Assert.Empty(h.Repo.Watches);
@@ -93,7 +94,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("d1", Admin, HomeTenantId);
 
         var before = DateTime.UtcNow;
-        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, Admin);
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.InProgress, Admin);
         var after = DateTime.UtcNow;
 
         Assert.True(result.Ok);
@@ -108,12 +109,28 @@ public class PushSessionWatchServiceTests
     }
 
     [Fact]
+    public async Task Watch_on_a_sealed_session_lives_thirty_days_because_the_user_phase_starts_whenever_the_device_is_handed_out()
+    {
+        var h = new Harness();
+        h.AddDevice("d1", Admin, HomeTenantId);
+
+        var before = DateTime.UtcNow;
+        var result = await h.Sut.WatchAsync(HomeTenantId, SessionId, SessionStatus.Pending, Admin);
+        var after = DateTime.UtcNow;
+
+        Assert.True(result.Ok);
+        var row = h.Repo.Watches[(HomeTenantId, SessionId, Admin.ObjectId)];
+        Assert.InRange(row.ExpiresUtc, before.AddDays(30), after.AddDays(30));
+        Assert.Equal(row.ExpiresUtc, result.Value!.ExpiresUtc!.Value);
+    }
+
+    [Fact]
     public async Task Global_admin_with_only_a_platform_device_watches_a_customer_session_from_the_platform_scope()
     {
         var h = new Harness();
         h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
 
-        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, GlobalAdmin);
+        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, SessionStatus.InProgress, GlobalAdmin);
 
         Assert.True(result.Ok);
         // The row lives in the SESSION's tenant partition, not in the platform or the home partition.
@@ -130,7 +147,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("h1", GlobalAdmin, HomeTenantId);
         h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
 
-        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, GlobalAdmin);
+        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, SessionStatus.InProgress, GlobalAdmin);
 
         Assert.True(result.Ok);
         Assert.Equal($"{Constants.Push.PlatformScope};{HomeTenantId}", h.Repo.Watches[(CustomerTenantId, SessionId, GlobalAdmin.ObjectId)].OwnerScopes);
@@ -144,7 +161,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
         h.Eligibility.Setup(e => e.HasPushChannelAsync(Home)).ReturnsAsync(false);
 
-        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, GlobalAdmin);
+        var result = await h.Sut.WatchAsync(CustomerTenantId, SessionId, SessionStatus.InProgress, GlobalAdmin);
 
         Assert.True(result.Ok);
         Assert.Equal(Constants.Push.PlatformScope, h.Repo.Watches[(CustomerTenantId, SessionId, GlobalAdmin.ObjectId)].OwnerScopes);
@@ -263,7 +280,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("c2", CustomerAdmin, CustomerTenantId);
         h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, Constants.Push.PlatformScope);
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: true, "DESKTOP-4711", "1234567890");
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", "1234567890");
 
         Assert.Equal(Endpoints(p1, p2), SentTo(h));
         Assert.Empty(h.Repo.Watches);
@@ -283,10 +300,38 @@ public class PushSessionWatchServiceTests
         h.AddWatch(HomeTenantId, SessionId, Admin, HomeTenantId);
         h.AddWatch(HomeTenantId, SessionId, Operator, HomeTenantId);
 
-        await h.Sut.NotifyAsync(HomeTenantId, SessionId, success: false, "DESKTOP-4711", null);
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Failed,"DESKTOP-4711", null);
 
         Assert.Equal(Endpoints(d1, d2), SentTo(h));
         Assert.Empty(h.Repo.Watches);
+    }
+
+    [Fact]
+    public async Task Notify_at_the_seal_pushes_and_consumes_the_watch_so_the_user_phase_needs_a_new_one()
+    {
+        var h = new Harness();
+        var device = h.AddDevice("d1", Admin, HomeTenantId);
+        h.AddWatch(HomeTenantId, SessionId, Admin, HomeTenantId);
+
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Sealed, "DESKTOP-4711", "1234567890");
+
+        Assert.Equal(device.Endpoint, Assert.Single(h.Http.Requests).RequestUri!.ToString());
+        Assert.Empty(h.Repo.Watches);
+    }
+
+    [Theory]
+    [InlineData(SessionWatchOutcome.Succeeded, "Enrollment finished", "DESKTOP-4711 (…7890) finished enrollment.", "success")]
+    [InlineData(SessionWatchOutcome.Failed, "Enrollment failed", "DESKTOP-4711 (…7890) failed enrollment.", "error")]
+    [InlineData(SessionWatchOutcome.Sealed, "Pre-provisioning finished", "DESKTOP-4711 (…7890) finished pre-provisioning.", "success")]
+    public void Watch_message_names_the_outcome_with_the_device_and_the_masked_serial(SessionWatchOutcome outcome, string title, string body, string severity)
+    {
+        Assert.Equal((title, body, severity), PushSessionWatchService.WatchMessage(outcome, "DESKTOP-4711", "1234567890"));
+    }
+
+    [Fact]
+    public void Watch_message_without_a_device_name_or_serial_says_the_device()
+    {
+        Assert.Equal("The device finished pre-provisioning.", PushSessionWatchService.WatchMessage(SessionWatchOutcome.Sealed, null, null).Body);
     }
 
     [Fact]
@@ -296,7 +341,7 @@ public class PushSessionWatchServiceTests
         var device = h.AddDevice("d1", Admin, HomeTenantId);
         h.AddWatch(HomeTenantId, SessionId, Admin, ownerScopes: string.Empty);   // legacy row
 
-        await h.Sut.NotifyAsync(HomeTenantId, SessionId, success: true, "DESKTOP-4711", null);
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", null);
 
         var request = Assert.Single(h.Http.Requests);
         Assert.Equal(device.Endpoint, request.RequestUri!.ToString());
@@ -310,7 +355,7 @@ public class PushSessionWatchServiceTests
         h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
         h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, Constants.Push.PlatformScope, expiresUtc: DateTime.UtcNow.AddMinutes(-1));
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: false, "DESKTOP-4711", "1234567890");
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Failed,"DESKTOP-4711", "1234567890");
 
         Assert.Empty(h.Http.Requests);
         Assert.Empty(h.Repo.Watches);
@@ -323,7 +368,7 @@ public class PushSessionWatchServiceTests
         repo.Setup(r => r.GetWatchesForSessionAsync(CustomerTenantId, SessionId)).ReturnsAsync(new List<PushSessionWatch>());
         var h = new Harness(repo.Object);
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: true, "DESKTOP-4711", null);
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", null);
 
         repo.Verify(r => r.GetWatchesForSessionAsync(CustomerTenantId, SessionId), Times.Once);
         repo.VerifyNoOtherCalls();
@@ -331,15 +376,16 @@ public class PushSessionWatchServiceTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Notify_push_carries_the_one_hour_ttl_and_high_urgency(bool success)
+    [InlineData(SessionWatchOutcome.Succeeded)]
+    [InlineData(SessionWatchOutcome.Failed)]
+    [InlineData(SessionWatchOutcome.Sealed)]
+    public async Task Notify_push_carries_the_one_hour_ttl_and_high_urgency(SessionWatchOutcome outcome)
     {
         var h = new Harness();
         h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
         h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, Constants.Push.PlatformScope);
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success, "DESKTOP-4711", "1234567890");
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, outcome, "DESKTOP-4711", "1234567890");
 
         var request = Assert.Single(h.Http.Requests);
         Assert.Equal("3600", Header(request, "TTL"));   // WatchPushTtl: "Watch bis Session-Ende + 1 h"
@@ -354,7 +400,7 @@ public class PushSessionWatchServiceTests
         h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, Constants.Push.PlatformScope);
         h.Eligibility.Setup(e => e.IsEligibleAsync(NotificationScope.Platform, GlobalAdmin.Upn, GlobalAdmin.ObjectId, GlobalAdmin.HomeTenantId)).ReturnsAsync(false);
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: true, "DESKTOP-4711", "1234567890");
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", "1234567890");
 
         Assert.Empty(h.Http.Requests);
         Assert.Equal(Constants.Push.DeviceStatus.Active, h.Repo.Devices[(Constants.Push.PlatformScope, "p1")].Status);
@@ -369,7 +415,7 @@ public class PushSessionWatchServiceTests
         h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, Constants.Push.PlatformScope);
         h.Eligibility.Setup(e => e.IsOwnerFreshAsync(GlobalAdmin.HomeTenantId, GlobalAdmin.ObjectId, It.IsAny<DateTime>())).ReturnsAsync(false);
 
-        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: true, "DESKTOP-4711", "1234567890");
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", "1234567890");
 
         var row = h.Repo.Devices[(Constants.Push.PlatformScope, "p1")];
         Assert.Equal(Constants.Push.DeviceStatus.Paused, row.Status);
@@ -387,7 +433,7 @@ public class PushSessionWatchServiceTests
         repo.Setup(r => r.GetWatchesForSessionAsync(It.IsAny<string>(), It.IsAny<string>())).ThrowsAsync(new InvalidOperationException("storage unavailable"));
         var h = new Harness(repo.Object);
 
-        var exception = await Record.ExceptionAsync(() => h.Sut.NotifyAsync(CustomerTenantId, SessionId, success: true, "DESKTOP-4711", "1234567890"));
+        var exception = await Record.ExceptionAsync(() => h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Succeeded,"DESKTOP-4711", "1234567890"));
 
         Assert.Null(exception);
         Assert.Empty(h.Http.Requests);

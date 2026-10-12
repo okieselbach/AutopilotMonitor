@@ -6,24 +6,38 @@ using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services.Push;
 
-/// <summary>Terminal-status hook for the ingest path: fires the pushes of everyone watching the session.</summary>
+/// <summary>What a watch fires on: the session's terminal status, or the WhiteGlove seal as an intermediate goal.</summary>
+public enum SessionWatchOutcome
+{
+    Succeeded,
+    Failed,
+    /// <summary>Pre-provisioning (WhiteGlove part 1) sealed the device; the user phase follows later.</summary>
+    Sealed,
+}
+
+/// <summary>Ingest-path hook: fires the pushes of everyone watching the session.</summary>
 public interface IPushSessionWatchNotifier
 {
-    Task NotifyAsync(string tenantId, string sessionId, bool success, string? deviceName, string? serialNumber);
+    Task NotifyAsync(string tenantId, string sessionId, SessionWatchOutcome outcome, string? deviceName, string? serialNumber);
 }
 
 /// <summary>
 /// "Notify my devices when this session ends" (plan use case 3): one watch per (session, person),
-/// consumed at the terminal status. The watch row lives in the SESSION's tenant (tenant isolation
-/// of the session), the devices it fires on are the watcher's OWN: their home-tenant scope and,
-/// for a Global Admin, the platform scope — so an operator can watch a customer's session from
-/// their own paired phone. Admin and Operator only (F14), only in a scope with an enabled Push
-/// channel (K4), and the fan-out runs through the same role and freshness filter as any alert.
-/// Watches expire after 48 hours (the agent's emergency break) and die with the session's tenant.
+/// consumed at the terminal status — or at the WhiteGlove seal, the moment the technician at the
+/// bench is waiting for; watching the user phase takes a second click. The watch row lives in the
+/// SESSION's tenant (tenant isolation of the session), the devices it fires on are the watcher's
+/// OWN: their home-tenant scope and, for a Global Admin, the platform scope — so an operator can
+/// watch a customer's session from their own paired phone. Admin and Operator only (F14), only in
+/// a scope with an enabled Push channel (K4), and the fan-out runs through the same role and
+/// freshness filter as any alert. Watches expire after 48 hours (the agent's emergency break), a
+/// watch on a sealed session after 30 days (the user phase starts whenever the device is handed
+/// out), and die with the session's tenant.
 /// </summary>
 public class PushSessionWatchService : IPushSessionWatchNotifier
 {
     public static readonly TimeSpan WatchLifetime = TimeSpan.FromHours(48);
+    /// <summary>A sealed (Pending) session resumes only when the device reaches its user; matches the owner inactivity window.</summary>
+    public static readonly TimeSpan WatchLifetimeSealed = TimeSpan.FromDays(30);
     /// <summary>The terminal push waits for an offline phone longer than a system message: plan "Watch bis Session-Ende + 1 h".</summary>
     public static readonly TimeSpan WatchPushTtl = TimeSpan.FromHours(1);
     private const char ScopeSeparator = ';';
@@ -56,7 +70,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
         return scopes;
     }
 
-    public async Task<PushOpResult<SessionWatchResponse>> WatchAsync(string tenantId, string sessionId, PushCaller caller)
+    public async Task<PushOpResult<SessionWatchResponse>> WatchAsync(string tenantId, string sessionId, SessionStatus sessionStatus, PushCaller caller)
     {
         var anyChannel = false;
         var anyEligible = false;
@@ -95,7 +109,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
             OwnerUpn = caller.Upn,
             OwnerScopes = string.Join(ScopeSeparator, usable),
             CreatedUtc = now,
-            ExpiresUtc = now + WatchLifetime,
+            ExpiresUtc = now + (sessionStatus == SessionStatus.Pending ? WatchLifetimeSealed : WatchLifetime),
         };
         await _repo.UpsertWatchAsync(watch).ConfigureAwait(false);
         return PushOpResult<SessionWatchResponse>.Success(new SessionWatchResponse { Watching = true, ExpiresUtc = watch.ExpiresUtc, Available = true });
@@ -137,7 +151,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
     }
 
     /// <summary>Fail-soft: a watch push must never cost the ingest path anything.</summary>
-    public async Task NotifyAsync(string tenantId, string sessionId, bool success, string? deviceName, string? serialNumber)
+    public async Task NotifyAsync(string tenantId, string sessionId, SessionWatchOutcome outcome, string? deviceName, string? serialNumber)
     {
         try
         {
@@ -146,10 +160,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
                 return;
 
             var now = DateTime.UtcNow;
-            var device = PushAlertProjector.Clean(deviceName, 48);
-            var serial = PushAlertProjector.MaskSerial(serialNumber);
-            var body = (device.Length > 0 ? device : "The device") + (serial.Length > 0 ? $" ({serial})" : string.Empty)
-                       + (success ? " finished enrollment." : " failed enrollment.");
+            var (title, body, severity) = WatchMessage(outcome, deviceName, serialNumber);
 
             foreach (var watch in watches)
             {
@@ -161,9 +172,8 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
 
                 foreach (var scope in ScopesOf(watch, tenantId))
                 {
-                    var payload = PushAlertProjector.SystemMessage("session_watch",
-                        success ? "Enrollment finished" : "Enrollment failed",
-                        body, success ? "success" : "error", scope, now, Constants.PortalSessionUrl(sessionId));
+                    var payload = PushAlertProjector.SystemMessage("session_watch", title, body, severity, scope, now,
+                        Constants.PortalSessionUrl(sessionId));
                     await _delivery.SendSystemToOwnerAsync(scope, watch.OwnerObjectId, payload, WatchPushTtl).ConfigureAwait(false);
                 }
 
@@ -174,6 +184,20 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
         {
             _logger.LogWarning(ex, "Session watch notification failed for session {SessionId}", sessionId);
         }
+    }
+
+    /// <summary>The watch push's lock-screen text: device name and masked serial only (D-328).</summary>
+    internal static (string Title, string Body, string Severity) WatchMessage(SessionWatchOutcome outcome, string? deviceName, string? serialNumber)
+    {
+        var device = PushAlertProjector.Clean(deviceName, 48);
+        var serial = PushAlertProjector.MaskSerial(serialNumber);
+        var subject = (device.Length > 0 ? device : "The device") + (serial.Length > 0 ? $" ({serial})" : string.Empty);
+        return outcome switch
+        {
+            SessionWatchOutcome.Succeeded => ("Enrollment finished", subject + " finished enrollment.", "success"),
+            SessionWatchOutcome.Sealed => ("Pre-provisioning finished", subject + " finished pre-provisioning.", "success"),
+            _ => ("Enrollment failed", subject + " failed enrollment.", "error"),
+        };
     }
 
     private static IEnumerable<NotificationScope> ScopesOf(PushSessionWatch watch, string sessionTenantId)

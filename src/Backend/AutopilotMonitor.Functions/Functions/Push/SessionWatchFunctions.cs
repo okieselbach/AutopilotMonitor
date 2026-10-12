@@ -51,10 +51,11 @@ public class SessionWatchFunctions
             if (!PushFunctionSupport.IsPlausibleId(sessionId))
                 return await req.NotFoundAsync("Session not found.");
             var (tenantId, caller) = await ScopeAsync(req, sessionId);
-            if (await _sessionRepo.GetSessionAsync(tenantId, sessionId) == null)
+            var session = await _sessionRepo.GetSessionAsync(tenantId, sessionId);
+            if (session == null)
                 return await req.NotFoundAsync("Session not found.");
 
-            var result = await _watches.WatchAsync(tenantId, sessionId, caller);
+            var result = await _watches.WatchAsync(tenantId, sessionId, session.Status, caller);
             return result.Ok
                 ? await req.OkAsync(result.Value!)
                 : await PushFunctionSupport.ErrorAsync(req, result.Error, result.Message);

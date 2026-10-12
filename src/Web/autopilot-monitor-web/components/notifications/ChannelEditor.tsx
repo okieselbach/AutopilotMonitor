@@ -55,7 +55,7 @@ export const PROVIDERS: {
 
 const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: string }[] = [
   { key: "notifyOnStart", label: "Start", hint: "Enrollment started (one signal per fresh session and per Pre-Provisioning resume)" },
-  { key: "notifyOnSuccess", label: "Success", hint: "Enrollment completed successfully" },
+  { key: "notifyOnSuccess", label: "Success", hint: "Enrollment completed successfully, or pre-provisioning finished" },
   { key: "notifyOnFailure", label: "Failure", hint: "Enrollment failed" },
   { key: "notifyOnHardwareRejection", label: "Hardware rejection", hint: "Device rejected by the hardware whitelist" },
   { key: "notifyOnSlaEvents", label: "SLA", hint: "SLA breach / resolved / consecutive failures (which breaches are evaluated is configured under SLA Targets)" },

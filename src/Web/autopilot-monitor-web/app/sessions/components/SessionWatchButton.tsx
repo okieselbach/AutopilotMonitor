@@ -21,10 +21,12 @@ interface SessionWatchButtonProps {
 
 /**
  * "Notify me when done" (plan push-relay): registers a watch that pushes to the caller's own
- * paired devices when this session reaches a terminal status. Hidden once the session is
- * terminal; the host gates it to Admins/Operators (and Global Admins) like Report Session.
- * The GET says whether watching is possible for this person at all (a Push channel in one of
- * their own scopes); without that the button stays hidden instead of letting a click fail.
+ * paired devices when this session reaches a terminal status — or when pre-provisioning seals
+ * the device, which consumes the watch; on the sealed (Pending) session a new click watches the
+ * user phase. Hidden once the session is terminal; the host gates it to Admins/Operators (and
+ * Global Admins) like Report Session. The GET says whether watching is possible for this person
+ * at all (a Push channel in one of their own scopes); without that the button stays hidden
+ * instead of letting a click fail. Every status change re-reads the watch, so the seal shows here.
  */
 export default function SessionWatchButton({ sessionId, effectiveTenantId, sessionStatus, getAccessToken, addNotification }: SessionWatchButtonProps) {
   const [watching, setWatching] = useState<boolean | null>(null);
@@ -32,6 +34,8 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
   const [busy, setBusy] = useState(false);
 
   const active = sessionId.length > 0 && !!sessionStatus && !TERMINAL_STATUSES.has(sessionStatus);
+  const sealed = sessionStatus === "Pending";
+  const until = sealed ? "the user phase ends" : "this session ends or pre-provisioning finishes";
 
   useEffect(() => {
     if (!active) return;
@@ -51,7 +55,7 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
     return () => {
       cancelled = true;
     };
-  }, [active, sessionId, effectiveTenantId, getAccessToken]);
+  }, [active, sessionStatus, sessionId, effectiveTenantId, getAccessToken]);
 
   if (!active || !available) return null;
 
@@ -63,7 +67,7 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
       const result = await setSessionWatch(sessionId, effectiveTenantId, next, getAccessToken);
       setWatching(result.watching);
       if (result.watching) {
-        addNotification("success", TOAST_TITLE, "Your paired devices will be notified when this session ends.", TOAST_KEY);
+        addNotification("success", TOAST_TITLE, `Your paired devices will be notified when ${until}.`, TOAST_KEY);
       } else {
         addNotification("info", TOAST_TITLE, "You will not be notified for this session.", TOAST_KEY);
       }
@@ -84,7 +88,7 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
       onClick={() => void toggle()}
       disabled={busy || watching === null}
       aria-pressed={watching === true}
-      title={watching ? "Stop notifying my devices when this session ends." : "Push to my paired devices when this session ends."}
+      title={watching ? `Stop notifying my devices when ${until}.` : `Push to my paired devices when ${until}.`}
       className={`px-4 py-2 rounded-md transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
         watching
           ? "bg-sky-100 border border-sky-300 text-sky-800 hover:bg-sky-200"
