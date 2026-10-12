@@ -7,6 +7,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared.Models;
@@ -76,7 +77,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger.Debug("Client certificate authentication disabled.");
             }
 
-            var apiHttpClient = BuildBackendApiHttpClient(networkMetrics, clientCertificate, agentVersion);
+            // One observer for both backend handler stacks (this one and the mTLS telemetry stack
+            // in BuildTelemetryClients): the issuer of the last validated server certificate is
+            // the evidence for a 401/403 that something on the network path answered.
+            var serverCertificates = new ServerCertificateObserver();
+
+            var apiHttpClient = BuildBackendApiHttpClient(networkMetrics, clientCertificate, agentVersion, serverCertificates);
 
             var backendApiClient = new BackendApiClient(
                 httpClient: apiHttpClient,
@@ -87,7 +93,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 useBootstrapTokenAuth: agentConfig.UseBootstrapTokenAuth,
                 bootstrapToken: agentConfig.BootstrapToken,
                 agentVersion: agentVersion,
-                logger: logger);
+                logger: logger,
+                serverCertificates: serverCertificates);
 
             // M4.6.γ — Emergency + Distress reporters. Plumbed into RemoteConfigService so
             // Config-fetch failures (auth vs network) flow to the correct channel. Also fires
@@ -141,7 +148,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 serialNumber: hardware.SerialNumber,
                 distressReporter: distressReporter,
                 emergencyReporter: emergencyReporter,
-                authFailureTracker: authFailureTracker);
+                authFailureTracker: authFailureTracker,
+                serverCertificates: serverCertificates);
         }
 
         /// <summary>
@@ -168,7 +176,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 mtlsHttpClient = MtlsHttpClientFactory.Create(
                     resolver: new DefaultCertificateResolver(),
                     logger: logger,
-                    metrics: auth.NetworkMetrics);
+                    metrics: auth.NetworkMetrics,
+                    serverCertificates: auth.ServerCertificates);
             }
             catch (InvalidOperationException ex)
             {
@@ -189,7 +198,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     bootstrapToken: agentConfig.UseBootstrapTokenAuth ? agentConfig.BootstrapToken : null,
                     agentVersion: agentVersion,
                     authFailureTracker: auth.AuthFailureTracker,
-                    logger: logger);     // Plan §5 Fix 5 — upload-cadence logging
+                    logger: logger,      // Plan §5 Fix 5 — upload-cadence logging
+                    serverCertificates: auth.ServerCertificates,
+                    networkMetrics: auth.NetworkMetrics);
             }
             catch (Exception ex)
             {
@@ -211,14 +222,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         ///   <item><see cref="NetworkMetricsRecordingHandler"/> — records every SendAsync into
         ///     the shared <see cref="NetworkMetrics"/> counter.</item>
         ///   <item><see cref="HttpClientHandler"/> — TLS, optional client cert,
-        ///     gzip/deflate response decompression.</item>
+        ///     gzip/deflate response decompression, optional observing server-certificate
+        ///     callback (<paramref name="serverCertificates"/>; never changes the verdict).</item>
         /// </list>
         /// </para>
         /// </summary>
         internal static HttpClient BuildBackendApiHttpClient(
             NetworkMetrics networkMetrics,
             X509Certificate2 clientCertificate,
-            string agentVersion)
+            string agentVersion,
+            ServerCertificateObserver serverCertificates = null)
         {
             var inner = new HttpClientHandler();
             if (inner.SupportsAutomaticDecompression)
@@ -229,6 +242,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             {
                 inner.ClientCertificates.Add(clientCertificate);
             }
+            serverCertificates?.Attach(inner);
 
             var pipeline = new NetworkMetricsRecordingHandler(networkMetrics, inner);
             var client = new HttpClient(pipeline)
@@ -270,6 +284,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         public EmergencyReporter EmergencyReporter { get; }
         public AuthFailureTracker AuthFailureTracker { get; }
 
+        /// <summary>
+        /// Server-certificate observer shared by the BackendApiClient handler and the mTLS
+        /// telemetry handler built in Phase 5.
+        /// </summary>
+        public ServerCertificateObserver ServerCertificates { get; }
+
         public BackendAuthBundle(
             BackendApiClient backendApiClient,
             NetworkMetrics networkMetrics,
@@ -279,7 +299,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             string serialNumber,
             DistressReporter distressReporter,
             EmergencyReporter emergencyReporter,
-            AuthFailureTracker authFailureTracker)
+            AuthFailureTracker authFailureTracker,
+            ServerCertificateObserver serverCertificates)
         {
             BackendApiClient = backendApiClient;
             NetworkMetrics = networkMetrics;
@@ -290,6 +311,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             DistressReporter = distressReporter;
             EmergencyReporter = emergencyReporter;
             AuthFailureTracker = authFailureTracker;
+            ServerCertificates = serverCertificates;
         }
     }
 

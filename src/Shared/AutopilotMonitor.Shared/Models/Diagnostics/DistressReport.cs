@@ -42,6 +42,16 @@ namespace AutopilotMonitor.Shared.Models
         /// firmware update or device replacement, not an agent change.
         /// </summary>
         TpmPssUnsupported = 8,
+
+        /// <summary>
+        /// The agent got a 401/403 this backend did not author: the response does not echo the
+        /// request's <c>X-Correlation-ID</c>. It is the platform's "Client Certificate Required"
+        /// page or a proxy's own page, so the device certificate never reached the backend —
+        /// typically TLS inspection on the network path. <see cref="DistressReport.Message"/>
+        /// carries the operation, the status, the page title and the issuer of the server
+        /// certificate the agent saw.
+        /// </summary>
+        ClientCertificateNotReceived = 9,
     }
 
     /// <summary>

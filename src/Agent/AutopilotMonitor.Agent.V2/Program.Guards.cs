@@ -256,10 +256,10 @@ namespace AutopilotMonitor.Agent.V2
         /// <summary>
         /// <c>true</c> when the file-based <c>enrollment-complete.marker</c> signals that a
         /// previous session already completed enrollment — written by
-        /// <see cref="CheckSessionAgeEmergencyBreak"/> right before it fires the cleanup retry,
-        /// so that a next-boot observing the marker exits cleanly even if the cleanup retry
-        /// failed to remove the Scheduled Task. Triggers another self-destruct attempt when
-        /// <paramref name="selfDestructOnComplete"/> is set.
+        /// <see cref="EndMonitoringAtStart"/> (emergency break, intercepted-registration give-up,
+        /// config kill signal) right before it fires the cleanup retry, so that a next-boot observing the marker exits
+        /// cleanly even if the cleanup retry failed to remove the Scheduled Task. Triggers another
+        /// self-destruct attempt when <paramref name="selfDestructOnComplete"/> is set.
         /// <para>
         /// The <c>HKLM\SOFTWARE\AutopilotMonitor\Deployed</c> registry value is NOT consulted
         /// here: it is a bootstrap-script reentry lock (read by Install-AutopilotMonitor-v2.ps1
@@ -350,23 +350,10 @@ namespace AutopilotMonitor.Agent.V2
                 try { onBreakFired?.Invoke(sessionAgeHours); }
                 catch (Exception cbEx) { logger.Debug($"Emergency-break notify callback failed: {cbEx.Message}"); }
 
-                // Write enrollment-complete.marker so the next start exits cleanly even if
-                // the cleanup retry below fails (Scheduled Task still alive, files locked, …).
-                try
-                {
-                    Directory.CreateDirectory(stateDirectory);
-                    var markerPath = Path.Combine(stateDirectory, EnrollmentCompleteMarkerFileName);
-                    File.WriteAllText(markerPath,
-                        $"Emergency break at {DateTime.UtcNow:O} (session age: {sessionAgeHours:F1}h)");
-                }
-                catch (Exception ex) { logger.Warning($"Failed to write enrollment-complete.marker: {ex.Message}"); }
-
-                if (selfDestructOnComplete)
-                {
-                    TryRetryCleanup(cleanupServiceFactory, logger, "emergency_break");
-                }
-
-                persistence.Delete(logger);
+                EndMonitoringAtStart(
+                    stateDirectory, persistence, selfDestructOnComplete, cleanupServiceFactory, logger,
+                    markerText: $"Emergency break at {DateTime.UtcNow:O} (session age: {sessionAgeHours:F1}h)",
+                    cleanupReason: "emergency_break");
                 logger.Info("Emergency break: cleanup completed. Agent will exit.");
                 return true;
             }
@@ -375,6 +362,40 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Error("Emergency break check failed.", ex);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Ends monitoring at process start: writes <c>enrollment-complete.marker</c> first so the
+        /// next start exits cleanly even if the cleanup retry fails (Scheduled Task still alive,
+        /// files locked, …), runs the cleanup retry when <paramref name="runSelfDestruct"/> is set
+        /// (the emergency break and the give-up pass <c>SelfDestructOnComplete</c>, the kill signal
+        /// forces it), and deletes the persisted session files. Shared by the session-age emergency
+        /// break, the intercepted-registration give-up
+        /// (<c>BackendSessionRegistration.ConcludeFailedRun</c>) and the config-channel kill signal
+        /// so all three leave the device in the same state. Never throws.
+        /// </summary>
+        internal static void EndMonitoringAtStart(
+            string stateDirectory,
+            SessionIdPersistence persistence,
+            bool runSelfDestruct,
+            Func<CleanupService> cleanupServiceFactory,
+            AgentLogger logger,
+            string markerText,
+            string cleanupReason)
+        {
+            try
+            {
+                Directory.CreateDirectory(stateDirectory);
+                File.WriteAllText(Path.Combine(stateDirectory, EnrollmentCompleteMarkerFileName), markerText);
+            }
+            catch (Exception ex) { logger.Warning($"Failed to write enrollment-complete.marker: {ex.Message}"); }
+
+            if (runSelfDestruct)
+            {
+                TryRetryCleanup(cleanupServiceFactory, logger, cleanupReason);
+            }
+
+            persistence?.Delete(logger);
         }
 
         /// <summary>
@@ -409,22 +430,15 @@ namespace AutopilotMonitor.Agent.V2
             if (consoleMode)
                 Console.Out.WriteLine("KILL: administrator issued a remote kill signal. Cleaning up and exiting.");
 
-            // Write enrollment-complete.marker first so the next start exits cleanly even if
-            // the cleanup below fails (Scheduled Task still alive, files locked, …) — same
-            // guarantee-of-termination pattern as the session-age emergency break.
-            try
-            {
-                Directory.CreateDirectory(stateDirectory);
-                var markerPath = Path.Combine(stateDirectory, EnrollmentCompleteMarkerFileName);
-                File.WriteAllText(markerPath, $"Kill signal at {DateTime.UtcNow:O} (config channel)");
-            }
-            catch (Exception ex) { logger.Warning($"Failed to write enrollment-complete.marker: {ex.Message}"); }
+            SessionIdPersistence persistence = null;
+            try { persistence = new SessionIdPersistence(dataDirectory); }
+            catch (Exception ex) { logger.Warning($"Failed to open the persisted session after kill: {ex.Message}"); }
 
             // forceSelfDestruct — no SelfDestructOnComplete gate, matching the telemetry-kill.
-            TryRetryCleanup(cleanupServiceFactory, logger, "kill_signal");
-
-            try { new SessionIdPersistence(dataDirectory).Delete(logger); }
-            catch (Exception ex) { logger.Warning($"Failed to delete persisted session after kill: {ex.Message}"); }
+            EndMonitoringAtStart(
+                stateDirectory, persistence, runSelfDestruct: true, cleanupServiceFactory, logger,
+                markerText: $"Kill signal at {DateTime.UtcNow:O} (config channel)",
+                cleanupReason: "kill_signal");
 
             logger.Info("Kill signal handled — agent exiting.");
             return true;

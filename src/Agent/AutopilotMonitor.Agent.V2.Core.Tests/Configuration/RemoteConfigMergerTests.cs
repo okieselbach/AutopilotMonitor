@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             UnrestrictedMode = true,
             MaxAuthFailures = 7,
             AuthFailureTimeoutMinutes = 15,
+            InterceptedRegistrationRetryBoots = 2,
             EnableImeMatchLog = true,
             Collectors = new CollectorConfiguration
             {
@@ -98,6 +99,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(45, agent.HelloWaitTimeoutSeconds);
             Assert.Equal(7, agent.MaxAuthFailures);
             Assert.Equal(15, agent.AuthFailureTimeoutMinutes);
+            Assert.Equal(2, agent.InterceptedRegistrationRetryBoots);
 
             Assert.NotNull(result);
             Assert.True(result.UnrestrictedModeChanged);
@@ -466,6 +468,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             RemoteConfigMerger.Merge(agent, remote);
 
             Assert.Equal(0, agent.AgentMaxLifetimeMinutes);
+        }
+
+        // ============================================================= Intercepted-registration buffer
+
+        [Theory]
+        [InlineData(0)] // clean up at the first intercepted registration
+        [InlineData(3)]
+        public void Merge_copies_intercepted_registration_retry_boots(int remoteValue)
+        {
+            var agent = NewAgentConfig();
+            var remote = FullRemote();
+            remote.InterceptedRegistrationRetryBoots = remoteValue;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.Equal(remoteValue, agent.InterceptedRegistrationRetryBoots);
+        }
+
+        [Fact]
+        public void Merge_keeps_the_agent_default_when_the_backend_sends_no_intercepted_registration_retry_boots()
+        {
+            var agent = NewAgentConfig();
+            var remote = FullRemote();
+            remote.InterceptedRegistrationRetryBoots = null; // backend that predates the field
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.Equal(1, agent.InterceptedRegistrationRetryBoots);
+        }
+
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(int.MinValue, 0)]
+        [InlineData(6, 5)]
+        [InlineData(int.MaxValue, 5)]
+        public void Merge_clamps_intercepted_registration_retry_boots_to_zero_through_five(int remoteValue, int expected)
+        {
+            var agent = NewAgentConfig();
+            var remote = FullRemote();
+            remote.InterceptedRegistrationRetryBoots = remoteValue;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.Equal(expected, agent.InterceptedRegistrationRetryBoots);
         }
 
         // ============================================================= Guard

@@ -345,7 +345,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         {
                             lifecyclePost = new InformationalEventPost(ingress, SystemClock.Instance, logger);
                             LifecycleEmitters.EmitAgentStarted(lifecyclePost, agentConfig, previousExit, agentVersion, remoteConfigService, logger,
-                                rotatedFromSessionId: registrationResult?.RotatedFromSessionId);
+                                rotatedFromSessionId: registrationResult?.RotatedFromSessionId,
+                                priorRegistrationFailures: registration.PriorFailures);
                             // Wire-visible signal that the agent is running on defaults/cache
                             // rather than the live tenant config — closes the cold-start
                             // blind spot observed in session 8f2bef72 (2026-05-19).

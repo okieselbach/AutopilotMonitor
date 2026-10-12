@@ -10,6 +10,7 @@ using AutopilotMonitor.Agent.V2.Core.Persistence;
 using AutopilotMonitor.Agent.V2.Core.Telemetry.Events;
 using AutopilotMonitor.Agent.V2.Core.Telemetry.Signals;
 using AutopilotMonitor.Agent.V2.Core.Telemetry.Transitions;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Classifiers;
 using AutopilotMonitor.DecisionCore.Engine;
@@ -316,6 +317,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public long IngressPendingSignalCount => _ingress?.PendingSignalCount ?? 0L;
 
         /// <summary>
+        /// Terminal phase: grants the transport its one upload attempt despite an active
+        /// interception pause (<see cref="TelemetryUploadOrchestrator.GrantTerminalAttempt"/>) and,
+        /// only while that pause holds, wakes the drain loop so the attempt runs inside the caller's
+        /// bounded drain window. Without an interception pause nothing changes. No-op before
+        /// <see cref="Start"/>.
+        /// </summary>
+        public void RequestTerminalUploadAttempt()
+        {
+            var transport = _transport;
+            if (transport == null) return;
+            if (transport.GrantTerminalAttempt())
+                OnImmediateFlushRequested(this, EventArgs.Empty);
+        }
+
+        /// <summary>
         /// Typed read-model surfaces returned by <see cref="IComponentFactory.CreateCollectorHosts"/>
         /// (ARCH-F4). Set during <see cref="Start"/> step 14; <c>null</c> before Start and when
         /// no factory was supplied. The runtime host reads peripheral surfaces (IME app tracking,
@@ -384,6 +400,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // here cannot deadlock the drain.
             _transport.BatchPoisoned += OnBatchPoisoned;
             _transport.UploadBlocked += OnUploadBlocked;
+            _transport.UploadIntercepted += OnUploadIntercepted;
 
             // The spool reference reaches peripheral collectors (AgentSelfMetricsCollector via
             // PeriodicCollectorLifecycleHost) as a CreateCollectorHosts parameter at step 14,
@@ -1004,11 +1021,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (AggregateException) { /* wrapped OperationCanceledException */ }
             catch (Exception ex) { _logger.Warning($"EnrollmentOrchestrator: drain loop join failed: {ex.Message}"); }
 
-            // 5) Terminaler Drain — finale Batches.
+            // 5) Terminaler Drain — finale Batches. An active interception pause still lets the
+            //    process make its one terminal attempt here, unless DrainSpool already used it.
             try
             {
                 using (var timeoutCts = new CancellationTokenSource(_terminalDrainTimeout))
                 {
+                    _transport?.GrantTerminalAttempt();
                     _transport?.DrainAllAsync(timeoutCts.Token).GetAwaiter().GetResult();
                 }
             }
@@ -1152,6 +1171,56 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (Exception ex)
             {
                 _logger.Error("EnrollmentOrchestrator: failed to post telemetry_upload_blocked.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Records the first intercepted upload of the process as <c>telemetry_upload_blocked</c>
+        /// with the interception evidence. Gated once per process by the transport, independently
+        /// of <see cref="OnUploadBlocked"/>. Queued behind the intercepted batch like every other
+        /// item: it reaches the backend only if the path clears in this run, and its arrival time
+        /// marks the end of the interception.
+        /// </summary>
+        private void OnUploadIntercepted(object? sender, InterceptionReport report)
+        {
+            var interception = report.Interception;
+            _logger.Warning(
+                $"EnrollmentOrchestrator: telemetry upload intercepted on the network path ({interception.ForeignReason}, " +
+                $"http {interception.StatusCode}, pageTitle=\"{interception.PageTitle ?? "(none)"}\", " +
+                $"serverCertIssuer=\"{interception.ServerCertIssuer ?? "(unknown)"}\") — uploads pause with backoff; " +
+                "the agent keeps observing.");
+
+            var ingress = _ingress;
+            if (ingress == null) return;
+            try
+            {
+                new InformationalEventPost(ingress, _clock).Emit(new Shared.Models.EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.TelemetryUploadBlocked,
+                    Severity = Shared.Models.EventSeverity.Warning,
+                    Source = "TelemetryUploadOrchestrator",
+                    Phase = Shared.Models.EnrollmentPhase.Unknown,
+                    Message = "Telemetry upload intercepted on the network path: the answer did not come from the "
+                              + "backend, so the device certificate did not reach it. Uploads pause with backoff and "
+                              + "resume once the path clears; this marker is queued behind the intercepted batch.",
+                    Timestamp = _clock.UtcNow,
+                    ImmediateUpload = true,
+                    Data = new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        ["reason"] = interception.ForeignReason ?? ResponseClassification.ForeignResponse,
+                        ["operation"] = "agent/telemetry",
+                        ["statusCode"] = interception.StatusCode,
+                        ["pageTitle"] = interception.PageTitle ?? string.Empty,
+                        ["serverCertIssuer"] = interception.ServerCertIssuer ?? string.Empty,
+                        ["firstBlockedAtUtc"] = report.FirstBlockedAtUtc.ToString("o", CultureInfo.InvariantCulture),
+                    },
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("EnrollmentOrchestrator: failed to post telemetry_upload_blocked (interception).", ex);
             }
         }
 

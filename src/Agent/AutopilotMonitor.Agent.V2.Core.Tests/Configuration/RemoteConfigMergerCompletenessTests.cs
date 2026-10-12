@@ -50,6 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             nameof(AgentConfigResponse.MaxBatchSize),
             nameof(AgentConfigResponse.MaxAuthFailures),
             nameof(AgentConfigResponse.AuthFailureTimeoutMinutes),
+            nameof(AgentConfigResponse.InterceptedRegistrationRetryBoots),
             // Merge reads two Collectors knobs (AgentMaxLifetimeMinutes, HelloWaitTimeoutSeconds);
             // the remaining CollectorConfiguration flags flow untouched to DefaultComponentFactory.
             nameof(AgentConfigResponse.Collectors),

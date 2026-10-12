@@ -33,7 +33,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///   <item>On <see cref="BackendAuthException"/> (401/403) → report to the
     ///     <see cref="AuthFailureTracker"/> (which fires the first-failure distress + may trip
     ///     the shutdown threshold) and return <see cref="SessionRegistrationOutcome.AuthFailed"/>
-    ///     without retrying — the backend has definitively rejected the device cert.</item>
+    ///     without retrying — the backend has definitively rejected the device cert. A 401/403
+    ///     something on the network path answered ends the same way, marked
+    ///     <see cref="SessionRegistrationResult.IsIntercepted"/>.</item>
     ///   <item>Exception to the above — a 403 or 409 carrying error code
     ///     <c>session_owner_mismatch</c> (SESSION-OWNER-BINDING): the persisted SessionId names a
     ///     session that is not this device's — bound to another device identity (403, typically an
@@ -135,8 +137,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         logger.Error($"Session owner mismatch reported by backend but session rotation failed: {rotateEx.Message}", rotateEx);
                         if (ex is BackendAuthException authEx)
                         {
-                            authFailureTracker?.RecordFailure(authEx.StatusCode, "agent/register-session", authEx.EndpointUnavailable);
-                            return SessionRegistrationResult.AuthFailed(authEx.StatusCode, authEx.Message);
+                            authFailureTracker?.RecordFailure(authEx.StatusCode, "agent/register-session", authEx.Classification);
+                            return SessionRegistrationResult.AuthFailed(authEx.StatusCode, authEx.Message, authEx.IsForeignResponse);
                         }
                         return SessionRegistrationResult.Failed(ex.Message);
                     }
@@ -154,12 +156,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 }
                 catch (BackendAuthException ex)
                 {
-                    logger.Error($"Session registration authentication failed ({ex.StatusCode}): {ex.Message}");
+                    logger.Error(ex.IsForeignResponse
+                        ? $"Session registration intercepted on the network path ({ex.StatusCode}): {ex.Message}"
+                        : $"Session registration authentication failed ({ex.StatusCode}): {ex.Message}");
                     // Feed the central auth-failure tracker so the first-failure distress dispatches
                     // and the shutdown threshold advances. V1 parity: no retry on auth-failure —
-                    // backend has definitively rejected the cert/token.
-                    authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session", ex.EndpointUnavailable);
-                    return SessionRegistrationResult.AuthFailed(ex.StatusCode, ex.Message);
+                    // backend has definitively rejected the cert/token. A 401/403 from something on
+                    // the network path is not counted; the tracker reports it once per process as
+                    // ClientCertificateNotReceived, and the run ends AuthFailed marked intercepted
+                    // (the caller's buffer decides between a further boot and cleaning up).
+                    authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session", ex.Classification);
+                    return SessionRegistrationResult.AuthFailed(ex.StatusCode, ex.Message, ex.IsForeignResponse);
                 }
                 catch (Exception ex)
                 {
@@ -274,7 +281,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>Backend responded with <c>Success=true</c>. The session row is live.</summary>
         Succeeded = 0,
 
-        /// <summary>401/403 from the backend — cert/token rejected. No retry was attempted.</summary>
+        /// <summary>
+        /// 401/403 — cert/token rejected by the backend, or answered by something on the network
+        /// path (<see cref="SessionRegistrationResult.IsIntercepted"/>). No retry was attempted.
+        /// </summary>
         AuthFailed = 1,
 
         /// <summary>All attempts failed with non-auth errors (network, 5xx, malformed response).</summary>
@@ -299,25 +309,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// </summary>
         public string RotatedFromSessionId { get; }
 
+        /// <summary>
+        /// True when the run ended on a 401/403 that something on the network path answered (TLS
+        /// inspection, a proxy page — <see cref="BackendAuthException.IsForeignResponse"/>), not
+        /// the backend. Such starts count toward the intercepted-registration buffer.
+        /// </summary>
+        public bool IsIntercepted { get; }
+
         private SessionRegistrationResult(
             SessionRegistrationOutcome outcome,
             RegisterSessionResponse response,
             int httpStatusCode,
             string errorMessage,
-            string rotatedFromSessionId = null)
+            string rotatedFromSessionId = null,
+            bool isIntercepted = false)
         {
             Outcome = outcome;
             Response = response;
             HttpStatusCode = httpStatusCode;
             ErrorMessage = errorMessage;
             RotatedFromSessionId = rotatedFromSessionId;
+            IsIntercepted = isIntercepted;
         }
 
         public static SessionRegistrationResult Succeeded(RegisterSessionResponse response, string rotatedFromSessionId = null)
             => new SessionRegistrationResult(SessionRegistrationOutcome.Succeeded, response, 200, null, rotatedFromSessionId);
 
-        public static SessionRegistrationResult AuthFailed(int statusCode, string message)
-            => new SessionRegistrationResult(SessionRegistrationOutcome.AuthFailed, null, statusCode, message);
+        public static SessionRegistrationResult AuthFailed(int statusCode, string message, bool intercepted = false)
+            => new SessionRegistrationResult(SessionRegistrationOutcome.AuthFailed, null, statusCode, message, isIntercepted: intercepted);
 
         public static SessionRegistrationResult Failed(string message)
             => new SessionRegistrationResult(SessionRegistrationOutcome.Failed, null, 0, message);

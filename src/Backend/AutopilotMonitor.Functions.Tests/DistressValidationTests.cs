@@ -454,6 +454,7 @@ public class DistressValidationTests
     [InlineData(DistressErrorType.ConfigFetchDenied)]
     [InlineData(DistressErrorType.SessionRegistrationDenied)]
     [InlineData(DistressErrorType.TpmPssUnsupported)]
+    [InlineData(DistressErrorType.ClientCertificateNotReceived)]
     public void EnumIsDefined_AllValidErrorTypes_ReturnsTrue(DistressErrorType errorType)
     {
         Assert.True(Enum.IsDefined(typeof(DistressErrorType), errorType));
@@ -462,7 +463,7 @@ public class DistressValidationTests
     [Theory]
     [InlineData(99)]
     [InlineData(-1)]
-    [InlineData(9)]
+    [InlineData(10)]
     [InlineData(999)]
     public void EnumIsDefined_InvalidValues_ReturnsFalse(int rawValue)
     {
@@ -470,11 +471,11 @@ public class DistressValidationTests
     }
 
     [Fact]
-    public void DistressErrorType_HasExactly9Values()
+    public void DistressErrorType_HasExactly10Values()
     {
         // If someone adds a new enum value, this test forces them to also add test coverage
         var values = Enum.GetValues(typeof(DistressErrorType));
-        Assert.Equal(9, values.Length);
+        Assert.Equal(10, values.Length);
     }
 
     // =========================================================================

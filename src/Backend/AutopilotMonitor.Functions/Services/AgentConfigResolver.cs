@@ -36,7 +36,13 @@ namespace AutopilotMonitor.Functions.Services
     public class AgentConfigResolver
     {
         /// <summary>Bumped when the wire shape gains a field the agent must understand.</summary>
-        public const int ConfigVersion = 40; // EnableDoGroupIdAutoSet (Delivery Optimization group ID from network fingerprint)
+        public const int ConfigVersion = 41; // InterceptedRegistrationRetryBoots (boots after an intercepted registration)
+
+        /// <summary>
+        /// Served as <see cref="AgentConfigResponse.InterceptedRegistrationRetryBoots"/>. A code
+        /// constant, no tenant or operator setting: changing it is a backend deploy.
+        /// </summary>
+        public const int DefaultInterceptedRegistrationRetryBoots = 1;
 
         /// <summary>
         /// The agent line whose hash oracle is served when no X-Agent-Version is available
@@ -127,6 +133,7 @@ namespace AutopilotMonitor.Functions.Services
                 EnableEspContinueAnywayObservation = tenantConfig.EnableEspContinueAnywayObservation ?? false,
                 MaxAuthFailures = tenantConfig.MaxAuthFailures ?? 5,
                 AuthFailureTimeoutMinutes = tenantConfig.AuthFailureTimeoutMinutes ?? 0,
+                InterceptedRegistrationRetryBoots = DefaultInterceptedRegistrationRetryBoots,
                 LogLevel = tenantConfig.LogLevel ?? "Info",
                 RebootOnComplete = tenantConfig.RebootOnComplete ?? false,
                 RebootDelaySeconds = tenantConfig.RebootDelaySeconds ?? 10,

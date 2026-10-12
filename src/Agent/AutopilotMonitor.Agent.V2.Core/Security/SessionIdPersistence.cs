@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Text;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
@@ -26,6 +28,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private readonly string _whiteGloveMarkerPath;
         private readonly string _registrationFailurePath;
         private readonly object _lockObject = new object();
+
+        // Agent-local key in registration-failure.json; RegistrationFailureSummary has no such member.
+        private const string LocalNetworkFingerprintKey = "NetworkFingerprint";
 
         public SessionIdPersistence(string dataDirectory)
         {
@@ -170,22 +175,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
         /// <summary>
         /// Folds one failed registration run into <c>registration-failure.json</c>: the run
-        /// counter grows, the first failure time is kept, everything else describes the latest
-        /// run. A run that never registers exits and leaves nothing else behind — the emergency
-        /// break reads this file so the backend learns why the session never appeared.
-        /// Best-effort; never throws.
+        /// counters grow (an intercepted run — <c>InterceptedRuns</c> &gt; 0 on
+        /// <paramref name="latestRun"/> — also counts toward
+        /// <see cref="RegistrationFailureSummary.InterceptedRuns"/>), the first failure time is kept,
+        /// everything else describes the latest run. A run that never registers exits and leaves
+        /// nothing else behind — the emergency break reads this file so the backend learns why the
+        /// session never appeared. <paramref name="networkFingerprint"/> (the latest run's network)
+        /// is stored beside the summary, never in it, so it cannot reach the wire. Written through to
+        /// disk (L.12): the process exits right after and the next boot decides on the record.
+        /// Returns the merged summary, null when it could not be written. Never throws.
         /// </summary>
-        public void RecordRegistrationFailure(RegistrationFailureSummary latestRun, AgentLogger logger = null)
+        public RegistrationFailureSummary RecordRegistrationFailure(
+            RegistrationFailureSummary latestRun, AgentLogger logger = null, string networkFingerprint = null)
         {
-            if (latestRun == null) return;
+            if (latestRun == null) return null;
             lock (_lockObject)
             {
                 try
                 {
-                    var previous = LoadRegistrationFailureInternal();
+                    var previous = LoadRegistrationFailureInternal()?.Summary;
                     var merged = new RegistrationFailureSummary
                     {
                         FailedRuns = (previous?.FailedRuns ?? 0) + 1,
+                        InterceptedRuns = (previous?.InterceptedRuns ?? 0) + (latestRun.InterceptedRuns > 0 ? 1 : 0),
                         FirstFailedAtUtc = previous?.FirstFailedAtUtc ?? latestRun.LastFailedAtUtc,
                         LastFailedAtUtc = latestRun.LastFailedAtUtc,
                         Outcome = latestRun.Outcome,
@@ -195,18 +207,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         AttemptWindowSeconds = latestRun.AttemptWindowSeconds,
                         ConfigFetchOutcome = latestRun.ConfigFetchOutcome,
                     };
-                    File.WriteAllText(_registrationFailurePath, JsonConvert.SerializeObject(merged));
-                    logger?.Info($"SessionIdPersistence: recorded failed registration run #{merged.FailedRuns}.");
+                    WriteRegistrationFailure(merged, networkFingerprint);
+                    logger?.Info($"SessionIdPersistence: recorded failed registration run #{merged.FailedRuns} ({merged.InterceptedRuns} intercepted).");
+                    return merged;
                 }
                 catch (Exception ex)
                 {
                     logger?.Warning($"SessionIdPersistence: RecordRegistrationFailure failed: {ex.Message}");
+                    return null;
                 }
             }
         }
 
-        /// <summary>The failed-registration record since the last success, or <c>null</c> (none, unreadable).</summary>
+        /// <summary>
+        /// The failed-registration record since the last success, or <c>null</c> (none, unreadable).
+        /// The summary only — what the emergency break may send.
+        /// </summary>
         public RegistrationFailureSummary LoadRegistrationFailure()
+        {
+            lock (_lockObject) return LoadRegistrationFailureInternal()?.Summary;
+        }
+
+        /// <summary>
+        /// The failed-registration record plus the agent-local network fingerprint of its latest
+        /// run, or <c>null</c> (none, unreadable). For the next successful start's comparison only.
+        /// </summary>
+        public RegistrationFailureRecord LoadRegistrationFailureRecord()
         {
             lock (_lockObject) return LoadRegistrationFailureInternal();
         }
@@ -252,18 +278,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             }
         }
 
-        private RegistrationFailureSummary LoadRegistrationFailureInternal()
+        private RegistrationFailureRecord LoadRegistrationFailureInternal()
         {
             try
             {
                 if (!File.Exists(_registrationFailurePath)) return null;
-                var record = JsonConvert.DeserializeObject<RegistrationFailureSummary>(File.ReadAllText(_registrationFailurePath));
-                return record != null && record.FailedRuns > 0 ? record : null;
+                var json = JObject.Parse(File.ReadAllText(_registrationFailurePath));
+                var summary = json.ToObject<RegistrationFailureSummary>();
+                return summary != null && summary.FailedRuns > 0
+                    ? new RegistrationFailureRecord(summary, (string)json[LocalNetworkFingerprintKey])
+                    : null;
             }
             catch
             {
                 // Corrupt record: report nothing rather than a half-read account.
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// The summary's own properties plus one agent-local key: the fingerprint sits next to the
+        /// wire type, never inside it (the summary deserializes without it).
+        /// </summary>
+        private void WriteRegistrationFailure(RegistrationFailureSummary summary, string networkFingerprint)
+        {
+            var json = JObject.FromObject(summary);
+            if (!string.IsNullOrEmpty(networkFingerprint))
+                json[LocalNetworkFingerprintKey] = networkFingerprint;
+
+            var bytes = Encoding.UTF8.GetBytes(json.ToString(Formatting.None));
+            using (var stream = new FileStream(
+                _registrationFailurePath, FileMode.Create, FileAccess.Write, FileShare.None,
+                bufferSize: 4096, options: FileOptions.WriteThrough))
+            {
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush(flushToDisk: true);
             }
         }
 
@@ -304,5 +353,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
             }
         }
+    }
+
+    /// <summary>
+    /// <c>registration-failure.json</c> as the agent keeps it: the <see cref="RegistrationFailureSummary"/>
+    /// the emergency break may send, plus the network fingerprint of the latest failed run, which
+    /// stays on the device — only the next successful start's comparison (changed or not) is reported.
+    /// </summary>
+    public sealed class RegistrationFailureRecord
+    {
+        public RegistrationFailureRecord(RegistrationFailureSummary summary, string networkFingerprint)
+        {
+            Summary = summary ?? throw new ArgumentNullException(nameof(summary));
+            NetworkFingerprint = networkFingerprint;
+        }
+
+        public RegistrationFailureSummary Summary { get; }
+
+        /// <summary>Fingerprint of the latest failed run's network; null when it was unknown.</summary>
+        public string NetworkFingerprint { get; }
     }
 }

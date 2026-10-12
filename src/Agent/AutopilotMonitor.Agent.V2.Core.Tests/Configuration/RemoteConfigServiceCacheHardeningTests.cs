@@ -214,6 +214,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Null(loaded.LatestAgentSha256);
         }
 
+        [Theory]
+        [InlineData(0)]
+        [InlineData(3)]
+        [InlineData(null)] // backend that predates the field — the agent keeps its default
+        public void RoundTrip_preserves_intercepted_registration_retry_boots(int? value)
+        {
+            // An intercepted start gets no live config, so the registration buffer it decides on
+            // is the cached value: it must survive the write + read strip untouched.
+            var probe = NewProbe();
+
+            probe.DoCache(new AgentConfigResponse { InterceptedRegistrationRetryBoots = value });
+            var loaded = probe.DoLoad();
+
+            Assert.NotNull(loaded);
+            Assert.Equal(value, loaded.InterceptedRegistrationRetryBoots);
+        }
+
         // ── Helpers ─────────────────────────────────────────────────────────
 
         private CacheProbe NewProbe()

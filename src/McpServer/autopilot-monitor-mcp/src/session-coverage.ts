@@ -49,6 +49,8 @@ export const COVERAGE_EVENT_FIELDS =
   'data.overwriteRewinds,data.overwriteBytesReprocessed,data.passMaxMs,data.passGapMaxMs,' +
   'data.collector,data.reason,data.errorType,' +
   'data.pendingItemCount,data.pendingBytes,data.kind,data.itemCount,data.disk_free_gb,' +
+  'data.pageTitle,data.serverCertIssuer,data.firstBlockedAtUtc,' +
+  'data.priorRegistrationFailedRuns,data.priorRegistrationInterceptedRuns,data.priorRegistrationLastOutcome,data.priorRegistrationNetworkChanged,' +
   'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
   'data.installingNames,data.downloadingNames,' +
   // Scripts block; scriptType/script_type already ride in SUMMARY_EVENT_FIELDS' own list.
@@ -65,6 +67,11 @@ export interface CoverageWindow {
   agentStarts: number;
   /** Distinct `previousExitType` values reported by restarts (the first start has none). */
   previousExitTypes: string[];
+  /**
+   * Starts that registered only after earlier starts of the same session had failed to register
+   * (`agent_started.priorRegistration*`). Those earlier boots observed nothing.
+   */
+  registrationRetries?: RegistrationRetry[];
   lateStart: {
     bootToAgentStartSeconds: number | null;
     agentUptimeSeconds: number | null;
@@ -116,10 +123,40 @@ export interface CollectorDegradation {
   at: string | null;
 }
 
+export interface RegistrationRetry {
+  /** The `agent_started` that finally registered. */
+  at: string | null;
+  failedRuns: number;
+  /** Failed starts whose answer did not come from our backend (platform or proxy page). */
+  interceptedRuns: number | null;
+  lastOutcome: string | null;
+  /** Network fingerprint (connection type + gateway) differed from the last failed start; null = unknown. */
+  networkChanged: boolean | null;
+}
+
+/** Answer reasons of `telemetry_upload_blocked` that mean "something on the network path answered, not the backend". */
+const INTERCEPTION_REASONS: ReadonlySet<string> = new Set(['client_certificate_required', 'foreign_response']);
+
+export interface UploadInterception {
+  /**
+   * `client_certificate_required`: the platform answered "Client Certificate Required" — the
+   * device certificate did not reach the backend. `foreign_response`: a page from something else
+   * on the path, e.g. a proxy's block page.
+   */
+  reason: string;
+  /** First such answer, agent clock. */
+  firstBlockedAtUtc: string | null;
+  pageTitle: string | null;
+  /** Issuer of the server certificate the agent saw; a proxy's own CA proves TLS inspection. */
+  serverCertIssuer: string | null;
+}
+
 export interface UploadCoverage {
   spoolPressure: boolean;
   poisonedItems: number;
   blocked: boolean;
+  /** Present when the block was an interception on the network path (the event arrives only once the path cleared). */
+  intercepted?: UploadInterception;
   backpressureEpisodes: number;
   diskSpaceLow: boolean;
 }
@@ -178,6 +215,13 @@ function num(v: unknown): number | null {
 function bool(v: unknown): boolean {
   if (typeof v === 'boolean') return v;
   return String(v ?? '').toLowerCase() === 'true';
+}
+
+/** true / false / null (absent or unparseable) — for flags where "unknown" must not read as false. */
+function triBool(v: unknown): boolean | null {
+  if (typeof v === 'boolean') return v;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 'true' ? true : s === 'false' ? false : null;
 }
 
 function countMap(v: unknown): Record<string, number> | undefined {
@@ -285,6 +329,27 @@ export function buildSessionCoverage(
     const exits = previousExitTypes.length > 0 ? ` (previous exit: ${previousExitTypes.join(', ')})` : '';
     gaps.push(`The agent started ${starts.length} times${exits}: signals during the restart gaps were not observed.`);
   }
+  // A start that failed to register exits before any collector runs and leaves no event of its
+  // own; the start that finally registers reports the failed ones (agents after 2026-10).
+  const registrationRetries: RegistrationRetry[] = [];
+  for (const s of starts) {
+    const failedRuns = num(s.data?.priorRegistrationFailedRuns);
+    if (failedRuns === null || failedRuns <= 0) continue;
+    registrationRetries.push({
+      at: str(s.timestamp),
+      failedRuns,
+      interceptedRuns: num(s.data?.priorRegistrationInterceptedRuns),
+      lastOutcome: str(s.data?.priorRegistrationLastOutcome),
+      networkChanged: triBool(s.data?.priorRegistrationNetworkChanged),
+    });
+  }
+  for (const r of registrationRetries) {
+    const intercepted = (r.interceptedRuns ?? 0) > 0 ? `, ${r.interceptedRuns} of them answered by something on the network path instead of the backend` : '';
+    const network = r.networkChanged === true ? '; the network differed from the failed start' : r.networkChanged === false ? '; same network as the failed start' : '';
+    gaps.push(
+      `Before the agent start at ${r.at ?? 'an unknown time'}, ${r.failedRuns} start(s) of this session failed to register${intercepted}${network}: nothing was observed during those boots.`,
+    );
+  }
 
   // ── IME log tracker ─────────────────────────────────────────────────────────
   const degradedEv = first('ime_tracker_degraded');
@@ -377,13 +442,26 @@ export function buildSessionCoverage(
   const spool = last('spool_pressure_detected');
   const poisoned = of('telemetry_upload_poisoned');
   const poisonedItems = poisoned.reduce((n, e) => n + (num(e.data?.itemCount) ?? 1), 0);
-  const blocked = of('telemetry_upload_blocked').length > 0;
+  const blockedEvents = of('telemetry_upload_blocked');
+  const blocked = blockedEvents.length > 0;
+  const isInterception = (e: Ev): boolean => INTERCEPTION_REASONS.has(str(e.data?.reason) ?? '');
+  const interceptedEv = blockedEvents.find(isInterception);
+  const rejectedByBackend = blockedEvents.some((e) => !isInterception(e));
+  const intercepted: UploadInterception | undefined = interceptedEv
+    ? {
+        reason: str(interceptedEv.data?.reason) ?? 'foreign_response',
+        firstBlockedAtUtc: str(interceptedEv.data?.firstBlockedAtUtc) ?? str(interceptedEv.timestamp),
+        pageTitle: str(interceptedEv.data?.pageTitle),
+        serverCertIssuer: str(interceptedEv.data?.serverCertIssuer),
+      }
+    : undefined;
   const backpressureEpisodes = of('ingress_backpressure').length;
   const disk = last('disk_space_low');
   const upload: UploadCoverage = {
     spoolPressure: !!spool,
     poisonedItems,
     blocked,
+    ...(intercepted ? { intercepted } : {}),
     backpressureEpisodes,
     diskSpaceLow: !!disk,
   };
@@ -395,8 +473,18 @@ export function buildSessionCoverage(
     const kinds = [...new Set(poisoned.map((e) => str(e.data?.kind)).filter((x): x is string => !!x))];
     gaps.push(`${poisonedItems} telemetry item(s) were quarantined as poison and never uploaded${kinds.length > 0 ? ` (${kinds.join(', ')})` : ''}; they remain in the spool inside the diagnostics ZIP.`);
   }
-  if (blocked) {
+  if (rejectedByBackend) {
     gaps.push('Telemetry upload was blocked by a permanent backend rejection at some point; later events reached the backend only once the block cleared.');
+  }
+  if (intercepted) {
+    const issuer = intercepted.serverCertIssuer ? `; the server certificate the agent saw was issued by "${intercepted.serverCertIssuer}"` : '';
+    const what =
+      intercepted.reason === 'client_certificate_required'
+        ? 'the platform answered "Client Certificate Required", so the device certificate did not reach the backend (TLS inspection or a proxy on the network path)'
+        : `something on the network path answered instead of the backend${intercepted.pageTitle ? ` (page "${intercepted.pageTitle}")` : ''}, typically a proxy or security gateway`;
+    gaps.push(
+      `Telemetry uploads were intercepted from ${intercepted.firstBlockedAtUtc ?? 'an unknown time'}: ${what}${issuer}. Events from that period reached the backend only after the path cleared.`,
+    );
   }
   if (disk) {
     const free = num(disk.data?.disk_free_gb);
@@ -508,6 +596,7 @@ export function buildSessionCoverage(
       startedAtBackdatedSeconds,
       agentStarts: starts.length,
       previousExitTypes,
+      ...(registrationRetries.length > 0 ? { registrationRetries } : {}),
       lateStart,
       historicReplaySuppressed,
     },

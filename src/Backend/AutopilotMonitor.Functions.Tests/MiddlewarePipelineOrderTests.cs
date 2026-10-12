@@ -64,6 +64,29 @@ public class MiddlewarePipelineOrderTests
         Assert.Equal(1, Count(src, $"UseMiddleware<{nameof(PolicyEnforcementMiddleware)}>()"));
     }
 
+    [Fact]
+    public void Correlation_id_is_stamped_before_every_middleware_that_can_answer_early()
+    {
+        // The agent treats a 401/403 as this backend's verdict only when it echoes the X-Correlation-ID
+        // the agent sent (CorrelationIdMiddlewareTests). A step that answers before the stamp would
+        // send an error the agent cannot attribute to this backend.
+        var src = ProgramSource();
+
+        var correlation = src.IndexOf($"UseMiddleware<{nameof(CorrelationIdMiddleware)}>()", System.StringComparison.Ordinal);
+        Assert.True(correlation >= 0, "CorrelationIdMiddleware is not registered in Program.cs");
+        Assert.Equal(1, Count(src, $"UseMiddleware<{nameof(CorrelationIdMiddleware)}>()"));
+
+        foreach (var answering in new[]
+                 {
+                     nameof(GlobalExceptionMiddleware), nameof(AuthenticationMiddleware), nameof(ClientAppBindingMiddleware),
+                     nameof(PolicyEnforcementMiddleware), nameof(UserRateLimitMiddleware), nameof(McpQuotaEnforcementMiddleware),
+                 })
+        {
+            var at = src.IndexOf($"UseMiddleware<{answering}>()", System.StringComparison.Ordinal);
+            Assert.True(at < 0 || correlation < at, $"CorrelationIdMiddleware must run before {answering}");
+        }
+    }
+
     private static int Count(string haystack, string needle)
     {
         var count = 0;

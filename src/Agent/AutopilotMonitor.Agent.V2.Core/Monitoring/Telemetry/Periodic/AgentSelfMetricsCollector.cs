@@ -85,12 +85,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void Collect()
         {
-            // Full path writes 38 keys: agent_version + process metrics (5: cpu, ws, private,
-            // threads, handles) + spool stats (5) + network delta (9: requests, failures,
-            // bytes_up/down, avg_latency, total_up/down/requests/latency) + IME tracker health
-            // (9) + signal pipeline (9: 5 counters, stage, applied ordinal, wg level+score).
-            // cap=38 → HashHelpers.GetPrime(38)=41 buckets → no resize on the last key.
-            var data = new Dictionary<string, object>(capacity: 38, StringComparer.Ordinal)
+            // Full path writes 48 keys: agent_version + process metrics (5: cpu, ws, private,
+            // threads, handles) + spool stats (5) + network (10: requests, failures,
+            // bytes_up/down, avg_latency, total_up/down/requests/latency, upload 2xx without
+            // echo) + IME tracker health (18) + signal pipeline (9: 5 counters, stage, applied
+            // ordinal, wg level+score). cap=48 → no resize on the last key.
+            var data = new Dictionary<string, object>(capacity: 48, StringComparer.Ordinal)
             {
                 { "agent_version", _agentVersion }
             };
@@ -160,6 +160,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
 
             // --- Network delta ---
+            // Cumulative and independent of the delta baseline: telemetry uploads answered 2xx
+            // without the backend's correlation echo (counted only — see BackendTelemetryUploader).
+            data["telemetry_upload_ok_without_echo"] = _networkMetrics.OkWithoutEchoCount;
             try
             {
                 var currentNet = _networkMetrics.GetSnapshot();

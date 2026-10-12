@@ -196,6 +196,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
                 ["SessionAgeHours"] = report.SessionAgeHours?.ToString("0.0", CultureInfo.InvariantCulture) ?? string.Empty,
                 ["PriorRegistrationFailedRuns"] = priorRegistration?.FailedRuns.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                ["PriorRegistrationInterceptedRuns"] = priorRegistration?.InterceptedRuns.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
                 ["PriorRegistrationOutcome"] = priorRegistration?.Outcome ?? string.Empty,
                 ["PriorRegistrationLastError"] = priorRegistration?.LastError ?? string.Empty,
                 ["PriorRegistrationLinkUpAtStart"] = FormatNullableBool(priorRegistration?.NetworkLinkUpAtStart),
@@ -486,7 +487,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// <summary>
         /// Bounds the device-supplied failed-registration record before it reaches App Insights, the
         /// ops feed or a timeline: strings are truncated, a record without a positive run count is
-        /// dropped, negative windows are clamped. Returns a copy; null in, null out.
+        /// dropped, negative windows are clamped, the intercepted runs are clamped to 0..FailedRuns
+        /// (older agents omit them: 0). Returns a copy; null in, null out.
         /// </summary>
         internal static RegistrationFailureSummary? SanitizeRegistrationFailure(RegistrationFailureSummary? source)
         {
@@ -494,6 +496,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             return new RegistrationFailureSummary
             {
                 FailedRuns = source.FailedRuns,
+                InterceptedRuns = Math.Clamp(source.InterceptedRuns, 0, source.FailedRuns),
                 FirstFailedAtUtc = source.FirstFailedAtUtc,
                 LastFailedAtUtc = source.LastFailedAtUtc,
                 Outcome = Truncate(source.Outcome, MaxRegistrationTokenLength) ?? string.Empty,
@@ -548,6 +551,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 data["priorRegistrationFailure"] = new Dictionary<string, object?>
                 {
                     ["failedRuns"] = prior.FailedRuns,
+                    ["interceptedRuns"] = prior.InterceptedRuns,
                     ["firstFailedAtUtc"] = prior.FirstFailedAtUtc.ToString("o"),
                     ["lastFailedAtUtc"] = prior.LastFailedAtUtc.ToString("o"),
                     ["outcome"] = prior.Outcome,

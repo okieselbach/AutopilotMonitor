@@ -95,6 +95,16 @@ namespace AutopilotMonitor.Shared.Models
         public int AuthFailureTimeoutMinutes { get; set; } = 0;
 
         /// <summary>
+        /// How many further boots the agent may try after a session registration was answered by
+        /// a 401/403 this backend did not author (no echoed <c>X-Correlation-ID</c>: a proxy or
+        /// the platform answered) before it cleans up like the 48-hour emergency break.
+        /// 0 = clean up at the first intercepted registration. null = an older backend that does
+        /// not send the field; the agent keeps its default. The agent clamps the value to 0..5 and
+        /// keeps it in its config cache, because an intercepted start gets no live config.
+        /// </summary>
+        public int? InterceptedRegistrationRetryBoots { get; set; }
+
+        /// <summary>
         /// Log verbosity level for the agent.
         /// "Info" = normal messages, "Debug" = component state/decisions, "Verbose" = per-event tracing, "Trace" = full diagnostic output.
         /// Default: "Info"

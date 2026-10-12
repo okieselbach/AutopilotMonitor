@@ -342,7 +342,7 @@ public class ReportAgentErrorFunctionTests
         await h.RunAsync(report, Read(null));
 
         var details = Assert.Single(h.OpsEvents).Details;
-        Assert.Contains("\"priorRegistrationFailure\":{\"failedRuns\":3", details);
+        Assert.Contains("\"priorRegistrationFailure\":{\"failedRuns\":3,\"interceptedRuns\":2", details);
         Assert.Contains("\"networkLinkUpAtEnd\":false", details);
         Assert.Contains("\"attemptWindowSeconds\":1204.5", details);
         Assert.Contains("\"configFetchOutcome\":\"UsedDefaults\"", details);
@@ -360,7 +360,8 @@ public class ReportAgentErrorFunctionTests
 
         h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
             It.Is<List<EnrollmentEvent>>(e =>
-                ((Dictionary<string, object?>)e[0].Data["priorRegistrationFailure"])["failedRuns"]!.Equals(3))), Times.Once);
+                ((Dictionary<string, object?>)e[0].Data["priorRegistrationFailure"])["failedRuns"]!.Equals(3)
+                && ((Dictionary<string, object?>)e[0].Data["priorRegistrationFailure"])["interceptedRuns"]!.Equals(2))), Times.Once);
     }
 
     [Fact]
@@ -394,6 +395,20 @@ public class ReportAgentErrorFunctionTests
         Assert.NotSame(raw, clean);
     }
 
+    // Intercepted runs are a subset of the failed runs; agents before the field send none (0).
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 0)]
+    [InlineData(2, 2)]
+    [InlineData(7, 3)]
+    public void SanitizeRegistrationFailure_clamps_intercepted_runs_to_the_failed_runs(int interceptedRuns, int expected)
+    {
+        var raw = Failure();
+        raw.InterceptedRuns = interceptedRuns;
+
+        Assert.Equal(expected, ReportAgentErrorFunction.SanitizeRegistrationFailure(raw)!.InterceptedRuns);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -409,6 +424,7 @@ public class ReportAgentErrorFunctionTests
     private static RegistrationFailureSummary Failure() => new()
     {
         FailedRuns = 3,
+        InterceptedRuns = 2,
         FirstFailedAtUtc = Now.AddDays(-20),
         LastFailedAtUtc = Now.AddDays(-19),
         Outcome = "Failed",

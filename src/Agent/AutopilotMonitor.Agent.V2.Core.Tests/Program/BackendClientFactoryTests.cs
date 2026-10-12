@@ -1,7 +1,13 @@
 using System.IO;
+using System.Net.Http;
+using System.Net.Security;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
+using AutopilotMonitor.Agent.V2.Core.Tests.Transport;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Runtime;
 using Xunit;
 
@@ -67,6 +73,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             // dispatched. Asserts the bundle is consistent with that path.
             Assert.False(bundle.HasClientCertificate);
         }
+
+        [Fact]
+        public void BuildAuthClients_carries_the_server_certificate_observer_for_both_stacks()
+        {
+            using var tmp = new TempDirectory();
+            var bundle = BackendClientFactory.BuildAuthClients(MinimalBootstrapTokenConfig(), agentVersion: "1.2.3.4", logger: NewLogger(tmp.Path));
+
+            Assert.NotNull(bundle.ServerCertificates);
+        }
+
+        [Fact]
+        public void BuildBackendApiHttpClient_installs_the_observing_callback_on_the_inner_handler()
+        {
+            var observer = new ServerCertificateObserver();
+            using var cert = ServerCertificateObserverTests.SelfSigned("CN=Example Inspection CA");
+
+            using var client = BackendClientFactory.BuildBackendApiHttpClient(new NetworkMetrics(), clientCertificate: null, agentVersion: "1.2.3.4", observer);
+            var inner = InnerHandler(client);
+            var callback = inner.ServerCertificateCustomValidationCallback;
+
+            Assert.NotNull(callback);
+            Assert.False(callback!(null!, cert, null!, SslPolicyErrors.RemoteCertificateNameMismatch));
+            Assert.True(callback(null!, cert, null!, SslPolicyErrors.None));
+            Assert.Equal(cert.Issuer, observer.LastIssuer);
+        }
+
+        [Fact]
+        public void BuildBackendApiHttpClient_without_observer_keeps_the_default_validation()
+        {
+            using var client = BackendClientFactory.BuildBackendApiHttpClient(new NetworkMetrics(), clientCertificate: null, agentVersion: "1.2.3.4");
+
+            Assert.Null(InnerHandler(client).ServerCertificateCustomValidationCallback);
+        }
+
+        // Pipeline: NetworkMetricsRecordingHandler → HttpClientHandler.
+        private static HttpClientHandler InnerHandler(HttpClient client) =>
+            (HttpClientHandler)((DelegatingHandler)MtlsHttpClientFactoryTests.GetPipelineHead(client)).InnerHandler;
 
         // =========================================================== TelemetryClientResult
 

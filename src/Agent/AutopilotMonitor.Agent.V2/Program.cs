@@ -269,13 +269,17 @@ namespace AutopilotMonitor.Agent.V2
 
             // Phase 6 (POST /api/agent/register-session with retry + outcome-based exit-code
             // mapping + on-failure client disposal) is encapsulated in BackendSessionRegistration.
-            // Exit codes: 6 = AuthFailed, 7 = anything else. See Runtime/BackendSessionRegistration.cs.
+            // Exit codes: 6 = AuthFailed, 7 = anything else. A registration intercepted on more
+            // starts than the buffer allows cleans up like the emergency break (state folder +
+            // cleanup factory) and still exits 6. See Runtime/BackendSessionRegistration.cs.
             var registration = Runtime.BackendSessionRegistration.Register(
                 bootstrap.AgentConfig, auth, telemetry.MtlsHttpClient, GetAgentVersion(), consoleMode, logger,
                 rotateSession: () => Runtime.BackendSessionRegistration.RotateSession(
                     bootstrap.AgentConfig, bootstrap.SessionPersistence, auth, transportDir, logger),
                 sessionPersistence: bootstrap.SessionPersistence,
-                configFetchOutcome: runtimeConfig.RemoteConfigService.LastFetchOutcome.ToString());
+                configFetchOutcome: runtimeConfig.RemoteConfigService.LastFetchOutcome.ToString(),
+                stateDirectory: stateSubdir,
+                cleanupServiceFactory: bootstrap.CleanupServiceFactory);
             if (registration.ShouldExit)
             {
                 return registration.ExitCode;

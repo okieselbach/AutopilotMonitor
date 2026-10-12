@@ -4,7 +4,16 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
+using AutopilotMonitor.DecisionCore.Engine;
 using Newtonsoft.Json.Linq;
 using Xunit;
 using AutopilotMonitor.Shared.Models;
@@ -51,7 +60,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                 string? model = "Latitude",
                 string? serial = "ABC123",
                 string? bootstrap = null,
-                string? version = "11.0.0")
+                string? version = "11.0.0",
+                AuthFailureTracker? tracker = null,
+                ServerCertificateObserver? serverCertificates = null,
+                NetworkMetrics? networkMetrics = null)
             {
                 Http = new HttpClient(Handler) { Timeout = TimeSpan.FromSeconds(30) };
                 Sut = new BackendTelemetryUploader(
@@ -62,7 +74,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                     model: model,
                     serialNumber: serial,
                     bootstrapToken: bootstrap,
-                    agentVersion: version);
+                    agentVersion: version,
+                    authFailureTracker: tracker,
+                    serverCertificates: serverCertificates,
+                    networkMetrics: networkMetrics);
             }
 
             public void Dispose()
@@ -245,6 +260,85 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.Null(result.ErrorReason);
         }
 
+        // ============================================================ 2xx without the correlation echo
+
+        [Fact]
+        public async Task Ok_with_the_echo_is_a_success_and_not_counted()
+        {
+            var metrics = new NetworkMetrics();
+            using var rig = new Rig(networkMetrics: metrics);
+            rig.Handler.QueueStatus(HttpStatusCode.OK);
+
+            var result = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.Equal(0, metrics.OkWithoutEchoCount);
+        }
+
+        [Fact]
+        public async Task Ok_without_the_echo_is_still_a_success_and_only_counted()
+        {
+            // A 200 that did not come from the backend (e.g. a block page served with 200): the
+            // upload path behaves exactly as before — control signals are still read — and the
+            // only difference is the counter.
+            var metrics = new NetworkMetrics();
+            using var tmp = new TempDirectory();
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, SystemClock.Instance,
+                new AgentLogger(System.IO.Path.Combine(tmp.Path, "logs"), AgentLogLevel.Info));
+            tracker.RecordFailure(403, "agent/telemetry");
+            using var rig = new Rig(tracker: tracker, networkMetrics: metrics);
+            rig.Handler.QueueForeign(HttpStatusCode.OK, "<html><title>Example</title></html>");
+            rig.Handler.QueueForeign(HttpStatusCode.OK, "{\"deviceKillSignal\":true}", mediaType: "application/json");
+
+            var page = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            var signals = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(2) }, CancellationToken.None);
+
+            Assert.True(page.Success);
+            Assert.Null(page.ErrorReason);
+            Assert.True(signals.Success);
+            Assert.True(signals.DeviceKillSignal);
+            Assert.Equal(0, tracker.ConsecutiveFailures); // a 2xx still resets the auth streak
+            Assert.Equal(2, metrics.OkWithoutEchoCount);
+        }
+
+        [Fact]
+        public async Task Answers_other_than_2xx_never_count_as_ok_without_echo()
+        {
+            var metrics = new NetworkMetrics();
+            using var rig = new Rig(networkMetrics: metrics);
+            rig.Handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage);
+            rig.Handler.QueueForeign(HttpStatusCode.ServiceUnavailable, "<html>busy</html>");
+
+            await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.Equal(0, metrics.OkWithoutEchoCount);
+        }
+
+        [Fact]
+        public async Task The_count_reaches_the_agent_metrics_snapshot()
+        {
+            var metrics = new NetworkMetrics();
+            using var rig = new Rig(networkMetrics: metrics);
+            rig.Handler.QueueForeign(HttpStatusCode.OK, "<html><title>Example</title></html>");
+            await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            var sink = new FakeSignalIngressSink();
+            using var tmp = new TempDirectory();
+            var collector = new AgentSelfMetricsCollector(
+                sessionId: "S1",
+                tenantId: "T1",
+                post: new InformationalEventPost(sink, SystemClock.Instance),
+                networkMetrics: metrics,
+                logger: new AgentLogger(System.IO.Path.Combine(tmp.Path, "logs"), AgentLogLevel.Info),
+                agentVersion: "2.0.test");
+            collector.CollectSafe();
+
+            var snapshot = (IDictionary<string, object>)Assert.Single(sink.Posted, p =>
+                p.TypedPayload is IDictionary<string, object> d && d.ContainsKey("agent_version")).TypedPayload!;
+            Assert.Equal(1L, snapshot["telemetry_upload_ok_without_echo"]);
+        }
+
         [Theory]
         [InlineData(HttpStatusCode.Unauthorized)]
         [InlineData(HttpStatusCode.Forbidden)]
@@ -259,6 +353,104 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.False(result.IsTransient);
             Assert.Contains("unauthorized", result.ErrorReason);
             Assert.Contains(((int)status).ToString(), result.ErrorReason);
+        }
+
+        // ============================================================ 401/403 origin
+
+        private sealed class OriginRig : IDisposable
+        {
+            private readonly TempDirectory _tmp = new TempDirectory();
+
+            public FakeDistressReporter Distress { get; } = new FakeDistressReporter();
+            public AuthFailureTracker Tracker { get; }
+            public Rig Upload { get; }
+
+            public OriginRig()
+            {
+                Tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, SystemClock.Instance,
+                    new AgentLogger(_tmp.Path, AgentLogLevel.Info), Distress);
+                var serverCertificates = new ServerCertificateObserver();
+                using (var cert = ServerCertificateObserverTests.SelfSigned("CN=Example Inspection CA"))
+                {
+                    serverCertificates.Validate(cert, System.Net.Security.SslPolicyErrors.None);
+                }
+                Upload = new Rig(tracker: Tracker, serverCertificates: serverCertificates);
+            }
+
+            public Task<UploadResult> UploadAsync() => Upload.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            public void Dispose()
+            {
+                Upload.Dispose();
+                _tmp.Dispose();
+            }
+        }
+
+        [Fact]
+        public async Task Backend_403_is_an_auth_failure_that_counts_and_reports_DeviceNotRegistered()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueStatus(HttpStatusCode.Forbidden, body: "{\"error\":\"Device validation failed\"}");
+
+            var result = await rig.UploadAsync();
+
+            Assert.True(result.IsAuthFailure);
+            Assert.False(result.IsIntercepted);
+            Assert.Equal(1, rig.Tracker.ConsecutiveFailures);
+            Assert.Equal(DistressErrorType.DeviceNotRegistered, Assert.Single(rig.Distress.Calls).ErrorType);
+        }
+
+        [Fact]
+        public async Task Stopped_app_403_counts_like_an_auth_failure_without_distress()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.StoppedAppPage);
+
+            var result = await rig.UploadAsync();
+
+            Assert.True(result.IsAuthFailure);
+            Assert.False(result.IsIntercepted);
+            Assert.Equal(1, rig.Tracker.ConsecutiveFailures);
+            Assert.Empty(rig.Distress.Calls);
+        }
+
+        [Fact]
+        public async Task Certificate_required_403_is_intercepted_never_counted_and_reported_once()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage);
+            rig.Upload.Handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage);
+
+            var result = await rig.UploadAsync();
+            await rig.UploadAsync();
+
+            Assert.False(result.Success);
+            Assert.True(result.IsIntercepted);
+            Assert.False(result.IsAuthFailure);
+            Assert.False(result.IsTransient);
+            Assert.Equal(403, result.Interception!.StatusCode);
+            Assert.Equal(ResponseClassification.ClientCertificateRequired, result.Interception.ForeignReason);
+            Assert.Equal(InterceptionFixtures.PlatformPageTitle, result.Interception.PageTitle);
+            Assert.Equal("CN=Example Inspection CA", result.Interception.ServerCertIssuer);
+            Assert.Equal(0, rig.Tracker.ConsecutiveFailures);
+            var distress = Assert.Single(rig.Distress.Calls);
+            Assert.Equal(DistressErrorType.ClientCertificateNotReceived, distress.ErrorType);
+            Assert.Contains("agent/telemetry http 403 client_certificate_required", distress.Message);
+            Assert.Contains("CN=Example Inspection CA", distress.Message);
+        }
+
+        [Fact]
+        public async Task Proxy_page_403_is_intercepted_as_foreign_response()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.ProxyPage);
+
+            var result = await rig.UploadAsync();
+
+            Assert.True(result.IsIntercepted);
+            Assert.Equal(ResponseClassification.ForeignResponse, result.Interception!.ForeignReason);
+            Assert.Equal(InterceptionFixtures.ProxyPageTitle, result.Interception.PageTitle);
+            Assert.Equal(0, rig.Tracker.ConsecutiveFailures);
         }
 
         [Theory]

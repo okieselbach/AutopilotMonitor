@@ -1343,6 +1343,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 return;
             }
 
+            // An interception pause (uploads answered by something on the network path) would
+            // otherwise skip this drain entirely: the terminal phase gets exactly one attempt, then
+            // termination goes on as usual — whatever did not go up is lost, as with any session.
+            try { _drain.RequestTerminalUploadAttempt(); }
+            catch (Exception ex) { _logger.Warning($"EnrollmentTerminationHandler: terminal upload attempt request threw: {ex.Message}"); }
+
             // Block briefly so pending events can land before the next destructive step
             // (shutdown.exe, self-destruct). Two phases share the same bounded budget:
             //

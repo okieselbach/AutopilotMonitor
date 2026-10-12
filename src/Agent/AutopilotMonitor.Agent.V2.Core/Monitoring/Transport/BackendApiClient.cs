@@ -1,9 +1,11 @@
 using System;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
@@ -40,6 +42,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         private readonly string _bootstrapToken;
         private readonly string _agentVersion;
         private readonly Logging.AgentLogger _logger;
+        private readonly ServerCertificateObserver _serverCertificates;
 
         /// <summary>
         /// Protected ctor for testability — <c>SessionRegistrationHelperTests.FakeApiClient</c>
@@ -48,6 +51,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         protected BackendApiClient() { }
 
+        /// <param name="serverCertificates">
+        /// Observer installed on the <paramref name="httpClient"/>'s handler; its issuer becomes
+        /// evidence on a 401/403 that did not come from the backend. Null = no evidence.
+        /// </param>
         public BackendApiClient(
             HttpClient httpClient,
             string baseUrl,
@@ -57,7 +64,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             bool useBootstrapTokenAuth,
             string bootstrapToken,
             string agentVersion,
-            Logging.AgentLogger logger)
+            Logging.AgentLogger logger,
+            ServerCertificateObserver serverCertificates = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             if (string.IsNullOrEmpty(baseUrl)) throw new ArgumentException("baseUrl is mandatory.", nameof(baseUrl));
@@ -69,6 +77,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             _bootstrapToken = bootstrapToken;
             _agentVersion = agentVersion;
             _logger = logger;
+            _serverCertificates = serverCertificates;
         }
 
         /// <summary>
@@ -107,7 +116,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             {
                 using (var httpRequest = new HttpRequestMessage(HttpMethod.Get, url))
                 {
-                    AddSecurityHeaders(httpRequest);
+                    var correlationId = AddSecurityHeaders(httpRequest);
                     _logger?.Debug($"GetAgentConfigAsync: GET {url} (attempt {attempt}/{maxAttempts})");
 
                     HttpResponseMessage response;
@@ -137,7 +146,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                             continue;
                         }
 
-                        await ThrowOnAuthFailureAsync(response).ConfigureAwait(false);
+                        await ThrowOnAuthFailureAsync(response, correlationId).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
 
                         var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -173,9 +182,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// emergency-break path passes a longer <paramref name="timeout"/> because its first
         /// request of a freshly booted process pays cold TLS + DNS + a possible backend
         /// cold start (observed 503s take well over 5 s).
-        /// Returns <c>true</c> when the HTTP round-trip completed (the endpoint always
-        /// answers 200), <c>false</c> on timeout/transport failure — the caller-side
-        /// anti-flood layer uses this to decide whether the report counts as delivered.
+        /// Returns <c>true</c> when the HTTP round-trip completed (the endpoint answers 200 for
+        /// every report it receives), <c>false</c> on timeout/transport failure or when a
+        /// 401/403 came from something other than the backend (the report never arrived) — the
+        /// caller-side anti-flood layer uses this to decide whether the report counts as delivered.
         /// Virtual for tests.
         /// </summary>
         public virtual async Task<bool> ReportAgentErrorAsync(AgentErrorReport report, TimeSpan? timeout = null)
@@ -195,13 +205,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 {
                     // Backend security validation requires tenant id before parsing the body.
                     httpRequest.Headers.Add("X-Tenant-Id", report.TenantId);
-                    AddSecurityHeaders(httpRequest);
+                    var correlationId = AddSecurityHeaders(httpRequest);
 
                     using (var cts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(5)))
                     using (var response = await _httpClient.SendAsync(httpRequest, cts.Token).ConfigureAwait(false))
                     {
-                        // Response status is deliberately ignored — endpoint always returns 200.
-                        return true;
+                        // Every status counts as delivered (unchanged) — except a 401/403 without the
+                        // backend's correlation echo: then the report never reached the backend.
+                        if (!IsAuthFailureStatus(response.StatusCode))
+                            return true;
+
+                        var body = await ResponseOriginClassifier.ReadBodyPrefixAsync(response).ConfigureAwait(false);
+                        var classification = ResponseOriginClassifier.Classify(response, correlationId, body);
+                        if (!classification.IsForeign)
+                            return true;
+
+                        _logger?.Debug(
+                            $"ReportAgentErrorAsync: http {(int)response.StatusCode} did not come from the backend " +
+                            $"({classification.ForeignReason}) — report not delivered.");
+                        return false;
                     }
                 }
             }
@@ -221,7 +243,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             })
             {
-                AddSecurityHeaders(httpRequest);
+                var correlationId = AddSecurityHeaders(httpRequest);
 
                 HttpResponseMessage response;
                 try
@@ -236,7 +258,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
 
                 using (response)
                 {
-                    await ThrowOnAuthFailureAsync(response).ConfigureAwait(false);
+                    await ThrowOnAuthFailureAsync(response, correlationId).ConfigureAwait(false);
                     await ThrowOnCodedConflictAsync(response).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
@@ -284,60 +306,75 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// Throws <see cref="BackendAuthException"/> for 401/403 responses so callers can
         /// distinguish authentication failures from transient server errors.
         /// <para>
-        /// Field case (2026-08-09): a pre-cutover agent build pointed at a
-        /// retired Function App; Azure answers for a stopped app with a platform-level 403
-        /// carrying an HTML error page ("Web App - Unavailable"). Our backend never returns
-        /// HTML on 401/403 — an HTML body therefore means the response did not come from the
-        /// backend's auth layer at all (stopped/retired app, edge proxy, WAF). Reporting that
-        /// as "device is not authorized" sends troubleshooting down the wrong path, so the
-        /// two cases get distinct messages and the exception carries a flag.
+        /// Only a response that echoes this request's <c>X-Correlation-ID</c> is the backend's
+        /// verdict (<see cref="ResponseOriginClassifier"/>). Anything else never came from the
+        /// backend's auth layer: the platform page of a stopped app (field case 2026-08-09: a
+        /// pre-cutover build pointed at a retired Function App), or the platform's "Client
+        /// Certificate Required" page / a proxy page when TLS inspection on the network path
+        /// strips the device certificate. Reporting those as "device is not authorized" sends
+        /// troubleshooting down the wrong path, so each origin gets its own message and the
+        /// exception carries the classification.
         /// </para>
         /// </summary>
-        private static async Task ThrowOnAuthFailureAsync(HttpResponseMessage response)
+        private async Task ThrowOnAuthFailureAsync(HttpResponseMessage response, string correlationId)
         {
-            if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized &&
-                response.StatusCode != System.Net.HttpStatusCode.Forbidden)
-            {
+            if (!IsAuthFailureStatus(response.StatusCode))
                 return;
-            }
 
-            var statusText = $"{(int)response.StatusCode} {response.StatusCode}";
+            var statusCode = (int)response.StatusCode;
+            var statusText = $"{statusCode} {response.StatusCode}";
+            var body = await ResponseOriginClassifier.ReadBodyPrefixAsync(response).ConfigureAwait(false);
+            var classification = ResponseOriginClassifier.Classify(
+                response, correlationId, body, _serverCertificates?.LastIssuer);
 
-            string body = null;
-            try
+            if (classification.Origin != ResponseOrigin.Backend)
             {
-                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                // Body is diagnostic-only; classification below treats null as non-HTML.
-            }
-
-            if (LooksLikeHtmlErrorPage(response, body))
-            {
-                var title = TryExtractHtmlTitle(body);
-                var titleText = title != null ? $" (\"{title}\")" : string.Empty;
-                var host = response.RequestMessage?.RequestUri?.Host ?? "(unknown host)";
                 throw new BackendAuthException(
-                    $"Backend returned {statusText} with an HTML platform error page{titleText} from '{host}'. " +
-                    "This response did not come from the Autopilot Monitor backend — the endpoint appears stopped, " +
-                    "retired, or intercepted by a proxy. This is NOT a device-authorization failure; an outdated " +
-                    "agent build pointing at a stale ApiBaseUrl is the most likely cause.",
-                    (int)response.StatusCode,
-                    endpointUnavailable: true);
+                    DescribeNonBackendAnswer(response, statusText, classification),
+                    statusCode,
+                    classification: classification);
             }
 
             // Backend JSON bodies may carry a machine-readable errorCode (Shared
             // Constants.AgentErrorCodes) that tells the caller how to react — e.g.
             // session_owner_mismatch → rotate the session id instead of treating this as a
             // certificate rejection. Absent/unparseable → null, classic auth failure.
-            var errorCode = TryExtractErrorCode(body);
             throw new BackendAuthException(
                 $"Backend returned {statusText}. " +
                 "The device is not authorized. Check client certificate and Autopilot device validation.",
-                (int)response.StatusCode,
-                errorCode: errorCode);
+                statusCode,
+                errorCode: TryExtractErrorCode(body),
+                classification: classification);
         }
+
+        /// <summary>
+        /// Message for a 401/403 the backend did not author. The cause leads because
+        /// <c>RegistrationFailureSummary.LastError</c> keeps only 256 characters; HTML answers
+        /// keep the phrase "HTML platform error page" plus the page title (ANALYZE-NET-001 matches both).
+        /// </summary>
+        private static string DescribeNonBackendAnswer(HttpResponseMessage response, string statusText, ResponseClassification classification)
+        {
+            var host = response.RequestMessage?.RequestUri?.Host ?? "(unknown host)";
+            var titleText = classification.PageTitle != null ? $" (\"{classification.PageTitle}\")" : string.Empty;
+            var htmlPage = $"an HTML platform error page{titleText}";
+
+            if (classification.Origin == ResponseOrigin.PlatformStopped)
+            {
+                return $"Backend returned {statusText} with {(classification.IsHtml ? htmlPage : "a platform error page")} from '{host}'. " +
+                       "This response did not come from the Autopilot Monitor backend — the endpoint appears stopped or retired. " +
+                       "This is NOT a device-authorization failure; an outdated agent build pointing at a stale ApiBaseUrl " +
+                       "is the most likely cause.";
+            }
+
+            var cause = classification.ForeignReason == ResponseClassification.ClientCertificateRequired
+                ? "The device certificate did not reach the backend (TLS inspection or a proxy on the network path)"
+                : "Something on the network path answered instead of the backend (TLS inspection, a proxy or a security gateway)";
+            var answer = classification.IsHtml ? htmlPage : "a response without the backend's correlation echo";
+            return $"{cause}: {statusText} from '{host}' was {answer}. This is NOT a device-authorization failure.";
+        }
+
+        private static bool IsAuthFailureStatus(HttpStatusCode statusCode) =>
+            statusCode == HttpStatusCode.Unauthorized || statusCode == HttpStatusCode.Forbidden;
 
         /// <summary>
         /// Throws <see cref="BackendRefusalException"/> for a 409 whose JSON body carries a
@@ -395,62 +432,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         }
 
         /// <summary>
-        /// True when a 401/403 response is an HTML page rather than a backend JSON/plain-text
-        /// reply. Checks the declared Content-Type first, then falls back to sniffing the body
-        /// prefix so a platform page served with a generic Content-Type is still recognized.
+        /// Adds device / version / bootstrap-token security headers and returns the request's
+        /// correlation id. Client certificate is sent at the TLS layer via the externally-supplied
+        /// HttpClient's HttpClientHandler.
         /// </summary>
-        private static bool LooksLikeHtmlErrorPage(HttpResponseMessage response, string body)
-        {
-            var mediaType = response.Content?.Headers?.ContentType?.MediaType;
-            if (string.Equals(mediaType, "text/html", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (string.IsNullOrWhiteSpace(body))
-                return false;
-
-            var head = body.TrimStart();
-            return head.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) ||
-                   head.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// Best-effort extraction of the HTML &lt;title&gt; (e.g. "Web App - Unavailable") so the
-        /// log line names the platform page without dumping markup. Null when absent/oversized.
-        /// </summary>
-        private static string TryExtractHtmlTitle(string body)
-        {
-            if (string.IsNullOrEmpty(body)) return null;
-            try
-            {
-                var match = System.Text.RegularExpressions.Regex.Match(
-                    body, @"<title[^>]*>\s*(.*?)\s*</title>",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-                    System.Text.RegularExpressions.RegexOptions.Singleline,
-                    TimeSpan.FromMilliseconds(250));
-                if (!match.Success) return null;
-
-                var title = match.Groups[1].Value;
-                return title.Length == 0 ? null : (title.Length > 80 ? title.Substring(0, 80) : title);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Adds device / version / bootstrap-token security headers. Client certificate is sent
-        /// at the TLS layer via the externally-supplied HttpClient's HttpClientHandler.
-        /// </summary>
-        private void AddSecurityHeaders(HttpRequestMessage request)
+        private string AddSecurityHeaders(HttpRequestMessage request)
         {
             // Per-request correlation id for end-to-end tracing (mirrors BackendTelemetryUploader).
             // The backend's CorrelationIdMiddleware reads X-Correlation-ID; without it the backend
             // mints a fresh id per inbound request and agent↔backend calls cannot be tied together.
             // Generated per request so each attempt (e.g. config-fetch 503 retries) is independently
-            // traceable.
+            // traceable — and so the echo on a 401/403 proves which request the backend answered.
             var correlationId = Guid.NewGuid().ToString("N");
-            request.Headers.Add("X-Correlation-ID", correlationId);
+            request.Headers.Add(ResponseOriginClassifier.CorrelationIdHeader, correlationId);
             _logger?.Debug($"BackendApiClient: {request.Method} {request.RequestUri?.AbsolutePath} (corr={correlationId})");
 
             if (_useBootstrapTokenAuth && !string.IsNullOrEmpty(_bootstrapToken))
@@ -464,6 +458,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 request.Headers.Add("X-Device-SerialNumber", _serialNumber);
             if (!string.IsNullOrEmpty(_agentVersion))
                 request.Headers.Add("X-Agent-Version", _agentVersion);
+
+            return correlationId;
         }
 
         public void Dispose()
@@ -473,23 +469,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     }
 
     /// <summary>
-    /// Thrown when the backend returns 401 or 403, indicating the device is not authorized —
-    /// or, when <see cref="EndpointUnavailable"/> is set, that the 401/403 was a platform-level
-    /// HTML response (stopped/retired app, edge proxy) rather than a backend auth verdict.
+    /// Thrown for a 401 or 403. <see cref="Origin"/> says who answered: the backend (the device is
+    /// not authorized), the platform page of a stopped app (<see cref="EndpointUnavailable"/>), or
+    /// something on the network path (<see cref="IsForeignResponse"/>) — the last two say nothing
+    /// about this device's authorization.
     /// </summary>
     public class BackendAuthException : Exception
     {
         /// <summary>
-        /// HTTP status code returned by the backend (401 or 403).
+        /// HTTP status code of the response (401 or 403).
         /// Used by the DistressReporter to classify the failure type.
         /// </summary>
         public int StatusCode { get; }
 
+        /// <summary>Classification and evidence of the response; <see cref="ResponseOrigin.Backend"/> when constructed without one.</summary>
+        public ResponseClassification Classification { get; }
+
+        public ResponseOrigin Origin => Classification.Origin;
+
         /// <summary>
-        /// True when the 401/403 carried an HTML platform error page — the endpoint itself is
-        /// stopped/retired/proxied and the status says nothing about this device's authorization.
+        /// True only for the platform page of a stopped app: the endpoint itself is down. Counts
+        /// toward the auth shutdown like a backend rejection, without a distress report.
         /// </summary>
-        public bool EndpointUnavailable { get; }
+        public bool EndpointUnavailable => Origin == ResponseOrigin.PlatformStopped;
+
+        /// <summary>
+        /// True when something other than the backend answered (the platform's "Client Certificate
+        /// Required" page, a proxy page): the device certificate did not reach the backend. Never
+        /// counts as an authentication failure.
+        /// </summary>
+        public bool IsForeignResponse => Origin == ResponseOrigin.Foreign;
 
         /// <summary>
         /// Machine-readable code from the backend's JSON error body (see Shared
@@ -497,11 +506,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         public string ErrorCode { get; }
 
-        public BackendAuthException(string message, int statusCode = 0, bool endpointUnavailable = false, string errorCode = null) : base(message)
+        public BackendAuthException(string message, int statusCode = 0, string errorCode = null, ResponseClassification classification = null) : base(message)
         {
             StatusCode = statusCode;
-            EndpointUnavailable = endpointUnavailable;
             ErrorCode = errorCode;
+            Classification = classification ?? ResponseClassification.ForBackend(statusCode);
         }
     }
 

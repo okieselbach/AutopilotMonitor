@@ -247,6 +247,8 @@ export interface AgentConfigResponse {
   maxAuthFailures: number;
   /** Maximum time in minutes the agent keeps retrying after the first auth failure. 0 = disabled (no time limit, only MaxAuthFailures applies). Default: 0. */
   authFailureTimeoutMinutes: number;
+  /** How many further boots the agent may try after a session registration was answered by a 401/403 this backend did not author (no echoed X-Correlation-ID: a proxy or the platform answered) before it cleans up like the 48-hour emergency break. 0 = clean up at the first intercepted registration. null = an older backend that does not send the field; the agent keeps its default. The agent clamps the value to 0..5 and keeps it in its config cache, because an intercepted start gets no live config. */
+  interceptedRegistrationRetryBoots?: number;
   /** Log verbosity level for the agent. "Info" = normal messages, "Debug" = component state/decisions, "Verbose" = per-event tracing, "Trace" = full diagnostic output. Default: "Info" */
   logLevel: string;
   /** Whether to reboot the device after enrollment completes (and cleanup/self-destruct). Default: false */

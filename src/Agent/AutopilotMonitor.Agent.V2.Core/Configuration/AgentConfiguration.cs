@@ -196,6 +196,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public int AbsoluteMaxSessionHours { get; set; } = 48;
 
         /// <summary>
+        /// Further boots the agent may try after a session registration was answered by a
+        /// 401/403 the backend did not author, before it cleans up like the emergency break.
+        /// Merged from remote config (also from the cache, since an intercepted start gets no
+        /// live config), clamped to 0..5. Default: 1.
+        /// </summary>
+        public int InterceptedRegistrationRetryBoots { get; set; } = 1;
+
+        /// <summary>
         /// Bootstrap token for pre-MDM auth during OOBE.
         /// Embedded by the OOBE bootstrapper script via --bootstrap-token CLI arg.
         /// When set, sent as X-Bootstrap-Token header instead of cert auth.

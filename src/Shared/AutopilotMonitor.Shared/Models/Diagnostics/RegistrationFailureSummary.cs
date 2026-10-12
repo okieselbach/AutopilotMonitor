@@ -14,6 +14,13 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Process starts whose registration failed since the last success.</summary>
         public int FailedRuns { get; set; }
 
+        /// <summary>
+        /// Of <see cref="FailedRuns"/>, the starts whose registration was answered by a 401/403 that
+        /// something on the network path authored (TLS inspection, a proxy page) rather than the
+        /// backend. The agent gives up and cleans up once it exceeds the configured buffer.
+        /// </summary>
+        public int InterceptedRuns { get; set; }
+
         /// <summary>UTC time the first of these runs gave up.</summary>
         public DateTime FirstFailedAtUtc { get; set; }
 

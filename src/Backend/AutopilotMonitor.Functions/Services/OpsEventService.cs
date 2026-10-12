@@ -1120,6 +1120,7 @@ namespace AutopilotMonitor.Functions.Services
                 : new
                 {
                     failedRuns = failure.FailedRuns,
+                    interceptedRuns = failure.InterceptedRuns,
                     firstFailedAtUtc = failure.FirstFailedAtUtc,
                     lastFailedAtUtc = failure.LastFailedAtUtc,
                     outcome = failure.Outcome,

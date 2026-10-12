@@ -74,6 +74,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             return this;
         }
 
+        /// <summary>Queues a 403 the platform's "Client Certificate Required" page answered (an interception).</summary>
+        public FakeBackendTelemetryUploader QueueIntercepted(int times = 1)
+        {
+            for (int i = 0; i < times; i++)
+            {
+                _script.Enqueue(_ => UploadResult.Intercepted(
+                    "intercepted: http 403 (client_certificate_required)", InterceptionFixtures.CertificateRequired()));
+            }
+            return this;
+        }
+
         public FakeBackendTelemetryUploader QueueThrow(Exception ex)
         {
             _script.Enqueue(_ => throw ex);

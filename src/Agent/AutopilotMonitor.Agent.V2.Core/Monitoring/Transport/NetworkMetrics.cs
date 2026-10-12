@@ -14,6 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         private long _totalBytesUp;
         private long _totalBytesDown;
         private long _totalLatencyMs;
+        private long _okWithoutEchoCount;
 
         public void RecordRequest(long bytesUp, long bytesDown, long latencyMs, bool failed)
         {
@@ -24,6 +25,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             if (failed)
                 Interlocked.Increment(ref _failureCount);
         }
+
+        /// <summary>
+        /// Counts a 2xx telemetry upload whose response did not echo the request's
+        /// <c>X-Correlation-ID</c>: something other than the backend may have answered (a block page
+        /// served with 200). Observed only — the upload still counts as a success.
+        /// </summary>
+        public void RecordOkWithoutEcho() => Interlocked.Increment(ref _okWithoutEchoCount);
+
+        /// <summary>Cumulative <see cref="RecordOkWithoutEcho"/> count since the process started.</summary>
+        public long OkWithoutEchoCount => Interlocked.Read(ref _okWithoutEchoCount);
 
         /// <summary>
         /// Returns an immutable snapshot of all counters for delta calculation.

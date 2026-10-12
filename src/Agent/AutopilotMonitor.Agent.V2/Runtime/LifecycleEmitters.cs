@@ -35,6 +35,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// and the tenant-influenced runtime knobs so dashboards can classify crash-loops,
         /// backend-rejected sessions and forced self-destruct runs. Phase stays
         /// <see cref="EnrollmentPhase.Unknown"/> — the event is NOT a phase declaration.
+        /// <paramref name="priorRegistrationFailures"/> (failed starts this run's registration
+        /// followed) adds the <c>priorRegistration*</c> keys; null leaves them out.
         /// </summary>
         public static void EmitAgentStarted(
             InformationalEventPost post,
@@ -43,7 +45,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             string agentVersion,
             RemoteConfigService remoteConfigService,
             AgentLogger logger,
-            string rotatedFromSessionId = null)
+            string rotatedFromSessionId = null,
+            PriorRegistrationFailures priorRegistrationFailures = null)
         {
             try
             {
@@ -94,6 +97,19 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
                 if (previousExit?.LastBootUtc.HasValue == true)
                     data["previousBootUtc"] = previousExit.LastBootUtc.Value.ToString("o");
+
+                // Earlier starts of this session failed to register and this one succeeded: the
+                // record the success cleared, so late registrations (and whether the network
+                // changed in between) are countable. Each key only when known.
+                if (priorRegistrationFailures != null)
+                {
+                    data["priorRegistrationFailedRuns"] = priorRegistrationFailures.FailedRuns;
+                    data["priorRegistrationInterceptedRuns"] = priorRegistrationFailures.InterceptedRuns;
+                    if (!string.IsNullOrEmpty(priorRegistrationFailures.LastOutcome))
+                        data["priorRegistrationLastOutcome"] = priorRegistrationFailures.LastOutcome;
+                    if (priorRegistrationFailures.NetworkChanged.HasValue)
+                        data["priorRegistrationNetworkChanged"] = priorRegistrationFailures.NetworkChanged.Value;
+                }
 
                 post.Emit(new EnrollmentEvent
                 {

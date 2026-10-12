@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private const int ConnectivityCheckDelayMs = 5000;
         private const int ConnectivityCheckTimeoutMs = 8000;
         private const string Source = "NetworkChangeDetector";
+        private const string WifiConnectionType = "WiFi";
 
         /// <summary>
         /// Well-known MDM/Entra endpoints that must be reachable for enrollment to succeed.
@@ -313,6 +314,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         private NetworkStateSnapshot CaptureCurrentState()
         {
+            var snapshot = CaptureInterfaceState(_logger);
+
+            // Collect WiFi SSID synchronously (needed for before/after comparison)
+            if (snapshot.ConnectionType == WifiConnectionType)
+            {
+                Guid? nicGuid = Guid.TryParse(snapshot.InterfaceId, out var parsedGuid) ? parsedGuid : (Guid?)null;
+                var wifiInfo = CollectWiFiInfo(nicGuid);
+                snapshot.WifiSsid = wifiInfo.ssid;
+                snapshot.WifiSignalPercent = wifiInfo.signal;
+                snapshot.WifiRadioType = wifiInfo.radioType;
+            }
+
+            return snapshot;
+        }
+
+        /// <summary>
+        /// Interface-level state of the active network (<see cref="NetworkInterfaceLocator"/>):
+        /// connection type, adapter, first IPv4 address, first gateway — no WiFi details. Shared
+        /// with <see cref="NetworkFingerprint"/> so the registration record fingerprints the network
+        /// exactly as this detector sees it. Never throws: a failed read is "no network".
+        /// </summary>
+        internal static NetworkStateSnapshot CaptureInterfaceState(AgentLogger logger = null)
+        {
             try
             {
                 var activeNic = FindActiveNetworkInterface();
@@ -346,13 +370,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     }
                 }
 
-                var snapshot = new NetworkStateSnapshot
+                return new NetworkStateSnapshot
                 {
                     HasNetwork = true,
                     AdapterName = activeNic.Name,
                     AdapterDescription = activeNic.Description,
                     InterfaceType = activeNic.NetworkInterfaceType.ToString(),
-                    ConnectionType = isWifi ? "WiFi" : "Ethernet",
+                    ConnectionType = isWifi ? WifiConnectionType : "Ethernet",
                     MacAddress = activeNic.GetPhysicalAddress().ToString(),
                     InterfaceId = activeNic.Id,
                     LinkSpeedMbps = activeNic.Speed / 1_000_000,
@@ -360,22 +384,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     Gateway = gateway,
                     CapturedAt = DateTime.UtcNow
                 };
-
-                // Collect WiFi SSID synchronously (needed for before/after comparison)
-                if (isWifi)
-                {
-                    Guid? nicGuid = Guid.TryParse(activeNic.Id, out var parsedGuid) ? parsedGuid : (Guid?)null;
-                    var wifiInfo = CollectWiFiInfo(nicGuid);
-                    snapshot.WifiSsid = wifiInfo.ssid;
-                    snapshot.WifiSignalPercent = wifiInfo.signal;
-                    snapshot.WifiRadioType = wifiInfo.radioType;
-                }
-
-                return snapshot;
             }
             catch (Exception ex)
             {
-                _logger.Debug($"NetworkChangeDetector: state capture failed: {ex.Message}");
+                logger?.Debug($"NetworkChangeDetector: state capture failed: {ex.Message}");
                 return new NetworkStateSnapshot { HasNetwork = false, CapturedAt = DateTime.UtcNow };
             }
         }
@@ -434,7 +446,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             if (snapshot == null || !snapshot.HasNetwork)
                 return "None";
 
-            if (snapshot.ConnectionType == "WiFi" && !string.IsNullOrEmpty(snapshot.WifiSsid))
+            if (snapshot.ConnectionType == WifiConnectionType && !string.IsNullOrEmpty(snapshot.WifiSsid))
                 return $"WiFi '{snapshot.WifiSsid}'";
 
             return $"{snapshot.ConnectionType} ({snapshot.IpAddress ?? "no IP"})";
@@ -465,7 +477,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             if (before.ConnectionType != after.ConnectionType)
                 return "type_change";
 
-            if (before.ConnectionType == "WiFi" && after.ConnectionType == "WiFi" &&
+            if (before.ConnectionType == WifiConnectionType && after.ConnectionType == WifiConnectionType &&
                 before.WifiSsid != after.WifiSsid)
                 return "ssid_change";
 
@@ -479,7 +491,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         // Inner type: network state snapshot
         // -------------------------------------------------------------------
 
-        private class NetworkStateSnapshot
+        internal sealed class NetworkStateSnapshot
         {
             public bool HasNetwork { get; set; }
             public string AdapterName { get; set; }

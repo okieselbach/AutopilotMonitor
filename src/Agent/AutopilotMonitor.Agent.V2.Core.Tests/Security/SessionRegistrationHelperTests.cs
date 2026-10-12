@@ -6,6 +6,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Tests.Transport;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
@@ -94,6 +95,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.Equal(401, result.HttpStatusCode);
             Assert.Equal(1, apiClient.CallCount);
             Assert.Equal(1, tracker.ConsecutiveFailures);
+        }
+
+        [Fact]
+        public async Task Intercepted_registration_ends_auth_failed_without_counting_and_reports_once()
+        {
+            // Something on the network path answered (TLS inspection): the run still ends
+            // AuthFailed (exit 6, unchanged until the interception buffer exists), but the tracker
+            // does not count it and sends ClientCertificateNotReceived instead of DeviceNotRegistered.
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ =>
+                throw new BackendAuthException("The device certificate did not reach the backend.", statusCode: 403,
+                    classification: InterceptionFixtures.CertificateRequired()));
+            var distress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger, distressReporter: distress);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger, authFailureTracker: tracker,
+                networkLinkWait: _ => Task.CompletedTask);
+
+            Assert.Equal(SessionRegistrationOutcome.AuthFailed, result.Outcome);
+            Assert.Equal(403, result.HttpStatusCode);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            var call = Assert.Single(distress.Calls);
+            Assert.Equal(DistressErrorType.ClientCertificateNotReceived, call.ErrorType);
+            Assert.StartsWith("agent/register-session http 403 client_certificate_required", call.Message);
         }
 
         // ── SESSION-OWNER-BINDING ────────────────────────────────────────────

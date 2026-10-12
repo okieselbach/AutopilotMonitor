@@ -54,5 +54,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// <see cref="CanObserveSpool"/> is true.
         /// </summary>
         int SpoolPendingItemCount { get; }
+
+        /// <summary>
+        /// Called once at the start of every <c>DrainSpool</c>: lets the transport make its one
+        /// terminal upload attempt even while an interception pause holds uploads back (production:
+        /// <see cref="Orchestration.EnrollmentOrchestrator.RequestTerminalUploadAttempt"/>).
+        /// Without an interception pause it changes nothing.
+        /// </summary>
+        void RequestTerminalUploadAttempt();
     }
 }

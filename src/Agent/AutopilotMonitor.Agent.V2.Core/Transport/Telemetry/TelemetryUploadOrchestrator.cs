@@ -25,6 +25,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             TimeSpan.FromMilliseconds(1600),
         };
 
+        /// <summary>
+        /// Pause after each consecutive intercepted upload (the last entry repeats). Every attempt
+        /// is a POST of the head batch; the platform or proxy rejects it before the backend sees it.
+        /// </summary>
+        public static readonly IReadOnlyList<TimeSpan> InterceptionBackoffs = new[]
+        {
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(2),
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromMinutes(10),
+            TimeSpan.FromMinutes(15),
+        };
+
+        private const int TerminalAttemptNotGranted = 0;
+        private const int TerminalAttemptGranted = 1;
+        private const int TerminalAttemptUsed = 2;
+
         private readonly ITelemetrySpool _spool;
         private readonly IBackendTelemetryUploader _uploader;
         private readonly IClock _clock;
@@ -34,6 +52,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
         // M4.6.ε — backend-to-agent control signals.
         private DateTime? _pausedUntilUtc;
+
+        // Interception pause — a "not before" for the next upload after an intercepted one, modelled
+        // on the DeviceBlocked pause: drains compare it with the clock and return without HTTP, no
+        // timer (L.7). One immutable window so the termination thread reads it atomically; null =
+        // never intercepted or cleared by a success. The backoff step and the one-shot report are
+        // only touched under the drain guard.
+        private InterceptionWindow? _interceptionWindow;
+        private int _interceptionBackoffStep;
+        private bool _interceptionReported;
+
+        // The one upload attempt the terminal phase may make despite the interception pause.
+        private int _terminalAttemptState;
 
         // P1 — current effective batch size. Shrinks (never grows) when the backend returns 413,
         // so an oversized batch is split down instead of discarded. Only mutated under the drain
@@ -114,6 +144,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         public event EventHandler<string>? UploadBlocked;
 
         /// <summary>
+        /// Raised once per process (after the drain guard releases) for the first intercepted upload
+        /// (<see cref="UploadResult.IsIntercepted"/>), independent of <see cref="UploadBlocked"/>.
+        /// Like that event, anything the handler posts queues behind the intercepted batch and
+        /// reaches the backend only once the path clears in the same run.
+        /// </summary>
+        public event EventHandler<InterceptionReport>? UploadIntercepted;
+
+        /// <summary>
         /// Raised once per process (after the drain guard releases) when the backend answered
         /// HTTP 410 for a batch of the CURRENT session: the session is over server-side (never
         /// registered, deleted, or being deleted) and no retry can succeed. The batch is retained
@@ -127,6 +165,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         /// and the paused-until window has not expired. Drain is a no-op in this state.
         /// </summary>
         public bool IsPaused => _pausedUntilUtc.HasValue && _pausedUntilUtc.Value > _clock.UtcNow;
+
+        /// <summary>
+        /// <c>true</c> while the pause after an intercepted upload has not expired. Drains return
+        /// without HTTP in this state — except the one attempt <see cref="GrantTerminalAttempt"/>
+        /// allows. A successful upload ends the pause and resets the backoff.
+        /// </summary>
+        public bool IsInterceptionPaused
+        {
+            get
+            {
+                var window = Volatile.Read(ref _interceptionWindow);
+                if (window == null) return false;
+
+                // Device clocks jump (RTC, NTP). A clock set back past the pause start ends the
+                // pause instead of stretching it by the jump; the next attempt re-arms it.
+                var now = _clock.UtcNow;
+                return now >= window.FromUtc && now < window.UntilUtc;
+            }
+        }
+
+        /// <summary>
+        /// Grants the single upload attempt per process that the terminal phase may make despite an
+        /// active interception pause; the first drain that meets the pause afterwards uses it.
+        /// Idempotent. Without an interception pause the grant changes nothing. The DeviceBlocked
+        /// pause is not affected and still skips terminal drains. Returns
+        /// <see cref="IsInterceptionPaused"/>, so the caller knows whether waking the drain pays off.
+        /// </summary>
+        public bool GrantTerminalAttempt()
+        {
+            Interlocked.CompareExchange(ref _terminalAttemptState, TerminalAttemptGranted, TerminalAttemptNotGranted);
+            return IsInterceptionPaused;
+        }
 
         public long LastUploadedItemId => _spool.LastUploadedItemId;
 
@@ -150,6 +220,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             List<PoisonReport>? pendingPoison = null;
             string? pendingBlockedReason = null;
             string? pendingSessionGoneReason = null;
+            InterceptionReport? pendingInterception = null;
             DrainResult result;
 
             try
@@ -158,12 +229,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 int failedBatches = 0;
                 string? lastError = null;
 
-                // P1 — shared success-side control-signal handling. Applied to BOTH the normal
-                // success path and the poison-survivor re-upload, so a DeviceBlocked / DeviceKill /
-                // AdminAction / Actions response on the survivor upload is honoured identically and
-                // never silently dropped. Returns true if the backend just quarantined the device.
-                bool CollectControlSignals(UploadResult o)
+                // P1 — shared success-side handling. Applied to BOTH the normal success path and
+                // the poison-survivor re-upload, so a DeviceBlocked / DeviceKill / AdminAction /
+                // Actions response on the survivor upload is honoured identically and never silently
+                // dropped, and either success ends an interception pause. Returns true if the
+                // backend just quarantined the device.
+                bool HandleSuccessfulUpload(UploadResult o)
                 {
+                    EndInterceptionPause();
                     ApplyControlSignals(o); // mutates _pausedUntilUtc synchronously (next IsPaused sees it)
                     if (CarriesSignal(o)) (pendingSignals ??= new List<UploadResult>()).Add(o);
                     return o.DeviceBlocked;
@@ -182,6 +255,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     var batch = _spool.Peek(_effectiveBatchSize);
                     if (batch.Count == 0) break;
 
+                    // Interception pause: no HTTP before the not-before passes — periodic drains and
+                    // immediate-flush wakeups alike — except the one attempt the terminal phase is
+                    // granted. Checked after the Peek so only a real attempt uses the grant.
+                    if (IsInterceptionPaused && !TryUseTerminalAttempt())
+                    {
+                        lastError = $"upload intercepted, next attempt not before {_interceptionWindow?.UntilUtc:O}";
+                        break;
+                    }
+
                     var outcome = await TryUploadWithRetryAsync(batch, cancellationToken).ConfigureAwait(false);
 
                     if (outcome.Success)
@@ -192,7 +274,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                         // Stop draining immediately if the backend just quarantined the device —
                         // the next loop iteration would see IsPaused and break anyway, but there
                         // is no point in even Peeking another batch.
-                        if (CollectControlSignals(outcome)) break;
+                        if (HandleSuccessfulUpload(outcome)) break;
+                    }
+                    else if (outcome.Interception != null)
+                    {
+                        // Something on the network path answered instead of the backend (TLS
+                        // inspection, proxy page). RETAIN (cursor stays), pause with backoff, and
+                        // surface the first one once per process — never as an auth failure.
+                        failedBatches++;
+                        lastError = outcome.ErrorReason;
+                        StartInterceptionPause(outcome.Interception);
+                        if (!_interceptionReported)
+                        {
+                            _interceptionReported = true;
+                            pendingInterception = new InterceptionReport(outcome.Interception, _clock.UtcNow);
+                        }
+                        break;
                     }
                     else if (outcome.IsPoison)
                     {
@@ -236,7 +333,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                             // P1 fix: honour any control signals the survivor re-upload carried
                             // (DeviceBlocked / DeviceKill / AdminAction / Actions) — same as the
                             // normal success path; previously these were silently dropped.
-                            deviceBlockedBySurvivors = CollectControlSignals(survivorOutcome);
+                            deviceBlockedBySurvivors = HandleSuccessfulUpload(survivorOutcome);
                         }
 
                         // Survivors uploaded (or none) — advance past the whole batch; the named items
@@ -316,7 +413,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
                         // One-shot loud marker so a stuck non-transient, non-auth block is visible on
                         // the backend instead of only in the agent log (transient = normal retry;
-                        // auth = the session is already shutting down via the auth path).
+                        // a backend auth rejection = the auth path shuts the agent down; an
+                        // interception has its own one-shot report above).
                         if (!outcome.IsTransient && !outcome.IsAuthFailure && !_uploadBlockedReported)
                         {
                             _uploadBlockedReported = true;
@@ -362,7 +460,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 catch { /* handler must not abort the drain result */ }
             }
 
+            if (pendingInterception != null)
+            {
+                try { UploadIntercepted?.Invoke(this, pendingInterception); }
+                catch { /* handler must not abort the drain result */ }
+            }
+
             return result;
+        }
+
+        /// <summary>
+        /// Arms the interception pause with the next backoff step (the last step repeats). Called
+        /// under the drain guard.
+        /// </summary>
+        private void StartInterceptionPause(ResponseClassification interception)
+        {
+            var delay = InterceptionBackoffs[Math.Min(_interceptionBackoffStep, InterceptionBackoffs.Count - 1)];
+            _interceptionBackoffStep = Math.Min(_interceptionBackoffStep + 1, InterceptionBackoffs.Count - 1);
+            var now = _clock.UtcNow;
+            Volatile.Write(ref _interceptionWindow, new InterceptionWindow(now, now + delay));
+
+            // The uploader already logged the page finding at Warning; this line adds the schedule.
+            _logger?.Info(
+                $"TelemetryUploadOrchestrator: upload intercepted ({interception.ForeignReason}, http {interception.StatusCode}) — " +
+                $"batch retained, next attempt not before {now + delay:O} ({delay.TotalSeconds:0}s).");
+        }
+
+        /// <summary>A successful upload ends the interception pause and resets the backoff. Called under the drain guard.</summary>
+        private void EndInterceptionPause()
+        {
+            if (Interlocked.Exchange(ref _interceptionWindow, null) == null) return;
+
+            _interceptionBackoffStep = 0;
+            _logger?.Info("TelemetryUploadOrchestrator: upload path clear again after an interception — uploads resume.");
+        }
+
+        private bool TryUseTerminalAttempt() =>
+            Interlocked.CompareExchange(ref _terminalAttemptState, TerminalAttemptUsed, TerminalAttemptGranted) == TerminalAttemptGranted;
+
+        private sealed class InterceptionWindow
+        {
+            public InterceptionWindow(DateTime fromUtc, DateTime untilUtc)
+            {
+                FromUtc = fromUtc;
+                UntilUtc = untilUtc;
+            }
+
+            public DateTime FromUtc { get; }
+            public DateTime UntilUtc { get; }
         }
 
         /// <summary>

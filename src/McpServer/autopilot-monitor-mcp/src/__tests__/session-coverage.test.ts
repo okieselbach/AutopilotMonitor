@@ -54,6 +54,40 @@ describe('buildSessionCoverage — clean session', () => {
 });
 
 describe('buildSessionCoverage — observation window', () => {
+  it('reports starts that failed to register before the agent finally registered', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 5, {
+        priorRegistrationFailedRuns: '2',
+        priorRegistrationInterceptedRuns: 2,
+        priorRegistrationLastOutcome: 'AuthFailed',
+        priorRegistrationNetworkChanged: 'True',
+      }),
+    ]);
+    expect(c.window.registrationRetries).toEqual([
+      { at: at(5), failedRuns: 2, interceptedRuns: 2, lastOutcome: 'AuthFailed', networkChanged: true },
+    ]);
+    expect(c.gaps).toEqual([
+      expect.stringContaining(`Before the agent start at ${at(5)}, 2 start(s) of this session failed to register, 2 of them answered by something on the network path instead of the backend; the network differed from the failed start`),
+    ]);
+  });
+
+  it('keeps an unknown network flag unknown and ignores starts without failed registrations', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 5, { priorRegistrationFailedRuns: 0 }),
+      ev('agent_started', 50, { previousExitType: 'reboot_kill', priorRegistrationFailedRuns: 1, priorRegistrationLastOutcome: 'Failed' }),
+    ]);
+    expect(c.window.registrationRetries).toEqual([
+      { at: at(50), failedRuns: 1, interceptedRuns: null, lastOutcome: 'Failed', networkChanged: null },
+    ]);
+    const retryGap = c.gaps.find((g) => g.includes('failed to register')) ?? '';
+    expect(retryGap).not.toContain('network');
+  });
+
+  it('omits registrationRetries when no start reports failed registrations', () => {
+    const c = buildSessionCoverage(SESSION, [ev('agent_started', 5)]);
+    expect(c.window).not.toHaveProperty('registrationRetries');
+  });
+
   it('flags a missing agent_started', () => {
     const c = buildSessionCoverage(SESSION, [ev('esp_phase_changed', 10)]);
     expect(c.window.observedFrom).toBeNull();
@@ -236,6 +270,46 @@ describe('buildSessionCoverage — collectors, upload, disk', () => {
   it('counts a poison event without itemCount as one item', () => {
     const c = buildSessionCoverage(SESSION, [ev('agent_started', 0), ev('telemetry_upload_poisoned', 1, {})]);
     expect(c.upload.poisonedItems).toBe(1);
+  });
+
+  it('reports an interception on the network path instead of a backend rejection', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('telemetry_upload_blocked', 300, {
+        reason: 'client_certificate_required',
+        operation: 'agent/telemetry',
+        statusCode: 403,
+        pageTitle: 'Web App - Unavailable',
+        serverCertIssuer: 'CN=Example Inspection Intermediate CA',
+        firstBlockedAtUtc: at(290),
+      }),
+    ]);
+    expect(c.upload.blocked).toBe(true);
+    expect(c.upload.intercepted).toEqual({
+      reason: 'client_certificate_required',
+      firstBlockedAtUtc: at(290),
+      pageTitle: 'Web App - Unavailable',
+      serverCertIssuer: 'CN=Example Inspection Intermediate CA',
+    });
+    expect(c.gaps).toEqual([
+      expect.stringContaining(`Telemetry uploads were intercepted from ${at(290)}: the platform answered "Client Certificate Required"`),
+    ]);
+    expect(c.gaps[0]).toContain('issued by "CN=Example Inspection Intermediate CA"');
+    expect(c.gaps.join(' ')).not.toContain('permanent backend rejection');
+  });
+
+  it('names the foreign page and keeps a backend rejection as its own gap', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('telemetry_upload_blocked', 100, { reason: 'permanent 4xx' }),
+      ev('telemetry_upload_blocked', 200, { reason: 'foreign_response', pageTitle: 'Gateway - Notification' }),
+    ]);
+    // No firstBlockedAtUtc on the event: fall back to the event's own timestamp.
+    expect(c.upload.intercepted).toEqual({ reason: 'foreign_response', firstBlockedAtUtc: at(200), pageTitle: 'Gateway - Notification', serverCertIssuer: null });
+    expect(c.gaps).toEqual([
+      expect.stringContaining('blocked by a permanent backend rejection'),
+      expect.stringContaining('something on the network path answered instead of the backend (page "Gateway - Notification")'),
+    ]);
   });
 });
 

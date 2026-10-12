@@ -271,6 +271,8 @@ export const RUNTIME_FIELDS: Record<keyof AgentConfigResponse, RuntimeRow | Excl
 
   maxAuthFailures: { section: "Auth Circuit Breaker", label: "Max Auth Failures", source: "tenant" },
   authFailureTimeoutMinutes: { section: "Auth Circuit Breaker", label: "Auth Failure Timeout (min)", source: "tenant" },
+  // Backend constant; its C# initializer is null (an older backend sends nothing), so never "custom".
+  interceptedRegistrationRetryBoots: { section: "Auth Circuit Breaker", label: "Intercepted Registration Retry Boots", source: "fixed", informational: true },
 
   showEnrollmentSummary: { section: "Enrollment Summary", label: "Show Summary", source: "tenant" },
   enrollmentSummaryTimeoutSeconds: { section: "Enrollment Summary", label: "Timeout (sec)", source: "tenant" },

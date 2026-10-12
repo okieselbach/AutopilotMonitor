@@ -1,7 +1,9 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared.Models;
 
@@ -29,6 +31,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     /// twice about a certificate it already rejected.
     /// </para>
     /// <para>
+    /// Only a 401/403 the backend authored counts (<see cref="ResponseOriginClassifier"/>). One
+    /// from something on the network path (TLS inspection, a proxy page) never counts and never
+    /// touches the streak — it says nothing about this device's authorization — and is reported
+    /// once per process as <see cref="DistressErrorType.ClientCertificateNotReceived"/>.
+    /// </para>
+    /// <para>
     /// Thread-safety: consecutive-count uses <see cref="Interlocked"/>; the first-failure timestamp
     /// is protected by a single monitor lock. <see cref="ThresholdExceeded"/> is raised outside the
     /// lock to prevent handler re-entrancy deadlocks.
@@ -47,6 +55,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private DateTime? _firstFailureUtc;
         private int _thresholdFired;           // 0/1 — Interlocked exchange makes the event single-shot
         private int _distressDispatched;       // 0/1 per failure streak — reset by RecordSuccess
+        private int _foreignDistressDispatched; // 0/1 per process — never reset
+        private Task _foreignDistressSend;     // the per-process ClientCertificateNotReceived send; null until dispatched
 
         public AuthFailureTracker(
             int maxFailures,
@@ -90,16 +100,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// dispatch further distress signals. Emits <see cref="ThresholdExceeded"/> the first
         /// time either ceiling is crossed; subsequent calls after termination is armed are no-ops.
         /// </summary>
-        /// <param name="endpointUnavailable">
-        /// True when the 401/403 was a platform-level HTML response (stopped/retired app, edge
-        /// proxy — see <see cref="BackendAuthException.EndpointUnavailable"/>). Suppresses the
-        /// distress dispatch: the report would go to the very endpoint that just answered with a
-        /// platform error page, and its DeviceNotRegistered classification would be wrong anyway.
-        /// Counting and the shutdown thresholds are unaffected. Should a later failure in the
-        /// same streak come from a live backend, that one still dispatches the streak's report.
+        /// <param name="classification">
+        /// Who answered (<see cref="ResponseOriginClassifier"/>); null = the backend.
+        /// <see cref="ResponseOrigin.PlatformStopped"/> counts but suppresses the distress dispatch:
+        /// the report would go to the very endpoint that just answered with its stopped page, and
+        /// DeviceNotRegistered would be wrong anyway; a later failure in the same streak from a live
+        /// backend still dispatches the streak's report. <see cref="ResponseOrigin.Foreign"/> never
+        /// counts — see <see cref="RecordForeignResponse"/>.
         /// </param>
-        public void RecordFailure(int statusCode, string operation, bool endpointUnavailable = false)
+        public void RecordFailure(int statusCode, string operation, ResponseClassification classification = null)
         {
+            if (classification?.IsForeign == true)
+            {
+                RecordForeignResponse(statusCode, operation, classification);
+                return;
+            }
+
             if (Volatile.Read(ref _thresholdFired) == 1) return;
 
             var count = Interlocked.Increment(ref _consecutiveFailures);
@@ -114,9 +130,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
             // V1 parity — only one distress report per failure streak. Repeat hits use the local
             // log only; the backend already knows from the first report that the device is
-            // unauthorized. Endpoint-unavailable failures never dispatch (nothing to send to) but
+            // unauthorized. Stopped-endpoint failures never dispatch (nothing to send to) but
             // also never consume the streak's report slot.
-            if (endpointUnavailable)
+            if (classification?.Origin == ResponseOrigin.PlatformStopped)
             {
                 if (_distressReporter != null && Volatile.Read(ref _distressDispatched) == 0)
                 {
@@ -178,6 +194,60 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             catch (Exception ex)
             {
                 _logger.Warning($"AuthFailureTracker: ThresholdExceeded handler threw: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// A 401/403 that something on the network path authored. Never counts and never touches
+        /// the streak — an interception says nothing about this device's authorization, and five
+        /// of them must not shut a healthy agent down. The first one per process dispatches
+        /// <see cref="DistressErrorType.ClientCertificateNotReceived"/>: the distress channel needs
+        /// no client certificate, so it gets through where the request did not. Message order is
+        /// operation, status, sub-reason, page title, server-certificate issuer (the reporter cuts
+        /// at 256 characters).
+        /// </summary>
+        private void RecordForeignResponse(int statusCode, string operation, ResponseClassification classification)
+        {
+            var finding =
+                $"{operation} http {statusCode} {classification.ForeignReason}; " +
+                $"page \"{classification.PageTitle ?? "(none)"}\"; " +
+                $"server cert issuer \"{classification.ServerCertIssuer ?? "(unknown)"}\"";
+            _logger.Info($"AuthFailureTracker: answer did not come from the backend — not an authentication failure, not counted ({finding}).");
+
+            if (_distressReporter == null || Interlocked.CompareExchange(ref _foreignDistressDispatched, 1, 0) != 0)
+                return;
+
+            try
+            {
+                // Fire-and-forget like every other dispatch here, but kept: a caller about to end
+                // the process waits for it (WaitForPendingForeignDistress).
+                Volatile.Write(ref _foreignDistressSend, _distressReporter.TrySendAsync(
+                    DistressErrorType.ClientCertificateNotReceived, finding, httpStatusCode: statusCode));
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"AuthFailureTracker: distress dispatch threw: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Gives this process's <see cref="DistressErrorType.ClientCertificateNotReceived"/> send up
+        /// to <paramref name="bound"/> to leave the machine. The dispatch is fire-and-forget; a caller
+        /// about to end the process (a start whose registration failed exits or cleans up right away)
+        /// waits here so the report is not abandoned mid-flight. Returns true when nothing is pending
+        /// or the send finished within the bound. Never throws.
+        /// </summary>
+        public bool WaitForPendingForeignDistress(TimeSpan bound)
+        {
+            var send = Volatile.Read(ref _foreignDistressSend);
+            if (send == null || send.IsCompleted) return true;
+            try
+            {
+                return send.Wait(bound);
+            }
+            catch (Exception)
+            {
+                return true; // faulted or cancelled: finished, nothing left to wait for
             }
         }
     }

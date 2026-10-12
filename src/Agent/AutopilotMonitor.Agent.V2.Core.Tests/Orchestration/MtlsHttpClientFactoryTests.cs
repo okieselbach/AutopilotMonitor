@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -10,6 +11,7 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
@@ -97,6 +99,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
+        public void CreateHandler_without_observer_keeps_the_default_validation()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            using var cert = CreateSelfSignedCert();
+
+            using var handler = MtlsHttpClientFactory.CreateHandler(new FakeCertificateResolver(cert), logger);
+
+            Assert.Null(handler.ServerCertificateCustomValidationCallback);
+        }
+
+        [Fact]
+        public void CreateHandler_with_observer_installs_an_observing_callback_that_never_weakens_validation()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            using var cert = CreateSelfSignedCert();
+            var observer = new ServerCertificateObserver();
+
+            using var handler = MtlsHttpClientFactory.CreateHandler(new FakeCertificateResolver(cert), logger, observer);
+            var callback = handler.ServerCertificateCustomValidationCallback;
+
+            Assert.NotNull(callback);
+            Assert.False(callback!(null!, cert, null!, SslPolicyErrors.RemoteCertificateChainErrors));
+            Assert.True(callback(null!, cert, null!, SslPolicyErrors.None));
+            Assert.Equal(cert.Issuer, observer.LastIssuer);
+        }
+
+        [Fact]
         public void CreateHandler_throws_when_resolver_returns_null()
         {
             using var tmp = new TempDirectory();
@@ -161,7 +192,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         /// we scan the type hierarchy for the first <see cref="HttpMessageHandler"/>-typed
         /// instance field to stay version-tolerant.
         /// </summary>
-        private static HttpMessageHandler GetPipelineHead(HttpClient client)
+        internal static HttpMessageHandler GetPipelineHead(HttpClient client)
         {
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             for (var t = (Type?)client.GetType(); t != null; t = t.BaseType)

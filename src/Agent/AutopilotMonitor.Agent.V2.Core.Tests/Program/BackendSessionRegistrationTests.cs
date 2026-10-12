@@ -122,20 +122,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         // ============================================================ failed-registration record
 
         [Fact]
-        public void RecordRegistrationRun_records_a_failed_run_with_its_window_and_bounded_error()
+        public void RecordFailedRun_records_a_failed_run_with_its_window_and_bounded_error()
         {
             using var tmp = new TempDirectory();
             var persistence = new SessionIdPersistence(tmp.Path);
             var started = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
 
-            BackendSessionRegistration.RecordRegistrationRun(
+            var returned = BackendSessionRegistration.RecordFailedRun(
                 persistence, SessionRegistrationResult.Failed(new string('e', 1000)),
                 started, started.AddSeconds(1204.46), linkUpAtStart: false, linkUpAtEnd: true,
-                configFetchOutcome: "UsedDefaults", logger: NewLogger(tmp.Path));
+                configFetchOutcome: "UsedDefaults", networkFingerprint: null, logger: NewLogger(tmp.Path));
 
             var record = persistence.LoadRegistrationFailure();
             Assert.NotNull(record);
             Assert.Equal(1, record!.FailedRuns);
+            Assert.Equal(0, record.InterceptedRuns);
             Assert.Equal("Failed", record.Outcome);
             Assert.Equal(BackendSessionRegistration.MaxRecordedErrorLength, record.LastError!.Length);
             Assert.False(record.NetworkLinkUpAtStart);
@@ -143,33 +144,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal(1204.5, record.AttemptWindowSeconds);
             Assert.Equal("UsedDefaults", record.ConfigFetchOutcome);
             Assert.Equal(started.AddSeconds(1204.46), record.LastFailedAtUtc);
+            // The caller decides on the record as written, including this run.
+            Assert.Equal(1, returned!.FailedRuns);
         }
 
         [Fact]
-        public void RecordRegistrationRun_records_auth_failures_and_clears_on_success()
+        public void RecordFailedRun_records_auth_failures_and_a_success_clears_them()
         {
             using var tmp = new TempDirectory();
             var persistence = new SessionIdPersistence(tmp.Path);
             var at = new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc);
 
-            BackendSessionRegistration.RecordRegistrationRun(
+            BackendSessionRegistration.RecordFailedRun(
                 persistence, SessionRegistrationResult.AuthFailed(401, "unauthorized"),
-                at, at.AddSeconds(3), true, true, "Succeeded", NewLogger(tmp.Path));
+                at, at.AddSeconds(3), true, true, "Succeeded", null, NewLogger(tmp.Path));
             Assert.Equal("AuthFailed", persistence.LoadRegistrationFailure()!.Outcome);
 
-            BackendSessionRegistration.RecordRegistrationRun(
-                persistence, SessionRegistrationResult.Succeeded(new RegisterSessionResponse { Success = true }),
-                at, at.AddSeconds(1), true, true, "Succeeded", NewLogger(tmp.Path));
+            BackendSessionRegistration.ClearAfterSuccess(persistence, () => null, NewLogger(tmp.Path));
             Assert.Null(persistence.LoadRegistrationFailure());
         }
 
         [Fact]
-        public void RecordRegistrationRun_without_persistence_is_a_no_op()
+        public void Recording_without_persistence_is_a_no_op()
         {
             using var tmp = new TempDirectory();
-            BackendSessionRegistration.RecordRegistrationRun(
+            Assert.Null(BackendSessionRegistration.RecordFailedRun(
                 null, SessionRegistrationResult.Failed("x"), DateTime.UtcNow, DateTime.UtcNow,
-                null, null, null, NewLogger(tmp.Path));
+                null, null, null, null, NewLogger(tmp.Path)));
+            Assert.Null(BackendSessionRegistration.ClearAfterSuccess(null, () => null, NewLogger(tmp.Path)));
         }
 
         // ============================================================ emergency-break message

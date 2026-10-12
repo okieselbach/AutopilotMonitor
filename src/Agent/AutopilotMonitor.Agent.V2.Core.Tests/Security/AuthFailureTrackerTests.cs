@@ -1,11 +1,12 @@
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
-using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Tests.Transport;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
@@ -261,8 +262,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
-        public void RecordFailure_endpoint_unavailable_suppresses_distress_but_still_counts()
+        public void RecordFailure_only_the_stopped_app_page_counts_without_distress()
         {
+            // Rewritten deliberately for the client-certificate interception plan: the former
+            // "endpoint unavailable" flag covered every HTML platform page, so the platform's
+            // "Client Certificate Required" page (TLS inspection on the path) shut healthy agents
+            // down. Now only the stopped-app page keeps that semantics — it counts toward the
+            // shutdown (a dead endpoint must not retry forever) without a distress report that
+            // could not reach it — while the certificate page never counts (tests below).
             var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
             var fakeDistress = new FakeDistressReporter();
             var tracker = new AuthFailureTracker(maxFailures: 2, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
@@ -270,19 +277,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             int events = 0;
             tracker.ThresholdExceeded += (_, _) => events++;
 
-            // Platform-403s from a stopped endpoint: a distress report cannot reach it and the
-            // DeviceNotRegistered classification would be wrong — nothing must be dispatched.
-            tracker.RecordFailure(403, "agent/config", endpointUnavailable: true);
-            tracker.RecordFailure(403, "agent/register-session", endpointUnavailable: true);
+            tracker.RecordFailure(403, "agent/config", InterceptionFixtures.CertificateRequired());
+            Assert.Equal(0, tracker.ConsecutiveFailures);
 
-            Assert.Empty(fakeDistress.Calls);
-            // The shutdown thresholds still apply — a dead endpoint must not retry forever.
+            tracker.RecordFailure(403, "agent/config", InterceptionFixtures.StoppedApp());
+            tracker.RecordFailure(403, "agent/register-session", InterceptionFixtures.StoppedApp());
+
             Assert.Equal(2, tracker.ConsecutiveFailures);
             Assert.Equal(1, events);
+            Assert.DoesNotContain(fakeDistress.Calls, c => c.ErrorType == DistressErrorType.DeviceNotRegistered);
         }
 
         [Fact]
-        public void RecordFailure_endpoint_unavailable_does_not_consume_streak_report_slot()
+        public void RecordFailure_stopped_app_page_does_not_consume_streak_report_slot()
         {
             var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
             var fakeDistress = new FakeDistressReporter();
@@ -290,12 +297,139 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
 
             // The streak opens with a platform-403 (no dispatch), then a live backend answers
             // with a genuine 403 — that one must still produce the streak's single report.
-            tracker.RecordFailure(403, "agent/config", endpointUnavailable: true);
+            tracker.RecordFailure(403, "agent/config", InterceptionFixtures.StoppedApp());
             tracker.RecordFailure(403, "agent/config");
             tracker.RecordFailure(403, "agent/config");
 
             Assert.Single(fakeDistress.Calls);
             Assert.Equal(DistressErrorType.DeviceNotRegistered, fakeDistress.Calls[0].ErrorType);
+        }
+
+        // ============================================================= Foreign answers (interception)
+
+        [Fact]
+        public void RecordFailure_foreign_never_reaches_the_threshold()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 10, clock, NewLogger(), new FakeDistressReporter());
+
+            int events = 0;
+            tracker.ThresholdExceeded += (_, _) => events++;
+
+            for (int i = 0; i < 10; i++)
+            {
+                tracker.RecordFailure(403, "agent/telemetry", InterceptionFixtures.CertificateRequired());
+                clock.Now = clock.Now.AddMinutes(3); // also past the time window
+            }
+
+            Assert.Equal(0, events);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+        }
+
+        [Fact]
+        public void RecordFailure_foreign_dispatches_one_ClientCertificateNotReceived_per_process()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var fakeDistress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            tracker.RecordFailure(403, "agent/register-session", InterceptionFixtures.CertificateRequired());
+            tracker.RecordFailure(403, "agent/telemetry", InterceptionFixtures.CertificateRequired());
+            tracker.RecordSuccess();   // a success re-arms the streak report, never the per-process one
+            tracker.RecordFailure(401, "agent/telemetry", InterceptionFixtures.CertificateRequired(401));
+
+            var call = Assert.Single(fakeDistress.Calls);
+            Assert.Equal(DistressErrorType.ClientCertificateNotReceived, call.ErrorType);
+            Assert.Equal(403, call.HttpStatusCode);
+            // Operation, status, sub-reason, page title, issuer — in that order, within the 256 budget.
+            Assert.StartsWith("agent/register-session http 403 client_certificate_required;", call.Message);
+            Assert.True(
+                call.Message.IndexOf(InterceptionFixtures.PlatformPageTitle, StringComparison.Ordinal) <
+                call.Message.IndexOf(InterceptionFixtures.InspectionIssuer, StringComparison.Ordinal));
+            Assert.True(call.Message.Length <= 256, $"distress message is {call.Message.Length} characters");
+        }
+
+        [Fact]
+        public void RecordFailure_foreign_within_a_backend_streak_neither_resets_nor_advances_it()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var fakeDistress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 3, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            int events = 0;
+            tracker.ThresholdExceeded += (_, _) => events++;
+
+            tracker.RecordFailure(403, "agent/telemetry");
+            tracker.RecordFailure(403, "agent/telemetry");
+            tracker.RecordFailure(403, "agent/telemetry", InterceptionFixtures.CertificateRequired());
+            tracker.RecordFailure(403, "agent/telemetry", InterceptionFixtures.CertificateRequired());
+
+            Assert.Equal(2, tracker.ConsecutiveFailures);
+            Assert.Equal(0, events);
+
+            tracker.RecordFailure(403, "agent/telemetry");   // the third backend rejection trips it
+
+            Assert.Equal(3, tracker.ConsecutiveFailures);
+            Assert.Equal(1, events);
+            Assert.Equal(1, fakeDistress.Calls.Count(c => c.ErrorType == DistressErrorType.DeviceNotRegistered));
+        }
+
+        // ============================================================= Pending foreign distress
+
+        [Fact]
+        public void WaitForPendingForeignDistress_returns_at_once_when_nothing_was_dispatched()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, clock, NewLogger(), new FakeDistressReporter());
+
+            Assert.True(tracker.WaitForPendingForeignDistress(TimeSpan.Zero));
+        }
+
+        [Fact]
+        public void WaitForPendingForeignDistress_waits_for_the_send_to_finish()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            Task? inFlight = null;
+            var fakeDistress = new FakeDistressReporter { Send = () => inFlight = Task.Delay(200) };
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            tracker.RecordFailure(403, "agent/register-session", InterceptionFixtures.CertificateRequired());
+
+            Assert.True(tracker.WaitForPendingForeignDistress(TimeSpan.FromSeconds(10)));
+            Assert.True(inFlight!.IsCompleted);
+        }
+
+        [Fact]
+        public void WaitForPendingForeignDistress_stops_at_the_bound()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var neverSent = new TaskCompletionSource<bool>();
+            var fakeDistress = new FakeDistressReporter { Send = () => neverSent.Task };
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+            tracker.RecordFailure(403, "agent/register-session", InterceptionFixtures.CertificateRequired());
+
+            var watch = Stopwatch.StartNew();
+            var finished = tracker.WaitForPendingForeignDistress(TimeSpan.FromMilliseconds(100));
+            watch.Stop();
+
+            Assert.False(finished);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"waited {watch.Elapsed}");
+        }
+
+        [Fact]
+        public void WaitForPendingForeignDistress_never_waits_for_a_backend_streak_report()
+        {
+            // Only the ClientCertificateNotReceived send is kept: a failed start must not block
+            // on anything else.
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var neverSent = new TaskCompletionSource<bool>();
+            var fakeDistress = new FakeDistressReporter { Send = () => neverSent.Task };
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            tracker.RecordFailure(403, "agent/register-session");
+
+            Assert.Equal(DistressErrorType.DeviceNotRegistered, Assert.Single(fakeDistress.Calls).ErrorType);
+            Assert.True(tracker.WaitForPendingForeignDistress(TimeSpan.Zero));
         }
 
         [Fact]
@@ -327,29 +461,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             tracker.RecordFailure(401, "op");
 
             Assert.Equal(1, events);
-        }
-
-        private sealed class FakeDistressReporter : DistressReporter
-        {
-            public sealed class Call
-            {
-                public DistressErrorType ErrorType { get; set; }
-                public string Message { get; set; } = default!;
-                public int? HttpStatusCode { get; set; }
-            }
-
-            public List<Call> Calls { get; } = new List<Call>();
-
-            public FakeDistressReporter()
-                : base(baseUrl: "https://example.test", tenantId: "t", manufacturer: "m", model: "d", serialNumber: "s", agentVersion: "0.0.0", logger: null!)
-            {
-            }
-
-            public override Task TrySendAsync(DistressErrorType errorType, string message, int? httpStatusCode = null)
-            {
-                Calls.Add(new Call { ErrorType = errorType, Message = message, HttpStatusCode = httpStatusCode });
-                return Task.CompletedTask;
-            }
         }
 
         private sealed class FakeClock : AutopilotMonitor.DecisionCore.Engine.IClock

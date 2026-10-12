@@ -7,6 +7,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Tests.Transport;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
@@ -99,6 +100,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(1, svc.LastFetchAttempts);
             Assert.Equal(nameof(BackendAuthException), svc.LastFetchFailureType);
             Assert.Equal(401, svc.LastFetchAuthStatusCode);
+        }
+
+        [Fact]
+        public async Task FetchConfig_InterceptedAnswer_FallsBack_WithoutCounting_AndReportsOnce()
+        {
+            // A 403 something on the network path answered (TLS inspection): same fallback as an
+            // auth failure, but the tracker does not count it — it sends ClientCertificateNotReceived.
+            var distress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                AutopilotMonitor.DecisionCore.Engine.SystemClock.Instance, _logger, distress);
+            var svc = NewService(BackendBehaviour.AlwaysIntercepted403, tracker);
+
+            var result = await svc.FetchConfigAsync(retryOnTransientErrors: true);
+
+            Assert.NotNull(result);
+            Assert.Equal(RemoteConfigFetchOutcome.UsedDefaults, svc.LastFetchOutcome);
+            Assert.Equal(1, svc.LastFetchAttempts);
+            Assert.Equal(403, svc.LastFetchAuthStatusCode);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            var call = Assert.Single(distress.Calls);
+            Assert.Equal(DistressErrorType.ClientCertificateNotReceived, call.ErrorType);
+            Assert.StartsWith("agent/config http 403 client_certificate_required", call.Message);
         }
 
         [Fact]
@@ -252,10 +275,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             /// <summary>All 4 initial attempts fail; the NEXT call (the recovery fetch) succeeds.</summary>
             FailAllThenSucceed,
             AlwaysAuthFailure401,
+            AlwaysIntercepted403,
             AlwaysReturnNull,
         }
 
-        private FakeRemoteConfigService NewService(BackendBehaviour behaviour)
+        private FakeRemoteConfigService NewService(BackendBehaviour behaviour, AuthFailureTracker? tracker = null)
         {
             // Pass a throwaway BackendApiClient — the fake overrides CallBackendAsync
             // before it ever hits the wire.
@@ -269,7 +293,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 bootstrapToken: null,
                 agentVersion: "0.0.0",
                 logger: _logger);
-            return new FakeRemoteConfigService(apiClient, _logger, behaviour);
+            return new FakeRemoteConfigService(apiClient, _logger, behaviour, tracker);
         }
 
         private sealed class FakeRemoteConfigService : RemoteConfigService
@@ -277,8 +301,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             private readonly BackendBehaviour _behaviour;
             private int _calls;
 
-            public FakeRemoteConfigService(BackendApiClient apiClient, AgentLogger logger, BackendBehaviour behaviour)
-                : base(apiClient, "00000000-0000-0000-0000-000000000001", logger)
+            public FakeRemoteConfigService(BackendApiClient apiClient, AgentLogger logger, BackendBehaviour behaviour, AuthFailureTracker? tracker)
+                : base(apiClient, "00000000-0000-0000-0000-000000000001", logger, authFailureTracker: tracker)
             {
                 _behaviour = behaviour;
             }
@@ -305,6 +329,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                         throw new HttpRequestException("simulated network failure");
                     case BackendBehaviour.AlwaysAuthFailure401:
                         throw new BackendAuthException("Unauthorized", 401);
+                    case BackendBehaviour.AlwaysIntercepted403:
+                        throw new BackendAuthException("The device certificate did not reach the backend.", 403,
+                            classification: InterceptionFixtures.CertificateRequired());
                     case BackendBehaviour.AlwaysReturnNull:
                         return Task.FromResult<AgentConfigResponse>(null!);
                     default:

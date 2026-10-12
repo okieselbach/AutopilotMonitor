@@ -298,9 +298,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.False(File.Exists(Path.Combine(tmp.Path, "registration-failure.json")));
         }
 
+        [Fact]
+        public void RecordRegistrationFailure_counts_intercepted_runs_and_keeps_the_latest_network_fingerprint()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new SessionIdPersistence(tmp.Path);
+            var at = new DateTime(2026, 10, 12, 9, 0, 0, DateTimeKind.Utc);
+            var intercepted = FailedRun(at, outcome: "AuthFailed");
+            intercepted.InterceptedRuns = 1;
+
+            sut.RecordRegistrationFailure(intercepted, networkFingerprint: "fp-office");
+            sut.RecordRegistrationFailure(FailedRun(at.AddHours(1)), networkFingerprint: null);
+            var merged = sut.RecordRegistrationFailure(intercepted, networkFingerprint: "fp-home");
+
+            Assert.Equal(3, merged!.FailedRuns);
+            Assert.Equal(2, merged.InterceptedRuns);
+            var record = new SessionIdPersistence(tmp.Path).LoadRegistrationFailureRecord();
+            Assert.Equal(3, record!.Summary.FailedRuns);
+            Assert.Equal(2, record.Summary.InterceptedRuns);
+            Assert.Equal("fp-home", record.NetworkFingerprint);
+        }
+
+        [Fact]
+        public void A_record_from_an_agent_before_the_interception_buffer_still_loads()
+        {
+            using var tmp = new TempDirectory();
+            File.WriteAllText(Path.Combine(tmp.Path, "registration-failure.json"),
+                "{\"FailedRuns\":2,\"FirstFailedAtUtc\":\"2026-09-01T08:00:00Z\",\"LastFailedAtUtc\":\"2026-09-02T08:00:00Z\"," +
+                "\"Outcome\":\"AuthFailed\",\"LastError\":\"x\",\"NetworkLinkUpAtStart\":true,\"NetworkLinkUpAtEnd\":true," +
+                "\"AttemptWindowSeconds\":3.0,\"ConfigFetchOutcome\":\"FromCache\"}");
+
+            var record = new SessionIdPersistence(tmp.Path).LoadRegistrationFailureRecord();
+
+            Assert.Equal(2, record!.Summary.FailedRuns);
+            Assert.Equal(0, record.Summary.InterceptedRuns);
+            Assert.Null(record.NetworkFingerprint);
+            Assert.Equal(new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc), record.Summary.FirstFailedAtUtc);
+        }
+
         [Theory]
         [InlineData("not json")]
         [InlineData("{\"FailedRuns\":0}")]
+        [InlineData("null")]
+        [InlineData("[]")]
+        [InlineData("")]
         public void LoadRegistrationFailure_reports_nothing_for_a_corrupt_or_empty_record(string content)
         {
             using var tmp = new TempDirectory();

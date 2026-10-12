@@ -31,7 +31,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             bool requiresSplit = false,
             bool isPoison = false,
             IReadOnlyList<string>? poisonRowKeys = null,
-            bool isSessionGone = false)
+            bool isSessionGone = false,
+            ResponseClassification? interception = null)
         {
             Success = success;
             ErrorReason = errorReason;
@@ -46,6 +47,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             IsPoison = isPoison;
             PoisonRowKeys = poisonRowKeys;
             IsSessionGone = isSessionGone;
+            Interception = interception;
         }
 
         public bool Success { get; }
@@ -92,6 +94,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         /// previous session id.
         /// </summary>
         public bool IsSessionGone { get; }
+
+        /// <summary>
+        /// A 401/403 that did not come from the backend (no <c>X-Correlation-ID</c> echo): the
+        /// platform's "Client Certificate Required" page or a proxy page — TLS inspection on the
+        /// network path. Not an auth failure: never counted by the <c>AuthFailureTracker</c>. The
+        /// orchestrator retains the batch and pauses uploads with backoff.
+        /// </summary>
+        public bool IsIntercepted => Interception != null;
+
+        /// <summary>Status, sub-reason, page title and server-certificate issuer of the interception; null unless <see cref="IsIntercepted"/>.</summary>
+        public ResponseClassification? Interception { get; }
 
         /// <summary>
         /// Non-terminal quarantine signalled by the backend. The agent should stop draining
@@ -186,5 +199,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
                 deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
                 isSessionGone: true);
+
+        /// <summary>
+        /// A 401/403 something on the network path answered (<see cref="ResponseOrigin.Foreign"/>).
+        /// Flagged <see cref="IsIntercepted"/>, never <see cref="IsAuthFailure"/>.
+        /// </summary>
+        public static UploadResult Intercepted(string reason, ResponseClassification interception)
+        {
+            if (interception == null) throw new ArgumentNullException(nameof(interception));
+            if (!interception.IsForeign) throw new ArgumentException("Only a foreign response is an interception.", nameof(interception));
+            return new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
+                deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
+                interception: interception);
+        }
     }
 }

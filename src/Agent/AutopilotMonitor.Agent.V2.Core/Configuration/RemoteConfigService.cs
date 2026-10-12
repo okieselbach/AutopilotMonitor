@@ -178,10 +178,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 {
                     // Auth failures are NOT retryable — 401/403 won't go away with another
                     // attempt; record + bail straight to cache/defaults so an operator can
-                    // see the AuthCertificateRejected/DeviceNotRegistered distress signal
-                    // without 100 s of needless retry delay.
-                    _logger.Warning($"Config fetch authentication failed: {ex.Message}");
-                    _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config", ex.EndpointUnavailable);
+                    // see the distress signal without 100 s of needless retry delay. A 401/403
+                    // from something on the network path is not counted by the tracker; it
+                    // reports ClientCertificateNotReceived instead.
+                    _logger.Warning(ex.IsForeignResponse
+                        ? $"Config fetch intercepted on the network path: {ex.Message}"
+                        : $"Config fetch authentication failed: {ex.Message}");
+                    _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config", ex.Classification);
                     lastException = ex;
                     LastFetchAuthStatusCode = ex.StatusCode;
                     break;

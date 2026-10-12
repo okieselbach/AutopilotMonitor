@@ -351,6 +351,7 @@ export const SHARED_MANIFEST = {
       "whiteGloveSealingPatternIds": [],
       "maxAuthFailures": 5,
       "authFailureTimeoutMinutes": 0,
+      "interceptedRegistrationRetryBoots": null,
       "logLevel": "Info",
       "rebootOnComplete": false,
       "rebootDelaySeconds": 10,

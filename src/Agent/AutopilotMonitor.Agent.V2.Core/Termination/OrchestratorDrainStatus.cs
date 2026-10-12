@@ -31,5 +31,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         public bool CanObserveSpool => true;
 
         public int SpoolPendingItemCount => _orchestrator.PendingItemCount;
+
+        public void RequestTerminalUploadAttempt() => _orchestrator.RequestTerminalUploadAttempt();
     }
 }

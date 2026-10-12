@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -49,7 +50,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         private readonly string? _agentVersion;
         private readonly AuthFailureTracker? _authFailureTracker;
         private readonly Logging.AgentLogger? _logger;
+        private readonly ServerCertificateObserver? _serverCertificates;
+        private readonly NetworkMetrics? _networkMetrics;
 
+        /// <param name="serverCertificates">
+        /// Observer installed on the <paramref name="httpClient"/>'s handler; its issuer becomes
+        /// evidence on an intercepted upload. Null = no evidence.
+        /// </param>
+        /// <param name="networkMetrics">
+        /// Counts 2xx answers without the correlation echo (<c>agent_metrics_snapshot</c>). Null = not counted.
+        /// </param>
         public BackendTelemetryUploader(
             HttpClient httpClient,
             string baseUrl,
@@ -60,7 +70,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             string? bootstrapToken = null,
             string? agentVersion = null,
             AuthFailureTracker? authFailureTracker = null,
-            Logging.AgentLogger? logger = null)
+            Logging.AgentLogger? logger = null,
+            ServerCertificateObserver? serverCertificates = null,
+            NetworkMetrics? networkMetrics = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             if (string.IsNullOrEmpty(baseUrl)) throw new ArgumentException("BaseUrl is mandatory.", nameof(baseUrl));
@@ -75,6 +87,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             _agentVersion = agentVersion;
             _authFailureTracker = authFailureTracker;
             _logger = logger;
+            _serverCertificates = serverCertificates;
+            _networkMetrics = networkMetrics;
         }
 
         public async Task<UploadResult> UploadBatchAsync(
@@ -117,7 +131,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
                 request.Content.Headers.ContentEncoding.Add("gzip");
                 AddSecurityHeaders(request);
-                request.Headers.Add("X-Correlation-ID", correlationId);
+                request.Headers.Add(ResponseOriginClassifier.CorrelationIdHeader, correlationId);
 
                 // P14: device-clock send time, one value per request. Lets the backend separate
                 // spool delay (SentAt − OccurredUtc, both device frame) from device-vs-server
@@ -154,7 +168,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
                 using (response)
                 {
-                    var result = await MapResponseAsync(response).ConfigureAwait(false);
+                    var result = await MapResponseAsync(response, correlationId).ConfigureAwait(false);
                     sw.Stop();
 
                     if (result.Success)
@@ -164,6 +178,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     else if (result.IsTransient)
                     {
                         _logger?.Warning($"BackendTelemetryUploader: ingest TRANSIENT (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
+                    }
+                    else if (result.Interception != null)
+                    {
+                        // The whole page finding instead of a body excerpt: the 200-character
+                        // excerpt used to end before the "Client Certificate Required" text.
+                        var interception = result.Interception;
+                        _logger?.Warning(
+                            $"BackendTelemetryUploader: ingest INTERCEPTED — the answer did not come from the backend " +
+                            $"(corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={interception.StatusCode}, " +
+                            $"reason={interception.ForeignReason}, pageTitle=\"{interception.PageTitle ?? "(none)"}\", " +
+                            $"serverCertIssuer=\"{interception.ServerCertIssuer ?? "(unknown)"}\").");
                     }
                     else if (result.IsSessionGone)
                     {
@@ -179,7 +204,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             }
         }
 
-        private async Task<UploadResult> MapResponseAsync(HttpResponseMessage response)
+        private async Task<UploadResult> MapResponseAsync(HttpResponseMessage response, string correlationId)
         {
             var statusCode = (int)response.StatusCode;
 
@@ -189,22 +214,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 // backend hiccup does not eventually shut the agent down.
                 _authFailureTracker?.RecordSuccess();
 
+                // A 2xx without the backend's correlation echo may be a block page served with 200.
+                // Counted only (agent_metrics_snapshot) and still a success: whether every real
+                // backend 2xx carries the echo is measured before anything is ever enforced on it.
+                if (!ResponseOriginClassifier.EchoesCorrelationId(response, correlationId))
+                    _networkMetrics?.RecordOkWithoutEcho();
+
                 // M4.6.ε — parse backend-to-agent control signals from the 2xx response body.
                 // Body is best-effort JSON; anything unparseable degrades cleanly to plain Ok().
                 return await TryReadControlSignalsAsync(response).ConfigureAwait(false);
             }
 
-            var reason = await TryReadReasonAsync(response).ConfigureAwait(false);
+            var body = await ResponseOriginClassifier.ReadBodyPrefixAsync(response).ConfigureAwait(false);
+            var reason = string.IsNullOrEmpty(body) ? string.Empty : (body!.Length <= 200 ? body : body.Substring(0, 200));
             var shortReason = $"http {statusCode}{(string.IsNullOrEmpty(reason) ? string.Empty : ": " + reason)}";
 
             switch (response.StatusCode)
             {
                 case HttpStatusCode.Unauthorized:       // 401
                 case HttpStatusCode.Forbidden:          // 403
+                {
                     // Feed the central tracker so the agent can shut down after MaxAuthFailures
-                    // instead of retrying a permanently-revoked certificate forever.
-                    _authFailureTracker?.RecordFailure(statusCode, "agent/telemetry");
-                    return UploadResult.Unauthorized($"unauthorized: {shortReason}");
+                    // instead of retrying a permanently-revoked certificate forever. It counts only
+                    // what the backend (or the platform page of a stopped endpoint) answered; an
+                    // answer from the network path is reported once and never counted.
+                    var classification = ResponseOriginClassifier.Classify(
+                        response, correlationId, body, _serverCertificates?.LastIssuer);
+                    _authFailureTracker?.RecordFailure(statusCode, "agent/telemetry", classification);
+                    return classification.IsForeign
+                        ? UploadResult.Intercepted($"intercepted: http {statusCode} ({classification.ForeignReason})", classification)
+                        : UploadResult.Unauthorized($"unauthorized: {shortReason}");
+                }
 
                 case HttpStatusCode.RequestTimeout:     // 408
                 case (HttpStatusCode)429:               // TooManyRequests — enum available net48 SP1+, cast for safety
@@ -236,20 +276,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
             // Unexpected range (1xx, 3xx). Treat as transient — orchestrator retries and logs.
             return UploadResult.Transient(shortReason);
-        }
-
-        private static async Task<string> TryReadReasonAsync(HttpResponseMessage response)
-        {
-            try
-            {
-                var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                if (string.IsNullOrEmpty(body)) return string.Empty;
-                return body.Length <= 200 ? body : body.Substring(0, 200);
-            }
-            catch
-            {
-                return string.Empty;
-            }
         }
 
         /// <summary>

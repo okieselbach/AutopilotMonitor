@@ -5,6 +5,7 @@ using System.Net.Http;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 {
@@ -40,10 +41,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// (<see cref="HttpClient"/>'s <c>_handler</c>-Feld ist internal und in net48
         /// reflection-unzuverlässig).
         /// </para>
+        /// <para>
+        /// <paramref name="serverCertificates"/>, when supplied, observes the server certificate of
+        /// every new connection without changing the validation verdict.
+        /// </para>
         /// </summary>
         public static HttpClientHandler CreateHandler(
             ICertificateResolver resolver,
-            AgentLogger logger)
+            AgentLogger logger,
+            ServerCertificateObserver? serverCertificates = null)
         {
             if (resolver == null) throw new ArgumentNullException(nameof(resolver));
             if (logger == null) throw new ArgumentNullException(nameof(logger));
@@ -62,6 +68,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             };
             handler.ClientCertificates.Add(cert);
+            serverCertificates?.Attach(handler);
 
             logger.Info(
                 $"MtlsHttpClientFactory: handler ready (cert thumbprint={cert.Thumbprint}).");
@@ -85,9 +92,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             ICertificateResolver resolver,
             AgentLogger logger,
             TimeSpan? timeout = null,
-            NetworkMetrics? metrics = null)
+            NetworkMetrics? metrics = null,
+            ServerCertificateObserver? serverCertificates = null)
         {
-            var innerHandler = CreateHandler(resolver, logger);
+            var innerHandler = CreateHandler(resolver, logger, serverCertificates);
             HttpMessageHandler pipelineHead = innerHandler;
             if (metrics != null)
             {

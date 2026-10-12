@@ -165,6 +165,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public IReadOnlyCollection<string> StarvedAlreadyReportedOverride { get; set; } = Array.Empty<string>();
             public List<string> TerminationActionLog { get; } = new List<string>();
             public TimeSpan SpoolDrainPeriodOverride { get; set; } = TimeSpan.Zero;
+            public int TerminalUploadAttemptRequests;
             // Session bc803955 — DevicePrep app-wave settle wait. Zero (default) disables the
             // wait so the existing timing-sensitive tests stay untouched; the dedicated settle
             // tests opt in with a real budget.
@@ -267,6 +268,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public long IngressPendingSignalCount => _rig.IngressPendingSignalCountAccessor!();
             public bool CanObserveSpool => _rig.PendingItemCountAccessor != null;
             public int SpoolPendingItemCount => _rig.PendingItemCountAccessor!();
+
+            public void RequestTerminalUploadAttempt()
+            {
+                Interlocked.Increment(ref _rig.TerminalUploadAttemptRequests);
+                _rig.TerminationActionLog.Add("terminalUploadAttempt");
+            }
         }
 
         /// <summary>ARCH-F2 — recording shutdown gate (no real shutdown.exe in tests).</summary>
@@ -489,12 +496,59 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             rig.Build(cfg).Handle(sender: null!, ServerArgs(TerminationOrigins.SessionGone));
 
             Assert.Equal(0, spoolPolls);
+            Assert.Equal(0, rig.TerminalUploadAttemptRequests);
             Assert.Equal(0, rig.DiagnosticsUploads);
             Assert.DoesNotContain(Constants.EventTypes.DiagnosticsCollecting, rig.EmittedEventTypes);
             Assert.Contains(Constants.EventTypes.AgentShuttingDown, rig.EmittedEventTypes);
             Assert.True(File.Exists(Path.Combine(rig.StateDir, "enrollment-complete.marker")));
             Assert.Equal(1, rig.CleanupService.Invocations);
             Assert.Equal(1, rig.ShutdownSignalled);
+        }
+
+        public enum TerminalExit { SelfDestruct, StandaloneReboot, WhiteGlovePart1 }
+
+        [Theory]
+        [InlineData(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed, TerminalExit.SelfDestruct)]
+        [InlineData(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed, TerminalExit.SelfDestruct)]
+        [InlineData(EnrollmentTerminationReason.StoppedWaiting, EnrollmentTerminationOutcome.TimedOut, SessionStage.AwaitingHello, TerminalExit.SelfDestruct)]
+        [InlineData(EnrollmentTerminationReason.MaxLifetimeExceeded, EnrollmentTerminationOutcome.TimedOut, SessionStage.AwaitingHello, TerminalExit.SelfDestruct)]
+        [InlineData(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed, TerminalExit.StandaloneReboot)]
+        [InlineData(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed, TerminalExit.WhiteGlovePart1)]
+        public void Handle_while_uploads_are_intercepted_makes_one_terminal_attempt_then_exits_as_usual(
+            EnrollmentTerminationReason reason, EnrollmentTerminationOutcome outcome, SessionStage stage, TerminalExit exit)
+        {
+            // Enrollment end during an interception pause: no deferral. DrainSpool asks for the one
+            // terminal upload attempt, waits its bounded budget (the spool never empties — every
+            // upload is answered on the network path), then the exit runs exactly as for any
+            // session. Unsent telemetry is lost, as today.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = stage }.Build();
+            rig.SpoolDrainPeriodOverride = TimeSpan.FromMilliseconds(200);
+            rig.PendingItemCountAccessor = () => 7;
+            rig.DiagnosticsResult = new DiagnosticsUploadResult
+            {
+                ErrorCode = "The device certificate did not reach the backend (TLS inspection or a proxy on the network path): 403 Forbidden ...",
+            };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: exit != TerminalExit.StandaloneReboot);
+            cfg.RebootOnComplete = exit == TerminalExit.StandaloneReboot;
+
+            rig.Build(cfg).Handle(sender: null!, Args(reason, outcome, stage));
+
+            Assert.Equal(1, rig.TerminalUploadAttemptRequests);
+            Assert.Equal(1, rig.ShutdownSignalled);
+            Assert.True(rig.TerminationActionLog.IndexOf("terminalUploadAttempt") < rig.TerminationActionLog.IndexOf("signalShutdown"));
+            if (exit == TerminalExit.WhiteGlovePart1)
+            {
+                Assert.True(rig.SessionPersistence.IsWhiteGloveResume());
+                Assert.Equal(0, rig.CleanupService.Invocations);
+                return;
+            }
+
+            Assert.Equal(1, rig.DiagnosticsUploads);
+            Assert.Contains(Constants.EventTypes.DiagnosticsUploadFailed, rig.EmittedEventTypes);
+            Assert.True(File.Exists(Path.Combine(rig.StateDir, "enrollment-complete.marker")));
+            Assert.Equal(exit == TerminalExit.SelfDestruct ? 1 : 0, rig.CleanupService.Invocations);
+            Assert.Equal(exit == TerminalExit.StandaloneReboot ? 1 : 0, rig.RebootInvocations);
         }
 
         [Fact]

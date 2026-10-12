@@ -47,6 +47,7 @@ public class AgentConfigResolverTests
         Assert.True(r.EnableGeoLocation);
         Assert.Equal(5, r.MaxAuthFailures);
         Assert.Equal(0, r.AuthFailureTimeoutMinutes);
+        Assert.Equal(1, r.InterceptedRegistrationRetryBoots); // backend constant, no tenant or operator setting
         Assert.Equal("Info", r.LogLevel);
         Assert.Equal(10, r.RebootDelaySeconds);
         Assert.Equal(60, r.EnrollmentSummaryTimeoutSeconds);

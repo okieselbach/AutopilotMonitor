@@ -29,6 +29,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
     public static class RemoteConfigMerger
     {
         /// <summary>
+        /// Upper bound for <see cref="AgentConfiguration.InterceptedRegistrationRetryBoots"/>: each
+        /// extra boot keeps an intercepted device's agent installed until its next boot.
+        /// </summary>
+        private const int MaxInterceptedRegistrationRetryBoots = 5;
+
+        /// <summary>
         /// Overwrites the relevant <paramref name="agentConfig"/> fields with values from
         /// <paramref name="remoteConfig"/>. Remote wins unconditionally for every field that has
         /// a direct 1:1 mapping. Returns a <see cref="RemoteConfigMergeResult"/> describing which
@@ -173,6 +179,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             //                  so the refresh lands on the live watchdog.
             agentConfig.MaxAuthFailures = remoteConfig.MaxAuthFailures;
             agentConfig.AuthFailureTimeoutMinutes = remoteConfig.AuthFailureTimeoutMinutes;
+
+            // ---------------- Intercepted-registration buffer — null (a backend that predates the
+            //                  field) keeps the current value; anything else is clamped to
+            //                  0..MaxInterceptedRegistrationRetryBoots.
+            if (remoteConfig.InterceptedRegistrationRetryBoots.HasValue)
+            {
+                var requested = remoteConfig.InterceptedRegistrationRetryBoots.Value;
+                var bounded = Math.Max(0, Math.Min(MaxInterceptedRegistrationRetryBoots, requested));
+                if (bounded != requested)
+                    logger?.Warning($"Remote config: InterceptedRegistrationRetryBoots {requested} is outside 0..{MaxInterceptedRegistrationRetryBoots} — using {bounded}.");
+                agentConfig.InterceptedRegistrationRetryBoots = bounded;
+            }
 
             // ---------------- Nested CollectorConfiguration — only the two knobs that have a
             //                  V2 consumer on AgentConfiguration itself. The rest flow through

@@ -157,6 +157,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task UploadBatch_logs_the_whole_interception_finding_at_warning()
+        {
+            // The old PERMANENT line carried the first 200 body characters, which ended before the
+            // platform's "Client Certificate Required" text. The INTERCEPTED line names the finding.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage);
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http,
+                baseUrl: "https://backend.test",
+                tenantId: "T1",
+                logger: logger);
+
+            var result = await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            Assert.True(result.IsIntercepted);
+
+            Assert.True(handler.Captured[0].TryGetHeader("X-Correlation-ID", out var corr));
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains("BackendTelemetryUploader: ingest INTERCEPTED", logContent);
+            Assert.Contains($"corr={corr}", logContent);
+            Assert.Contains("status=403", logContent);
+            Assert.Contains("reason=client_certificate_required", logContent);
+            Assert.Contains($"pageTitle=\"{InterceptionFixtures.PlatformPageTitle}\"", logContent);
+            Assert.Contains("serverCertIssuer=\"(unknown)\"", logContent);
+            Assert.DoesNotContain("ingest PERMANENT", logContent);
+        }
+
+        [Fact]
         public async Task UploadBatch_empty_batch_no_log_no_network()
         {
             // Short-circuit empty batch must not burn a log line or an HTTP call.

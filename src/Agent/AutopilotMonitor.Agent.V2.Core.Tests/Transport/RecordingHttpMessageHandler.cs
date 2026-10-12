@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 {
@@ -23,14 +24,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 
         public IReadOnlyList<CapturedRequest> Captured => _captured;
 
+        /// <summary>
+        /// Queues a response from the backend: like the backend's correlation middleware, it echoes
+        /// the request's <c>X-Correlation-ID</c> — the proof of origin a 401/403 is classified by.
+        /// </summary>
         public RecordingHttpMessageHandler QueueStatus(HttpStatusCode status, string? body = null)
         {
-            _script.Enqueue(_ =>
+            _script.Enqueue(request =>
             {
                 var resp = new HttpResponseMessage(status);
                 if (body != null) resp.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                if (request.Headers.TryGetValues(ResponseOriginClassifier.CorrelationIdHeader, out var ids))
+                    resp.Headers.TryAddWithoutValidation(ResponseOriginClassifier.CorrelationIdHeader, ids);
                 return resp;
             });
+            return this;
+        }
+
+        /// <summary>
+        /// Queues a response that something on the network path produced (platform page, proxy
+        /// page): no correlation echo.
+        /// </summary>
+        public RecordingHttpMessageHandler QueueForeign(HttpStatusCode status, string body, string mediaType = "text/html")
+        {
+            _script.Enqueue(_ => new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) });
             return this;
         }
 
