@@ -26,7 +26,8 @@ public class CorrelationIdMiddleware : IFunctionsWorkerMiddleware
     internal const string ExposedHeaders = "X-Correlation-ID, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset";
 
     // Strict allow-list gate against CRLF / log-forgery / App-Insights row-injection via inbound header.
-    private static readonly Regex CorrelationIdPattern = new("^[A-Za-z0-9_-]{1,128}$", RegexOptions.Compiled);
+    // Anchored with \z: .NET's $ also matches before a final "\n".
+    private static readonly Regex CorrelationIdPattern = new(@"^[A-Za-z0-9_-]{1,128}\z", RegexOptions.Compiled);
 
     private readonly ILogger<CorrelationIdMiddleware> _logger;
 

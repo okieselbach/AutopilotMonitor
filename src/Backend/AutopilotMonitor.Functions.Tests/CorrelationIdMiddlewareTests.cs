@@ -116,6 +116,7 @@ public class CorrelationIdMiddlewareTests
         "",
         "7c9e6679 a1b2",
         "7c9e6679\r\nX-Forged: 1",
+        "7c9e6679\n",                 // .NET's `$` also matches before a final newline; the gate anchors with `\z`
         "7c9e6679.a1b2",
         "7c9e6679-ä",
         new string('a', 129),
