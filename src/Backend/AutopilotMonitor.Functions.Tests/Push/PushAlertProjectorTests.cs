@@ -148,6 +148,10 @@ public class PushAlertProjectorTests
         Assert.Equal(8030, root.GetProperty("web_push").GetInt32());
         Assert.True(root.GetProperty("mutable").GetBoolean());
         var notification = root.GetProperty("notification");
+        // Safari 18.4–26.1 reads "mutable" only inside "notification"; without it the worker never runs there.
+        Assert.True(notification.GetProperty("mutable").GetBoolean());
+        Assert.False(root.TryGetProperty("app_badge", out _));
+        Assert.False(notification.TryGetProperty("app_badge", out _));
         Assert.Equal(Constants.PortalPushHistoryUrl("entry-9"), notification.GetProperty("navigate").GetString());
         var data = notification.GetProperty("data");
         Assert.Equal(1, data.GetProperty("v").GetInt32());

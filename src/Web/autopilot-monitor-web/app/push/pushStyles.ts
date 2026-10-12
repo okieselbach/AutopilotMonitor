@@ -19,4 +19,6 @@ export const DEVICE_STATUS_CHIP: Record<string, string> = {
 };
 
 export const NEUTRAL_CHIP = "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
+/** "New" on an entry that arrived since the history was last on screen. */
+export const NEW_CHIP = "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300";
 export const DANGER_CHIP = "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";

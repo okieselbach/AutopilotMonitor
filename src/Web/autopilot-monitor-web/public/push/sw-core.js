@@ -99,6 +99,7 @@ export const META_KEYS = /** @type {const} */ ({
  * @property {string | null} tag
  * @property {string} scope
  * @property {boolean} generic true when the payload could not be read and the generic text was used
+ * @property {boolean} [unread] set when the entry is stored, cleared once the history page shows it; the app badge counts these
  */
 
 /**
@@ -374,6 +375,32 @@ export function pruneHistory(entries, nowMs, retentionDays = HISTORY_RETENTION_D
     .sort((a, b) => b.time - a.time)
     .slice(0, HISTORY_MAX_ENTRIES);
   return kept.map((item) => item.entry);
+}
+
+/**
+ * The entries the history page has not shown yet — what the app badge counts.
+ * @param {HistoryEntry[]} entries
+ * @returns {string[]}
+ */
+export function unreadIds(entries) {
+  return entries.filter((entry) => entry.unread === true).map((entry) => entry.id);
+}
+
+/**
+ * Sets the app icon badge to `count`, 0 clears it; fire and forget. Never awaited: inside a
+ * declarative push event Safari's setAppBadge promise never settles, so awaiting it — or
+ * handing it to waitUntil — would hold the event open. A call without a number clears the badge
+ * on iOS, so a count is always passed. Without the Badging API nothing happens.
+ * @param {{ setAppBadge?: (count: number) => Promise<void>, clearAppBadge?: () => Promise<void> } | null | undefined} nav the page's navigator or the worker's self.navigator
+ * @param {number} count
+ */
+export function applyBadge(nav, count) {
+  try {
+    const pending = count > 0 ? nav?.setAppBadge?.(count) : nav?.clearAppBadge?.();
+    pending?.catch(() => {});
+  } catch {
+    // A browser that throws instead of rejecting: no badge, nothing else changes.
+  }
 }
 
 /**
@@ -726,7 +753,7 @@ export function readHistory() {
 }
 
 /**
- * Upserts one entry (dedupe by id) and prunes what the retention rule no longer keeps.
+ * Upserts one entry (dedupe by id), unread, and prunes what the retention rule no longer keeps.
  * @param {HistoryEntry} entry
  * @returns {Promise<boolean>} false when an entry with this id already existed
  */
@@ -734,9 +761,30 @@ export function writeHistoryEntry(entry) {
   return withStores("readwrite", async ({ history, meta }) => {
     const existing = await requestToPromise(history.get(entry.id));
     if (existing) return false;
-    await requestToPromise(history.put(entry));
+    await requestToPromise(history.put({ ...entry, unread: true }));
     await pruneStore(history, meta);
     return true;
+  });
+}
+
+/**
+ * @returns {Promise<number>} the stored entries the history page has not shown yet (the badge count)
+ */
+export function countUnread() {
+  return withStores("readonly", async ({ history }) => unreadIds(/** @type {HistoryEntry[]} */ (await requestToPromise(history.getAll()))).length);
+}
+
+/**
+ * Marks every unread entry read — the history page is showing them.
+ * @returns {Promise<string[]>} the ids that were unread
+ */
+export function markAllRead() {
+  return withStores("readwrite", async ({ history }) => {
+    const all = /** @type {HistoryEntry[]} */ (await requestToPromise(history.getAll()));
+    for (const entry of all) {
+      if (entry.unread === true) await requestToPromise(history.put({ ...entry, unread: false }));
+    }
+    return unreadIds(all);
   });
 }
 

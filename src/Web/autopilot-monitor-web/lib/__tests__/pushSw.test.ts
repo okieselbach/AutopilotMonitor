@@ -5,8 +5,9 @@ import { GENERIC_BODY, GENERIC_TITLE } from "../push/pushCore";
  * Pins the K25 "always show something" contract of the service worker glue (public/push/sw.js):
  * the push handler reaches showNotification before IndexedDB is even opened, a payload that
  * cannot be read still shows the generic title, and the event's waitUntil promise settles
- * although the history write hangs or fails. The worker is loaded for real with a stubbed
- * worker global, so the test runs the shipped glue and not a copy of it.
+ * although the history write hangs or fails — or Safari's setAppBadge never settles. The worker
+ * is loaded for real with a stubbed worker global, so the test runs the shipped glue and not a
+ * copy of it.
  */
 
 type Handler = (event: unknown) => void;
@@ -25,7 +26,8 @@ interface FakeSelf {
   sequence: string[];
 }
 
-function fakeSelf(): FakeSelf {
+/** @param navigator the worker's navigator (Badging API); absent like on a browser without it */
+function fakeSelf(navigator?: unknown): FakeSelf {
   const handlers = new Map<string, Handler>();
   const sequence: string[] = [];
   const showNotification = vi.fn(async () => {
@@ -47,6 +49,7 @@ function fakeSelf(): FakeSelf {
     },
     clients,
     location: { origin: "https://portal.example.test" },
+    navigator,
   };
   vi.stubGlobal("self", self);
   return { handlers, showNotification, clients, sequence };
@@ -271,6 +274,68 @@ describe("push service worker glue (K25)", () => {
       env.handlers.get("push")!(event);
 
       expect(env.showNotification.mock.calls[0][0]).toBe("Enrollment finished");
+    });
+  });
+
+  describe("app badge after a history write", () => {
+    const CORE = "../../public/push/sw-core.js";
+    const readable = { notification: { title: "Enrollment failed", body: "DESKTOP-1234", data: { id: "badge-1", type: "enrollment_failed" } } };
+
+    afterEach(() => {
+      vi.doUnmock(CORE);
+    });
+
+    /** The real glue over a store stub: the write answers `added`, the store holds `unread` unread entries. */
+    async function loadWorkerWithStore(added: boolean, unread: number, navigator: unknown) {
+      vi.resetModules();
+      const writeTrace = vi.fn(async () => undefined);
+      vi.doMock(CORE, async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../public/push/sw-core.js")>()),
+        writeHistoryEntry: vi.fn(async () => added),
+        countUnread: vi.fn(async () => unread),
+        writeTrace,
+      }));
+      const env = fakeSelf(navigator);
+      await import("../../public/push/sw.js");
+      return { ...env, writeTrace };
+    }
+
+    it("raises the badge to the unread count without waiting for setAppBadge, whose promise never settles in Safari's declarative push event", async () => {
+      const setAppBadge = vi.fn(() => new Promise<void>(() => {}));
+      const env = await loadWorkerWithStore(true, 3, { setAppBadge });
+      const event = fakeEvent({ data: { json: () => readable } });
+
+      env.handlers.get("push")!(event);
+
+      // Settles by itself — not through the 5-second persist bound, which the fake timers never reach.
+      await expect(event.waited).resolves.toBeDefined();
+      expect(setAppBadge).toHaveBeenCalledWith(3);
+      expect(env.writeTrace).toHaveBeenCalledWith(expect.objectContaining({ id: "badge-1", result: "added", badge: 3 }));
+    });
+
+    it("leaves the badge alone for a duplicate and for an empty count", async () => {
+      const setAppBadge = vi.fn(async () => undefined);
+      const duplicate = await loadWorkerWithStore(false, 3, { setAppBadge });
+      const first = fakeEvent({ data: { json: () => readable } });
+      duplicate.handlers.get("push")!(first);
+      await expect(first.waited).resolves.toBeDefined();
+
+      const empty = await loadWorkerWithStore(true, 0, { setAppBadge });
+      const second = fakeEvent({ data: { json: () => readable } });
+      empty.handlers.get("push")!(second);
+      await expect(second.waited).resolves.toBeDefined();
+
+      expect(setAppBadge).not.toHaveBeenCalled();
+    });
+
+    it("still settles on a browser without the Badging API", async () => {
+      const env = await loadWorkerWithStore(true, 2, undefined);
+      const event = fakeEvent({ data: { json: () => readable } });
+
+      env.handlers.get("push")!(event);
+
+      await expect(event.waited).resolves.toBeDefined();
+      expect(env.writeTrace).toHaveBeenCalledWith(expect.objectContaining({ result: "added", badge: 2 }));
     });
   });
 

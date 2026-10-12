@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_VERSION,
   appendTraceRecord,
+  applyBadge,
   base64UrlToUint8Array,
   bufferToBase64Url,
   cleanLabel,
@@ -36,6 +37,7 @@ import {
   toNotificationOptions,
   TRACE_MAX_RECORDS,
   TRACE_VALUE_MAX_CHARS,
+  unreadIds,
   type HistoryEntry,
 } from "../push/pushCore";
 
@@ -243,6 +245,62 @@ describe("pruneHistory", () => {
     const old = entry("old", new Date(NOW - 31 * dayMs).toISOString());
     expect(pruneHistory([old], NOW, Number.NaN)).toEqual([]);
     expect(pruneHistory([old], NOW, 400)).toEqual([]);
+  });
+});
+
+describe("app badge (unreadIds / applyBadge)", () => {
+  const entry = (id: string, unread?: boolean): HistoryEntry => ({ ...normalizePayload(FULL_PAYLOAD, NOW), id, unread });
+
+  it("counts only entries stored unread; a fresh payload carries no flag at all", () => {
+    expect(normalizePayload(FULL_PAYLOAD, NOW).unread).toBeUndefined();
+    expect(unreadIds([entry("a", true), entry("b", false), entry("c"), entry("d", true)])).toEqual(["a", "d"]);
+    expect(unreadIds([])).toEqual([]);
+  });
+
+  it("sets a count above zero and clears at zero, always with a number", () => {
+    const calls: string[] = [];
+    const nav = {
+      setAppBadge: (count: number) => {
+        calls.push(`set:${count}`);
+        return Promise.resolve();
+      },
+      clearAppBadge: () => {
+        calls.push("clear");
+        return Promise.resolve();
+      },
+    };
+    applyBadge(nav, 3);
+    applyBadge(nav, 0);
+    expect(calls).toEqual(["set:3", "clear"]);
+  });
+
+  it("returns at once although Safari's setAppBadge promise never settles inside a declarative push event", () => {
+    let called = false;
+    const nav = {
+      setAppBadge: () => {
+        called = true;
+        return new Promise<void>(() => {});
+      },
+    };
+    expect(applyBadge(nav, 1)).toBeUndefined();
+    expect(called).toBe(true);
+  });
+
+  it("swallows a rejection, a throw and a missing Badging API", async () => {
+    applyBadge({ setAppBadge: () => Promise.reject(new Error("NotAllowedError")) }, 2);
+    applyBadge(
+      {
+        clearAppBadge: () => {
+          throw new Error("boom");
+        },
+      },
+      0,
+    );
+    applyBadge({}, 5);
+    applyBadge(undefined, 5);
+    applyBadge(null, 0);
+    // A rejection left unhandled would fail the run; give it a tick to surface.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
 

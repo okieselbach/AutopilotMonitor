@@ -9,8 +9,10 @@ import { sameHistory } from "@/lib/push/historyList";
 import { createLongPress } from "@/lib/push/longPress";
 import { createPullToRefresh, type PullState } from "@/lib/push/pullToRefresh";
 import {
+  applyBadge,
   deleteHistoryEntry,
   entryFragment,
+  markAllRead,
   META_KEYS,
   parseFragment,
   pruneStoredHistory,
@@ -19,11 +21,11 @@ import {
   writeMeta,
   type HistoryEntry,
 } from "@/lib/push/pushCore";
-import { importDisplayedNotifications, readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
+import { closeReadNotifications, importDisplayedNotifications, readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
 import { formatDateTime, formatRelativeTime } from "@/lib/push/pushFormat";
 import { EntryActionSheet } from "./EntryActionSheet";
 import { useIsClient, useLocationHash } from "./pushEnvironment";
-import { DANGER_CHIP, DEVICE_STATUS_CHIP, NEUTRAL_CHIP, SEVERITY_ACCENT } from "./pushStyles";
+import { DANGER_CHIP, DEVICE_STATUS_CHIP, NEUTRAL_CHIP, NEW_CHIP, SEVERITY_ACCENT } from "./pushStyles";
 
 interface WorkerMessage {
   channel?: unknown;
@@ -43,13 +45,16 @@ const REFRESH_MIN_MS = 500;
  * while visible, and the tab/app coming back all re-read the store; a pull from the top refreshes
  * on demand (a home-screen app has no native gesture). Every open reconciles the device with the
  * server (K14). A long press (or right-click) on an entry opens its actions; a delete stays on
- * the device.
+ * the device. Like a messenger, a history on screen is read: the app badge goes to zero, the
+ * notification centre lets go of what the history holds, and what arrived since the last visit
+ * carries "New" until the app is left again.
  */
 export default function PushHistoryPage() {
   const router = useRouter();
   const isClient = useIsClient();
   const hash = useLocationHash();
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
   const [device, setDevice] = useState<ReconcileResult | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -66,16 +71,26 @@ export default function PushHistoryPage() {
   if (expanded.focusId !== focusId) setExpanded({ focusId, id: focusId });
 
   // One read of the store (prune first). An unchanged list keeps its identity so a poll never re-renders for nothing.
+  // On screen, the read also marks everything read; the badge is cleared on every such read, since
+  // the worker may raise it between the read and the mark.
   const loadHistory = useCallback(async () => {
+    const onScreen = document.visibilityState === "visible";
     let list: HistoryEntry[] = [];
+    let seen: string[] = [];
     try {
       await importDisplayedNotifications();
       await pruneStoredHistory();
       list = await readHistory();
+      if (onScreen) seen = await markAllRead();
     } catch {
       // No IndexedDB (private mode): an empty history is the honest state.
     }
+    if (onScreen) {
+      applyBadge(navigator, 0);
+      void closeReadNotifications(new Set(list.map((entry) => entry.id)));
+    }
     setEntries((prev) => (sameHistory(prev, list) ? prev : list));
+    if (seen.length > 0) setFresh((prev) => new Set([...prev, ...seen]));
     setNow(Date.now());
   }, []);
 
@@ -98,7 +113,11 @@ export default function PushHistoryPage() {
       if (event.data.type === "wiped") setReloadKey((k) => k + 1);
     };
     const onBack = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        // Leaving the app ends the visit: what was new has been seen.
+        setFresh((prev) => (prev.size === 0 ? prev : new Set()));
+        return;
+      }
       setHistoryKey((k) => k + 1);
       setReloadKey((k) => k + 1);
     };
@@ -337,6 +356,7 @@ export default function PushHistoryPage() {
                 entry={entry}
                 open={expanded.id === entry.id}
                 focused={focusId === entry.id}
+                fresh={fresh.has(entry.id)}
                 now={now}
                 onToggle={toggle}
                 onActions={setSheet}
@@ -355,6 +375,8 @@ interface EntryCardProps {
   entry: HistoryEntry;
   open: boolean;
   focused: boolean;
+  /** Arrived since the history was last on screen. */
+  fresh: boolean;
   now: number;
   onToggle: (id: string) => void;
   onActions: (entry: HistoryEntry) => void;
@@ -365,7 +387,7 @@ interface EntryCardProps {
  * card suppresses the browser's own text selection and the iOS callout so the press reads as
  * a press, and it ignores the click that the release after a long press may produce.
  */
-function EntryCard({ entry, open, focused, now, onToggle, onActions }: EntryCardProps) {
+function EntryCard({ entry, open, focused, fresh, now, onToggle, onActions }: EntryCardProps) {
   const openActions = useLatest(() => onActions(entry));
   const [press] = useState(() => createLongPress({ onLongPress: () => openActions.current() }));
   useEffect(() => () => press.dispose(), [press]);
@@ -397,9 +419,12 @@ function EntryCard({ entry, open, focused, now, onToggle, onActions }: EntryCard
       >
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm font-medium text-gray-900 break-words min-w-0">{entry.title}</span>
-          <time dateTime={entry.ts} title={formatDateTime(entry.ts)} className="text-xs text-gray-500 shrink-0">
-            {now ? formatRelativeTime(entry.ts, now) : ""}
-          </time>
+          <span className="flex items-baseline gap-1.5 shrink-0">
+            {fresh && <span className={`px-1.5 py-px rounded-full text-[10px] font-semibold uppercase tracking-wide ${NEW_CHIP}`}>New</span>}
+            <time dateTime={entry.ts} title={formatDateTime(entry.ts)} className="text-xs text-gray-500">
+              {now ? formatRelativeTime(entry.ts, now) : ""}
+            </time>
+          </span>
         </div>
         {entry.body && (
           <p className={`text-sm text-gray-600 mt-0.5 break-words ${open ? "" : "line-clamp-2"}`}>{entry.body}</p>

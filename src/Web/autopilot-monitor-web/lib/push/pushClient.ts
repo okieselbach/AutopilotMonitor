@@ -5,6 +5,7 @@
  */
 import { API_BASE_URL } from "@/lib/config";
 import {
+  applyBadge,
   base64UrlToUint8Array,
   bufferToBase64Url,
   clearPushDb,
@@ -172,6 +173,26 @@ export async function importDisplayedNotifications(): Promise<number> {
   return added;
 }
 
+/**
+ * Clears the notifications whose entries the history holds from the notification centre, the way
+ * a native app does once its messages were read (on Android this also clears the launcher dot,
+ * which follows open notifications). Called after the import, so a notification the worker never
+ * persisted is in the history first. One whose entry cannot be identified — a declarative push
+ * the platform displayed itself carries no data — stays: the notification centre is its only record.
+ */
+export async function closeReadNotifications(historyIds: ReadonlySet<string>): Promise<void> {
+  const registration = await getPushRegistration().catch(() => null);
+  if (!registration || typeof registration.getNotifications !== "function") return;
+  try {
+    for (const notification of await registration.getNotifications()) {
+      const id = entryFromNotification(notification, Date.now())?.id;
+      if (id && historyIds.has(id)) notification.close();
+    }
+  } catch {
+    // The notifications stay; the next open tries again.
+  }
+}
+
 export interface DisplayedNotification {
   /** The history id behind the notification, or null when the entry rule does not recognise it. */
   id: string | null;
@@ -232,7 +253,7 @@ export async function collectPushDiagnostics(): Promise<PushDiagnostics> {
   return { worker, controlled: navigator.serviceWorker.controller !== null, displayed, historyCount, trace };
 }
 
-/** Drops the subscription and every local trace; used by unpair, the wipe command and "device gone". */
+/** Drops the subscription, the badge and every local trace; used by unpair, the wipe command and "device gone". */
 export async function wipeLocalDevice(): Promise<void> {
   try {
     const registration = await getPushRegistration();
@@ -241,6 +262,7 @@ export async function wipeLocalDevice(): Promise<void> {
   } catch {
     // The browser may already have dropped it; the server copy is what matters.
   }
+  applyBadge(navigator, 0);
   await clearPushDb();
 }
 

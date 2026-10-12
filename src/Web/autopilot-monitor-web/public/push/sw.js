@@ -14,9 +14,11 @@
  * lost. lib/__tests__/pushSw.test.ts pins the order and the settling.
  */
 import {
+  applyBadge,
   base64UrlToUint8Array,
   bufferToBase64Url,
   clearPushDb,
+  countUnread,
   entryFragment,
   entryFromNotification,
   GENERIC_BODY,
@@ -129,8 +131,10 @@ function describeError(error) {
 
 /**
  * Best-effort history write plus its trace record, bounded in time as one; never rejects. The
- * record says what became of the entry ("added", "duplicate", "error: …"); when the database
- * never answers, the missing record is the evidence the status page shows.
+ * record says what became of the entry ("added", "duplicate", "error: …") and the badge it set;
+ * when the database never answers, the missing record is the evidence the status page shows.
+ * A new entry raises the app badge to the unread count — applyBadge is fire and forget, its
+ * promise never settles inside Safari's declarative push event.
  * @param {import("./sw-core.js").HistoryEntry} entry
  * @param {Record<string, unknown>} fields the record's fields besides id, type, result and shown
  * @param {Promise<string>} [shown] the display outcome — already in flight and never rejecting, awaited only for the record
@@ -146,14 +150,24 @@ function persist(entry, fields, shown) {
       } catch (error) {
         result = "error: " + describeError(error);
       }
-      if (result === "added") await notifyWindows("history").catch(() => {});
+      /** @type {number | undefined} */
+      let badge;
+      if (result === "added") {
+        await notifyWindows("history").catch(() => {});
+        badge = await countUnread().catch(() => undefined);
+        if (badge) applyBadge(self.navigator, badge);
+      }
       const display = shown ? await shown.catch(() => "failed") : undefined;
-      await writeTrace({ ...fields, id: entry.id, type: entry.type, result, shown: display });
+      await writeTrace({ ...fields, id: entry.id, type: entry.type, result, shown: display, badge });
     })(),
   );
 }
 
-/** The wipe command: forget the device locally and drop the subscription. */
+/**
+ * The wipe command: forget the device locally and drop the subscription. The badge is left to the
+ * page's next open: a badge of 0 set inside the push event can hide the "unpaired" notification
+ * on iOS 18.1–18.5 (FB16095572 on native pushes).
+ */
 async function wipe() {
   try {
     const subscription = await self.registration.pushManager.getSubscription();

@@ -160,7 +160,10 @@ public static class PushAlertProjector
     /// <summary>
     /// Declarative Web Push JSON (<c>web_push: 8030</c>): Safari ≥ 18.4 shows it without the
     /// service worker when the worker fails; <c>mutable</c> wakes the worker so it can store the
-    /// history entry; every other browser hands the same object to the worker's push event.
+    /// history entry and set the badge; every other browser hands the same object to the worker's
+    /// push event. <c>mutable</c> stands twice: Safari 18.4–26.1 reads it only inside
+    /// <c>notification</c>, 26.2+ at the top level. No <c>app_badge</c>: the count is the
+    /// device's own unread history, which only the worker knows.
     /// Over budget, facts are dropped from the end, then the body is shortened.
     /// </summary>
     public static byte[] ToJsonBytes(PushPayload payload)
@@ -190,6 +193,7 @@ public static class PushAlertProjector
             w.WriteNumber("web_push", 8030);
             w.WriteBoolean("mutable", true);
             w.WriteStartObject("notification");
+            w.WriteBoolean("mutable", true);
             w.WriteString("title", p.Title);
             w.WriteString("body", body);
             w.WriteString("navigate", Constants.PortalPushHistoryUrl(p.Id));
