@@ -440,8 +440,13 @@ public class PushPairingServiceTests
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Requests.Add(request);
-            Bodies.Add(request.Content == null ? Array.Empty<byte>() : await request.Content.ReadAsByteArrayAsync(cancellationToken));
+            var body = request.Content == null ? Array.Empty<byte>() : await request.Content.ReadAsByteArrayAsync(cancellationToken);
+            // PushDeliveryService fans out in parallel: an unguarded List.Add loses entries.
+            lock (Requests)
+            {
+                Requests.Add(request);
+                Bodies.Add(body);
+            }
             return new HttpResponseMessage(Respond(request)) { Content = new StringContent(string.Empty) };
         }
     }
