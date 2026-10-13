@@ -12,7 +12,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
     /// The bootstrap provenance in <c>agent_started</c>. Fixture lines are the scripts' real
     /// formats: installer <c>[ts] Bootstrap script version: vX.Y</c>
     /// (Install-AutopilotMonitor.ps1), loader <c>[ts] === Autopilot Monitor bootstrap loader vX.Y
-    /// started (user=..., pid=...) ===</c> (Start-AutopilotMonitor.ps1).
+    /// started (user=..., pid=...) ===</c> (Start-AutopilotMonitor.ps1), the MSI's downloader before
+    /// the loader <c>[ts] MSI bootstrap runner started (user=..., pid=...).</c>.
     /// </summary>
     public sealed class BootstrapProvenanceReaderTests : IDisposable
     {
@@ -77,6 +78,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
 
             Assert.True(p.ScriptLogPresent);
             Assert.Null(p.ScriptVersion);
+        }
+
+        [Fact]
+        public void An_installer_from_before_the_log_rename_is_read_under_its_old_name()
+        {
+            Write(BootstrapProvenanceReader.LegacyInstallerLogName, InstallerRun("2.3"));
+
+            var p = BootstrapProvenanceReader.Read(_dir);
+
+            Assert.True(p.ScriptLogPresent);
+            Assert.Equal("2.3", p.ScriptVersion);
+        }
+
+        [Fact]
+        public void With_both_installer_logs_the_most_recently_written_one_counts()
+        {
+            Write(BootstrapProvenanceReader.InstallerLogName, InstallerRun("2.6"));
+            Write(BootstrapProvenanceReader.LegacyInstallerLogName, InstallerRun("2.3"));
+            File.SetLastWriteTimeUtc(Path.Combine(_dir, BootstrapProvenanceReader.InstallerLogName), DateTime.UtcNow.AddDays(-3));
+            File.SetLastWriteTimeUtc(Path.Combine(_dir, BootstrapProvenanceReader.LegacyInstallerLogName), DateTime.UtcNow.AddMinutes(-1));
+
+            Assert.Equal("2.3", BootstrapProvenanceReader.Read(_dir).ScriptVersion);
+        }
+
+        [Fact]
+        public void The_msi_downloader_from_before_the_loader_counts_as_msi_without_version()
+        {
+            Write(BootstrapProvenanceReader.LegacyMsiLoaderLogName, "[2026-08-01 09:00:00] MSI bootstrap runner started (user=SECRETUSER, pid=4242).");
+
+            var p = BootstrapProvenanceReader.Read(_dir);
+
+            Assert.Equal("msi", p.LoaderLog);
+            Assert.Null(p.LoaderVersion);
         }
 
         [Fact]
