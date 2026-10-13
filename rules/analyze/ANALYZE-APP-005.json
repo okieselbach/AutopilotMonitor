@@ -33,10 +33,26 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "The content download of {{download_timeout.appName}} timed out or failed",
+    "subject": {
+      "kind": "app",
+      "key": "{{download_timeout.appId}}",
+      "name": "{{download_timeout.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Error",
+        "value": "{{download_timeout.errorCode}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "download",
     "timeout"
   ],
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

@@ -5,7 +5,7 @@
   "description": "Detects Win32 app installs that failed because the Windows Installer was busy with another installation (HRESULT 0x80070652 / MSI exit code 1618, ERROR_INSTALL_ALREADY_RUNNING). The IME retries on a fixed budget (~15-17 minutes across several attempts) and then reports the app as failed; when the app is ESP-blocking, the Device Setup Apps subcategory terminates with it.",
   "severity": "high",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "baseConfidence": 70,
@@ -81,6 +81,27 @@
       "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/app-management/troubleshoot-win32-app-install"
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{mutex_blocked_install.appName}} was blocked by another installation",
+    "subject": {
+      "kind": "app",
+      "key": "{{mutex_blocked_install.appId}}",
+      "name": "{{mutex_blocked_install.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Exit code",
+        "value": "{{installer_exit_1618.value}}",
+        "format": "code"
+      },
+      {
+        "label": "ESP error",
+        "value": "{{esp_failed_with_mutex_code.value}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "msiexec",

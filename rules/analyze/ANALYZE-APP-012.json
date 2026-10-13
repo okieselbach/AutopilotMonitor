@@ -43,6 +43,32 @@
       "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-app-management#step-4-return-codes"
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "{{enforcement_error_resolved.eventA_appName}} reported an install error but was detected as installed",
+    "subject": {
+      "kind": "app",
+      "key": "{{enforcement_error_resolved.joinValue}}",
+      "name": "{{enforcement_error_resolved.eventA_appName}}"
+    },
+    "facts": [
+      {
+        "label": "Exit code",
+        "value": "{{enforcement_error_resolved.eventA_exitCode}}",
+        "format": "code"
+      },
+      {
+        "label": "Error",
+        "value": "{{enforcement_error_resolved.eventA_errorCode}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "Detected installed after",
+        "value": "{{enforcement_error_resolved.timeDeltaSeconds}}",
+        "format": "duration"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "enforcement",
@@ -50,5 +76,5 @@
     "unmapped",
     "resolved"
   ],
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

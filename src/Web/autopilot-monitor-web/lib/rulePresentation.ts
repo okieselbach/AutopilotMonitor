@@ -4,6 +4,8 @@
  * and every renderer resolves them; this module is the one resolution of the presentation, pinned
  * by `tests/fixtures/rule-presentation/cases.json` at the repo root:
  *   - a fact whose value does not resolve (token not recorded, or empty) is left out;
+ *   - facts sharing a label are alternatives: one that repeats an earlier fact's label and value
+ *     is left out;
  *   - the summary falls back to the first sentence of the explanation;
  *   - a subject whose key does not resolve is no subject; a missing name shows the key;
  *   - an absent or unknown fact format reads as "text".
@@ -55,7 +57,7 @@ export function resolvePresentation(
   for (const fact of presentation.facts ?? []) {
     if (!fact || !fact.label) continue;
     const value = resolve(fact.value);
-    if (value === null) continue;
+    if (value === null || facts.some((f) => f.label === fact.label && f.value === value)) continue;
     const format = fact.format && FACT_FORMATS.includes(fact.format) ? fact.format : "text";
     facts.push({ label: fact.label, value, format });
   }

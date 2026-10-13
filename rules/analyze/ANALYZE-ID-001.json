@@ -12,7 +12,7 @@
     "enrollment_end",
     "whiteglove_sealed"
   ],
-  "version": "1.3.0",
+  "version": "1.4.0",
   "baseConfidence": 75,
   "conditions": [
     {
@@ -55,6 +55,15 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "The expected machine certificate was not found",
+    "subject": {
+      "kind": "device",
+      "key": "machine-certificate",
+      "name": "Machine certificate"
+    }
+  },
   "tags": [
     "identity",
     "certificates",

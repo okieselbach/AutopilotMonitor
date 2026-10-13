@@ -5,7 +5,7 @@
   "description": "Detects that the Windows quality update page at the end of OOBE started its Windows Update scan but ended without a scan result (oobe_update_page: startWUScanStartedSuccedded, an OobeNDUP stop and no ExpeditedUpdate_getUpdateResults name), on a device that is out of date and allowed to update. In the observed sessions the page ended two minutes after the scan started, on devices more than a year behind. The device finishes OOBE without the monthly security update. The agent's names_capped marker vetoes the finding: once the page's event names were capped, a missing scan result proves nothing.",
   "severity": "warning",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end"
@@ -108,6 +108,22 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "The OOBE update check ended without a result",
+    "subject": {
+      "kind": "device",
+      "key": "oobe-update",
+      "name": "OOBE quality update"
+    },
+    "facts": [
+      {
+        "label": "Days out of date",
+        "value": "{{days_out_of_date.value}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "device",
     "windows-update",

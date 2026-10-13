@@ -5,7 +5,7 @@
   "description": "Detects when the app tracking summary reports multiple failed app installations.",
   "severity": "high",
   "category": "apps",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -50,6 +50,17 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{summary_errors.value}} app installations failed",
+    "facts": [
+      {
+        "label": "Failed apps",
+        "value": "{{summary_errors.value}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "summary",

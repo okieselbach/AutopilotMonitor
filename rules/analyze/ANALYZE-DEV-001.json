@@ -5,7 +5,7 @@
   "description": "Detects when Windows Hello for Business provisioning did not start within the expected timeframe after ESP completion.",
   "severity": "warning",
   "category": "device",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
   "baseConfidence": 60,
   "conditions": [
@@ -30,5 +30,21 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "Windows Hello provisioning did not start in time",
+    "subject": {
+      "kind": "device",
+      "key": "windows-hello",
+      "name": "Windows Hello"
+    },
+    "facts": [
+      {
+        "label": "Timed out",
+        "value": "{{hello_timeout.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": ["device", "hello", "timeout"]
 }

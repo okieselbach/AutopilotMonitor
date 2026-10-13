@@ -266,6 +266,7 @@ export const RULE_AUTHORING_GUIDE = {
       'name, grouping findings about the same app/policy/account; use qualified tokens of ONE signal for key and ' +
       'name) and up to 6 facts (label + value template + format text|code|errorCode|duration|number|timestamp). ' +
       'All values are {{token}} templates resolved per finding; a fact whose value was not recorded is left out, ' +
+      'facts sharing a label are alternatives (one repeating an earlier label and value is left out), ' +
       'and the summary falls back to the explanation\'s first sentence.',
     markSessionAsFailed:
       'markSessionAsFailedDefault=true escalates a firing rule to a terminal Failed session ' +

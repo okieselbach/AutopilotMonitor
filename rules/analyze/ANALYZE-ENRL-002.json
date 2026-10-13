@@ -2,10 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ENRL-002",
   "title": "Session Timed Out",
-  "description": "Detects when the enrollment session was force-failed by the server-side inactivity timeout (no agent telemetry for the configured SessionTimeoutHours window) without ever completing or explicitly failing.",
+  "description": "Detects when the server-side inactivity timeout closed the enrollment session (no agent telemetry for the configured SessionTimeoutHours window) before it ever completed or explicitly failed.",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled": true,
   "baseConfidence": 80,
   "preconditions": [
@@ -58,7 +58,7 @@
       "required": false
     }
   ],
-  "explanation": "The enrollment session was force-failed by the server-side maintenance sweep after `{{timeoutHours}}` hour(s) of agent inactivity — the device stopped sending telemetry and never reported completion or an explicit failure.\n\nThis usually means the agent process died or the device went offline mid-enrollment (power off, network loss, bluescreen, reimage) rather than a clean enrollment failure. Because there is no terminal `enrollment_failed` event, the more specific app/ESP rules cannot pinpoint a cause — the evidence simply stops at the last event before the gap.\n\n**If the evidence shows the user desktop was reached and all tracked apps completed**, the device most likely got all its content but the ESP never signaled completion — on hybrid-joined devices the usual culprit is the user session never establishing Entra affinity (Account Setup re-running on every logon). Check whether the hybrid user-affinity finding also fired for this session.",
+  "explanation": "The server-side maintenance sweep closed this session after `{{timeoutHours}}` hour(s) of agent inactivity — the device stopped sending telemetry and never reported completion or an explicit failure.\n\nThis usually means the agent process died or the device went offline mid-enrollment (power off, network loss, bluescreen, reimage) rather than a clean enrollment failure. Because there is no terminal `enrollment_failed` event, the more specific app/ESP rules cannot pinpoint a cause — the evidence simply stops at the last event before the gap.\n\n**If the evidence shows the user desktop was reached and all tracked apps completed**, the device most likely got all its content but the ESP never signaled completion — on hybrid-joined devices the usual culprit is the user session never establishing Entra affinity (Account Setup re-running on every logon). Check whether the hybrid user-affinity finding also fired for this session.",
   "remediation": [
     {
       "title": "Investigate the silent session",
@@ -78,5 +78,21 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "outcome",
+    "summary": "No completion or failure arrived within {{timeoutHours.value}} hours",
+    "facts": [
+      {
+        "label": "Timeout (hours)",
+        "value": "{{timeoutHours.value}}",
+        "format": "number"
+      },
+      {
+        "label": "Desktop reached",
+        "value": "{{desktop_was_reached.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": ["enrollment", "timeout", "stalled"]
 }

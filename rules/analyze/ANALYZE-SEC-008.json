@@ -5,7 +5,7 @@
   "description": "Detects devices enrolling with Secure Boot turned off. Secure Boot is a firmware-level protection against boot-time malware and is a prerequisite for several Windows security features (VBS/Credential Guard, device health attestation) and common Intune compliance policies. Devices that support Secure Boot but have it disabled should be flagged during enrollment. Legacy BIOS devices (no Secure Boot capability) are excluded — the agent marks those with a note field when the SecureBoot registry state key is absent.",
   "severity": "warning",
   "category": "security",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -82,6 +82,15 @@
       "url": "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/disabling-secure-boot"
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "Secure Boot is disabled",
+    "subject": {
+      "kind": "device",
+      "key": "secure-boot",
+      "name": "Secure Boot"
+    }
+  },
   "tags": [
     "security",
     "secureboot",

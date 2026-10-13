@@ -5,7 +5,7 @@
   "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
   "severity": "warning",
   "category": "security",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "enabled": false,
   "evaluateOn": [
     "enrollment_end",
@@ -45,6 +45,27 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "Provisioning package not on the allow list: {{ppkg_not_allowlisted.value}}",
+    "subject": {
+      "kind": "device",
+      "key": "provisioning-packages",
+      "name": "Provisioning packages"
+    },
+    "facts": [
+      {
+        "label": "Package",
+        "value": "{{ppkg_not_allowlisted.value}}",
+        "format": "code"
+      },
+      {
+        "label": "Unexpected packages",
+        "value": "{{ppkg_not_allowlisted.matchCount}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "security",
     "provisioning-package",

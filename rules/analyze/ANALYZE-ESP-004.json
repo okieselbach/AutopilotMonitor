@@ -5,7 +5,7 @@
   "description": "Detects an ESP terminal failure where the ESP gave up while a blocking app was still installing (the agent's own esp_apps_timeout verdict — no per-app HRESULT was reported) on a profile that allows 'Continue anyway'. The enrollment is reported as failed, but the user most likely dismissed the error screen and reached the desktop — a soft failure rather than an unusable device. An ESP failure that carries a specific error code (a failed installer, a detection mismatch) is a different case and stays with the rule that explains that code.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
@@ -81,5 +81,30 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "The ESP gave up while {{appName.value}} was still installing ('Continue anyway' allowed)",
+    "subject": {
+      "kind": "app",
+      "key": "{{appName.appId}}",
+      "name": "{{appName.value}}"
+    },
+    "facts": [
+      {
+        "label": "ESP error",
+        "value": "{{enrollment_failed.errorCode}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "ESP time limit (min)",
+        "value": "{{espSyncFailureTimeoutMinutes.value}}",
+        "format": "number"
+      },
+      {
+        "label": "ESP step",
+        "value": "{{failedSubcategory.value}}"
+      }
+    ]
+  },
   "tags": ["esp", "timeout", "continue-anyway", "soft-failure", "enrollment"]
 }

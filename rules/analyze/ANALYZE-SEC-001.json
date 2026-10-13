@@ -5,7 +5,7 @@
   "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed. Since v3 the agent reads the firmware db/KEK variables directly: when the firmware itself confirms the 2023 certificate, the rule is suppressed even if the Windows servicing status has not caught up yet.",
   "severity": "warning",
   "category": "security",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -132,6 +132,35 @@
       "url": "https://support.microsoft.com/en-us/topic/kb5036210"
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "The Windows UEFI CA 2023 certificate is not deployed",
+    "subject": {
+      "kind": "device",
+      "key": "secure-boot",
+      "name": "Secure Boot"
+    },
+    "facts": [
+      {
+        "label": "CA 2023 status",
+        "value": "{{ca2023_not_updated.value}}",
+        "format": "code"
+      },
+      {
+        "label": "Error",
+        "value": "{{ca2023_error.value}}",
+        "format": "code"
+      },
+      {
+        "label": "CA 2023 in firmware DB",
+        "value": "{{db_ca2023_firmware_missing.value}}"
+      },
+      {
+        "label": "KEK 2023 in firmware",
+        "value": "{{kek_2023_missing.value}}"
+      }
+    ]
+  },
   "tags": [
     "security",
     "secureboot",

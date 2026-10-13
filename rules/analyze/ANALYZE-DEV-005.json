@@ -5,7 +5,7 @@
   "description": "Informational: a Windows quality/cumulative update installed during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 19). Surfaces updates applied mid-enrollment — useful context when correlating enrollment duration, reboots, or later issues with a specific KB.",
   "severity": "info",
   "category": "device",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -61,6 +61,22 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "A Windows update installed during setup: {{wu_update_title.value}}",
+    "subject": {
+      "kind": "device",
+      "key": "windows-update",
+      "name": "Windows Update"
+    },
+    "facts": [
+      {
+        "label": "Installed",
+        "value": "{{wu_installed.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": [
     "device",
     "windows-update",

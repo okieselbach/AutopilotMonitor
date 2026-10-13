@@ -258,6 +258,72 @@ public class RulePresentationTests
         AssertSamePresentation(Sample(), result.Presentation);
     }
 
+    // ── Built-in catalog ratchet ───────────────────────────────────────────
+
+    [Fact]
+    public void Every_built_in_rule_has_a_presentation_its_conditions_can_fill()
+    {
+        // Each token must name a condition of the rule and a key that condition's source records
+        // (RuleEvidenceKeys, pinned against the evaluators), so a typo or a key the engine never
+        // writes fails here instead of silently dropping a fact. Built-in rules use only
+        // {{signal.key}}: a bare token resolves through fallbacks that can read another event.
+        var rules = BuiltInAnalyzeRules.GetAll();
+        var offenders = new List<string>();
+        foreach (var rule in rules)
+        {
+            var p = rule.Presentation;
+            if (p == null)
+            {
+                offenders.Add($"{rule.RuleId}: no presentation");
+                continue;
+            }
+            try { AnalyzeRuleService.ValidatePresentation(rule); }
+            catch (ArgumentException ex) { offenders.Add($"{rule.RuleId}: {ex.Message}"); }
+
+            var sourcesBySignal = rule.Conditions
+                .GroupBy(c => c.Signal)
+                .ToDictionary(g => g.Key, g => g.Select(c => c.Source).ToList());
+            var templates = new List<(string Where, string Text)>();
+            if (p.Summary != null) templates.Add(("summary", p.Summary));
+            if (p.Subject != null)
+            {
+                templates.Add(("subject.key", p.Subject.Key));
+                if (p.Subject.Name != null) templates.Add(("subject.name", p.Subject.Name));
+            }
+            for (var i = 0; i < (p.Facts?.Count ?? 0); i++)
+                templates.Add(($"facts[{i}].value", p.Facts![i].Value));
+
+            foreach (var (where, text) in templates)
+            {
+                foreach (System.Text.RegularExpressions.Match m in RuleTemplateInterpolator.TokenRegex.Matches(text))
+                {
+                    var signal = m.Groups[1].Value;
+                    if (!m.Groups[2].Success)
+                        offenders.Add($"{rule.RuleId} {where}: bare token {m.Value}");
+                    else if (!sourcesBySignal.TryGetValue(signal, out var sources))
+                        offenders.Add($"{rule.RuleId} {where}: {m.Value} names no condition");
+                    else if (!sources.Any(s => RuleEvidenceKeys.BySource.TryGetValue(s, out var keys) && keys.Contains(m.Groups[2].Value)))
+                        offenders.Add($"{rule.RuleId} {where}: {m.Value} is not a key that {string.Join("/", sources)} records");
+                }
+            }
+
+            // Key and name of a subject come from one evidence entry, or they could name two apps.
+            if (p.Subject != null)
+            {
+                var subjectSignals = RuleTemplateInterpolator.TokenRegex.Matches(p.Subject.Key + " " + p.Subject.Name)
+                    .Select(m => m.Groups[1].Value)
+                    .Distinct()
+                    .ToList();
+                if (subjectSignals.Count > 1)
+                    offenders.Add($"{rule.RuleId} subject: key and name read different signals ({string.Join(", ", subjectSignals)})");
+            }
+        }
+
+        // Positive control: the shipped catalog loaded, so no offenders is a statement about it.
+        Assert.True(rules.Count >= 50, $"Only {rules.Count} built-in rules loaded");
+        Assert.True(offenders.Count == 0, "Built-in presentations the evidence cannot fill:\n" + string.Join("\n", offenders));
+    }
+
     // ── Schema ↔ C# vocabularies ───────────────────────────────────────────
 
     [Fact]

@@ -5,7 +5,7 @@
   "description": "Detects a Windows quality/cumulative update that FAILED to install or download during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 20 from the System log, 31 from the Operational channel). A cumulative update failing mid-OOBE is a known cause of enrollment errors and is otherwise invisible in the Intune console.",
   "severity": "high",
   "category": "device",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -113,6 +113,27 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "A Windows update failed during setup: {{wu_update_title.value}}",
+    "subject": {
+      "kind": "device",
+      "key": "windows-update",
+      "name": "Windows Update"
+    },
+    "facts": [
+      {
+        "label": "Error",
+        "value": "{{wu_hresult.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "Symbol",
+        "value": "{{wu_hresult_symbol.value}}",
+        "format": "code"
+      }
+    ]
+  },
   "tags": [
     "device",
     "windows-update",

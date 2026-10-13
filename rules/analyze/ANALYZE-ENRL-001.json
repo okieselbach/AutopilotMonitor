@@ -5,7 +5,7 @@
   "description": "Detects when the Autopilot enrollment has explicitly failed.",
   "severity": "critical",
   "category": "enrollment",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "enabled": true,
   "baseConfidence": 95,
   "conditions": [
@@ -57,19 +57,40 @@
   "confidenceFactors": [
     { "signal": "failed_app", "condition": "exists", "weight": 5 }
   ],
-  "explanation": "The Autopilot enrollment has explicitly failed.\n\n**Key facts extracted from this session's events:**\n\n- **Failure reason:** `{{reason}}`\n- **First failed app:** `{{appName}}`\n- **ESP failed subcategory:** `{{failedSubcategory}}`\n- **ESP HRESULT:** `{{errorCode}}`\n\nWhen an ESP Apps-subcategory failure is paired with HRESULT `0x87D1041C`, the device-side install most likely completed but the Intune detection rule did not match afterwards — see the **App Detection Failure During ESP** rule (ANALYZE-APP-013) in this same analysis for the actionable root cause and remediation steps. Any field still shown as a literal `{{…}}` placeholder was simply not recorded for this session — for example, a non-ESP failure path has no ESP failed-subcategory or HRESULT.",
+  "explanation": "The Autopilot enrollment has explicitly failed.\n\n**Key facts from this session's events:**\n\n- **Failure reason:** `{{reason}}`\n- **First failed app:** `{{appName}}`\n- **ESP step that failed:** `{{failedSubcategory}}`\n- **ESP error code:** `{{errorCode}}`\n\nA more specific finding in this analysis usually names the cause, such as an app, ESP or timeout finding.",
   "remediation": [
     {
-      "title": "Investigate enrollment failure",
+      "title": "Find the cause",
       "steps": [
-        "Start with the more specific ANALYZE-APP-* / ANALYZE-ESP-* rules that fired alongside this one — they correlate specific HRESULTs to actionable causes (e.g. 0x87D1041C → detection rule mismatch in ANALYZE-APP-013)",
-        "Read the `reason` field on the enrollment_failed event for the immediate trigger (e.g. esp_terminal_failure, hello_timeout, max_lifetime)",
-        "If a HRESULT is present, look it up against the ESP error catalog (Microsoft Learn: Autopilot ESP error codes)",
-        "Review other analyze rule results for correlated issues (disk space, network, app failures)",
-        "Check the device event timeline for the sequence of events leading to failure",
-        "Verify the Autopilot profile and ESP configuration in Intune"
+        "Open the finding in this analysis that names the cause (an app, ESP or timeout finding) and follow its steps",
+        "If no other finding fired, look up the ESP error code and check the failed ESP step in the session timeline",
+        "Verify the Autopilot profile and the ESP settings in Intune"
       ]
     }
   ],
+  "presentation": {
+    "role": "outcome",
+    "summary": "The enrollment failed at the ESP step {{esp_failure_subcategory.value}} with {{esp_failure_errorcode.value}}",
+    "facts": [
+      {
+        "label": "Reason",
+        "value": "{{enrollment_failed_reason.value}}",
+        "format": "code"
+      },
+      {
+        "label": "ESP step",
+        "value": "{{esp_failure_subcategory.value}}"
+      },
+      {
+        "label": "ESP error",
+        "value": "{{esp_failure_errorcode.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "First failed app",
+        "value": "{{failed_app.appName}}"
+      }
+    ]
+  },
   "tags": ["enrollment", "failed", "critical"]
 }

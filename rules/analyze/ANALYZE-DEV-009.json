@@ -5,7 +5,7 @@
   "description": "Detects that the device's battery dropped to 15% or less while enrolling on battery power (power_state_change threshold event from the agent's live power watcher). A device dying mid-enrollment leaves a half-provisioned state that typically needs a full reset; this rule surfaces the risk while there is still time to plug the device in. Uses a single required condition on the agent-stamped thresholdPercent field (the data field 'transition' on the event is unrelated to this rule's 'trigger' property).",
   "severity": "high",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -39,6 +39,27 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "The battery fell below {{battery_threshold_15.value}}% during setup",
+    "subject": {
+      "kind": "device",
+      "key": "power",
+      "name": "Power"
+    },
+    "facts": [
+      {
+        "label": "Battery below (%)",
+        "value": "{{battery_threshold_15.value}}",
+        "format": "number"
+      },
+      {
+        "label": "Reported",
+        "value": "{{battery_threshold_15.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": [
     "device",
     "power",

@@ -5,7 +5,7 @@
   "description": "Detects when memory usage stays above 90% across at least 3 performance snapshots during enrollment, indicating sustained memory pressure that can cause app installation failures or system instability.",
   "severity": "warning",
   "category": "device",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -65,6 +65,22 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "context",
+    "summary": "Memory use was above 90% in {{sustained_high_memory.count}} snapshots",
+    "subject": {
+      "kind": "device",
+      "key": "memory",
+      "name": "Memory"
+    },
+    "facts": [
+      {
+        "label": "Snapshots above 90%",
+        "value": "{{sustained_high_memory.count}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "device",
     "memory",

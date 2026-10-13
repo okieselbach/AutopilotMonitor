@@ -5,7 +5,7 @@
   "description": "Detects Win32 apps whose installer exit code maps to Soft reboot or Hard reboot in the app's Intune return-code table (the '[Win32App] lpExitCode is defined as ...' line). Hard reboot stops app processing and restarts the device in Device Setup - the mid-enrollment restart and second sign-in; Soft reboot leaves the app pending until the next restart while the ESP moves on. Confidence rises for Hard reboot and when a reboot was actually observed in the session.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -86,6 +86,31 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "{{reboot_return_code.appName}} asked for a restart",
+    "subject": {
+      "kind": "app",
+      "key": "{{reboot_return_code.appId}}",
+      "name": "{{reboot_return_code.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Return code",
+        "value": "{{reboot_return_code.exitCode}}",
+        "format": "code"
+      },
+      {
+        "label": "Return code class",
+        "value": "{{reboot_return_code.value}}"
+      },
+      {
+        "label": "Restarts",
+        "value": "{{reboot_observed.count}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "reboot",

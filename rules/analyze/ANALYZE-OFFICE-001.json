@@ -5,7 +5,7 @@
   "description": "Detects when the Microsoft 365 Apps (Office Click-to-Run) install failed. The V2 OfficeInstallDetector watches the C2R client directly (registry, Delivery Optimization, process) and emits office_install_failed when the C2R INSTALL scenario records an error code. Completion is proven by the core Office binaries on disk; an install window that closes without that proof ends silently, never as a failure. This catches Office failures the deployment status hides: the Intune built-in app type is marked done once the configuration is delivered, and a Win32 or RealmJoin package once its installer exits, while C2R keeps installing in the background.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -52,6 +52,22 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "Microsoft 365 Apps failed to install",
+    "subject": {
+      "kind": "app",
+      "key": "office-c2r",
+      "name": "Microsoft 365 Apps"
+    },
+    "facts": [
+      {
+        "label": "Error",
+        "value": "{{error_code_present.value}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "office",

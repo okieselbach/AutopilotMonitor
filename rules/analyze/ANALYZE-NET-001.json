@@ -5,7 +5,7 @@
   "description": "Detects diagnostics package uploads that were answered by a security appliance's HTML block page instead of the Autopilot Monitor backend. A forward proxy / secure web gateway (SWG) with SSL inspection is intercepting the upload endpoint, so exactly the sessions where diagnostics matter most (OnFailure uploads) are the ones losing them.",
   "severity": "warning",
   "category": "network",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "baseConfidence": 75,
@@ -71,6 +71,15 @@
       "url": "https://learn.microsoft.com/en-us/autopilot/networking-requirements"
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "A web security gateway blocked the diagnostics upload",
+    "subject": {
+      "kind": "network",
+      "key": "security-gateway",
+      "name": "Web security gateway"
+    }
+  },
   "tags": [
     "network",
     "proxy",

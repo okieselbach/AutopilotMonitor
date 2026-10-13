@@ -5,7 +5,7 @@
   "description": "The IME reported its user-session completion line, but at least one required app stayed pending — without ever failing or even starting to install — so the agent kept deferring the enrollment completion signal. Typically an assignment/requirement problem (requirement rules never met, dependency never satisfied, or the app needs a context that is not available during ESP, e.g. a VPN client waiting for user sign-in to a portal).",
   "severity": "high",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "correlation",
@@ -76,5 +76,20 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "Completion waited on {{apps_pending.value}} pending app(s)",
+    "facts": [
+      {
+        "label": "Pending apps",
+        "value": "{{apps_pending.value}}",
+        "format": "number"
+      },
+      {
+        "label": "Apps",
+        "value": "{{pending_app_names.value}}"
+      }
+    ]
+  },
   "tags": ["apps", "esp", "completion", "assignment", "pending"]
 }

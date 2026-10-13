@@ -5,7 +5,7 @@
   "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Observability: attestation precedes MDM enrollment, so in the normal deployment model (agent installed via IME after enrollment) these codes are rarely visible — the rule primarily serves bootstrap-token deployments.",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -80,6 +80,27 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "TPM attestation failed with a known Autopilot error code",
+    "subject": {
+      "kind": "device",
+      "key": "tpm",
+      "name": "TPM attestation"
+    },
+    "facts": [
+      {
+        "label": "Error code",
+        "value": "{{tpm_hresult_esp_failure.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "Error code",
+        "value": "{{tpm_hresult_esp_advisory.value}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "enrollment",
     "tpm",

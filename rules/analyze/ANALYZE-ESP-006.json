@@ -5,7 +5,7 @@
   "description": "Detects the recovery story: the ESP reported a terminal failure (typically DeviceSetup/Apps), the user most likely pressed 'Try again' on the failure page, the failed step re-ran and completed successfully. The earlier failure did not stick — the enrollment continued past it.",
   "severity": "info",
   "category": "esp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -98,6 +98,34 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "context",
+    "summary": "The ESP failed in the {{category.value}} phase, then recovered",
+    "subject": {
+      "kind": "esp",
+      "key": "{{failedSubcategory.value}}",
+      "name": "{{failedSubcategory.value}}"
+    },
+    "facts": [
+      {
+        "label": "ESP phase",
+        "value": "{{category.value}}"
+      },
+      {
+        "label": "ESP step",
+        "value": "{{failedSubcategory.value}}"
+      },
+      {
+        "label": "Likely apps",
+        "value": "{{likelyCulpritApps.value}}"
+      },
+      {
+        "label": "Recovered after (min)",
+        "value": "{{minutesSinceFailure.value}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "esp",
     "recovery",

@@ -5,7 +5,7 @@
   "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -123,6 +123,36 @@
       "url": "https://learn.microsoft.com/en-us/mem/intune/apps/store-apps-microsoft"
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "A Store or MSIX app failed during the ESP: {{appx_candidate.value}}",
+    "subject": {
+      "kind": "app",
+      "key": "{{appx_candidate.value}}",
+      "name": "{{appx_candidate.value}}"
+    },
+    "facts": [
+      {
+        "label": "ESP error",
+        "value": "{{appx_esp_errorcode.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "ESP phase",
+        "value": "{{appx_esp_category.value}}"
+      },
+      {
+        "label": "Package",
+        "value": "{{appx_top_candidate_package.value}}",
+        "format": "code"
+      },
+      {
+        "label": "Candidates",
+        "value": "{{appx_candidate_count.value}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "appx",

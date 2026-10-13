@@ -5,7 +5,7 @@
   "description": "Detects when the Certificates subcategory of the Enrollment Status Page reported a failure, even if the enrollment later appears to have succeeded. Users can click 'Continue anyway' on an ESP error, which masks the underlying certificate provisioning failure — this rule surfaces the transition so it stays visible.",
   "severity": "high",
   "category": "esp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -58,6 +58,22 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "The ESP certificates step failed",
+    "subject": {
+      "kind": "esp",
+      "key": "Certificates",
+      "name": "Certificates"
+    },
+    "facts": [
+      {
+        "label": "Failed at",
+        "value": "{{certificates_subcategory_failed.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": [
     "esp",
     "certificates",

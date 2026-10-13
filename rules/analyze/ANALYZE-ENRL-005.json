@@ -5,7 +5,7 @@
   "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276).",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -103,6 +103,27 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "Hybrid join hit 0x80004005, a known timeout fixed by Windows updates",
+    "subject": {
+      "kind": "device",
+      "key": "hybrid-join",
+      "name": "Hybrid join"
+    },
+    "facts": [
+      {
+        "label": "Error code",
+        "value": "{{e_fail_esp_failure.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "Error code",
+        "value": "{{e_fail_esp_advisory.value}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "enrollment",
     "hybrid-join",

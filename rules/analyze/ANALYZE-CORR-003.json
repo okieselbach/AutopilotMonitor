@@ -5,7 +5,7 @@
   "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
   "severity": "high",
   "category": "apps",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -67,6 +67,30 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "App downloads failed while a {{proxy_active.value}} proxy was configured",
+    "subject": {
+      "kind": "network",
+      "key": "proxy",
+      "name": "Proxy"
+    },
+    "facts": [
+      {
+        "label": "Proxy type",
+        "value": "{{proxy_active.value}}"
+      },
+      {
+        "label": "Failed app",
+        "value": "{{download_failure.appName}}"
+      },
+      {
+        "label": "Error",
+        "value": "{{download_failure.errorCode}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "correlation",
     "apps",

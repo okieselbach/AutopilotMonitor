@@ -5,7 +5,7 @@
   "description": "One or more required user-ESP apps never started installing while the ESP AccountSetup apps gate waited on them — the agent observed the ESP page exit with those apps still in a non-terminal, never-started state. Unlike ANALYZE-APP-015 (which reports that completion was DEFERRED because of a pending app, and stays silent once the session reaches a terminal verdict) this rule reports the delivery gap itself and fires regardless of the final outcome: an enrollment that Windows called done while required apps never ran is a successful enrollment with missing software, and the operator must see it.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -102,6 +102,26 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "Required apps never started installing; first: {{appName.value}}",
+    "subject": {
+      "kind": "app",
+      "key": "{{appName.appId}}",
+      "name": "{{appName.value}}"
+    },
+    "facts": [
+      {
+        "label": "First app",
+        "value": "{{appName.value}}"
+      },
+      {
+        "label": "State",
+        "value": "{{state.value}}",
+        "format": "code"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "esp",

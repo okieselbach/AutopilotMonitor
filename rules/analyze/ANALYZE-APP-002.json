@@ -5,7 +5,7 @@
   "description": "Detects app installation failures with specific exit codes or HRESULT error codes and suggests fixes.",
   "severity": "high",
   "category": "apps",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -41,6 +41,27 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{install_error.appName}} failed to install",
+    "subject": {
+      "kind": "app",
+      "key": "{{install_error.appId}}",
+      "name": "{{install_error.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Exit code",
+        "value": "{{install_error.exitCode}}",
+        "format": "code"
+      },
+      {
+        "label": "Error",
+        "value": "{{install_error.errorCode}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "msi",

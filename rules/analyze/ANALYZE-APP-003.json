@@ -33,9 +33,25 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{dependency_failure.appName}} failed because a dependency did not install",
+    "subject": {
+      "kind": "app",
+      "key": "{{dependency_failure.appId}}",
+      "name": "{{dependency_failure.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Error",
+        "value": "{{dependency_failure.errorCode}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "dependency"
   ],
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

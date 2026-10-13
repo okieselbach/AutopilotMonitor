@@ -1,6 +1,7 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-APP-010",
+  "version": "1.1.0",
   "title": "App Reverted to Error After Successful Install",
   "description": "Detects when a specific app (matched by appId) was first reported as successfully installed but subsequently reported an IME enforcement error — while enrollment completed successfully. The app may be broken post-enrollment.",
   "severity": "warning",
@@ -56,5 +57,31 @@
     { "title": "Troubleshoot Win32 app installations", "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/app-management/troubleshoot-win32-app-install" },
     { "title": "Intune Management Extension logs", "url": "https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension" }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{app_regression.eventA_appName}} installed, then reported an error",
+    "subject": {
+      "kind": "app",
+      "key": "{{app_regression.joinValue}}",
+      "name": "{{app_regression.eventA_appName}}"
+    },
+    "facts": [
+      {
+        "label": "Installed",
+        "value": "{{app_regression.eventA_timestamp}}",
+        "format": "timestamp"
+      },
+      {
+        "label": "Error after",
+        "value": "{{app_regression.timeDeltaSeconds}}",
+        "format": "duration"
+      },
+      {
+        "label": "Error",
+        "value": "{{app_regression.eventB_errorCode}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": ["apps", "win32", "enforcement", "post-install", "correlation"]
 }

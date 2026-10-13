@@ -37,7 +37,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>Shown in a notification where running text names a value that was not recorded.</summary>
         internal const string NotRecorded = "–";
 
-        private static readonly Regex TokenRegex = new Regex(
+        internal static readonly Regex TokenRegex = new Regex(
             @"\{\{\s*([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+))?\s*\}\}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly Regex ListItemRegex = new Regex(

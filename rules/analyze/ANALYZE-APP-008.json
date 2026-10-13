@@ -32,11 +32,32 @@
       ]
     }
   ],
+  "presentation": {
+    "role": "cause",
+    "summary": "{{slow_app_install.appName}} took {{slow_app_install.durationFormatted}} to install",
+    "subject": {
+      "kind": "app",
+      "key": "{{slow_app_install.appId}}",
+      "name": "{{slow_app_install.appName}}"
+    },
+    "facts": [
+      {
+        "label": "Install time",
+        "value": "{{slow_app_install.durationSeconds}}",
+        "format": "duration"
+      },
+      {
+        "label": "Started",
+        "value": "{{slow_app_install.startTimestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": [
     "apps",
     "performance",
     "slow-install",
     "warning"
   ],
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

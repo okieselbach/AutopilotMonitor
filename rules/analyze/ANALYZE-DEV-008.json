@@ -5,7 +5,7 @@
   "description": "The device's clock changed by five or more minutes mid-session (clock jump) or ran five or more minutes off server time for the whole session (sustained offset), measured against the server receive frame of every uploaded event. Complements ANALYZE-DEV-007, which is a one-shot NTP check at agent startup and misses devices where NTP was unreachable or the clock changed later. IME-log-derived events are excluded from the measurement.",
   "severity": "warning",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -57,6 +57,26 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "subject": {
+      "kind": "device",
+      "key": "clock",
+      "name": "System clock"
+    },
+    "facts": [
+      {
+        "label": "Clock jump (min)",
+        "value": "{{clock_jump.jumpMinutes}}",
+        "format": "number"
+      },
+      {
+        "label": "Clock offset (min)",
+        "value": "{{sustained_offset.offsetMinutes}}",
+        "format": "number"
+      }
+    ]
+  },
   "tags": [
     "device",
     "clock-skew",

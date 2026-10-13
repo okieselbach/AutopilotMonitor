@@ -38,7 +38,7 @@ public class RuleEngineDetectionFailureTests
         // and there's a co-located esp_failure_settle_started with errorCode=0x87d1041c.
         // The rule must fire and the explanation must interpolate to the Office app.
         var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-APP-013");
-        Assert.Equal("1.2.0", rule.Version);
+        Assert.Equal("1.3.0", rule.Version);
         Assert.True(rule.Enabled);
         Assert.Equal("critical", rule.Severity);
 
@@ -115,7 +115,7 @@ public class RuleEngineDetectionFailureTests
         // pull appName from app_install_failed (optional condition with dataField=appName)
         // and resolve {{appName}} via the byField path.
         var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-ENRL-001");
-        Assert.Equal("1.1.2", rule.Version);
+        Assert.Equal("1.2.0", rule.Version);
         Assert.True(rule.Enabled);
 
         var events = new List<EnrollmentEvent>
@@ -130,8 +130,7 @@ public class RuleEngineDetectionFailureTests
         var result = Assert.Single(outcome.Results);
         // ENRL-001 must collect the material for `{{appName}}`, `{{errorCode}}`,
         // `{{failedSubcategory}}`, and `{{reason}}` from across three distinct event
-        // types so the web interpolator can render the full picture. Cross-link to
-        // ANALYZE-APP-013 is hard-coded into the explanation template.
+        // types so the web interpolator can render the full picture.
         var failedApp = AsDict(result.MatchedConditions["failed_app"]);
         Assert.Equal("appName", AsString(failedApp["field"]));
         Assert.Equal(FailedAppName, AsString(failedApp["value"]));
@@ -145,9 +144,10 @@ public class RuleEngineDetectionFailureTests
         var reason = AsDict(result.MatchedConditions["enrollment_failed_reason"]);
         Assert.Equal("esp_terminal_failure", AsString(reason["value"]));
 
-        // Cross-link to the more actionable rule is embedded in the explanation
-        // template (no interpolation needed):
-        Assert.Contains("ANALYZE-APP-013", result.Explanation);
+        // ENRL-001 repeats the outcome and names no cause of its own: the cause findings
+        // (here ANALYZE-APP-013) carry it, so the explanation no longer tells one code's story.
+        Assert.DoesNotContain("ANALYZE-APP-013", result.Explanation);
+        Assert.Equal(RulePresentationRoles.Outcome, result.Presentation?.Role);
     }
 
     [Fact]

@@ -5,7 +5,7 @@
   "description": "Detects that the device lost AC power and switched to battery while the enrollment was running (power_state_change event with transition ac_to_battery from the agent's live power watcher). Uses a single required condition so the match is pinned to one event instance; the event payload carries the battery percentage at the moment of the switch. The agent debounces power flapping (5s) so a brief unplug/replug does not produce this event.",
   "severity": "warning",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -39,6 +39,22 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "The device switched from AC to battery power during setup",
+    "subject": {
+      "kind": "device",
+      "key": "power",
+      "name": "Power"
+    },
+    "facts": [
+      {
+        "label": "Switched",
+        "value": "{{switched_to_battery.timestamp}}",
+        "format": "timestamp"
+      }
+    ]
+  },
   "tags": [
     "device",
     "power",

@@ -169,11 +169,11 @@ public class RuleTemplateInterpolatorTests
         var text = Assert.Single(alert.Sections).Text;
         Assert.Equal(
             "The Autopilot enrollment has explicitly failed.\n\n" +
-            "**Key facts extracted from this session's events:**\n\n" +
+            "**Key facts from this session's events:**\n\n" +
             "- **Failure reason:** `esp_terminal_failure`\n" +
             $"- **First failed app:** `{FailedAppName}`\n" +
-            "- **ESP failed subcategory:** `Apps`\n" +
-            "- **ESP HRESULT:** `0x87d1041c` …",
+            "- **ESP step that failed:** `Apps`\n" +
+            "- **ESP error code:** `0x87d1041c` …",
             text);
         // The stored result is untouched: the web and the MCP server still resolve the template.
         Assert.Contains("{{reason}}", result.Explanation);
@@ -201,8 +201,8 @@ public class RuleTemplateInterpolatorTests
 
         Assert.Contains("- **Failure reason:** `hello_timeout`", text);
         Assert.DoesNotContain("First failed app", text);
-        Assert.DoesNotContain("ESP failed subcategory", text);
-        Assert.DoesNotContain("ESP HRESULT:", text);
+        Assert.DoesNotContain("ESP step that failed", text);
+        Assert.DoesNotContain("ESP error code", text);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class RuleTemplateInterpolatorTests
 
         var text = Assert.Single(alert.Sections).Text;
         Assert.True(text.Length <= NotificationAlertBuilder.RuleSectionExplanationMaxLength);
-        Assert.EndsWith("- **Failure reason:** `esp_terminal_failure` …", text);
+        Assert.EndsWith($"- **First failed app:** `{FailedAppName}` …", text);
     }
 
     // ── Cut ───────────────────────────────────────────────────────────────

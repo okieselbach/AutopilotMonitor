@@ -5,7 +5,7 @@
   "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Observability: a blocked MDM enrollment normally means no agent gets installed at all (IME install happens after enrollment) — this rule can realistically only fire for bootstrap-token deployments (pre-MDM reporting) or mixed retry scenarios.",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -78,6 +78,27 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "cause",
+    "summary": "MDM enrollment was blocked with a known Autopilot error code",
+    "subject": {
+      "kind": "device",
+      "key": "mdm-enrollment",
+      "name": "MDM enrollment"
+    },
+    "facts": [
+      {
+        "label": "Error code",
+        "value": "{{enrl_hresult_esp_failure.value}}",
+        "format": "errorCode"
+      },
+      {
+        "label": "Error code",
+        "value": "{{enrl_hresult_esp_advisory.value}}",
+        "format": "errorCode"
+      }
+    ]
+  },
   "tags": [
     "enrollment",
     "mdm",

@@ -93,6 +93,13 @@
       "expected": { "role": "context", "summary": "x", "subject": null, "facts": [ { "label": "Minutes", "value": "30.5", "format": "text" } ] }
     },
     {
+      "name": "facts sharing a label are alternatives: a repeated label and value is left out, a different value stays",
+      "presentation": { "role": "cause", "summary": "x", "facts": [ { "label": "ESP error", "value": "{{on_failure.value}}", "format": "errorCode" }, { "label": "ESP error", "value": "{{on_advisory.value}}", "format": "errorCode" }, { "label": "Exit code", "value": "{{first.value}}" }, { "label": "Exit code", "value": "{{second.value}}" } ] },
+      "matchedConditions": { "on_failure": { "field": "errorCode", "value": "0x80180014" }, "on_advisory": { "field": "errorCode", "value": "0x80180014" }, "first": { "value": 1603 }, "second": { "value": 1618 } },
+      "explanation": "",
+      "expected": { "role": "cause", "summary": "x", "subject": null, "facts": [ { "label": "ESP error", "value": "0x80180014", "format": "errorCode" }, { "label": "Exit code", "value": "1603", "format": "text" }, { "label": "Exit code", "value": "1618", "format": "text" } ] }
+    },
+    {
       "name": "no presentation resolves to nothing",
       "presentation": null,
       "matchedConditions": { "sig": { "field": "reason", "value": "x" } },

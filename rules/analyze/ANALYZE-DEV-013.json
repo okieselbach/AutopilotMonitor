@@ -5,7 +5,7 @@
   "description": "Detects that the Windows quality update page at the end of OOBE (Enrollment Status Page setting \"Install Windows quality updates\") reported a failed download or install and recorded no successful install afterwards — the page's own failure names on the oobe_update_page events. Setup usually continues, so the failure is otherwise invisible: the device finishes OOBE without the monthly security update. An OS build change across a restart (os_build_changed) vetoes the finding, and so does the agent's names_capped marker — once the page's event names were capped, a missing success name proves nothing. A downloadInstallFailureHelper entry alone is no failure: updates that installed fine log it too.",
   "severity": "warning",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end"
@@ -109,6 +109,22 @@
     }
   ],
   "markSessionAsFailedDefault": false,
+  "presentation": {
+    "role": "context",
+    "summary": "The Windows quality update at the end of OOBE failed",
+    "subject": {
+      "kind": "device",
+      "key": "oobe-update",
+      "name": "OOBE quality update"
+    },
+    "facts": [
+      {
+        "label": "Failed step",
+        "value": "{{update_failure.value}}",
+        "format": "code"
+      }
+    ]
+  },
   "tags": [
     "device",
     "windows-update",

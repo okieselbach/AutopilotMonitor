@@ -5,7 +5,7 @@
   "description": "Fires when the AutoLogon analyzer reports a DefaultPassword value present in Winlogon. A plaintext AutoLogon password stored in the registry is readable by any local administrator and is a credential exposure — more severe than AutoLogon alone (the Sysinternals Autologon tool deliberately avoids this by storing the secret in the LSA instead).",
   "severity": "high",
   "category": "security",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
@@ -49,6 +49,15 @@
       "url": "https://learn.microsoft.com/en-us/sysinternals/downloads/autologon"
     }
   ],
+  "presentation": {
+    "role": "advisory",
+    "summary": "A plaintext AutoLogon password is stored in the registry",
+    "subject": {
+      "kind": "device",
+      "key": "autologon",
+      "name": "AutoLogon"
+    }
+  },
   "tags": [
     "security",
     "autologon",

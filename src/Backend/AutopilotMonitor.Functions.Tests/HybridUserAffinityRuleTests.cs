@@ -26,7 +26,7 @@ public class HybridUserAffinityRuleTests
     public void ANALYZE_ID_004_v2_shape_is_pinned()
     {
         var rule = Rule();
-        Assert.Equal("2.0.0", rule.Version);
+        Assert.Equal("2.1.0", rule.Version);
         Assert.True(rule.Enabled);
         Assert.Equal("high", rule.Severity);
         Assert.False(rule.MarkSessionAsFailedDefault);
