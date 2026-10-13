@@ -11,10 +11,12 @@
          freshly provisioned Windows 365 Cloud PC.
       2. Downloads the monitoring agent ZIP from Azure Blob Storage
       3. Verifies integrity via SHA-256 hash from the version manifest (mandatory)
-      4. Extracts the agent into %ProgramData%\AutopilotMonitor\Agent
-      5. Verifies the Authenticode signature and publisher of every binary we author
-      6. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
-      7. Verifies the runtime process actually launched
+      4. Extracts the agent into a fresh staging folder
+      5. Verifies the payload against its signed catalog (AutopilotMonitor.Agent.cat):
+         signed by the expected publisher, every file present and unchanged, nothing extra
+      6. Moves the verified payload into %ProgramData%\AutopilotMonitor\Agent
+      7. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
+      8. Verifies the runtime process actually launched
     Agent self-destructs when enrollment completes.
 
     Relax flow (guards 2+3): a real user profile (or a real LastLoggedOnUser)
@@ -77,6 +79,14 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-10-13  v2.6  Payload catalog: the agent ZIP carries AutopilotMonitor.Agent.cat,
+                      a catalog of every payload file signed by the expected publisher.
+                      The ZIP is extracted into a staging folder and moved into the
+                      agent folder only when Test-FileCatalog finds the catalog signed
+                      by the expected publisher and every file present, unchanged and
+                      nothing extra. A rejected payload is deleted, so the next run
+                      starts clean. Replaces the v2.5 gate, which covered only the
+                      AutopilotMonitor binaries.
     2026-09-08  v2.5  Publisher gate: every AutopilotMonitor binary in the extracted
                       payload must carry a valid Authenticode signature from the
                       expected publisher before --install runs. The SHA-256 manifest
@@ -134,16 +144,20 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.5"
+$ScriptVersion = "2.6"
 
-# The publisher every binary we author must carry. A -like pattern on the subject, NOT a
+# The publisher the payload catalog must carry. A -like pattern on the subject, NOT a
 # thumbprint: certificates are renewed, deployed copies of this script are not. Same value
 # the loader pins for this script.
 $ExpectedPublisher = "*O=glueckkanja AG*"
 
+# Signed catalog at the root of every agent ZIP: the SHA-256 of every other payload file.
+$AgentCatalogName = "AutopilotMonitor.Agent.cat"
+
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath = "$AgentBasePath\Agent"
+$AgentStagingPath = "$AgentBasePath\Agent-Install"
 $AgentLogPath = "$AgentBasePath\Logs"
 $LogFile = "$AgentLogPath\bootstrap-script.log"
 
@@ -340,55 +354,106 @@ function Get-BootstrapDecision {
     return [pscustomobject]@{ Install = $true; ReasonCode = $null; RelaxActive = $relax.Active }
 }
 
-# Returns the list of reasons why the extracted payload is not ours; an empty result means
-# every binary we author carries a valid Authenticode signature from the expected publisher.
-# Third-party assemblies keep their own publisher's signature and are not checked here.
-# Any error is a rejection: an unreadable signature is an unverified binary.
-function Get-UnverifiedAgentBinaries {
-    param([string]$Path)
-
-    $rejected = @()
-    $ourBinaries = @(
-        Get-ChildItem -Path $Path -Filter 'AutopilotMonitor.*' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in @('.exe', '.dll') }
+### BEGIN shared payload verification -- embedded verbatim into the OOBE go-script by
+### OobeBootstrapScriptGenerator (D-354). Keep it self-contained: parameters only, no
+### script-scope variables, no Write-Log.
+# Returns the reasons why the extracted payload in $Path must not run; an empty result means
+# it matches its signed catalog exactly. Test-FileCatalog's Status covers the hashes only (an
+# unsigned catalog over matching files reports Valid), so the signature and its publisher are
+# judged on their own. Any error is a rejection: a payload that cannot be verified is an
+# unverified payload. The comma keeps a single rejection an ARRAY: PowerShell unrolls a
+# one-element result to a bare string, and the caller reads .Count.
+function Get-AgentPayloadRejections {
+    param(
+        [string]$Path,
+        [string]$ExpectedPublisher,
+        [string]$CatalogName = 'AutopilotMonitor.Agent.cat'
     )
 
-    # An empty set is a rejection, not a pass: it means the extraction produced nothing we
-    # recognise, and the alternative would be a gate that silently approves an empty folder.
-    # The comma keeps a single rejection an ARRAY: PowerShell unrolls a one-element result to
-    # a bare string, and the caller reads .Count and indexes into it.
-    if ($ourBinaries.Count -eq 0) {
-        return , @("no AutopilotMonitor binaries found in $Path")
+    $catalog = Join-Path $Path $CatalogName
+    if (-not (Test-Path -LiteralPath $catalog -PathType Leaf)) {
+        return , @("catalog $CatalogName missing")
     }
 
-    foreach ($binary in $ourBinaries) {
-        try {
-            $sig = Get-AuthenticodeSignature -FilePath $binary.FullName -ErrorAction Stop
-        }
-        catch {
-            $rejected += "$($binary.Name): signature check failed to run ($($_.Exception.Message))"
-            continue
-        }
+    try {
+        $result = Test-FileCatalog -Path $Path -CatalogFilePath $catalog -FilesToSkip $CatalogName -Detailed -ErrorAction Stop
+    }
+    catch {
+        return , @("catalog check failed to run ($($_.Exception.Message))")
+    }
+    if ($null -eq $result) {
+        return , @('catalog check returned nothing')
+    }
 
-        if ($null -eq $sig) {
-            $rejected += "$($binary.Name): signature check returned nothing"
-            continue
-        }
+    $rejected = @()
+    $signature = $result.Signature
+    if ($null -eq $signature -or "$($signature.Status)" -ne 'Valid') {
+        $status = if ($null -eq $signature) { 'missing' } else { "$($signature.Status)" }
+        $rejected += "catalog signature status $status"
+    }
+    elseif ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notlike $ExpectedPublisher) {
+        $subject = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.Subject }
+        $rejected += "catalog publisher '$subject' does not match $ExpectedPublisher"
+    }
 
-        $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<unsigned>' }
-
-        if ($sig.Status -ne 'Valid') {
-            $rejected += "$($binary.Name): signature status $($sig.Status)"
-            continue
+    if ("$($result.Status)" -ne 'Valid') {
+        $expected = if ($null -eq $result.CatalogItems) { @{} } else { $result.CatalogItems }
+        $actual = if ($null -eq $result.PathItems) { @{} } else { $result.PathItems }
+        $names = {
+            param($list)
+            if ($list.Count -eq 0) { return 'none' }
+            $shown = ($list | Select-Object -First 5) -join ', '
+            if ($list.Count -gt 5) { $shown += " (+$($list.Count - 5) more)" }
+            return $shown
         }
-        if ($subject -notlike $ExpectedPublisher) {
-            $rejected += "$($binary.Name): unexpected publisher $subject"
-            continue
-        }
+        $missing = @($expected.Keys | Where-Object { -not $actual.ContainsKey($_) } | Sort-Object)
+        $extra = @($actual.Keys | Where-Object { -not $expected.ContainsKey($_) } | Sort-Object)
+        $changed = @($expected.Keys | Where-Object { $actual.ContainsKey($_) -and $actual[$_] -ne $expected[$_] } | Sort-Object)
+        $rejected += "payload differs from catalog (missing: $(& $names $missing); extra: $(& $names $extra); changed: $(& $names $changed))"
     }
 
     return , $rejected
 }
+
+# Extracts the agent ZIP into a fresh staging folder, verifies it there and moves it into the
+# agent folder only when it matches its signed catalog. A rejected payload is deleted with the
+# staging folder: nothing unverified lands where SYSTEM runs the agent, and the next run starts
+# clean instead of finding a half-installed agent. The caller has made sure no agent is
+# installed, so anything already in the agent folder is a leftover and goes first.
+function Install-VerifiedAgentPayload {
+    param(
+        [string]$ZipPath,
+        [string]$StagingPath,
+        [string]$TargetPath,
+        [string]$ExpectedPublisher,
+        [string]$CatalogName = 'AutopilotMonitor.Agent.cat'
+    )
+
+    if (Test-Path -LiteralPath $StagingPath) {
+        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction Stop
+    }
+    New-Item -Path $StagingPath -ItemType Directory -Force | Out-Null
+    try {
+        Expand-Archive -Path $ZipPath -DestinationPath $StagingPath -Force -ErrorAction Stop
+
+        $rejections = Get-AgentPayloadRejections -Path $StagingPath -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
+        if ($rejections.Count -gt 0) {
+            throw "Payload verification FAILED ($($rejections -join '; ')). Refusing to install an agent that is not the published one."
+        }
+
+        if (Test-Path -LiteralPath $TargetPath) {
+            Get-ChildItem -LiteralPath $TargetPath -Force | Remove-Item -Recurse -Force -ErrorAction Stop
+        }
+        else {
+            New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
+        }
+        Get-ChildItem -LiteralPath $StagingPath -Force | Move-Item -Destination $TargetPath -Force -ErrorAction Stop
+    }
+    finally {
+        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+### END shared payload verification
 
 # Main bootstrap flow. Only invoked when the script is run directly (see entry guard
 # at the bottom); never on dot-source.
@@ -408,117 +473,106 @@ function Invoke-Bootstrap {
 
         Write-Log "Pre-flight checks passed -- no prior deployment, no productive-device signals, within bootstrap window (relaxActive=$($decision.RelaxActive))"
 
-        # Download and extract agent binaries
+        # Download, verify and install the agent binaries. Guard 5 has already returned when an
+        # agent exe exists, so this always starts without an installed agent.
         $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
+        Write-Log "Downloading agent from $AgentDownloadUrl..."
 
-        if (Test-Path $agentExePath) {
-            Write-Log "Agent already installed at $agentExePath"
-        }
-        else {
-            Write-Log "Downloading agent from $AgentDownloadUrl..."
+        try {
+            # Derive manifest URL from the agent download URL (same blob container)
+            $versionJsonUrl = $AgentDownloadUrl -replace '[^/]+$', $VersionJsonName
+            $expectedSha256 = $null
+            $manifestAttempts = 3
+            $manifestDelays = @(1, 2)   # short backoff between attempts; do not block enrollment
 
-            try {
-                # Derive manifest URL from the agent download URL (same blob container)
-                $versionJsonUrl = $AgentDownloadUrl -replace '[^/]+$', $VersionJsonName
-                $expectedSha256 = $null
-                $manifestAttempts = 3
-                $manifestDelays = @(1, 2)   # short backoff between attempts; do not block enrollment
-
-                for ($attempt = 1; $attempt -le $manifestAttempts; $attempt++) {
-                    try {
-                        Write-Log "Fetching $VersionJsonName (attempt ${attempt}/${manifestAttempts}) from $versionJsonUrl for integrity verification..."
-                        $versionJsonResponse = Invoke-RestMethod -Uri $versionJsonUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-                        if ($versionJsonResponse.sha256) {
-                            $expectedSha256 = $versionJsonResponse.sha256.ToLowerInvariant()
-                            Write-Log "SHA-256 hash from manifest: $expectedSha256 (version: $($versionJsonResponse.version))"
-                        } else {
-                            Write-Log "WARNING: Manifest has no sha256 field - integrity cannot be verified."
-                        }
-                        break   # manifest reached (with or without hash); retrying would not help
+            for ($attempt = 1; $attempt -le $manifestAttempts; $attempt++) {
+                try {
+                    Write-Log "Fetching $VersionJsonName (attempt ${attempt}/${manifestAttempts}) from $versionJsonUrl for integrity verification..."
+                    $versionJsonResponse = Invoke-RestMethod -Uri $versionJsonUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                    if ($versionJsonResponse.sha256) {
+                        $expectedSha256 = $versionJsonResponse.sha256.ToLowerInvariant()
+                        Write-Log "SHA-256 hash from manifest: $expectedSha256 (version: $($versionJsonResponse.version))"
+                    } else {
+                        Write-Log "WARNING: Manifest has no sha256 field - integrity cannot be verified."
                     }
-                    catch {
-                        Write-Log "WARNING: Could not fetch integrity manifest (attempt $attempt): $($_.Exception.Message)"
-                        if ($attempt -lt $manifestAttempts) {
-                            Start-Sleep -Seconds $manifestDelays[$attempt - 1]
-                        }
+                    break   # manifest reached (with or without hash); retrying would not help
+                }
+                catch {
+                    Write-Log "WARNING: Could not fetch integrity manifest (attempt $attempt): $($_.Exception.Message)"
+                    if ($attempt -lt $manifestAttempts) {
+                        Start-Sleep -Seconds $manifestDelays[$attempt - 1]
                     }
                 }
-
-                $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
-                $maxDownloadAttempts = 3
-                $downloadAttempt = 0
-
-                do {
-                    $downloadAttempt++
-                    try {
-                        Write-Log "Download attempt ${downloadAttempt}/${maxDownloadAttempts}"
-                        $downloadStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-                        Invoke-WebRequest `
-                            -Uri $AgentDownloadUrl `
-                            -OutFile $zipPath `
-                            -UseBasicParsing `
-                            -TimeoutSec 30 `
-                            -ErrorAction Stop
-                        $downloadStopwatch.Stop()
-                        $downloadSeconds = [math]::Round($downloadStopwatch.Elapsed.TotalSeconds, 1)
-                        Write-Log "Downloaded agent to $zipPath (took ${downloadSeconds}s)"
-                        break
-                    }
-                    catch {
-                        if ($downloadAttempt -ge $maxDownloadAttempts) {
-                            throw
-                        }
-
-                        $retryDelaysInSeconds = @(2, 4, 8)
-                        $retryDelaySeconds = $retryDelaysInSeconds[$downloadAttempt - 1]
-                        Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${retryDelaySeconds}s..."
-                        Start-Sleep -Seconds $retryDelaySeconds
-                    }
-                } while ($downloadAttempt -lt $maxDownloadAttempts)
-
-                # SHA-256 from the version manifest is the only accepted integrity proof.
-                # No hash -> refuse to install an unverified ZIP (SKIP-safe security posture).
-                if (-not $expectedSha256) {
-                    throw "No SHA-256 hash available from manifest - refusing to install unverified agent ZIP."
-                }
-                $actualSha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                Write-Log "Validating SHA-256 hash against manifest"
-                if ($actualSha256 -ne $expectedSha256) {
-                    throw "SHA-256 integrity check FAILED. Expected='$expectedSha256', Actual='$actualSha256'. Download may be tampered or corrupted."
-                }
-                Write-Log "SHA-256 integrity check passed"
-
-                Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath -Force
-                Write-Log "Extracted agent to $AgentBinPath"
-
-                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-                Write-Log "Cleaned up temporary files"
-
-                if (-not (Test-Path $agentExePath)) {
-                    throw "Agent executable not found after extraction at $agentExePath"
-                }
-
-                Write-Log "Agent installation completed successfully"
             }
-            catch {
-                Write-Log "ERROR downloading/extracting agent: $($_.Exception.Message)"
-                throw
-            }
-        }
 
-        # Publisher gate. The SHA-256 above proves the ZIP is the one the manifest names, but
-        # that manifest lives in the same container as the ZIP and cannot outlive a compromise
-        # of the download host. The expected publisher travels inside THIS script, which the
-        # loader verified before running it, so the chain from the file an administrator
-        # assigns to the process that starts here stays publisher-anchored end to end.
-        # Fail-closed, exactly like the hash check: running unverified code as SYSTEM is the
-        # risk being removed.
-        Write-Log "Verifying Authenticode signatures of the agent binaries..."
-        $unverified = Get-UnverifiedAgentBinaries -Path $AgentBinPath
-        if ($unverified.Count -gt 0) {
-            throw "Authenticode verification FAILED ($($unverified -join '; ')). Refusing to run an agent that is not signed by the expected publisher."
+            $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
+            $maxDownloadAttempts = 3
+            $downloadAttempt = 0
+
+            do {
+                $downloadAttempt++
+                try {
+                    Write-Log "Download attempt ${downloadAttempt}/${maxDownloadAttempts}"
+                    $downloadStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                    Invoke-WebRequest `
+                        -Uri $AgentDownloadUrl `
+                        -OutFile $zipPath `
+                        -UseBasicParsing `
+                        -TimeoutSec 30 `
+                        -ErrorAction Stop
+                    $downloadStopwatch.Stop()
+                    $downloadSeconds = [math]::Round($downloadStopwatch.Elapsed.TotalSeconds, 1)
+                    Write-Log "Downloaded agent to $zipPath (took ${downloadSeconds}s)"
+                    break
+                }
+                catch {
+                    if ($downloadAttempt -ge $maxDownloadAttempts) {
+                        throw
+                    }
+
+                    $retryDelaysInSeconds = @(2, 4, 8)
+                    $retryDelaySeconds = $retryDelaysInSeconds[$downloadAttempt - 1]
+                    Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${retryDelaySeconds}s..."
+                    Start-Sleep -Seconds $retryDelaySeconds
+                }
+            } while ($downloadAttempt -lt $maxDownloadAttempts)
+
+            # SHA-256 from the version manifest is the only accepted integrity proof.
+            # No hash -> refuse to install an unverified ZIP (SKIP-safe security posture).
+            if (-not $expectedSha256) {
+                throw "No SHA-256 hash available from manifest - refusing to install unverified agent ZIP."
+            }
+            $actualSha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Log "Validating SHA-256 hash against manifest"
+            if ($actualSha256 -ne $expectedSha256) {
+                throw "SHA-256 integrity check FAILED. Expected='$expectedSha256', Actual='$actualSha256'. Download may be tampered or corrupted."
+            }
+            Write-Log "SHA-256 integrity check passed"
+
+            # Payload catalog. The SHA-256 above proves the ZIP is the one the manifest names, but
+            # that manifest lives in the same container as the ZIP and cannot outlive a compromise
+            # of the download host. The catalog is signed by the expected publisher, whose pin
+            # travels inside THIS script -- verified by the loader before it ran -- so the chain
+            # from the file an administrator assigns to every file the agent runs from stays
+            # publisher-anchored end to end. Fail-closed like the hash check: running unverified
+            # code as SYSTEM is the risk being removed.
+            Write-Log "Verifying the payload against its signed catalog ($AgentCatalogName, publisher pin: $ExpectedPublisher)..."
+            Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
+            Write-Log "Payload verified against its signed catalog and installed to $AgentBinPath"
+
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            Write-Log "Cleaned up temporary files"
+
+            if (-not (Test-Path $agentExePath)) {
+                throw "Agent executable not found after extraction at $agentExePath"
+            }
+
+            Write-Log "Agent installation completed successfully"
         }
-        Write-Log "Authenticode verification passed (publisher pin: $ExpectedPublisher)"
+        catch {
+            Write-Log "ERROR downloading/verifying agent: $($_.Exception.Message)"
+            throw
+        }
 
         Write-Log "Calling agent install mode (--install)..."
         & $agentExePath --install

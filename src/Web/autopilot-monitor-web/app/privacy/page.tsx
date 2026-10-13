@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "1 October 2026";
+const LAST_UPDATED = "13 October 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -216,7 +216,7 @@ export default function PrivacyPage() {
             <li><strong>Encryption</strong> — HTTPS with a TLS 1.2 floor in transit, Azure Storage encryption at rest with platform-managed keys</li>
             <li><strong>Managed identity instead of storage keys</strong>, and secret-less OIDC deployment pipelines</li>
             <li><strong>Rate limiting</strong> per device, per portal user, and per MCP user</li>
-            <li><strong>Verifiable agent binaries</strong> — Authenticode-signed scripts and binaries whose publisher is verified on the device before anything runs, Sigstore build attestation, and SHA-256 verification at download, through an independent backend cross-check, and at runtime</li>
+            <li><strong>Verifiable agent binaries</strong> — Authenticode-signed scripts and binaries, third-party libraries only with their vendor&apos;s own signature, a catalog signed by glueckkanja AG that lists every file of the agent package and is checked on the device before anything runs, Sigstore build attestation, and SHA-256 verification at download, through an independent backend cross-check, and at runtime</li>
             <li><strong>Manifest-first deletion</strong> — what will be deleted is captured, restorably, before anything is removed</li>
           </ul>
 

@@ -30,6 +30,17 @@ BeforeAll {
         return $dir
     }
 
+    # What Test-FileCatalog -Detailed returns, reduced to the fields the check reads.
+    function New-FakeCatalogResult {
+        param(
+            [string]$Status = 'Valid',
+            [object]$Signature,
+            [hashtable]$CatalogItems = @{ 'AutopilotMonitor.Agent.exe' = 'AA' },
+            [hashtable]$PathItems = @{ 'AutopilotMonitor.Agent.exe' = 'AA' }
+        )
+        return [pscustomobject]@{ Status = $Status; Signature = $Signature; CatalogItems = $CatalogItems; PathItems = $PathItems }
+    }
+
     function New-FakeProfile {
         param([string]$Name, [double]$AgeMinutes)
         $p = Join-Path $TestDrive $Name
@@ -322,86 +333,163 @@ Describe 'logging purity' {
     }
 }
 
-Describe 'Get-UnverifiedAgentBinaries' {
-    # The publisher gate on the extracted payload. What matters is the DECISION: which
-    # payload is accepted, which is refused, and which files are looked at at all.
+Describe 'Get-AgentPayloadRejections' {
+    # The payload catalog check, shared verbatim with the OOBE go-script. What matters is the
+    # DECISION: which payload is accepted and which is refused. Test-FileCatalog is mocked for
+    # the branches; one test runs the real cmdlet over a real (unsigned) catalog.
     BeforeEach {
         Mock Write-Log { }
         $script:ours = 'CN=glueckkanja AG, O=glueckkanja AG, C=DE'
+        $script:dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Agent.cat')
     }
 
-    It 'accepts a payload where every binary of ours is validly signed by us' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject $script:ours }
-        Get-UnverifiedAgentBinaries -Path $dir | Should -BeNullOrEmpty
+    It 'accepts a payload whose catalog is signed by us and matches every file' {
+        Mock Test-FileCatalog { New-FakeCatalogResult -Signature (New-FakeSignature -Status 'Valid' -Subject $script:ours) }
+        Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher | Should -BeNullOrEmpty
     }
 
-    It 'checks the binaries we author and leaves third-party assemblies alone' {
-        $dir = New-FakePayload -Files @(
-            'AutopilotMonitor.Agent.exe',
-            'AutopilotMonitor.Agent.exe.config',
-            'AutopilotMonitor.Shared.dll',
-            'Newtonsoft.Json.dll',
-            'System.Management.Automation.dll'
-        )
-        $script:checked = @()
-        Mock Get-AuthenticodeSignature {
-            $script:checked += (Split-Path $FilePath -Leaf)
-            New-FakeSignature -Status 'Valid' -Subject $script:ours
+    It 'asks for the detailed result and skips the catalog itself' {
+        Mock Test-FileCatalog {
+            $script:call = @{ Skip = $FilesToSkip; Detailed = [bool]$Detailed; Catalog = $CatalogFilePath; Path = $Path }
+            New-FakeCatalogResult -Signature (New-FakeSignature -Status 'Valid' -Subject $script:ours)
         }
-
-        Get-UnverifiedAgentBinaries -Path $dir | Should -BeNullOrEmpty
-        $script:checked | Should -Be @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
+        Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher | Out-Null
+        $script:call.Skip | Should -Be @('AutopilotMonitor.Agent.cat')
+        $script:call.Detailed | Should -BeTrue
+        $script:call.Catalog | Should -Be (Join-Path $script:dir 'AutopilotMonitor.Agent.cat')
+        $script:call.Path | Should -Be $script:dir
     }
 
-    It 'refuses an unsigned agent executable' {
+    It 'refuses a payload without catalog and does not run the check at all' {
         $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'NotSigned' -Subject $null }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+        Mock Test-FileCatalog { throw 'must not run' }
+        $r = Get-AgentPayloadRejections -Path $dir -ExpectedPublisher $ExpectedPublisher
+        $r.Count | Should -Be 1
+        $r[0] | Should -BeLike '*AutopilotMonitor.Agent.cat missing*'
+        Should -Invoke Test-FileCatalog -Times 0
     }
 
-    It 'refuses a tampered binary (hash mismatch)' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'HashMismatch' -Subject $script:ours }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    It 'refuses matching files under an unsigned catalog (Status alone is not the verdict)' {
+        Mock Test-FileCatalog { New-FakeCatalogResult -Status 'Valid' -Signature (New-FakeSignature -Status 'NotSigned' -Subject $null) }
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        $r.Count | Should -Be 1
+        $r[0] | Should -BeLike '*signature status NotSigned*'
     }
 
-    It 'refuses a signature whose chain does not validate' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'UnknownError' -Subject $script:ours }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    It 'refuses a catalog whose signature does not validate' {
+        Mock Test-FileCatalog { New-FakeCatalogResult -Signature (New-FakeSignature -Status 'HashMismatch' -Subject $script:ours) }
+        (Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher).Count | Should -Be 1
     }
 
-    It 'refuses a validly signed binary from a different publisher' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject 'CN=Somebody Else, O=Somebody Else Ltd, C=US' }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    It 'refuses a validly signed catalog from another publisher' {
+        Mock Test-FileCatalog { New-FakeCatalogResult -Signature (New-FakeSignature -Status 'Valid' -Subject 'CN=Somebody Else, O=Somebody Else Ltd, C=US') }
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        $r.Count | Should -Be 1
+        $r[0] | Should -BeLike '*does not match*'
     }
 
-    It 'refuses the whole payload when a single DLL of ours is swapped' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
-        Mock Get-AuthenticodeSignature {
-            if ((Split-Path $FilePath -Leaf) -eq 'AutopilotMonitor.Shared.dll') {
-                New-FakeSignature -Status 'Valid' -Subject 'CN=Somebody Else, O=Somebody Else Ltd, C=US'
-            } else {
-                New-FakeSignature -Status 'Valid' -Subject $script:ours
-            }
+    It 'names the missing, extra and changed files of a payload that differs' {
+        Mock Test-FileCatalog {
+            New-FakeCatalogResult -Status 'ValidationFailed' -Signature (New-FakeSignature -Status 'Valid' -Subject $script:ours) `
+                -CatalogItems @{ 'a.dll' = 'AA'; 'b.dll' = 'BB'; 'c.config' = 'CC' } `
+                -PathItems @{ 'a.dll' = 'AA'; 'b.dll' = 'XX'; 'evil.dll' = 'EE' }
         }
-        $rejected = Get-UnverifiedAgentBinaries -Path $dir
-        $rejected.Count | Should -Be 1
-        $rejected[0] | Should -BeLike 'AutopilotMonitor.Shared.dll*'
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        $r.Count | Should -Be 1
+        $r[0] | Should -BeLike '*missing: c.config;*'
+        $r[0] | Should -BeLike '*extra: evil.dll;*'
+        $r[0] | Should -BeLike '*changed: b.dll)*'
     }
 
-    It 'refuses when the signature check itself throws' {
-        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
-        Mock Get-AuthenticodeSignature { throw 'access denied' }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    It 'reports a bad signature and a differing payload together' {
+        Mock Test-FileCatalog {
+            New-FakeCatalogResult -Status 'ValidationFailed' -Signature (New-FakeSignature -Status 'NotSigned' -Subject $null) `
+                -PathItems @{ 'AutopilotMonitor.Agent.exe' = 'AA'; 'extra.dll' = 'EE' }
+        }
+        (Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher).Count | Should -Be 2
     }
 
-    It 'refuses an empty payload instead of passing it' {
-        $dir = New-FakePayload -Files @('Newtonsoft.Json.dll')
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject $script:ours }
-        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    It 'refuses when the catalog check itself throws' {
+        Mock Test-FileCatalog { throw 'access denied' }
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        $r.Count | Should -Be 1
+        $r[0] | Should -BeLike '*failed to run*access denied*'
+    }
+
+    It 'refuses when the catalog check returns nothing' {
+        Mock Test-FileCatalog { }
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        $r[0] | Should -BeLike '*returned nothing*'
+    }
+
+    It 'returns a single rejection as an array' {
+        Mock Test-FileCatalog { throw 'boom' }
+        $r = Get-AgentPayloadRejections -Path $script:dir -ExpectedPublisher $ExpectedPublisher
+        ($r -is [array]) | Should -BeTrue
+    }
+
+    It 'catches an extra file with the real cmdlet over a real catalog' {
+        # Real New-FileCatalog/Test-FileCatalog over text files: no PE, no process, no mock.
+        $dir = New-FakePayload -Files @('a.txt', 'b.txt')
+        $catalog = Join-Path $TestDrive "real-$([guid]::NewGuid()).cat"
+        New-FileCatalog -Path $dir -CatalogFilePath $catalog -CatalogVersion 2.0 | Out-Null
+        Copy-Item $catalog (Join-Path $dir 'AutopilotMonitor.Agent.cat')
+        Set-Content -Path (Join-Path $dir 'extra.txt') -Value 'planted'
+
+        $r = Get-AgentPayloadRejections -Path $dir -ExpectedPublisher $ExpectedPublisher
+
+        ($r -join ' | ') | Should -BeLike '*extra: extra.txt;*'
+        ($r -join ' | ') | Should -BeLike '*signature status NotSigned*'
+    }
+}
+
+Describe 'Install-VerifiedAgentPayload' {
+    BeforeEach {
+        Mock Write-Log { }
+        $src = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Agent.cat', 'Newtonsoft.Json.dll')
+        $script:zip = Join-Path $TestDrive "payload-$([guid]::NewGuid()).zip"
+        Compress-Archive -Path (Join-Path $src '*') -DestinationPath $script:zip
+        $script:staging = Join-Path $TestDrive "staging-$([guid]::NewGuid())"
+        $script:target = Join-Path $TestDrive "agent-$([guid]::NewGuid())"
+    }
+
+    It 'moves an accepted payload into the agent folder and removes the staging folder' {
+        Mock Get-AgentPayloadRejections { , @() }
+        Install-VerifiedAgentPayload -ZipPath $script:zip -StagingPath $script:staging -TargetPath $script:target -ExpectedPublisher $ExpectedPublisher
+        @(Get-ChildItem $script:target | ForEach-Object Name | Sort-Object) |
+            Should -Be @('AutopilotMonitor.Agent.cat', 'AutopilotMonitor.Agent.exe', 'Newtonsoft.Json.dll')
+        Test-Path $script:staging | Should -BeFalse
+    }
+
+    It 'verifies the staging folder, never the agent folder' {
+        Mock Get-AgentPayloadRejections { $script:checked = $Path; , @() }
+        Install-VerifiedAgentPayload -ZipPath $script:zip -StagingPath $script:staging -TargetPath $script:target -ExpectedPublisher $ExpectedPublisher
+        $script:checked | Should -Be $script:staging
+    }
+
+    It 'leaves the agent folder untouched when the payload is refused, and cleans up' {
+        Mock Get-AgentPayloadRejections { , @('payload differs from catalog (missing: none; extra: evil.dll; changed: none)') }
+        { Install-VerifiedAgentPayload -ZipPath $script:zip -StagingPath $script:staging -TargetPath $script:target -ExpectedPublisher $ExpectedPublisher } |
+            Should -Throw '*Payload verification FAILED*evil.dll*'
+        Test-Path $script:target | Should -BeFalse
+        Test-Path $script:staging | Should -BeFalse
+    }
+
+    It 'removes leftovers from the agent folder before the payload moves in' {
+        New-Item -ItemType Directory -Path $script:target | Out-Null
+        Set-Content -Path (Join-Path $script:target 'stale.dll') -Value 'x'
+        Mock Get-AgentPayloadRejections { , @() }
+        Install-VerifiedAgentPayload -ZipPath $script:zip -StagingPath $script:staging -TargetPath $script:target -ExpectedPublisher $ExpectedPublisher
+        Test-Path (Join-Path $script:target 'stale.dll') | Should -BeFalse
+        Test-Path (Join-Path $script:target 'AutopilotMonitor.Agent.exe') | Should -BeTrue
+    }
+
+    It 'starts from an empty staging folder even when a previous run left one behind' {
+        New-Item -ItemType Directory -Path $script:staging | Out-Null
+        Set-Content -Path (Join-Path $script:staging 'leftover.dll') -Value 'x'
+        Mock Get-AgentPayloadRejections { $script:seen = @(Get-ChildItem $Path | ForEach-Object Name); , @() }
+        Install-VerifiedAgentPayload -ZipPath $script:zip -StagingPath $script:staging -TargetPath $script:target -ExpectedPublisher $ExpectedPublisher
+        $script:seen | Should -Not -Contain 'leftover.dll'
     }
 }
 
@@ -409,5 +497,9 @@ Describe 'publisher pin' {
     It 'pins the expected publisher by subject, not by thumbprint' {
         $ExpectedPublisher | Should -Be '*O=glueckkanja AG*'
         $ExpectedPublisher | Should -Not -Match '^[0-9A-Fa-f]{40}$'
+    }
+
+    It 'names the payload catalog the release pipeline signs' {
+        $AgentCatalogName | Should -Be 'AutopilotMonitor.Agent.cat'
     }
 }

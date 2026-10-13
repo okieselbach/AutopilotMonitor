@@ -1,15 +1,16 @@
 using AutopilotMonitor.Functions.Functions.Bootstrap;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Pins the OOBE bootstrap script generator, ported from the portal's
-/// app/go/[code]/route.ts. The golden test asserts byte parity (modulo line
-/// endings) with the original TypeScript template output — the reference file
-/// TestData/oobe-bootstrap-golden.ps1 was captured by evaluating the TS template
-/// literal with the same fixed inputs. Ports the behavioral cases of the vitest
-/// suite app/go/[code]/__tests__/route.test.ts that concern script generation.
+/// app/go/[code]/route.ts. The golden file TestData/oobe-bootstrap-golden.ps1 is the
+/// pin of the shipped template (modulo line endings): first captured from the TS
+/// template literal, since D-354 extended with the payload catalog check that the
+/// generator embeds verbatim from the installer. Ports the behavioral cases of the
+/// vitest suite app/go/[code]/__tests__/route.test.ts that concern script generation.
 /// </summary>
 public class OobeBootstrapScriptGeneratorTests
 {
@@ -70,6 +71,62 @@ public class OobeBootstrapScriptGeneratorTests
         Assert.Contains($"'{Token}'", script);
         Assert.Contains($"'{TenantId}'", script);
         Assert.Contains("'Bootstrap token expires: 2026-08-01T12:00:00.000Z'", script);
+    }
+
+    // ── D-354: the payload is checked against its signed catalog before --install ──
+    [Fact]
+    public void SuccessScript_embeds_the_installers_payload_verification_verbatim()
+    {
+        var installer = File.ReadAllText(Path.Combine(FindRepoRoot(), "scripts", "Bootstrap", "Install-AutopilotMonitor.ps1"))
+            .Replace("\r\n", "\n");
+        var begin = installer.IndexOf(OobeBootstrapScriptGenerator.SharedBlockBegin, StringComparison.Ordinal);
+        var end = installer.IndexOf('\n', installer.IndexOf(OobeBootstrapScriptGenerator.SharedBlockEnd, StringComparison.Ordinal));
+        var block = installer.Substring(begin, end - begin);
+
+        Assert.Contains("function Get-AgentPayloadRejections", block);
+        Assert.Contains("function Install-VerifiedAgentPayload", block);
+        Assert.Contains(block, Generate().Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public void SuccessScript_verifies_the_payload_before_installing_the_agent()
+    {
+        var script = Generate();
+
+        var verify = script.IndexOf(
+            "Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName",
+            StringComparison.Ordinal);
+        var install = script.IndexOf("& $agentExePath --install", StringComparison.Ordinal);
+
+        Assert.True(verify > 0, "the generated script never verifies the payload");
+        Assert.True(install > verify, "--install must run after the payload check");
+        Assert.DoesNotContain("Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath", script);
+    }
+
+    [Fact]
+    public void SuccessScript_takes_pin_and_catalog_name_from_the_constants()
+    {
+        var script = Generate();
+
+        Assert.Contains($"$ExpectedPublisher = '{Constants.CodeSigningPublisherPattern}'", script);
+        Assert.Contains($"$AgentCatalogName  = '{Constants.AgentPayloadCatalogFileName}'", script);
+    }
+
+    [Fact]
+    public void SuccessScript_leaves_no_placeholder_unreplaced()
+    {
+        Assert.DoesNotMatch("__[A-Z_]+__", Generate());
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "AutopilotMonitor.sln")))
+        {
+            dir = dir.Parent;
+        }
+        Assert.NotNull(dir);
+        return dir!.FullName;
     }
 
     // ── Error script: message surfaces via Write-Host, always as a script ──

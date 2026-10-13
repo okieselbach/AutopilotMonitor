@@ -17,6 +17,10 @@ $AgentBasePath    = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath     = "$AgentBasePath\Agent"
 $AgentLogPath     = "$AgentBasePath\Logs"
 $LogFile          = "$AgentLogPath\oobe_bootstrap.log"
+$AgentStagingPath = "$AgentBasePath\Agent-Install"
+
+$ExpectedPublisher = '*O=glueckkanja AG*'
+$AgentCatalogName  = 'AutopilotMonitor.Agent.cat'
 
 # Create directories
 New-Item -Path $AgentBasePath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
@@ -30,6 +34,107 @@ function Write-Log {
     Write-Host $logMessage
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
+
+### BEGIN shared payload verification -- embedded verbatim into the OOBE go-script by
+### OobeBootstrapScriptGenerator (D-354). Keep it self-contained: parameters only, no
+### script-scope variables, no Write-Log.
+# Returns the reasons why the extracted payload in $Path must not run; an empty result means
+# it matches its signed catalog exactly. Test-FileCatalog's Status covers the hashes only (an
+# unsigned catalog over matching files reports Valid), so the signature and its publisher are
+# judged on their own. Any error is a rejection: a payload that cannot be verified is an
+# unverified payload. The comma keeps a single rejection an ARRAY: PowerShell unrolls a
+# one-element result to a bare string, and the caller reads .Count.
+function Get-AgentPayloadRejections {
+    param(
+        [string]$Path,
+        [string]$ExpectedPublisher,
+        [string]$CatalogName = 'AutopilotMonitor.Agent.cat'
+    )
+
+    $catalog = Join-Path $Path $CatalogName
+    if (-not (Test-Path -LiteralPath $catalog -PathType Leaf)) {
+        return , @("catalog $CatalogName missing")
+    }
+
+    try {
+        $result = Test-FileCatalog -Path $Path -CatalogFilePath $catalog -FilesToSkip $CatalogName -Detailed -ErrorAction Stop
+    }
+    catch {
+        return , @("catalog check failed to run ($($_.Exception.Message))")
+    }
+    if ($null -eq $result) {
+        return , @('catalog check returned nothing')
+    }
+
+    $rejected = @()
+    $signature = $result.Signature
+    if ($null -eq $signature -or "$($signature.Status)" -ne 'Valid') {
+        $status = if ($null -eq $signature) { 'missing' } else { "$($signature.Status)" }
+        $rejected += "catalog signature status $status"
+    }
+    elseif ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notlike $ExpectedPublisher) {
+        $subject = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.Subject }
+        $rejected += "catalog publisher '$subject' does not match $ExpectedPublisher"
+    }
+
+    if ("$($result.Status)" -ne 'Valid') {
+        $expected = if ($null -eq $result.CatalogItems) { @{} } else { $result.CatalogItems }
+        $actual = if ($null -eq $result.PathItems) { @{} } else { $result.PathItems }
+        $names = {
+            param($list)
+            if ($list.Count -eq 0) { return 'none' }
+            $shown = ($list | Select-Object -First 5) -join ', '
+            if ($list.Count -gt 5) { $shown += " (+$($list.Count - 5) more)" }
+            return $shown
+        }
+        $missing = @($expected.Keys | Where-Object { -not $actual.ContainsKey($_) } | Sort-Object)
+        $extra = @($actual.Keys | Where-Object { -not $expected.ContainsKey($_) } | Sort-Object)
+        $changed = @($expected.Keys | Where-Object { $actual.ContainsKey($_) -and $actual[$_] -ne $expected[$_] } | Sort-Object)
+        $rejected += "payload differs from catalog (missing: $(& $names $missing); extra: $(& $names $extra); changed: $(& $names $changed))"
+    }
+
+    return , $rejected
+}
+
+# Extracts the agent ZIP into a fresh staging folder, verifies it there and moves it into the
+# agent folder only when it matches its signed catalog. A rejected payload is deleted with the
+# staging folder: nothing unverified lands where SYSTEM runs the agent, and the next run starts
+# clean instead of finding a half-installed agent. The caller has made sure no agent is
+# installed, so anything already in the agent folder is a leftover and goes first.
+function Install-VerifiedAgentPayload {
+    param(
+        [string]$ZipPath,
+        [string]$StagingPath,
+        [string]$TargetPath,
+        [string]$ExpectedPublisher,
+        [string]$CatalogName = 'AutopilotMonitor.Agent.cat'
+    )
+
+    if (Test-Path -LiteralPath $StagingPath) {
+        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction Stop
+    }
+    New-Item -Path $StagingPath -ItemType Directory -Force | Out-Null
+    try {
+        Expand-Archive -Path $ZipPath -DestinationPath $StagingPath -Force -ErrorAction Stop
+
+        $rejections = Get-AgentPayloadRejections -Path $StagingPath -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
+        if ($rejections.Count -gt 0) {
+            throw "Payload verification FAILED ($($rejections -join '; ')). Refusing to install an agent that is not the published one."
+        }
+
+        if (Test-Path -LiteralPath $TargetPath) {
+            Get-ChildItem -LiteralPath $TargetPath -Force | Remove-Item -Recurse -Force -ErrorAction Stop
+        }
+        else {
+            New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
+        }
+        Get-ChildItem -LiteralPath $StagingPath -Force | Move-Item -Destination $TargetPath -Force -ErrorAction Stop
+    }
+    finally {
+        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+### END shared payload verification
 
 try {
     Write-Log "===== Autopilot Monitor OOBE Bootstrap ====="
@@ -65,10 +170,11 @@ try {
             }
         } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-        # Extract
-        Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath -Force
+        # Verify against the signed payload catalog before anything lands in the agent folder
+        Write-Log "Verifying the payload against its signed catalog..."
+        Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Write-Log "Extracted agent to $AgentBinPath"
+        Write-Log "Payload verified and installed to $AgentBinPath"
 
         if (-not (Test-Path $agentExePath)) {
             throw "Agent executable not found after extraction at $agentExePath"

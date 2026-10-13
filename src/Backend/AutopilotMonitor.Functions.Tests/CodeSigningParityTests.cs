@@ -39,6 +39,17 @@ public class CodeSigningParityTests
     }
 
     [Fact]
+    public void Installer_catalog_name_matches_the_constant()
+    {
+        var installer = File.ReadAllText(Path.Combine(FindRepoRoot(), "scripts", "Bootstrap", "Install-AutopilotMonitor.ps1"));
+
+        var match = Regex.Match(installer, "^\\$AgentCatalogName = \"(?<name>[^\"]+)\"\\r?$", RegexOptions.Multiline);
+
+        Assert.True(match.Success, "Install-AutopilotMonitor.ps1 no longer declares $AgentCatalogName");
+        Assert.Equal(Constants.AgentPayloadCatalogFileName, match.Groups["name"].Value);
+    }
+
+    [Fact]
     public void Release_workflow_catalog_name_matches_the_constant()
     {
         var workflow = File.ReadAllText(Path.Combine(FindRepoRoot(), ".github", "workflows", "build-agent.yml"));

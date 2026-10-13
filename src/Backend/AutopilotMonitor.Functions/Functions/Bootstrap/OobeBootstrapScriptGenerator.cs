@@ -34,8 +34,10 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             return $"Write-Host ''; Write-Host 'ERROR: {safeMsg}' -ForegroundColor Red; Write-Host ''";
         }
 
-        // SECURITY INVARIANT: All template parameters MUST come from
-        // BootstrapScriptValueValidator.TryValidate. The single-quoted PowerShell
+        // SECURITY INVARIANT: every template value comes either from
+        // BootstrapScriptValueValidator.TryValidate (the request-derived ones) or from a
+        // compile-time constant (portal URL, publisher pin, catalog name, and the installer's
+        // payload-verification block embedded at build time). The single-quoted PowerShell
         // string literals below are the second line of defense against injection
         // (single-quoted PS strings do NOT expand $(...), $var, or backticks).
         // Do NOT change to double-quoted without re-reviewing the validator's
@@ -43,7 +45,8 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
         //
         // The template is a raw string with __TOKEN__ placeholders substituted via
         // Replace — deliberately NOT string interpolation or string.Format, because
-        // the script body is full of PowerShell $vars and {braces}.
+        // the script body is full of PowerShell $vars and {braces}. The embedded block is
+        // substituted last, so no token inside it could ever be rewritten.
         public static string GenerateSuccessScript(
             BootstrapScriptValueValidator.ValidatedValues values,
             DateTime generatedAtUtc)
@@ -61,7 +64,36 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 .Replace("__AGENT_DOWNLOAD_URL__", values.AgentDownloadUrl)
                 .Replace("__BOOTSTRAP_TOKEN__", values.Token)
                 .Replace("__TENANT_ID__", values.TenantId)
-                .Replace("__PORTAL_URL__", Constants.PortalBaseUrl);
+                .Replace("__PORTAL_URL__", Constants.PortalBaseUrl)
+                .Replace("__EXPECTED_PUBLISHER__", Constants.CodeSigningPublisherPattern)
+                .Replace("__PAYLOAD_CATALOG__", Constants.AgentPayloadCatalogFileName)
+                .Replace("__PAYLOAD_VERIFICATION__", SharedPayloadVerification.Value);
+        }
+
+        internal const string InstallerResourceName = "AutopilotMonitor.Functions.Bootstrap.Install-AutopilotMonitor.ps1";
+        internal const string SharedBlockBegin = "### BEGIN shared payload verification";
+        internal const string SharedBlockEnd = "### END shared payload verification";
+
+        // The payload check is the installer's own code, embedded at build time and cut out
+        // between its markers: one text for both install paths, so they can never drift
+        // (D-354). A missing marker fails the first request loudly instead of serving a
+        // script that installs without the check.
+        private static readonly Lazy<string> SharedPayloadVerification = new(LoadSharedPayloadVerification);
+
+        internal static string LoadSharedPayloadVerification()
+        {
+            using var stream = typeof(OobeBootstrapScriptGenerator).Assembly.GetManifestResourceStream(InstallerResourceName)
+                ?? throw new InvalidOperationException($"Embedded resource {InstallerResourceName} is missing.");
+            using var reader = new StreamReader(stream);
+            var installer = reader.ReadToEnd().Replace("\r\n", "\n");
+
+            var begin = installer.IndexOf(SharedBlockBegin, StringComparison.Ordinal);
+            var end = installer.IndexOf(SharedBlockEnd, StringComparison.Ordinal);
+            if (begin < 0 || end < begin || installer.IndexOf(SharedBlockBegin, begin + 1, StringComparison.Ordinal) >= 0)
+                throw new InvalidOperationException("The installer's shared payload-verification markers are missing or ambiguous.");
+
+            var lineEnd = installer.IndexOf('\n', end);
+            return installer.Substring(begin, (lineEnd < 0 ? installer.Length : lineEnd) - begin);
         }
 
         private const string Template = """
@@ -84,6 +116,10 @@ $AgentBasePath    = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath     = "$AgentBasePath\Agent"
 $AgentLogPath     = "$AgentBasePath\Logs"
 $LogFile          = "$AgentLogPath\oobe_bootstrap.log"
+$AgentStagingPath = "$AgentBasePath\Agent-Install"
+
+$ExpectedPublisher = '__EXPECTED_PUBLISHER__'
+$AgentCatalogName  = '__PAYLOAD_CATALOG__'
 
 # Create directories
 New-Item -Path $AgentBasePath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
@@ -97,6 +133,8 @@ function Write-Log {
     Write-Host $logMessage
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
+
+__PAYLOAD_VERIFICATION__
 
 try {
     Write-Log "===== Autopilot Monitor OOBE Bootstrap ====="
@@ -132,10 +170,11 @@ try {
             }
         } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-        # Extract
-        Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath -Force
+        # Verify against the signed payload catalog before anything lands in the agent folder
+        Write-Log "Verifying the payload against its signed catalog..."
+        Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Write-Log "Extracted agent to $AgentBinPath"
+        Write-Log "Payload verified and installed to $AgentBinPath"
 
         if (-not (Test-Path $agentExePath)) {
             throw "Agent executable not found after extraction at $agentExePath"

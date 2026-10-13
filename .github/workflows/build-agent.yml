@@ -615,8 +615,8 @@ jobs:
 
       # The devices' check, run on the FINAL ZIP rather than the staging folder: whatever the
       # archiver did (Compress-Archive skips hidden files) fails here instead of on a device.
-      # Windows PowerShell 5.1, the edition installer and OOBE script verify with; the pin is
-      # the installer's own literal, the value devices compare against.
+      # Windows PowerShell 5.1 and the installer's own functions (dot-sourced; its entry guard
+      # keeps that side-effect free) -- the very code the installer and the OOBE go-script run.
       - name: Verify payload catalog (device check)
         shell: powershell
         env:
@@ -629,32 +629,22 @@ jobs:
           if (Test-Path $payload) { throw "$payload already exists." }
           [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path $env:RELEASE_ZIP).Path, $payload)
 
-          $pinLine = Select-String -Path $env:BOOTSTRAP_SOURCE -Pattern '^\$ExpectedPublisher = "([^"]+)"' | Select-Object -First 1
-          if (-not $pinLine) { throw "Could not read the publisher pin from $env:BOOTSTRAP_SOURCE." }
-          $pin = $pinLine.Matches[0].Groups[1].Value
-          if (-not [string]::IsNullOrWhiteSpace($env:CODE_SIGN_EXPECTED_SUBJECT) -and $pin -ne $env:CODE_SIGN_EXPECTED_SUBJECT) {
-            throw "Installer pin '$pin' differs from CODE_SIGN_EXPECTED_SUBJECT '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+          . (Resolve-Path $env:BOOTSTRAP_SOURCE).Path
+          if (-not [string]::IsNullOrWhiteSpace($env:CODE_SIGN_EXPECTED_SUBJECT) -and $ExpectedPublisher -ne $env:CODE_SIGN_EXPECTED_SUBJECT) {
+            throw "Installer pin '$ExpectedPublisher' differs from CODE_SIGN_EXPECTED_SUBJECT '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+          }
+          if ($AgentCatalogName -ne $env:PAYLOAD_CATALOG) {
+            throw "Installer catalog name '$AgentCatalogName' differs from PAYLOAD_CATALOG '$env:PAYLOAD_CATALOG'."
           }
 
-          $catalog = Join-Path $payload $env:PAYLOAD_CATALOG
-          if (-not (Test-Path $catalog -PathType Leaf)) { throw "$env:PAYLOAD_CATALOG is missing from the ZIP." }
-          $result = Test-FileCatalog -Path $payload -CatalogFilePath $catalog -FilesToSkip $env:PAYLOAD_CATALOG -Detailed
+          # Assign first, then flatten: the function returns its list as ONE object (comma
+          # operator), so @(Get-AgentPayloadRejections ...) would nest it inside another array.
+          $problems = Get-AgentPayloadRejections -Path $payload -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
+          $problems = @($problems)
 
-          $problems = @()
-          if ($result.Status -ne 'Valid') {
-            $expected = $result.CatalogItems
-            $actual = $result.PathItems
-            $missing = @($expected.Keys | Where-Object { -not $actual.ContainsKey($_) })
-            $extra = @($actual.Keys | Where-Object { -not $expected.ContainsKey($_) })
-            $changed = @($expected.Keys | Where-Object { $actual.ContainsKey($_) -and $actual[$_] -ne $expected[$_] })
-            $problems += "payload differs from the catalog (missing: $($missing -join ', '); extra: $($extra -join ', '); changed: $($changed -join ', '))"
-          }
-          $signature = $result.Signature
-          if ($signature.Status -ne 'Valid') {
-            $problems += "catalog signature status is '$($signature.Status)'"
-          } elseif ($signature.SignerCertificate.Subject -notlike $pin) {
-            $problems += "catalog signed by '$($signature.SignerCertificate.Subject)', expected '$pin'"
-          }
+          # Release-only checks a device need not repeat: a timestamp (without it the signature
+          # dies with the certificate) and the same certificate as the binaries.
+          $signature = Get-AuthenticodeSignature (Join-Path $payload $AgentCatalogName)
           if (-not $signature.TimeStamperCertificate) {
             $problems += 'catalog signature carries no RFC-3161 timestamp -- it would expire with the certificate'
           }
@@ -667,7 +657,7 @@ jobs:
             $problems | ForEach-Object { Write-Host "::error::$_" }
             throw "Payload catalog verification failed. Nothing was published."
           }
-          Write-Host "Payload catalog verified on the final ZIP: $($result.CatalogItems.Count) files, signer $($signature.SignerCertificate.Subject)"
+          Write-Host "Payload catalog verified on the final ZIP with the installer's own check, signer $($signature.SignerCertificate.Subject)"
 
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
