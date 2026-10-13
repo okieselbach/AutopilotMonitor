@@ -45,6 +45,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Fact]
+        public void EmitAgentStarted_CarriesTheBootstrapProvenance()
+        {
+            // Values depend on the machine's %ProgramData%\AutopilotMonitor\Logs (see
+            // BootstrapProvenanceReaderTests); the two presence flags are always on the wire.
+            using var rig = new EmitterRig();
+            rig.RemoteConfig.SetFakeOutcome(RemoteConfigFetchOutcome.Succeeded, configVersion: 28);
+
+            LifecycleEmitters.EmitAgentStarted(
+                rig.Post, rig.AgentConfig, rig.PreviousExit, "2.0.806", rig.RemoteConfig, rig.Logger);
+
+            var data = AssertSingleEmit(rig.Sink, expectedEventType: "agent_started");
+            Assert.IsType<bool>(data["bootstrapScriptLogPresent"]);
+            Assert.IsType<bool>(data["oobeBootstrapLogPresent"]);
+        }
+
+        [Fact]
         public void EmitAgentStarted_OnFallbackToDefaults_FlagsRemoteConfigFalse()
         {
             using var rig = new EmitterRig();

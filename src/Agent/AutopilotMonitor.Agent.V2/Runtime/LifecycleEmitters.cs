@@ -92,6 +92,13 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 if (recovered)
                     data["remoteConfigRecovered"] = true;
 
+                // Which bootstrap installed this agent (installer and loader versions, MSI or
+                // Intune loader, OOBE go-script), read from the scripts' own logs: makes the
+                // fleet's share of old or directly assigned installers countable.
+                BootstrapProvenanceReader
+                    .Read(Environment.ExpandEnvironmentVariables(SharedConstants.LogDirectory))
+                    .AddTo(data);
+
                 if (!string.IsNullOrEmpty(previousExit?.CrashExceptionType))
                     data["previousCrashException"] = previousExit.CrashExceptionType;
 

@@ -7,6 +7,14 @@ on:
         description: 'Build number override (leave empty to auto-increment from buildcounter.txt)'
         required: false
         type: string
+      channel:
+        description: 'release = versioned line (+ stable on cutover). dev = lab channel only (Agent-v2-dev.zip, version-v2-dev.json, Agent-dev.zip, version-dev.json); needs publish_as_stable=false and create_release=false'
+        required: true
+        type: choice
+        options:
+          - release
+          - dev
+        default: release
       upload_blob:
         description: 'Upload to versioned namespace (Agent-v2.zip + version-v2.json)'
         required: true
@@ -60,6 +68,15 @@ env:
   VERSIONED_ZIP: AutopilotMonitor-Agent-v2.zip
   STABLE_ZIP: AutopilotMonitor-Agent.zip
   STABLE_MANIFEST: version.json
+  # Lab channel (channel=dev): the names the dev renders of the bootstrap scripts read.
+  CHANNEL: ${{ inputs.channel }}
+  DEV_VERSIONED_ZIP: AutopilotMonitor-Agent-v2-dev.zip
+  DEV_MANIFEST: version-v2-dev.json
+  DEV_STABLE_ZIP: AutopilotMonitor-Agent-dev.zip
+  DEV_STABLE_MANIFEST: version-dev.json
+  # Signed catalog over every other file of the payload. Must equal
+  # Constants.AgentPayloadCatalogFileName; CodeSigningParityTests keeps them in step.
+  PAYLOAD_CATALOG: AutopilotMonitor.Agent.cat
   # Authenticode via Azure Key Vault; identity and vault come from repository variables, the
   # timestamp server (CODE_SIGN_TIMESTAMP_URL) from the endpoint registry like every host here.
   # CODE_SIGN_EXPECTED_SUBJECT is optional and pins the publisher in the verify step.
@@ -105,6 +122,22 @@ jobs:
             }
           }
           Write-Host "Code-signing configuration present (certificate '$env:CODE_SIGN_CERTIFICATE_NAME')"
+
+      # The dev channel is a lab channel: it never touches stable, AdminConfiguration, the
+      # bootstrap scripts or a GitHub Release. Refused here, before a build number is burnt.
+      - name: Check channel inputs
+        shell: pwsh
+        env:
+          PUBLISH_AS_STABLE: ${{ inputs.publish_as_stable }}
+          CREATE_RELEASE: ${{ inputs.create_release }}
+        run: |
+          if ($env:CHANNEL -notin @('release', 'dev')) {
+            throw "Unknown channel '$($env:CHANNEL)'."
+          }
+          if ($env:CHANNEL -eq 'dev' -and ($env:PUBLISH_AS_STABLE -eq 'true' -or $env:CREATE_RELEASE -eq 'true')) {
+            throw "channel=dev publishes the lab channel only: run it with publish_as_stable=false and create_release=false."
+          }
+          Write-Host "Channel: $env:CHANNEL"
 
       - name: Login to Azure (OIDC)
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
@@ -222,7 +255,8 @@ jobs:
           retention-days: 1
 
   # Trust zone: only this repository's scripts, pinned actions and the pinned signing tool
-  # run here -- never a restore or build. The build output arrives as data.
+  # run here -- never a restore or build. The build output arrives as data. The runner
+  # image's Windows SDK signtool is used read-only, to verify third-party signatures.
   #
   # No `environment:` yet: the code-signing credential is still bound to the ref, and a job
   # carries exactly one OIDC subject, so an environment here would break the signing login.
@@ -353,8 +387,7 @@ jobs:
             throw "azuresigntool failed with exit code $LASTEXITCODE -- aborting before anything is published."
           }
 
-      - name: Create release artifact
-        id: artifact
+      - name: Stage release payload
         shell: pwsh
         run: |
           $version = $env:AGENT_VERSION
@@ -398,6 +431,98 @@ jobs:
             exit 1
           }
           Write-Host "Version check passed: EXE = manifest = reserved = $version"
+
+      # Third-party code enters the payload only with its vendor's own signature: every PE that
+      # is not ours needs a valid EMBEDDED Authenticode signature from an allowed vendor. Embedded
+      # only (signtool verify /pa, no /a): Get-AuthenticodeSignature prefers the runner's Windows
+      # catalogs and reports "Microsoft Windows" for files Windows happens to ship as well. An
+      # unsigned file or a new vendor stops the release until a person decides. This guards the
+      # bytes we did not write; a build that alters our own code is D-346's remaining risk.
+      - name: Check third-party signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $allowedVendors = @('Microsoft Corporation', 'Json.NET (.NET Foundation)')
+
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Parent.Name -match '^\d+(\.\d+){1,3}$' } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found in the runner image's Windows SDK." }
+          Write-Host "Using $($signtool.FullName)"
+
+          $failed = $false
+          $checked = 0
+          foreach ($file in Get-ChildItem -Path 'staging/agent' -Recurse -File) {
+            # A PE by content (MZ header), not by extension.
+            $head = [byte[]]::new(2)
+            $stream = [System.IO.File]::OpenRead($file.FullName)
+            try { $read = $stream.Read($head, 0, 2) } finally { $stream.Dispose() }
+            if ($read -lt 2 -or $head[0] -ne 0x4D -or $head[1] -ne 0x5A) { continue }
+            if ($file.Name -like 'AutopilotMonitor.*') { continue }   # ours: the verify step pins them
+
+            $checked++
+            $output = & $signtool.FullName verify /pa $file.FullName 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error file=$($file.Name)::No valid embedded vendor signature. $(($output | Out-String).Trim())"
+              $failed = $true
+              continue
+            }
+            $subject = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($file.FullName).Subject
+            $vendor = if ($subject -match '(?:^|,\s*)O=("[^"]*"|[^,]*)') { $Matches[1].Trim('"') } else { '' }
+            if ($vendor -notin $allowedVendors) {
+              Write-Host "::error file=$($file.Name)::Signed by '$subject' -- vendor '$vendor' is not on the allowlist."
+              $failed = $true
+              continue
+            }
+            Write-Host "$($file.Name): embedded signature valid, vendor $vendor"
+          }
+
+          if ($failed) { throw "Third-party signature check failed. Nothing was published." }
+          Write-Host "All $checked third-party PE files carry a valid signature from an allowed vendor."
+
+      # The payload contract: one catalog, signed like our binaries, holding the SHA-256 of every
+      # other file in the ZIP. Installer, OOBE script and self-updater accept a payload only when
+      # this catalog is ours and matches the extracted files exactly. Created AFTER signing and
+      # BEFORE the ZIP -- the same load-bearing position as the signing step above.
+      - name: Create and sign payload catalog
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stagingDir = 'staging/agent'
+          $catalog = Join-Path $env:RUNNER_TEMP $env:PAYLOAD_CATALOG
+          if (Test-Path (Join-Path $stagingDir $env:PAYLOAD_CATALOG)) {
+            throw "$stagingDir already contains $env:PAYLOAD_CATALOG."
+          }
+
+          New-FileCatalog -Path $stagingDir -CatalogFilePath $catalog -CatalogVersion 2.0 | Out-Null
+
+          & azuresigntool.exe sign --verbose `
+            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
+            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
+            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
+            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
+            --file-digest sha256 `
+            --description "Autopilot Monitor Agent" `
+            --description-url "$env:WWW_BASE_URL" `
+            $catalog
+          if ($LASTEXITCODE -ne 0) {
+            throw "azuresigntool failed on the payload catalog with exit code $LASTEXITCODE -- aborting before anything is published."
+          }
+
+          Copy-Item -Path $catalog -Destination $stagingDir
+          $count = (Test-FileCatalog -Path $stagingDir -CatalogFilePath $catalog -FilesToSkip $env:PAYLOAD_CATALOG -Detailed).CatalogItems.Count
+          Write-Host "Payload catalog signed: $count files"
+
+      - name: Create release artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $version = $env:AGENT_VERSION
+          $stagingDir = "staging/agent"
+          $manifest = Get-Content "$env:AGENT_OUTPUT/$env:MANIFEST_NAME" -Raw | ConvertFrom-Json
 
           $versionedZip = "AutopilotMonitor-Agent-v$version.zip"
           Compress-Archive -Path "$stagingDir/*" -DestinationPath $versionedZip
@@ -488,6 +613,62 @@ jobs:
           }
           Write-Host "All $($files.Count) binaries signed with certificate $($thumbprints.Keys -join ', ')"
 
+      # The devices' check, run on the FINAL ZIP rather than the staging folder: whatever the
+      # archiver did (Compress-Archive skips hidden files) fails here instead of on a device.
+      # Windows PowerShell 5.1, the edition installer and OOBE script verify with; the pin is
+      # the installer's own literal, the value devices compare against.
+      - name: Verify payload catalog (device check)
+        shell: powershell
+        env:
+          RELEASE_ZIP: ${{ steps.artifact.outputs.versioned_zip_release }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $payload = Join-Path $env:RUNNER_TEMP 'verify-payload'
+          if (Test-Path $payload) { throw "$payload already exists." }
+          [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path $env:RELEASE_ZIP).Path, $payload)
+
+          $pinLine = Select-String -Path $env:BOOTSTRAP_SOURCE -Pattern '^\$ExpectedPublisher = "([^"]+)"' | Select-Object -First 1
+          if (-not $pinLine) { throw "Could not read the publisher pin from $env:BOOTSTRAP_SOURCE." }
+          $pin = $pinLine.Matches[0].Groups[1].Value
+          if (-not [string]::IsNullOrWhiteSpace($env:CODE_SIGN_EXPECTED_SUBJECT) -and $pin -ne $env:CODE_SIGN_EXPECTED_SUBJECT) {
+            throw "Installer pin '$pin' differs from CODE_SIGN_EXPECTED_SUBJECT '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+          }
+
+          $catalog = Join-Path $payload $env:PAYLOAD_CATALOG
+          if (-not (Test-Path $catalog -PathType Leaf)) { throw "$env:PAYLOAD_CATALOG is missing from the ZIP." }
+          $result = Test-FileCatalog -Path $payload -CatalogFilePath $catalog -FilesToSkip $env:PAYLOAD_CATALOG -Detailed
+
+          $problems = @()
+          if ($result.Status -ne 'Valid') {
+            $expected = $result.CatalogItems
+            $actual = $result.PathItems
+            $missing = @($expected.Keys | Where-Object { -not $actual.ContainsKey($_) })
+            $extra = @($actual.Keys | Where-Object { -not $expected.ContainsKey($_) })
+            $changed = @($expected.Keys | Where-Object { $actual.ContainsKey($_) -and $actual[$_] -ne $expected[$_] })
+            $problems += "payload differs from the catalog (missing: $($missing -join ', '); extra: $($extra -join ', '); changed: $($changed -join ', '))"
+          }
+          $signature = $result.Signature
+          if ($signature.Status -ne 'Valid') {
+            $problems += "catalog signature status is '$($signature.Status)'"
+          } elseif ($signature.SignerCertificate.Subject -notlike $pin) {
+            $problems += "catalog signed by '$($signature.SignerCertificate.Subject)', expected '$pin'"
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            $problems += 'catalog signature carries no RFC-3161 timestamp -- it would expire with the certificate'
+          }
+          $exeSigner = (Get-AuthenticodeSignature (Join-Path $payload 'AutopilotMonitor.Agent.exe')).SignerCertificate
+          if ($signature.SignerCertificate -and $exeSigner -and $signature.SignerCertificate.Thumbprint -ne $exeSigner.Thumbprint) {
+            $problems += 'catalog and agent exe carry different signing certificates'
+          }
+
+          if ($problems.Count -gt 0) {
+            $problems | ForEach-Object { Write-Host "::error::$_" }
+            throw "Payload catalog verification failed. Nothing was published."
+          }
+          Write-Host "Payload catalog verified on the final ZIP: $($result.CatalogItems.Count) files, signer $($signature.SignerCertificate.Subject)"
+
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
         shell: pwsh
@@ -529,6 +710,18 @@ jobs:
                 Write-Host "::warning::legacy mirror failed for $BlobName -- $($_.Exception.Message)"
               }
             }
+          }
+
+          # Dev channel: lab blobs only, under the names the dev renders of the bootstrap scripts
+          # read. Nothing else is touched -- no versioned or stable line, no AdminConfiguration, no
+          # scripts; the channel check in `reserve` already refused publish_as_stable/create_release.
+          if ($env:CHANNEL -eq 'dev') {
+            Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:DEV_VERSIONED_ZIP -ContentType "application/zip"
+            Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:DEV_MANIFEST -ContentType "application/json"
+            Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:DEV_STABLE_ZIP -ContentType "application/zip"
+            Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:DEV_STABLE_MANIFEST -ContentType "application/json"
+            Write-Host "DEV CHANNEL: lab blobs written, nothing else touched."
+            exit 0
           }
 
           # Versioned namespace (always)
@@ -636,7 +829,7 @@ jobs:
             - **Published as stable:** ${{ inputs.publish_as_stable }}
 
             ### Provenance
-            The executables are Authenticode-signed and timestamped. The ZIP and both executables carry a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
+            The executables are Authenticode-signed and timestamped. Every file in the ZIP is listed in `AutopilotMonitor.Agent.cat`, a catalog signed with the same certificate, and third-party libraries carry their vendor's signature. The ZIP and both executables carry a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
             ```
             gh attestation verify AutopilotMonitor-Agent-v${{ needs.reserve.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
             ```

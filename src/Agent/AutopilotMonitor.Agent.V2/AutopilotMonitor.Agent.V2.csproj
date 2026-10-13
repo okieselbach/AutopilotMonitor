@@ -33,6 +33,13 @@
     <InformationalVersion>$(Version)</InformationalVersion>
 
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+
+    <!--
+      Of the files that travel next to referenced assemblies, only PDBs ship: they put file and
+      line into the stack traces the agent log records. XML doc files (AutopilotMonitor.Shared.xml)
+      are IntelliSense data no device reads. This output folder is the release payload.
+    -->
+    <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <Target Name="PersistBuildCounter" BeforeTargets="BeforeBuild" Condition="'$(BUILD_NUMBER)' == ''">

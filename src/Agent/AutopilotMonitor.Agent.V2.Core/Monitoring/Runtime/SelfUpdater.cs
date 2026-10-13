@@ -140,6 +140,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         internal const int GracefulExitFallbackMs = 15000;
 
         /// <summary>
+        /// The payload catalog check of step 5b. Production keeps the default,
+        /// <see cref="PayloadCatalogVerifier.Verify"/>; tests swap it so the update path runs
+        /// without a PowerShell runspace. Same static-hook idiom as <see cref="BackendExpectedSha256"/>.
+        /// </summary>
+        internal static Func<string, PayloadCatalogVerdict> VerifyPayloadCatalog { get; set; } = PayloadCatalogVerifier.Verify;
+
+        /// <summary>
         /// Checks for a newer agent version and applies the update if available.
         /// On success, restarts the process and never returns.
         /// On any failure, returns normally so the current version continues.
@@ -381,6 +388,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     return;
                 }
 
+                // Step 5b: The payload must match its signed catalog -- the check the installer and
+                // the OOBE script run before --install. Covers what the ZIP hash cannot: a hash
+                // from the download host vouches for nothing if that host is compromised, and
+                // without any hash there was no check at all.
+                if (!VerifyStagedPayload(stagingDir, log, out var catalogRejection))
+                {
+                    CleanupStaging(stagingDir, zipPath);
+                    if (writeMarkers)
+                        WriteSkipMarker("catalog_rejected", currentVersion, latestVersion, catalogRejection, log);
+                    return;
+                }
+
                 // Step 6: Swap files (rename locked → .old, copy new)
                 var swapTimerSw = Stopwatch.StartNew();
                 var swapOk = SwapFiles(agentDir, stagingDir, log);
@@ -595,6 +614,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 try { File.Delete(zipPath); } catch { }
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Step 5b. Fail-closed: a rejected payload is never swapped in, and the running agent --
+        /// verified when it was installed -- stays. A verifier that throws counts as a rejection.
+        /// </summary>
+        internal static bool VerifyStagedPayload(string stagingDir, Action<string> log, out string rejectionReason)
+        {
+            var sw = Stopwatch.StartNew();
+            PayloadCatalogVerdict verdict;
+            try
+            {
+                verdict = VerifyPayloadCatalog(stagingDir);
+            }
+            catch (Exception ex)
+            {
+                verdict = PayloadCatalogVerdict.Reject($"catalog check failed to run ({ex.Message})");
+            }
+            sw.Stop();
+
+            if (verdict.Accepted)
+            {
+                log($"Self-update: payload catalog verified ({sw.ElapsedMilliseconds}ms)");
+                rejectionReason = null;
+                return true;
+            }
+
+            log($"Self-update: payload catalog REJECTED ({sw.ElapsedMilliseconds}ms) — {verdict.Reason}. Aborting update.");
+            rejectionReason = verdict.Reason;
+            return false;
         }
 
         /// <summary>

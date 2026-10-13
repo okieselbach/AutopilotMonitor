@@ -309,6 +309,22 @@ namespace AutopilotMonitor.Shared
         /// </summary>
         public const string AgentDirectory = @"%ProgramData%\AutopilotMonitor\Agent";
 
+        /// <summary>
+        /// Publisher pin for everything the release pipeline signs: a <c>-like</c> pattern on the
+        /// Authenticode signer's subject, never a thumbprint (certificates are renewed, deployed
+        /// verifiers are not). The bootstrap loader and installer carry the same literal as
+        /// <c>$ExpectedPublisher</c>; a parity test keeps all three in step.
+        /// </summary>
+        public const string CodeSigningPublisherPattern = "*O=glueckkanja AG*";
+
+        /// <summary>
+        /// Signed catalog at the root of every agent ZIP, holding the SHA-256 of every other file
+        /// in the payload. Installer, OOBE bootstrap script and self-updater accept a payload only
+        /// when this catalog is signed by <see cref="CodeSigningPublisherPattern"/> and matches the
+        /// extracted files exactly: nothing missing, changed or extra.
+        /// </summary>
+        public const string AgentPayloadCatalogFileName = "AutopilotMonitor.Agent.cat";
+
         // -----------------------------------------------------------------------
         // Upload / batching defaults
         // -----------------------------------------------------------------------

@@ -62,8 +62,15 @@
   <ItemGroup>
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Management" />
+    <!--
+      Compile against the GAC copy, never ship it (Private=false). The runtime binds this
+      strong-named assembly from the device's GAC before it probes the app folder, and every
+      Windows 10/11 has it (Windows PowerShell 5.1 runs on it), so a shipped copy was never
+      loaded. It was the build machine's file: unsigned on any other machine, and half the ZIP.
+    -->
     <Reference Include="System.Management.Automation">
       <HintPath>$(windir)\Microsoft.NET\assembly\GAC_MSIL\System.Management.Automation\v4.0_3.0.0.0__31bf3856ad364e35\System.Management.Automation.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="System.ServiceProcess" />
     <Reference Include="System.IO.Compression" />
