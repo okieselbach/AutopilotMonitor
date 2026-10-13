@@ -35,6 +35,7 @@ public class RuleEngineClockSkewTests
 
         var result = Assert.Single(outcome.Results);
         var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["clock_jump"]);
+        RuleEvidenceKeysTests.AssertDeclared("clock_skew", evidence);
         Assert.Equal("forward", evidence["direction"]);
         Assert.Equal(1800, Convert.ToDouble(evidence["jumpSeconds"]), 0);
         Assert.Equal("skewSummary", evidence["field"]);
@@ -188,6 +189,7 @@ public class RuleEngineClockSkewTests
 
         var result = Assert.Single(outcome.Results);
         var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        RuleEvidenceKeysTests.AssertDeclared("clock_skew", evidence);
         Assert.Equal("behind", evidence["direction"]);
         Assert.Equal(-30.0, Convert.ToDouble(evidence["offsetMinutes"]), 1);
     }
@@ -259,6 +261,7 @@ public class RuleEngineClockSkewTests
 
         var result = Assert.Single(outcome.Results);
         var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        RuleEvidenceKeysTests.AssertDeclared("clock_skew", evidence);
         Assert.Equal("behind", evidence["direction"]);
         Assert.Equal(-30.0, Convert.ToDouble(evidence["offsetMinutes"]), 1);
         Assert.Equal(5, Convert.ToInt32(evidence["sentAtBatchCount"]));
@@ -277,6 +280,7 @@ public class RuleEngineClockSkewTests
 
         var result = Assert.Single(outcome.Results);
         var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        RuleEvidenceKeysTests.AssertDeclared("clock_skew", evidence);
         Assert.Equal("behind", evidence["direction"]);
     }
 

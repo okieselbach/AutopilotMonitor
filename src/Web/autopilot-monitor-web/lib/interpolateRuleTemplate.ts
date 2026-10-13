@@ -16,7 +16,11 @@
  *      (e.g. {{ca2023_not_updated}} -> that signal's value).
  *   4. Unresolved tokens are left untouched so authors notice the typo.
  *
- * Token chars: [a-zA-Z0-9_]. Whitespace inside the braces is tolerated.
+ * A qualified token `{{signal.key}}` reads `key` of the evidence entry named `signal` (counts,
+ * durations, correlation fields). It has no fallback: an unknown signal or key, a scalar
+ * entry or a null value leaves it literal.
+ *
+ * Token chars: [a-zA-Z0-9_], one optional `.key`. Whitespace inside the braces is tolerated.
  *
  * The MCP server and the backend (notifications) carry the same resolution; all three run
  * the cases in `tests/fixtures/rule-template-interpolation/cases.json` at the repo root.
@@ -71,12 +75,26 @@ export function interpolateRuleTemplate(
     }
   }
 
-  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (raw, token: string) => {
-    if (byField.has(token)) return byField.get(token)!;
-    if (byAutoField.has(token)) return byAutoField.get(token)!;
-    if (bySignal.has(token)) return bySignal.get(token)!;
-    return raw;
-  });
+  return text.replace(
+    /\{\{\s*([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+))?\s*\}\}/g,
+    (raw, token: string, key: string | undefined) => {
+      if (key !== undefined) return qualifiedValue(matchedConditions, token, key) ?? raw;
+      if (byField.has(token)) return byField.get(token)!;
+      if (byAutoField.has(token)) return byAutoField.get(token)!;
+      if (bySignal.has(token)) return bySignal.get(token)!;
+      return raw;
+    }
+  );
+}
+
+/** `{{signal.key}}`: own properties only, so `constructor`/`toString` never resolve. */
+function qualifiedValue(matchedConditions: Record<string, unknown>, signal: string, key: string): string | null {
+  if (!Object.prototype.hasOwnProperty.call(matchedConditions, signal)) return null;
+  const entry = matchedConditions[signal];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  if (!Object.prototype.hasOwnProperty.call(entry, key)) return null;
+  const v = (entry as Record<string, unknown>)[key];
+  return v == null ? null : formatValue(v);
 }
 
 function formatValue(v: unknown): string {

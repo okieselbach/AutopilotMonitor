@@ -6,6 +6,7 @@ import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } fro
 import { toolError } from './error-handler.js';
 import { validateRuleDraft } from '../rule-validation.js';
 import { interpolateRuleTemplate } from '../interpolate-rule-template.js';
+import { resolvePresentation, type PresentationTemplate } from '../generated/rule-presentation.generated.js';
 import type {
   AnalyzeRule,
   DryRunAnalyzeRuleRequest,
@@ -116,7 +117,8 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
         'verdict (fired / required_condition_not_met / below_confidence_threshold / skipped_by_precondition / ' +
         'no_conditions_matched / no_events), per-condition matched/evidence with matchingEventCount (how many session ' +
         'events have that eventType at all — the first thing to check when a condition unexpectedly misses), the ' +
-        'confidence breakdown per factor, and the interpolated explanation preview. NOTHING is persisted — safe to ' +
+        'confidence breakdown per factor, and the interpolated explanation and presentation preview (facts the session ' +
+        'did not record listed). NOTHING is persisted — safe to ' +
         'iterate. Use a recent session (older sessions predate newly deployed gather rules). Test both directions: a ' +
         'session where the rule should fire AND one where it should stay silent.' +
         (ga ? ' Any tenant\'s session can be targeted; the tenant is resolved from the session.' : ''),
@@ -150,8 +152,25 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
             }))
           : undefined;
 
+        // The presentation exactly as the portal resolves it; facts this session did not record
+        // are named so the author can tell a wrong token from a missing value.
+        const draftPresentation =
+          rule.presentation && typeof rule.presentation === 'object' ? (rule.presentation as PresentationTemplate) : null;
+        const presentationPreview = draftPresentation
+          ? resolvePresentation(draftPresentation, mc, typeof rule.explanation === 'string' ? rule.explanation : null, interpolateRuleTemplate)
+          : undefined;
+        const factsNotRecorded = (draftPresentation?.facts ?? [])
+          .filter((f) => f?.label && !presentationPreview?.facts.some((rf) => rf.label === f.label))
+          .map((f) => f.label);
+
         return toolResultText(
-          { ...data, interpolatedExplanation, interpolatedRemediation },
+          {
+            ...data,
+            interpolatedExplanation,
+            interpolatedRemediation,
+            ...(presentationPreview !== undefined ? { presentationPreview } : {}),
+            ...(factsNotRecorded.length > 0 ? { presentationFactsNotRecorded: factsNotRecorded } : {}),
+          },
           MAX_RESULT_SIZE_CHARS.small,
         );
       } catch (error: unknown) {

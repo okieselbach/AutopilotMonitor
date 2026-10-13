@@ -26,6 +26,11 @@ namespace AutopilotMonitor.Functions.Services
     /// <item>an evidence entry whose signal name equals the token;</item>
     /// <item>otherwise the token stays as written.</item>
     /// </list>
+    /// <para>
+    /// A qualified token <c>{{signal.key}}</c> reads one key of the evidence entry named
+    /// <c>signal</c> (counts, durations, correlation fields) without any fallback: an unknown
+    /// signal or key, a scalar entry or a null value leaves it unresolved.
+    /// </para>
     /// </summary>
     public static class RuleTemplateInterpolator
     {
@@ -33,7 +38,7 @@ namespace AutopilotMonitor.Functions.Services
         internal const string NotRecorded = "–";
 
         private static readonly Regex TokenRegex = new Regex(
-            @"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+            @"\{\{\s*([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+))?\s*\}\}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly Regex ListItemRegex = new Regex(
             @"^\s*(?:[-*+]|\d+[.)])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -54,7 +59,7 @@ namespace AutopilotMonitor.Functions.Services
                 return string.Empty;
 
             var lookup = Lookup.From(matchedConditions);
-            return TokenRegex.Replace(text, m => lookup.Resolve(m.Groups[1].Value) ?? m.Value);
+            return TokenRegex.Replace(text, m => lookup.Resolve(m) ?? m.Value);
         }
 
         /// <summary>
@@ -76,7 +81,7 @@ namespace AutopilotMonitor.Functions.Services
                 var unresolved = false;
                 var rendered = TokenRegex.Replace(line, m =>
                 {
-                    var value = lookup.Resolve(m.Groups[1].Value);
+                    var value = lookup.Resolve(m);
                     if (value != null)
                         return value;
                     unresolved = true;
@@ -105,13 +110,29 @@ namespace AutopilotMonitor.Functions.Services
             private readonly Dictionary<string, string> _byField = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _byAutoField = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _bySignal = new Dictionary<string, string>(StringComparer.Ordinal);
+            private JObject? _root;
 
-            public string? Resolve(string token)
+            /// <summary>Resolves a <see cref="TokenRegex"/> match: group 1 is the token, group 2 the optional key.</summary>
+            public string? Resolve(Match match)
             {
+                var token = match.Groups[1].Value;
+                if (match.Groups[2].Success)
+                    return ResolveQualified(token, match.Groups[2].Value);
+
                 if (_byField.TryGetValue(token, out var value)) return value;
                 if (_byAutoField.TryGetValue(token, out value)) return value;
                 if (_bySignal.TryGetValue(token, out value)) return value;
                 return null;
+            }
+
+            private string? ResolveQualified(string signal, string key)
+            {
+                if (_root?[signal] is not JObject evidence
+                    || !evidence.TryGetValue(key, StringComparison.Ordinal, out var token)
+                    || token == null
+                    || token.Type is JTokenType.Null or JTokenType.Undefined)
+                    return null;
+                return Format(token);
             }
 
             public static Lookup From(IReadOnlyDictionary<string, object>? matchedConditions)
@@ -135,6 +156,7 @@ namespace AutopilotMonitor.Functions.Services
                     return lookup;
                 }
 
+                lookup._root = root;
                 foreach (var property in root.Properties())
                 {
                     if (property.Value is not JObject evidence)

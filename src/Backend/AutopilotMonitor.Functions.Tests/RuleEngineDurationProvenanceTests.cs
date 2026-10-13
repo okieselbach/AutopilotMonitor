@@ -91,6 +91,7 @@ public class RuleEngineDurationProvenanceTests
         var condition = Assert.Single(dry.Conditions);
         Assert.True(condition.Matched);
         var evidence = AsDict(condition.Evidence!);
+        RuleEvidenceKeysTests.AssertDeclared("phase_duration", evidence);
         Assert.Equal(3 * 3600d, Convert.ToDouble(evidence["durationSeconds"]));
         Assert.Equal(events[1].EventId, AsString(evidence["phaseEndEventId"]));
         Assert.False(evidence.ContainsKey("timestampProvenance"));
@@ -221,6 +222,7 @@ public class RuleEngineDurationProvenanceTests
 
         var condition = Assert.Single(dry.Conditions);
         Assert.True(condition.Matched);
+        RuleEvidenceKeysTests.AssertDeclared("app_install_duration", condition.Evidence);
         Assert.Equal(3600d, Convert.ToDouble(AsDict(condition.Evidence!)["durationSeconds"]));
     }
 

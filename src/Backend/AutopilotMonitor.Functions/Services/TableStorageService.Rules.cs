@@ -85,12 +85,15 @@ namespace AutopilotMonitor.Functions.Services
                     ["TenantId"] = result.TenantId,
                     ["RuleId"] = result.RuleId,
                     ["RuleTitle"] = result.RuleTitle ?? string.Empty,
+                    ["RuleVersion"] = result.RuleVersion ?? string.Empty,
                     ["Severity"] = result.Severity ?? string.Empty,
                     ["Category"] = result.Category ?? string.Empty,
                     ["ConfidenceScore"] = result.ConfidenceScore,
                     ["Explanation"] = result.Explanation ?? string.Empty,
                     ["RemediationJson"] = JsonConvert.SerializeObject(result.Remediation ?? new List<RemediationStep>()),
                     ["RelatedDocsJson"] = JsonConvert.SerializeObject(result.RelatedDocs ?? new List<RelatedDoc>()),
+                    // Empty string, never null: the upsert merges, and a skipped null would keep a stale block.
+                    ["PresentationJson"] = SerializePresentation(result.Presentation),
                     ["MatchedConditionsJson"] = matchedJson,
                     ["DetectedAt"] = result.DetectedAt,
                     // Evaluation lifecycle (evaluateOn interim triggers). Nullable columns:
@@ -129,29 +132,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var results = new List<RuleResult>();
                 await foreach (var entity in query)
-                {
-                    results.Add(new RuleResult
-                    {
-                        ResultId = entity.GetString("ResultId") ?? string.Empty,
-                        SessionId = entity.GetString("SessionId") ?? string.Empty,
-                        TenantId = entity.GetString("TenantId") ?? string.Empty,
-                        RuleId = entity.GetString("RuleId") ?? entity.RowKey,
-                        RuleTitle = entity.GetString("RuleTitle") ?? string.Empty,
-                        Severity = entity.GetString("Severity") ?? string.Empty,
-                        Category = entity.GetString("Category") ?? string.Empty,
-                        ConfidenceScore = entity.GetInt32("ConfidenceScore") ?? 0,
-                        Explanation = entity.GetString("Explanation") ?? string.Empty,
-                        Remediation = DeserializeJson<List<RemediationStep>>(entity.GetString("RemediationJson")),
-                        RelatedDocs = DeserializeJson<List<RelatedDoc>>(entity.GetString("RelatedDocsJson")),
-                        MatchedConditions = DeserializeMatchedConditions(entity.GetString("MatchedConditionsJson")),
-                        DetectedAt = entity.GetDateTimeOffset("DetectedAt")?.UtcDateTime ?? DateTime.UtcNow,
-                        FirstDetectedAt = entity.GetDateTimeOffset("FirstDetectedAt")?.UtcDateTime,
-                        LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime,
-                        IsInterim = entity.GetBoolean("IsInterim") ?? false,
-                        ResolvedAt = entity.GetDateTimeOffset("ResolvedAt")?.UtcDateTime,
-                        NotifiedAt = entity.GetDateTimeOffset("NotifiedAt")?.UtcDateTime
-                    });
-                }
+                    results.Add(MapToRuleResult(entity));
 
                 return results.OrderByDescending(r => r.ConfidenceScore).ToList();
             }
@@ -159,6 +140,55 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Failed to get rule results for session {sessionId}");
                 return new List<RuleResult>();
+            }
+        }
+
+        // Internal (not private) so the Store↔Map roundtrip is testable per the table-serialization
+        // rule: every model field must appear in BOTH directions. Resolved rows are re-stored from
+        // this mapping (RuleEngine, reanalyze), so a column it skips would be wiped on the rewrite.
+        internal RuleResult MapToRuleResult(TableEntity entity) => new RuleResult
+        {
+            ResultId = entity.GetString("ResultId") ?? string.Empty,
+            SessionId = entity.GetString("SessionId") ?? string.Empty,
+            TenantId = entity.GetString("TenantId") ?? string.Empty,
+            RuleId = entity.GetString("RuleId") ?? entity.RowKey,
+            RuleTitle = entity.GetString("RuleTitle") ?? string.Empty,
+            RuleVersion = string.IsNullOrEmpty(entity.GetString("RuleVersion")) ? null : entity.GetString("RuleVersion"),
+            Severity = entity.GetString("Severity") ?? string.Empty,
+            Category = entity.GetString("Category") ?? string.Empty,
+            ConfidenceScore = entity.GetInt32("ConfidenceScore") ?? 0,
+            Explanation = entity.GetString("Explanation") ?? string.Empty,
+            Remediation = DeserializeJson<List<RemediationStep>>(entity.GetString("RemediationJson")),
+            RelatedDocs = DeserializeJson<List<RelatedDoc>>(entity.GetString("RelatedDocsJson")),
+            Presentation = DeserializePresentation(entity.GetString("PresentationJson")),
+            MatchedConditions = DeserializeMatchedConditions(entity.GetString("MatchedConditionsJson")),
+            DetectedAt = entity.GetDateTimeOffset("DetectedAt")?.UtcDateTime ?? DateTime.UtcNow,
+            FirstDetectedAt = entity.GetDateTimeOffset("FirstDetectedAt")?.UtcDateTime,
+            LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime,
+            IsInterim = entity.GetBoolean("IsInterim") ?? false,
+            ResolvedAt = entity.GetDateTimeOffset("ResolvedAt")?.UtcDateTime,
+            NotifiedAt = entity.GetDateTimeOffset("NotifiedAt")?.UtcDateTime
+        };
+
+        /// <summary>Absent presentation is stored as an empty string (the upserts merge and skip nulls).</summary>
+        private static string SerializePresentation(RulePresentation? presentation)
+            => presentation == null ? string.Empty : JsonConvert.SerializeObject(presentation);
+
+        /// <summary>
+        /// Empty or unreadable column → null. Never <c>new RulePresentation()</c>: a legacy row would
+        /// otherwise ship an empty block and hide the read-time fallback.
+        /// </summary>
+        private static RulePresentation? DeserializePresentation(string? json)
+        {
+            if (string.IsNullOrEmpty(json))
+                return null;
+            try
+            {
+                return JsonConvert.DeserializeObject<RulePresentation>(json);
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+                return null;
             }
         }
 
@@ -613,6 +643,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["Explanation"] = rule.Explanation ?? string.Empty,
                     ["RemediationJson"] = JsonConvert.SerializeObject(rule.Remediation ?? new List<RemediationStep>()),
                     ["RelatedDocsJson"] = JsonConvert.SerializeObject(rule.RelatedDocs ?? new List<RelatedDoc>()),
+                    ["PresentationJson"] = SerializePresentation(rule.Presentation),
                     ["TagsJson"] = JsonConvert.SerializeObject(rule.Tags ?? new string[0]),
                     ["TemplateVariablesJson"] = JsonConvert.SerializeObject(rule.TemplateVariables ?? new List<TemplateVariable>()),
                     ["DerivedFromTemplateRuleId"] = rule.DerivedFromTemplateRuleId ?? string.Empty,
@@ -727,7 +758,8 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private AnalyzeRule MapToAnalyzeRule(TableEntity entity)
+        // Internal (not private) so the Store↔Map roundtrip is testable (table-serialization rule).
+        internal AnalyzeRule MapToAnalyzeRule(TableEntity entity)
         {
             var derivedFrom = entity.GetString("DerivedFromTemplateRuleId");
             return new AnalyzeRule
@@ -756,6 +788,7 @@ namespace AutopilotMonitor.Functions.Services
                 Explanation = entity.GetString("Explanation") ?? string.Empty,
                 Remediation = DeserializeJson<List<RemediationStep>>(entity.GetString("RemediationJson")),
                 RelatedDocs = DeserializeJson<List<RelatedDoc>>(entity.GetString("RelatedDocsJson")),
+                Presentation = DeserializePresentation(entity.GetString("PresentationJson")),
                 Tags = DeserializeJsonArray(entity.GetString("TagsJson")),
                 TemplateVariables = DeserializeJson<List<TemplateVariable>>(entity.GetString("TemplateVariablesJson")),
                 DerivedFromTemplateRuleId = string.IsNullOrEmpty(derivedFrom) ? null : derivedFrom,

@@ -35,6 +35,11 @@ namespace AutopilotMonitor.Shared.Models
         public string RuleTitle { get; set; } = default!;
 
         /// <summary>
+        /// Version of the rule that produced this result. Null on rows written before the field existed.
+        /// </summary>
+        public string? RuleVersion { get; set; }
+
+        /// <summary>
         /// Severity level: "info", "warning", "high", "critical"
         /// </summary>
         public string Severity { get; set; } = default!;
@@ -64,6 +69,13 @@ namespace AutopilotMonitor.Shared.Models
         /// Links to relevant documentation
         /// </summary>
         public List<RelatedDoc> RelatedDocs { get; set; } = new List<RelatedDoc>();
+
+        /// <summary>
+        /// The rule's presentation (role, summary, subject, key facts) as raw templates, resolved
+        /// against <see cref="MatchedConditions"/> where rendered. Rows stored without one get the
+        /// current rule's presentation when read; null when the rule has none.
+        /// </summary>
+        public RulePresentation? Presentation { get; set; }
 
         /// <summary>
         /// Evidence: which conditions matched and their values

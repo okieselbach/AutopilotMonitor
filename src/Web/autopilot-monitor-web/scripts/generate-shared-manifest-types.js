@@ -106,6 +106,9 @@ const MCP_VOCABULARIES = [
     doc: "Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources)." },
   { section: "apiErrorCodes", constName: "API_ERROR_CODES", typeName: "ApiErrorCode",
     doc: "Every machine-readable `code` an error envelope can carry (C# Constants.ApiErrorCodes + DelegationCodes + DelegatedSlots)." },
+  // kind "map": a section of string lists keyed by name, emitted as a record of arrays.
+  { section: "analyzeRuleEvidenceKeys", constName: "ANALYZE_RULE_EVIDENCE_KEYS", kind: "map",
+    doc: "Evidence keys a matched analyze-rule condition writes, per condition source — what a {{signal.key}} token can resolve (C# RuleEvidenceKeys)." },
 ];
 
 /**
@@ -127,10 +130,22 @@ function buildMcpVocabulariesSource(manifestJsonText) {
       "// vocabulary the backend no longer has (or omits one it gained).\n",
   ];
 
-  for (const { section, constName, typeName, doc } of MCP_VOCABULARIES) {
+  for (const { section, constName, typeName, doc, kind } of MCP_VOCABULARIES) {
     const value = manifest[section];
     if (value === undefined) {
       throw new Error(`shared-manifests.json is missing the "${section}" section (MCP vocabulary)`);
+    }
+    if (kind === "map") {
+      const names = Object.keys(value);
+      if (names.length === 0 || names.some((n) => !Array.isArray(value[n]))) {
+        throw new Error(`Manifest section "${section}" must be a non-empty map of string lists`);
+      }
+      parts.push("");
+      parts.push(jsdoc(doc, ""));
+      parts.push(`export const ${constName}: Readonly<Record<string, readonly string[]>> = {`);
+      for (const n of names) parts.push(`  ${JSON.stringify(n)}: ${JSON.stringify(value[n])},`);
+      parts.push(`};`);
+      continue;
     }
     // Enum sections are name→ordinal maps; the MCP only ever filters by NAME.
     const values = Array.isArray(value) ? value : Object.keys(value);

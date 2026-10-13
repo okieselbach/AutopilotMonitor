@@ -287,3 +287,15 @@ export const API_ERROR_CODES = [
   "JobIdCollision",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
+
+/** Evidence keys a matched analyze-rule condition writes, per condition source — what a {{signal.key}} token can resolve (C# RuleEvidenceKeys). */
+export const ANALYZE_RULE_EVIDENCE_KEYS: Readonly<Record<string, readonly string[]>> = {
+  "event_type": ["eventId","sequence","timestamp","eventType","field","value","count","appId","appName","errorPatternId","errorCode","exitCode","status","timeoutHours"],
+  "event_data": ["eventId","sequence","timestamp","field","value","appId","appName","errorPatternId","errorCode","exitCode","status","timeoutHours"],
+  "event_data_array": ["eventId","sequence","timestamp","eventType","field","value","matchCount","matchedItems","matchedItemsTruncated"],
+  "event_count": ["eventId","sequence","timestamp","count","threshold","groupKey","appName"],
+  "phase_duration": ["eventId","sequence","phaseStartTimestamp","phaseEndEventId","phase","durationSeconds","durationFormatted"],
+  "app_install_duration": ["eventId","sequence","startEventId","startTimestamp","endTimestamp","eventType","appId","appName","durationSeconds","durationFormatted"],
+  "event_correlation": ["joinField","joinValue","eventA_eventId","eventA_eventType","eventA_timestamp","eventA_sequence","eventB_eventId","eventB_eventType","eventB_timestamp","eventB_sequence","timeDeltaSeconds","totalMatches","allMatches","matchesTruncated","eventA_appId","eventA_appName","eventA_errorPatternId","eventA_errorCode","eventA_exitCode","eventA_status","eventA_timeoutHours","eventB_appId","eventB_appName","eventB_errorPatternId","eventB_errorCode","eventB_exitCode","eventB_status","eventB_timeoutHours"],
+  "clock_skew": ["field","value","direction","eventId","sequence","timestamp","eventType","offsetSeconds","offsetMinutes","jumpSeconds","jumpMinutes","beforeOffsetMinutes","afterOffsetMinutes","sampleCount","batchCount","sentAtBatchCount"],
+};

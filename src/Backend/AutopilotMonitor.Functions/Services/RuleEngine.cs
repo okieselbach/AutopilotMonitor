@@ -395,12 +395,14 @@ namespace AutopilotMonitor.Functions.Services
             {
                 RuleId = rule.RuleId,
                 RuleTitle = rule.Title,
+                RuleVersion = rule.Version,
                 Severity = rule.Severity,
                 Category = rule.Category,
                 ConfidenceScore = confidence,
                 Explanation = rule.Explanation,
                 Remediation = rule.Remediation,
                 RelatedDocs = rule.RelatedDocs,
+                Presentation = rule.Presentation,
                 MatchedConditions = matchedConditions,
                 DetectedAt = DateTime.UtcNow
             };

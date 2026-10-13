@@ -28,6 +28,7 @@ const addFormats = addFormatsModule as unknown as (ajv: Ajv2020) => void;
 import { GATHER_RULE_SCHEMA, ANALYZE_RULE_SCHEMA, RULE_GUARDRAILS } from './rule-authoring.generated.js';
 import { isKnownEventType } from './resource-catalog.js';
 import { RULE_TEMPLATE_AUTO_FIELDS } from './interpolate-rule-template.js';
+import { ANALYZE_RULE_EVIDENCE_KEYS } from './generated/wire-vocabularies.generated.js';
 
 export type FindingLevel = 'error' | 'warning' | 'info';
 
@@ -311,20 +312,72 @@ function checkEventTypeKnown(eventType: string | undefined, where: string): Vali
   }];
 }
 
-function extractTokens(rule: Record<string, unknown>): string[] {
-  const texts: string[] = [];
-  if (typeof rule.explanation === 'string') texts.push(rule.explanation);
+/** Every template string of an analyze rule, with the field it sits in. */
+function ruleTemplates(rule: Record<string, unknown>): Array<{ where: string; text: string }> {
+  const out: Array<{ where: string; text: string }> = [];
+  if (typeof rule.explanation === 'string') out.push({ where: 'explanation', text: rule.explanation });
   if (Array.isArray(rule.remediation)) {
     for (const step of rule.remediation as Array<{ title?: string; steps?: string[] }>) {
-      if (typeof step?.title === 'string') texts.push(step.title);
-      for (const s of step?.steps ?? []) if (typeof s === 'string') texts.push(s);
+      if (typeof step?.title === 'string') out.push({ where: 'remediation', text: step.title });
+      for (const s of step?.steps ?? []) if (typeof s === 'string') out.push({ where: 'remediation', text: s });
     }
   }
-  const tokens = new Set<string>();
-  for (const text of texts) {
-    for (const m of text.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)) tokens.add(m[1]);
+  const p = rule.presentation as
+    | { summary?: unknown; subject?: { key?: unknown; name?: unknown } | null; facts?: Array<{ value?: unknown }> | null }
+    | null
+    | undefined;
+  if (p && typeof p === 'object') {
+    if (typeof p.summary === 'string') out.push({ where: 'presentation.summary', text: p.summary });
+    if (typeof p.subject?.key === 'string') out.push({ where: 'presentation.subject.key', text: p.subject.key });
+    if (typeof p.subject?.name === 'string') out.push({ where: 'presentation.subject.name', text: p.subject.name });
+    (Array.isArray(p.facts) ? p.facts : []).forEach((f, i) => {
+      if (typeof f?.value === 'string') out.push({ where: `presentation.facts[${i}].value`, text: f.value });
+    });
   }
-  return [...tokens];
+  return out;
+}
+
+/** Tokens per template: `token` alone, or `token` + `key` for a qualified `{{signal.key}}`. */
+function extractTokenUses(rule: Record<string, unknown>): Array<{ where: string; token: string; key?: string }> {
+  const uses: Array<{ where: string; token: string; key?: string }> = [];
+  for (const { where, text } of ruleTemplates(rule)) {
+    for (const m of text.matchAll(/\{\{\s*([a-zA-Z0-9_]+)(?:\.([a-zA-Z0-9_]+))?\s*\}\}/g)) {
+      uses.push({ where, token: m[1], ...(m[2] !== undefined ? { key: m[2] } : {}) });
+    }
+  }
+  return uses;
+}
+
+/**
+ * Presentation advice beyond the schema: without the block the portal shows the explanation only;
+ * subject key and name must come from one evidence entry, which only qualified tokens of a single
+ * signal guarantee (a bare token may resolve from a different event than its neighbour).
+ */
+function lintPresentation(
+  rule: Record<string, unknown>,
+  uses: Array<{ where: string; token: string; key?: string }>,
+): ValidationFinding[] {
+  if (!rule.presentation || typeof rule.presentation !== 'object') {
+    return [{
+      level: 'info',
+      message: 'No presentation block: the portal shows the explanation only. Add presentation.role, a summary and key facts so the finding can be grouped and read at a glance.',
+    }];
+  }
+  const subjectUses = uses.filter((u) => u.where.startsWith('presentation.subject.'));
+  const findings: ValidationFinding[] = [];
+  if (subjectUses.some((u) => u.key === undefined)) {
+    findings.push({
+      level: 'warning',
+      message: 'presentation.subject uses a bare token. Use qualified tokens of one signal, such as {{failed_app.appId}} and {{failed_app.appName}}, so key and name come from the same event.',
+    });
+  }
+  if (new Set(subjectUses.filter((u) => u.key !== undefined).map((u) => u.token)).size > 1) {
+    findings.push({
+      level: 'warning',
+      message: 'presentation.subject key and name read different signals — they may describe different events.',
+    });
+  }
+  return findings;
 }
 
 function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
@@ -468,14 +521,37 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
     // so {{skewSummary}} interpolates at runtime (see EvaluateClockSkewCondition).
     if (c.source === 'clock_skew') resolvable.add('skewSummary');
   }
-  for (const token of extractTokens(rule)) {
-    if (!resolvable.has(token)) {
+  // A qualified {{signal.key}} resolves only from that condition's evidence; which keys an
+  // evidence entry carries depends on the condition source (C# RuleEvidenceKeys, pinned against
+  // the evaluators). Reported once per token.
+  const conditionBySignal = new Map(conditions.filter((c) => c.signal).map((c) => [c.signal!, c]));
+  const reported = new Set<string>();
+  for (const use of extractTokenUses(rule)) {
+    const raw = use.key === undefined ? use.token : `${use.token}.${use.key}`;
+    if (reported.has(raw)) continue;
+    let problem: string | null = null;
+    if (use.key === undefined) {
+      if (!resolvable.has(use.token)) {
+        problem = `no condition dataField/signal or auto-captured field (${AUTO_FIELDS.join(', ')}) resolves it`;
+      }
+    } else {
+      const condition = conditionBySignal.get(use.token);
+      const keys = condition ? ANALYZE_RULE_EVIDENCE_KEYS[condition.source ?? ''] ?? [] : [];
+      if (!condition) problem = `no condition has the signal "${use.token}"`;
+      else if (!keys.includes(use.key)) {
+        problem = `a ${condition.source} condition never records "${use.key}" (it records: ${keys.join(', ')})`;
+      }
+    }
+    if (problem) {
+      reported.add(raw);
       findings.push({
         level: 'warning',
-        message: `explanation/remediation references {{${token}}} but no condition dataField/signal or auto-captured field (${AUTO_FIELDS.join(', ')}) resolves it — it will render literally as {{${token}}}.`,
+        message: `${use.where} references {{${raw}}} but ${problem} — it will render literally as {{${raw}}}.`,
       });
     }
   }
+
+  findings.push(...lintPresentation(rule, extractTokenUses(rule)));
 
   if (rule.markSessionAsFailedDefault === true) {
     findings.push({

@@ -176,6 +176,54 @@
       "template": "Any field still shown as a literal `{{…}}` placeholder was not recorded: {{reason}}",
       "matchedConditions": { "sig": { "field": "reason", "value": "max_lifetime" } },
       "expected": "Any field still shown as a literal `{{…}}` placeholder was not recorded: max_lifetime"
+    },
+    {
+      "name": "qualified token reads a key of the named signal",
+      "template": "{{install_retry_loop.appName}} was started {{install_retry_loop.count}} times (threshold {{ install_retry_loop.threshold }})",
+      "matchedConditions": {
+        "install_retry_loop": { "eventId": "evt-3", "sequence": 173, "timestamp": "2026-05-28T10:16:00Z", "groupKey": "00000000-0000-4000-8000-000000000002", "appName": "Contoso VPN", "count": 4, "threshold": 3 }
+      },
+      "expected": "Contoso VPN was started 4 times (threshold 3)"
+    },
+    {
+      "name": "qualified token reaches keys a bare token cannot",
+      "template": "{{slow.durationSeconds}} s in {{slow.phase}} · {{pair.eventA_appName}} · {{failed.timestamp}} · {{failed.value}}",
+      "matchedConditions": {
+        "slow": { "eventId": "evt-4", "durationSeconds": 2820, "durationFormatted": "47m 0s", "phase": "AppsDevice" },
+        "pair": { "eventA_appName": "Contoso VPN", "eventB_appName": "Contoso VPN", "totalMatches": 1 },
+        "failed": { "eventId": "evt-5", "timestamp": "2026-05-28T10:41:06Z", "eventType": "app_install_failed", "field": "appName", "value": "Contoso Productivity Suite" }
+      },
+      "expected": "2820 s in AppsDevice · Contoso VPN · 2026-05-28T10:41:06Z · Contoso Productivity Suite"
+    },
+    {
+      "name": "qualified token with an unknown signal or key stays literal",
+      "template": "{{missing.count}} {{sig.missing}} {{sig.constructor}} {{toString.value}}",
+      "matchedConditions": { "sig": { "field": "reason", "value": "max_lifetime" } },
+      "expected": "{{missing.count}} {{sig.missing}} {{sig.constructor}} {{toString.value}}"
+    },
+    {
+      "name": "qualified token on a null value stays literal, unlike the bare field token",
+      "template": "[{{sig.value}}] [{{reason}}]",
+      "matchedConditions": { "sig": { "field": "reason", "value": null } },
+      "expected": "[{{sig.value}}] []"
+    },
+    {
+      "name": "qualified token on a scalar signal stays literal",
+      "template": "{{factor_failed_app.value}} {{note.length}}",
+      "matchedConditions": { "factor_failed_app": true, "note": "plain" },
+      "expected": "{{factor_failed_app.value}} {{note.length}}"
+    },
+    {
+      "name": "qualified token formats numbers, booleans and structures like a bare token",
+      "template": "{{s.ratio}} {{s.flag}} {{s.detail}} {{s.items}}",
+      "matchedConditions": { "s": { "ratio": 2.5, "flag": false, "detail": { "a": 1, "b": "x" }, "items": ["one", "two"] } },
+      "expected": "2.5 false {\"a\":1,\"b\":\"x\"} [\"one\",\"two\"]"
+    },
+    {
+      "name": "a token with two dots is not a token",
+      "template": "{{a.b.c}}",
+      "matchedConditions": { "a": { "b": "x" } },
+      "expected": "{{a.b.c}}"
     }
   ]
 }

@@ -38,6 +38,7 @@ public class RuleEngineCorrelationEvidenceSlimTests
 
         Assert.Single(outcome.Results);
         var primary = (Dictionary<string, object>)outcome.Results[0].MatchedConditions["enforcement_resolved"];
+        RuleEvidenceKeysTests.AssertDeclared("event_correlation", primary);
 
         Assert.False(primary.ContainsKey("eventA_message"), "free-text message must not leak into evidence");
         Assert.False(primary.ContainsKey("eventB_message"), "free-text message must not leak into evidence");
@@ -69,6 +70,7 @@ public class RuleEngineCorrelationEvidenceSlimTests
 
         Assert.Single(outcome.Results);
         var primary = (Dictionary<string, object>)outcome.Results[0].MatchedConditions["enforcement_resolved"];
+        RuleEvidenceKeysTests.AssertDeclared("event_correlation", primary);
 
         Assert.Equal(25, primary["totalMatches"]);
         Assert.True(primary.ContainsKey("allMatches"));

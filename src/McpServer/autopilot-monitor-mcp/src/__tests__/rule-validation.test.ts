@@ -484,6 +484,54 @@ describe('analyze semantic lint', () => {
     expect(warnings(validateRuleDraft(arrayRule).findings).some((m) => m.includes('{{identity}}'))).toBe(false);
   });
 
+  it('qualified {{signal.key}} tokens resolve only from keys their condition source records', () => {
+    const rule = validAnalyze();
+    rule.explanation = 'Started {{app_retry_storm.count}} times (threshold {{app_retry_storm.threshold}}).';
+    expect(warnings(validateRuleDraft(rule).findings).filter((m) => m.includes('{{'))).toEqual([]);
+
+    rule.explanation = 'Took {{app_retry_storm.durationSeconds}} s; {{missing_signal.count}}.';
+    const w = warnings(validateRuleDraft(rule).findings);
+    expect(w.some((m) => m.includes('{{app_retry_storm.durationSeconds}}') && m.includes('never records "durationSeconds"'))).toBe(true);
+    expect(w.some((m) => m.includes('{{missing_signal.count}}') && m.includes('no condition has the signal'))).toBe(true);
+  });
+
+  it('presentation templates are linted like the explanation and need a valid shape', () => {
+    const rule = validAnalyze();
+    rule.presentation = {
+      role: 'cause',
+      summary: '{{app_retry_storm.appName}} was started {{app_retry_storm.count}} times',
+      subject: { kind: 'app', key: '{{app_retry_storm.groupKey}}', name: '{{app_retry_storm.appName}}' },
+      facts: [{ label: 'Install starts', value: '{{app_retry_storm.count}}', format: 'number' }],
+    };
+    const ok = validateRuleDraft(rule);
+    expect(errors(ok.findings)).toEqual([]);
+    expect(warnings(ok.findings).filter((m) => m.includes('{{') || m.includes('presentation'))).toEqual([]);
+    expect(ok.findings.some((f) => f.message.startsWith('No presentation block'))).toBe(false);
+
+    rule.presentation = { role: 'cause', facts: [{ label: 'Bad', value: '{{nope.count}}' }] };
+    expect(warnings(validateRuleDraft(rule).findings).some((m) => m.startsWith('presentation.facts[0].value references {{nope.count}}'))).toBe(true);
+
+    rule.presentation = { role: 'verdict' };
+    expect(errors(validateRuleDraft(rule).findings).some((m) => m.includes('role'))).toBe(true);
+  });
+
+  it('a subject must read one signal through qualified tokens', () => {
+    const rule = validAnalyze();
+    rule.presentation = { role: 'cause', subject: { kind: 'app', key: '{{appId}}', name: '{{appName}}' } };
+    expect(warnings(validateRuleDraft(rule).findings).some((m) => m.includes('bare token'))).toBe(true);
+
+    rule.conditions = [
+      ...(rule.conditions as unknown[]),
+      { signal: 'failed', source: 'event_type', eventType: 'app_install_failed', dataField: 'appName', operator: 'exists', value: '' },
+    ];
+    rule.presentation = { role: 'cause', subject: { kind: 'app', key: '{{app_retry_storm.groupKey}}', name: '{{failed.appName}}' } };
+    expect(warnings(validateRuleDraft(rule).findings).some((m) => m.includes('different signals'))).toBe(true);
+  });
+
+  it('a rule without a presentation block gets an info hint', () => {
+    expect(validateRuleDraft(validAnalyze()).findings.some((f) => f.level === 'info' && f.message.startsWith('No presentation block'))).toBe(true);
+  });
+
   it('markSessionAsFailedDefault=true yields an info finding', () => {
     const ko = validAnalyze();
     ko.markSessionAsFailedDefault = true;

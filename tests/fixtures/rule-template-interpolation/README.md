@@ -15,5 +15,9 @@ resolution, and every implementation runs all of it:
 `autoFields` is the list of same-event fields the rule engine copies into every evidence
 entry (`RuleEngine.EvidenceAutoFields`). Each implementation's list is compared against it.
 
+A qualified token `{{signal.key}}` reads one key of one evidence entry (a count, a duration, a
+correlation field). It has no fallback order: an unknown signal, an unknown key or a null value
+leaves it literal, so a renderer can tell "not recorded" from an empty value.
+
 A change to the resolution goes into `cases.json` first; the three tests then say which
 implementation is behind.

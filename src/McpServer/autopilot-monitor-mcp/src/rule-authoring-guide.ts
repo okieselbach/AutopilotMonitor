@@ -255,8 +255,18 @@ export const RULE_AUTHORING_GUIDE = {
       'matched evidence at display time: first a matched condition whose dataField equals the ' +
       'token, then the auto-captured fields appId / appName / errorPatternId / errorCode / ' +
       'exitCode / status / timeoutHours from the matched events, then a condition SIGNAL name. Unresolved tokens ' +
-      'stay visible as {{token}} so typos are noticeable. test_analyze_rule returns the ' +
-      'interpolated preview for a real session.',
+      'stay visible as {{token}} so typos are noticeable. A qualified token {{signal.key}} reads one key of one ' +
+      'condition\'s evidence (counts, durations, thresholds, correlation fields such as {{pair.eventA_appName}}); ' +
+      'which keys a condition records depends on its source — validate_rule checks them. test_analyze_rule ' +
+      'returns the interpolated preview for a real session.',
+    presentation:
+      'Optional block that tells the portal and the AI how to show a finding: role (outcome = restates the session ' +
+      'result; cause = can explain a failure or stall; context = a circumstance like standby, a restart or battery; ' +
+      'advisory = hygiene or security without bearing on the outcome), summary (one line), subject (kind + key + ' +
+      'name, grouping findings about the same app/policy/account; use qualified tokens of ONE signal for key and ' +
+      'name) and up to 6 facts (label + value template + format text|code|errorCode|duration|number|timestamp). ' +
+      'All values are {{token}} templates resolved per finding; a fact whose value was not recorded is left out, ' +
+      'and the summary falls back to the explanation\'s first sentence.',
     markSessionAsFailed:
       'markSessionAsFailedDefault=true escalates a firing rule to a terminal Failed session ' +
       'status (KO criterion). Use sparingly — only for findings that genuinely mean the ' +
@@ -304,6 +314,15 @@ export const RULE_AUTHORING_GUIDE = {
       remediation: [
         { title: 'Check the app package', steps: ['Review the install command line', 'Test the package on a reference device'] },
       ],
+      presentation: {
+        role: 'cause',
+        summary: '{{app_retry_storm.appName}} failed {{app_retry_storm.count}} times',
+        subject: { kind: 'app', key: '{{app_retry_storm.groupKey}}', name: '{{app_retry_storm.appName}}' },
+        facts: [
+          { label: 'Failed installs', value: '{{app_retry_storm.count}}', format: 'number' },
+          { label: 'Last error', value: '{{errorCode}}', format: 'errorCode' },
+        ],
+      },
       tags: ['apps', 'retry'],
     },
   },
@@ -330,5 +349,6 @@ export const RULE_AUTHORING_GUIDE = {
     'Duplicate condition signals — evidence is keyed by signal, the second overwrites the first.',
     'Expecting gather events in sessions that ran BEFORE the gather rule was deployed — dry-run against a recent session.',
     'Adding an interim evaluateOn trigger to a rule whose only suppression is a not_exists precondition on enrollment_complete — mid-run that gate passes trivially and the rule fires on healthy in-flight sessions.',
+    'A presentation subject built from bare tokens ({{appId}}, {{appName}}) — a bare token can resolve from a different matched event than its neighbour; use {{signal.key}} of one condition.',
   ],
 } as const;

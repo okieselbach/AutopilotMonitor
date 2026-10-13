@@ -379,6 +379,8 @@ export interface AnalyzeRule {
   remediation: RemediationStep[];
   /** Links to relevant documentation */
   relatedDocs: RelatedDoc[];
+  /** How a finding of this rule is shown (role, summary, subject, key facts); templates resolved when rendered. Optional: renderers fall back to the explanation without it. */
+  presentation?: RulePresentation | null;
   /** Template variables that must be customized per-tenant before the rule can be used. If non-empty, the rule is a template: enabling it creates a tenant custom copy with the user's values substituted into the conditions. */
   templateVariables: TemplateVariable[];
   /** If this custom rule was created from a template, stores the original template rule's ID. Used to track lineage and prevent duplicate copies. */
@@ -3855,6 +3857,16 @@ export interface RuleDryRunPrecondition {
   passed: boolean;
 }
 
+/** One key fact of a finding. */
+export interface RuleFact {
+  /** Short label, for example "Install starts". */
+  label: string;
+  /** Template of the value, for example {{install_retry_loop.count}}. */
+  value: string;
+  /** How the value is shown (RuleFactFormats); text when absent. */
+  format?: string;
+}
+
 /** A device-fact gate evaluated before a rule's conditions. Pure boolean filter — does not contribute to evidence or confidence. When any precondition on a rule fails, the rule is silently skipped (no result emitted). Currently only event_data source is supported. */
 export interface RulePrecondition {
   /** Source of the fact. Currently only event_data. */
@@ -3869,6 +3881,18 @@ export interface RulePrecondition {
   value: string;
   /** Optional human-readable note explaining the intent (e.g., "skip on virtual machines"). Not evaluated. */
   description?: string;
+}
+
+/** How a finding of an analyze rule is shown: its role, a one-line summary, what it is about and its key facts. Every string is a {{token}} template; like the explanation it is stored raw and resolved against the finding's evidence where it is rendered. A fact whose value was not recorded is left out. */
+export interface RulePresentation {
+  /** What the finding means for the session outcome (RulePresentationRoles). */
+  role: string;
+  /** One-line template for the finding row; the first sentence of the explanation stands in when a token was not recorded. */
+  summary?: string;
+  /** What the finding is about, so findings about the same app or policy group together. */
+  subject?: RuleSubject;
+  /** Key facts shown as label/value pairs, in order (at most six). */
+  facts?: RuleFact[];
 }
 
 /** One ACTIVE rule-frequency regression (F3, insights spec §F3): an analyze rule whose 7-day hit rate rose ≥2× over its 28-day baseline with disjoint Wilson intervals. Persisted as the ruleregression|{ruleId} keyspace of the notification tracker table — the row IS the dedup (one bell per episode), the badge state (rules page) and the regressions[] payload (rule-stats response). Deleted when the rate re-arms (falls under 1.5× baseline or stops firing) or by the tracker's 30-day retention sweep (spec: retention cleanup re-arms). Numbers are refreshed on every radar pass while the episode stays active; FirstNotifiedAt never moves. */
@@ -3920,6 +3944,8 @@ export interface RuleResult {
   ruleId: string;
   /** Human-readable title of the rule */
   ruleTitle: string;
+  /** Version of the rule that produced this result. Null on rows written before the field existed. */
+  ruleVersion?: string;
   /** Severity level: "info", "warning", "high", "critical" */
   severity: string;
   /** Rule category: network, identity, enrollment, apps, esp, device */
@@ -3932,6 +3958,8 @@ export interface RuleResult {
   remediation: RemediationStep[];
   /** Links to relevant documentation */
   relatedDocs: RelatedDoc[];
+  /** The rule's presentation (role, summary, subject, key facts) as raw templates, resolved against MatchedConditions where rendered. Rows stored without one get the current rule's presentation when read; null when the rule has none. */
+  presentation?: RulePresentation;
   /** Evidence: which conditions matched and their values */
   matchedConditions: Record<string, unknown>;
   /** When this issue was detected */
@@ -3989,6 +4017,16 @@ export interface RuleStatsSummary {
   /** Distinct rule count — set on the global route only (the key is absent on the tenant route, preserving its historical shape). */
   uniqueRules?: number;
   period: RuleStatsPeriod;
+}
+
+/** What a finding is about. Findings with the same kind and resolved key are grouped. Key and name use qualified tokens of one signal ({{failed_app.appId}}, {{failed_app.appName}}) so both come from the same event. */
+export interface RuleSubject {
+  /** The kind of thing the key identifies (RuleSubjectKinds). */
+  kind: string;
+  /** Template of the grouping key. */
+  key: string;
+  /** Template of the display name; the key is shown when it is missing. */
+  name?: string;
 }
 
 /** Success body of GET global/rule-submissions/{id}: the submission, the frozen rule typed by kind (exactly one of the two rule properties is set), live fire stats, the suggested reserved id and the repo file built from the assigned (or suggested) id. */

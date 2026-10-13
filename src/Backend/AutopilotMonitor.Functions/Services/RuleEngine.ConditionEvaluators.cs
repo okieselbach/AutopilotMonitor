@@ -1308,15 +1308,12 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Same-event fields copied into every evidence entry. Whitelist: short identifiers only;
-        /// errorDetail/message are excluded (can be multi-KB). Every renderer resolves these as
-        /// <c>{{token}}</c> — the web, the MCP server and <see cref="RuleTemplateInterpolator"/>
-        /// carry the same list, pinned by tests/fixtures/rule-template-interpolation/cases.json.
+        /// Same-event fields copied into every evidence entry (<see cref="RuleEvidenceKeys.AutoFields"/>).
+        /// Every renderer resolves these as <c>{{token}}</c> — the web, the MCP server and
+        /// <see cref="RuleTemplateInterpolator"/> carry the same list, pinned by
+        /// tests/fixtures/rule-template-interpolation/cases.json.
         /// </summary>
-        internal static readonly IReadOnlyList<string> EvidenceAutoFields = new[]
-        {
-            "appId", "appName", "errorPatternId", "errorCode", "exitCode", "status", "timeoutHours"
-        };
+        internal static IReadOnlyList<string> EvidenceAutoFields => RuleEvidenceKeys.AutoFields;
 
         /// <summary>
         /// Adds slim identifying data fields from an event to the evidence dictionary with a prefix.

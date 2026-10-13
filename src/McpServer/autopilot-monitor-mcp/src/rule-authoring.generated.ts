@@ -390,6 +390,9 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
           },
           "default": []
         },
+        "presentation": {
+          "$ref": "#/$defs/rulePresentation"
+        },
         "tags": {
           "type": "array",
           "description": "Tags for filtering and categorization.",
@@ -716,6 +719,116 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
       "required": [
         "title",
         "url"
+      ],
+      "additionalProperties": false
+    },
+    "rulePresentation": {
+      "type": "object",
+      "description": "How a finding of this rule is shown: its role, a one-line summary, what it is about and its key facts. Every string is a {{token}} template resolved from the finding's evidence when it is rendered; a fact whose value was not recorded is left out.",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "outcome",
+            "cause",
+            "context",
+            "advisory"
+          ],
+          "description": "outcome: restates the session outcome (shown in the verdict, not as a finding row). cause: can explain why a session failed or is stuck. context: a circumstance such as standby, a restart or battery power. advisory: hygiene or security without bearing on the outcome."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "One line for the finding row, for example \"{{install_retry_loop.appName}} was started {{install_retry_loop.count}} times\". When a token was not recorded, the first sentence of the explanation is shown instead."
+        },
+        "subject": {
+          "$ref": "#/$defs/ruleSubject"
+        },
+        "facts": {
+          "type": "array",
+          "description": "Key facts shown as label/value pairs, in this order.",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/ruleFact"
+          }
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "ruleSubject": {
+      "type": "object",
+      "description": "What the finding is about. Findings with the same kind and resolved key are grouped, for example every finding about one app. Use qualified tokens of one signal for key and name, such as {{failed_app.appId}} and {{failed_app.appName}}, so both come from the same event.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "app",
+            "policy",
+            "account",
+            "script",
+            "device",
+            "network",
+            "esp",
+            "session"
+          ],
+          "description": "The kind of thing the key identifies."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Template of the grouping key."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Template of the display name; the key is shown when it is missing."
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "ruleFact": {
+      "type": "object",
+      "description": "One key fact of a finding.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Short label, for example \"Install starts\"."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Template of the value, for example {{install_retry_loop.count}}."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "code",
+            "errorCode",
+            "duration",
+            "number",
+            "timestamp"
+          ],
+          "description": "How the value is shown. errorCode adds the error-code catalog meaning, duration reads seconds, timestamp an ISO 8601 time.",
+          "default": "text"
+        }
+      },
+      "required": [
+        "label",
+        "value"
       ],
       "additionalProperties": false
     },

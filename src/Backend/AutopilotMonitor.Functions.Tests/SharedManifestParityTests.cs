@@ -147,6 +147,8 @@ public sealed class SharedManifestParityTests
             ["delegatedRoles"] = ConstStrings(typeof(Constants.DelegatedRoles)),
             ["analyzeRuleSources"] = DryRunAnalyzeRuleFunction.KnownSources.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             ["analyzeRuleOperators"] = DryRunAnalyzeRuleFunction.KnownOperators.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
+            // Evidence keys per condition source: what a {{signal.key}} token can resolve (MCP rule lint).
+            ["analyzeRuleEvidenceKeys"] = RuleEvidenceKeys.BySource,
             ["eventTypes"] = ConstStrings(typeof(Constants.EventTypes)).OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             // Declaration order kept: the web derives a union type from this list, order is cosmetic
             // but a stable order keeps the generated file diff-minimal.

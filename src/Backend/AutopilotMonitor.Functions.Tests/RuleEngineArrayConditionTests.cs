@@ -55,6 +55,7 @@ public class RuleEngineArrayConditionTests
         var result = Assert.Single(outcome.Results);
         Assert.Equal("ANALYZE-SEC-005", result.RuleId);
         var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["ppkg_not_allowlisted"]);
+        RuleEvidenceKeysTests.AssertDeclared("event_data_array", evidence);
         Assert.Equal("identity", evidence["field"]);
         Assert.Equal("Contoso.BulkEnroll.ppkg", evidence["value"]);
         Assert.Equal(1, Convert.ToInt32(evidence["matchCount"]));

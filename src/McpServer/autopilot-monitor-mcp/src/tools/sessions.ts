@@ -6,7 +6,7 @@ import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSIO
 import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
 import { withEventTypeNote, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
-import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
+import { interpolateAnalysisResults, resolvedPresentationOf } from '../interpolate-rule-template.js';
 import { buildSessionCoverage } from '../session-coverage.js';
 import { API_BASE_URL } from '../config.js';
 import type {
@@ -456,7 +456,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'diagnostics-package health, and coverage.gaps — one line per known blind spot; read it before treating a ' +
         'missing event as proof that something did not happen); a key-event timeline (errors, warnings, phase ' +
         'transitions, app installs; noise filtered; capped at the 50 most relevant, stats.keyEventsTruncated says if ' +
-        'more were dropped); rule analysis (probable cause, remediation); aggregate stats. A key event with an error ' +
+        'more were dropped); rule analysis (per finding: ruleId, role, summary, key facts, explanation, remediation); ' +
+        'aggregate stats. A key event with an error ' +
         'code shows errorCode plus errorText (symbol and catalog meaning); event payloads (data) are otherwise not ' +
         'included — get_session_events returns them. get_session returns the full metadata.',
       inputSchema: {
@@ -627,13 +628,22 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
             highCount: analysisData.highCount ?? 0,
             warningCount: analysisData.warningCount ?? 0,
             ...(resolvedCount > 0 ? { resolvedCount } : {}),
-            issues: results.map((r) => ({
-              ruleTitle: r.ruleTitle,
-              severity: r.severity,
-              ...(r.isInterim ? { isInterim: true } : {}),
-              explanation: r.explanation,
-              remediation: r.remediation,
-            })),
+            issues: results.map((r) => {
+              // Resolved by interpolateAnalysisResults: facts that were not recorded are already gone.
+              const p = resolvedPresentationOf(r);
+              return {
+                ruleId: r.ruleId,
+                ruleTitle: r.ruleTitle,
+                severity: r.severity,
+                ...(r.isInterim ? { isInterim: true } : {}),
+                ...(p ? { role: p.role } : {}),
+                ...(p?.summary ? { summary: p.summary } : {}),
+                ...(p?.subject ? { subject: p.subject } : {}),
+                ...(p && p.facts.length > 0 ? { facts: p.facts } : {}),
+                explanation: r.explanation,
+                remediation: r.remediation,
+              };
+            }),
           };
         }
 

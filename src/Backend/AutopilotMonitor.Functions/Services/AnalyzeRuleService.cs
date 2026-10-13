@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -48,6 +49,11 @@ namespace AutopilotMonitor.Functions.Services
         // deployed binary.
         private HashSet<string>? _liveCatalogIds;
         private readonly object _liveCatalogLock = new();
+
+        // Current presentations of the global rules for the read-time fallback in
+        // AttachCurrentPresentationsAsync. A reseed or edit shows up on legacy rows after the TTL.
+        private static readonly TimeSpan PresentationCacheTtl = TimeSpan.FromMinutes(5);
+        private readonly SingleFlightCache<IReadOnlyDictionary<string, RulePresentation>> _presentationCache = new(maxEntries: 1);
 
         public AnalyzeRuleService(IRuleRepository ruleRepo, ILogger<AnalyzeRuleService> logger, BackendBuildInfo? buildInfo = null)
         {
@@ -158,6 +164,56 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return (SunsetOutcome.Completed, gcDeleted);
+        }
+
+        /// <summary>
+        /// Gives stored results without a presentation the current presentation of their rule: rows
+        /// written before the field existed, or before the rule gained one. Read time only, never
+        /// persisted — the stored row stays the snapshot of its evaluation (D-302). Global rules come
+        /// from a per-instance cache; tenant custom rules are read when a result needs them.
+        /// Fail-soft: a failed lookup leaves the results as they are.
+        /// </summary>
+        public async Task AttachCurrentPresentationsAsync(string tenantId, IReadOnlyList<RuleResult> results)
+        {
+            if (!results.Any(r => r.Presentation == null))
+                return;
+
+            try
+            {
+                var global = await _presentationCache.GetOrAddAsync(
+                    "global", PresentationCacheTtl, () => LoadPresentationsAsync("global"));
+                IReadOnlyDictionary<string, RulePresentation>? tenant = null;
+
+                foreach (var result in results)
+                {
+                    if (result.Presentation != null)
+                        continue;
+                    if (global.TryGetValue(result.RuleId, out var presentation))
+                    {
+                        result.Presentation = presentation;
+                        continue;
+                    }
+                    tenant ??= await LoadPresentationsAsync(tenantId);
+                    if (tenant.TryGetValue(result.RuleId, out presentation))
+                        result.Presentation = presentation;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Attaching current rule presentations failed for tenant {TenantId}; results returned without them", tenantId);
+            }
+        }
+
+        private async Task<IReadOnlyDictionary<string, RulePresentation>> LoadPresentationsAsync(string partitionKey)
+        {
+            var rules = await _ruleRepo.GetAnalyzeRulesAsync(partitionKey);
+            var byRule = new Dictionary<string, RulePresentation>(StringComparer.Ordinal);
+            foreach (var rule in rules)
+            {
+                if (rule.Presentation != null)
+                    byRule[rule.RuleId] = rule.Presentation;
+            }
+            return byRule;
         }
 
         /// <summary>
@@ -277,6 +333,7 @@ namespace AutopilotMonitor.Functions.Services
 
             ValidateEvaluateOn(rule);
             ValidateRelatedDocs(rule);
+            ValidatePresentation(rule);
 
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
@@ -315,6 +372,7 @@ namespace AutopilotMonitor.Functions.Services
 
             ValidateEvaluateOn(rule);
             ValidateRelatedDocs(rule);
+            ValidatePresentation(rule);
 
             // Custom rules are fully tenant-owned: fold a notify override into the row default
             // (there is no separate RuleState for them) — mirrors how the UI edits Enabled.
@@ -710,6 +768,62 @@ namespace AutopilotMonitor.Functions.Services
                     "Only absolute http:// or https:// URLs are allowed.");
             }
         }
+
+        /// <summary>
+        /// Checks the optional presentation block against the vocabularies and limits the rule schema
+        /// declares. The body reader is lenient, so without this a custom rule could store a role or
+        /// format no renderer knows. Fact rows left blank by an editor are dropped. Throws
+        /// <see cref="ArgumentException"/> (mapped to 400) naming every offending field.
+        /// </summary>
+        internal static void ValidatePresentation(AnalyzeRule rule)
+        {
+            var p = rule.Presentation;
+            if (p == null)
+                return;
+
+            var errors = new List<string>();
+            if (!RulePresentationRoles.All.Contains(p.Role))
+                errors.Add($"presentation.role '{p.Role}' must be one of: {string.Join(", ", RulePresentationRoles.All)}");
+            if (p.Summary != null && !IsTemplateWithin(p.Summary, RulePresentationLimits.SummaryMaxLength))
+                errors.Add($"presentation.summary must be 1-{RulePresentationLimits.SummaryMaxLength} characters");
+
+            if (p.Subject != null)
+            {
+                if (!RuleSubjectKinds.All.Contains(p.Subject.Kind))
+                    errors.Add($"presentation.subject.kind '{p.Subject.Kind}' must be one of: {string.Join(", ", RuleSubjectKinds.All)}");
+                if (!IsTemplateWithin(p.Subject.Key, RulePresentationLimits.TemplateMaxLength))
+                    errors.Add($"presentation.subject.key must be 1-{RulePresentationLimits.TemplateMaxLength} characters");
+                if (p.Subject.Name != null && !IsTemplateWithin(p.Subject.Name, RulePresentationLimits.TemplateMaxLength))
+                    errors.Add($"presentation.subject.name must be 1-{RulePresentationLimits.TemplateMaxLength} characters");
+            }
+
+            if (p.Facts != null)
+            {
+                p.Facts = p.Facts
+                    .Where(f => f != null && !(string.IsNullOrWhiteSpace(f.Label) && string.IsNullOrWhiteSpace(f.Value)))
+                    .ToList();
+                if (p.Facts.Count > RulePresentationLimits.MaxFacts)
+                    errors.Add($"presentation.facts allows at most {RulePresentationLimits.MaxFacts} entries");
+                for (var i = 0; i < p.Facts.Count; i++)
+                {
+                    var fact = p.Facts[i];
+                    if (!IsTemplateWithin(fact.Label, RulePresentationLimits.LabelMaxLength))
+                        errors.Add($"presentation.facts[{i}].label must be 1-{RulePresentationLimits.LabelMaxLength} characters");
+                    if (!IsTemplateWithin(fact.Value, RulePresentationLimits.TemplateMaxLength))
+                        errors.Add($"presentation.facts[{i}].value must be 1-{RulePresentationLimits.TemplateMaxLength} characters");
+                    if (fact.Format != null && !RuleFactFormats.All.Contains(fact.Format))
+                        errors.Add($"presentation.facts[{i}].format '{fact.Format}' must be one of: {string.Join(", ", RuleFactFormats.All)}");
+                }
+                if (p.Facts.Count == 0)
+                    p.Facts = null;
+            }
+
+            if (errors.Count > 0)
+                throw new ArgumentException("Invalid presentation: " + string.Join("; ", errors));
+        }
+
+        private static bool IsTemplateWithin(string? text, int maxLength)
+            => !string.IsNullOrWhiteSpace(text) && text.Length <= maxLength;
 
         internal static bool IsAbsoluteHttpUrl(string? url)
         {

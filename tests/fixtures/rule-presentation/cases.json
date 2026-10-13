@@ -1,0 +1,103 @@
+{
+  "cases": [
+    {
+      "name": "summary, subject and facts resolve from qualified tokens",
+      "presentation": {
+        "role": "cause",
+        "summary": "{{install_retry_loop.appName}} was started {{install_retry_loop.count}} times",
+        "subject": { "kind": "app", "key": "{{install_retry_loop.groupKey}}", "name": "{{install_retry_loop.appName}}" },
+        "facts": [
+          { "label": "Install starts", "value": "{{install_retry_loop.count}}", "format": "number" },
+          { "label": "Threshold", "value": "{{install_retry_loop.threshold}}" }
+        ]
+      },
+      "matchedConditions": {
+        "install_retry_loop": { "eventId": "evt-3", "groupKey": "00000000-0000-4000-8000-000000000002", "appName": "Contoso VPN", "count": 4, "threshold": 3 }
+      },
+      "explanation": "The same app was started 3 or more times.",
+      "expected": {
+        "role": "cause",
+        "summary": "Contoso VPN was started 4 times",
+        "subject": { "kind": "app", "key": "00000000-0000-4000-8000-000000000002", "name": "Contoso VPN" },
+        "facts": [
+          { "label": "Install starts", "value": "4", "format": "number" },
+          { "label": "Threshold", "value": "3", "format": "text" }
+        ]
+      }
+    },
+    {
+      "name": "a fact whose token was not recorded is left out, the order of the rest is kept",
+      "presentation": {
+        "role": "outcome",
+        "facts": [
+          { "label": "Reason", "value": "{{reason}}", "format": "code" },
+          { "label": "ESP step", "value": "{{esp_failure_subcategory.value}}" },
+          { "label": "HRESULT", "value": "{{esp_failure_errorcode.value}}", "format": "errorCode" }
+        ]
+      },
+      "matchedConditions": {
+        "enrollment_failed_reason": { "eventType": "enrollment_failed", "field": "reason", "value": "esp_terminal_failure" },
+        "esp_failure_errorcode": { "eventType": "esp_failure_settle_started", "field": "errorCode", "value": "0x80d03805" }
+      },
+      "explanation": "The Autopilot enrollment has explicitly failed.",
+      "expected": {
+        "role": "outcome",
+        "summary": "The Autopilot enrollment has explicitly failed.",
+        "subject": null,
+        "facts": [
+          { "label": "Reason", "value": "esp_terminal_failure", "format": "code" },
+          { "label": "HRESULT", "value": "0x80d03805", "format": "errorCode" }
+        ]
+      }
+    },
+    {
+      "name": "an empty value counts as not recorded",
+      "presentation": { "role": "cause", "facts": [ { "label": "Reason", "value": "{{reason}}" }, { "label": "Note", "value": "  {{note.value}}  " } ] },
+      "matchedConditions": { "sig": { "field": "reason", "value": null }, "note": { "field": "other", "value": "" } },
+      "explanation": "",
+      "expected": { "role": "cause", "summary": null, "subject": null, "facts": [] }
+    },
+    {
+      "name": "summary falls back to the explanation's first sentence without markdown",
+      "presentation": { "role": "cause", "summary": "{{missing.count}} starts" },
+      "matchedConditions": { "failed_app": { "field": "appName", "value": "Contoso VPN" } },
+      "explanation": "App **{{appName}}** failed with `0x1`. The installer reported success.\n\nMore text.",
+      "expected": { "role": "cause", "summary": "App Contoso VPN failed with 0x1.", "subject": null, "facts": [] }
+    },
+    {
+      "name": "summary fallback skips a first sentence whose token was not recorded",
+      "presentation": { "role": "advisory" },
+      "matchedConditions": {},
+      "explanation": "- **Failure reason:** {{reason}}\n- next item",
+      "expected": { "role": "advisory", "summary": null, "subject": null, "facts": [] }
+    },
+    {
+      "name": "a subject whose key was not recorded is no subject; a missing name shows the key",
+      "presentation": { "role": "cause", "summary": "x", "subject": { "kind": "app", "key": "{{failed.appId}}" } },
+      "matchedConditions": { "failed": { "appId": "00000000-0000-4000-8000-000000000004" } },
+      "explanation": "",
+      "expected": { "role": "cause", "summary": "x", "subject": { "kind": "app", "key": "00000000-0000-4000-8000-000000000004", "name": "00000000-0000-4000-8000-000000000004" }, "facts": [] }
+    },
+    {
+      "name": "an unresolved subject key drops the subject",
+      "presentation": { "role": "cause", "summary": "x", "subject": { "kind": "app", "key": "{{failed.appId}}", "name": "{{failed.appName}}" } },
+      "matchedConditions": { "failed": { "appName": "Contoso VPN" } },
+      "explanation": "",
+      "expected": { "role": "cause", "summary": "x", "subject": null, "facts": [] }
+    },
+    {
+      "name": "an unknown fact format reads as text, a fact without a label is skipped",
+      "presentation": { "role": "context", "summary": "x", "facts": [ { "label": "Minutes", "value": "{{s.offsetMinutes}}", "format": "weird" }, { "label": "", "value": "{{s.direction}}" } ] },
+      "matchedConditions": { "s": { "offsetMinutes": 30.5, "direction": "behind" } },
+      "explanation": "",
+      "expected": { "role": "context", "summary": "x", "subject": null, "facts": [ { "label": "Minutes", "value": "30.5", "format": "text" } ] }
+    },
+    {
+      "name": "no presentation resolves to nothing",
+      "presentation": null,
+      "matchedConditions": { "sig": { "field": "reason", "value": "x" } },
+      "explanation": "Text.",
+      "expected": null
+    }
+  ]
+}

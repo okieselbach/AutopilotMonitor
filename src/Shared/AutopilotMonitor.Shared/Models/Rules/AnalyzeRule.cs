@@ -137,6 +137,12 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public List<RelatedDoc> RelatedDocs { get; set; } = new List<RelatedDoc>();
 
+        /// <summary>
+        /// How a finding of this rule is shown (role, summary, subject, key facts); templates resolved
+        /// when rendered. Optional: renderers fall back to the explanation without it.
+        /// </summary>
+        public RulePresentation? Presentation { get; set; }
+
         // ===== TEMPLATE =====
 
         /// <summary>

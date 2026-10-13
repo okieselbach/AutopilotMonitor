@@ -111,6 +111,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
 
             var results = await _ruleRepo.GetRuleResultsAsync(effectiveTenantId, sessionId);
+            await _analyzeRuleService.AttachCurrentPresentationsAsync(effectiveTenantId, results);
 
             // Resolved findings (session healed / no longer firing) are kept for audit and still
             // returned in `results` (the UI hides them behind a toggle), but they no longer count
