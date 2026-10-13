@@ -168,6 +168,11 @@ namespace AutopilotMonitor.Agent.V2
             var formattedArgs = FormatArgsForLog(args);
             logger.Info($"Command line: {(string.IsNullOrEmpty(formattedArgs) ? "(no args)" : formattedArgs)}");
 
+            // Same protection install mode applies, re-checked on every start: it also reaches
+            // agents that arrived by self-update over an install made before the hardening.
+            LogAgentDirectoryAcl(AgentDirectoryAcl.EnsureProtected(
+                Environment.ExpandEnvironmentVariables(Constants.AgentDataDirectory)), logger, alwaysLog: false);
+
             try
             {
                 return RunAgent(args, logger, dataDirectory, logDirectory, consoleMode);

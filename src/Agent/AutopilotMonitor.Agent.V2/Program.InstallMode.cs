@@ -57,6 +57,8 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Info("======================= Agent install mode (--install) =======================");
 
                 EnsureAgentDirectories(logger);
+                LogAgentDirectoryAcl(AgentDirectoryAcl.EnsureProtected(
+                    Environment.ExpandEnvironmentVariables(Constants.AgentDataDirectory)), logger, alwaysLog: true);
 
                 var sourceExePath = Assembly.GetExecutingAssembly().Location;
                 var sourceDir = Path.GetDirectoryName(sourceExePath) ?? string.Empty;
@@ -270,6 +272,26 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Error("Install mode failed.", ex);
                 if (consoleMode) Console.Error.WriteLine($"ERROR: {ex.Message}");
                 return 1;
+            }
+        }
+
+        /// <summary>
+        /// Logs the outcome of <see cref="AgentDirectoryAcl.EnsureProtected"/>. Install mode logs
+        /// every outcome; the runtime start only a change or a failure, so a normal start stays quiet.
+        /// </summary>
+        internal static void LogAgentDirectoryAcl(AgentDirectoryAclResult result, AgentLogger logger, bool alwaysLog)
+        {
+            switch (result.Outcome)
+            {
+                case AgentDirectoryAclOutcome.Applied:
+                    logger.Info("Agent data directory protected: SYSTEM and Administrators full control, Users read and execute, nothing inherited from ProgramData.");
+                    break;
+                case AgentDirectoryAclOutcome.Failed:
+                    logger.Warning($"Could not protect the agent data directory: {result.Error}");
+                    break;
+                default:
+                    if (alwaysLog) logger.Info($"Agent data directory ACL: {result.Outcome}.");
+                    break;
             }
         }
 
