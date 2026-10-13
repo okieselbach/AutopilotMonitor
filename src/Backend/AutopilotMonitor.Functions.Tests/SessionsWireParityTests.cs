@@ -850,6 +850,188 @@ public class SessionsWireParityTests
             });
     }
 
+    // ---- GetSessionDiagnosis (new endpoint, shape pinned) --------------------------------
+
+    [Fact]
+    public void GetSessionDiagnosisResponse_pins_the_full_headline_shape()
+    {
+        var at = new DateTime(2026, 10, 13, 14, 44, 24, DateTimeKind.Utc);
+        var failedAt = new DateTime(2026, 10, 13, 14, 19, 46, DateTimeKind.Utc);
+        var startedAt = new DateTime(2026, 10, 13, 14, 16, 0, DateTimeKind.Utc);
+
+        AssertParity(
+            new
+            {
+                success = true,
+                sessionId = "0b6f7a37-1111-4d61-9c93-0aa111111111",
+                headline = new
+                {
+                    outcome = "failed",
+                    cause = "esp_app_failure",
+                    verdictPath = "agent:failed",
+                    reasonText = "enrollment_failed: esp_terminal_failure (0x80d03805)",
+                    at,
+                    ruleId = "ANALYZE-APP-013",
+                    supersededBySessionId = "0b6f7a37-2222-4d61-9c93-0aa222222222",
+                    failedStep = new
+                    {
+                        category = "AccountSetup",
+                        subcategory = "Apps",
+                        errorCode = "0x80d03805",
+                        failureType = "Provisioning_AccountSetup_Apps_Failed",
+                        reason = "esp_terminal_failure",
+                        at,
+                        eventId = "evt-9",
+                    },
+                    culprits = new[]
+                    {
+                        new
+                        {
+                            kind = "app",
+                            evidence = "install_failed",
+                            key = "00000000-0000-4000-8000-0000000000a1",
+                            name = "Contoso Notes",
+                            appType = "WinGet",
+                            intent = "Install",
+                            targeted = "User",
+                            state = "Error",
+                            errorCode = "0x80d03805",
+                            exitCode = "1",
+                            detectionResult = "NotDetected",
+                            installStarts = 4,
+                            lastStartedAt = startedAt,
+                            failedAt,
+                            espBlocking = true,
+                            progressPercent = 40,
+                            confidence = "high",
+                            scope = "device",
+                            stalledForMinutes = 15.5,
+                            eventId = "evt-7",
+                        },
+                    },
+                    esp = new[]
+                    {
+                        new
+                        {
+                            category = "AccountSetup",
+                            state = "failed",
+                            subcategories = new[] { new { name = "Apps", state = "failed", statusText = "Failed", errorCode = "0x80d03805" } },
+                        },
+                    },
+                    espConfig = new
+                    {
+                        continueAnyway = false,
+                        tryAgain = true,
+                        reset = false,
+                        timeoutMinutes = 40,
+                        skipUserEsp = false,
+                        skipDeviceEsp = false,
+                        blockingAppCount = 3,
+                    },
+                    waiting = new[] { new { kind = "app", name = "Contoso VPN", state = "installing" } },
+                    caveats = new[] { "agent_started_late" },
+                },
+            },
+            new GetSessionDiagnosisResponse
+            {
+                Success = true,
+                SessionId = "0b6f7a37-1111-4d61-9c93-0aa111111111",
+                Headline = new DiagnosisHeadline
+                {
+                    Outcome = DiagnosisOutcomes.Failed,
+                    Cause = DiagnosisCauses.EspAppFailure,
+                    VerdictPath = VerdictPaths.AgentFailed,
+                    ReasonText = "enrollment_failed: esp_terminal_failure (0x80d03805)",
+                    At = at,
+                    RuleId = "ANALYZE-APP-013",
+                    SupersededBySessionId = "0b6f7a37-2222-4d61-9c93-0aa222222222",
+                    FailedStep = new DiagnosisFailedStep
+                    {
+                        Category = "AccountSetup",
+                        Subcategory = "Apps",
+                        ErrorCode = "0x80d03805",
+                        FailureType = "Provisioning_AccountSetup_Apps_Failed",
+                        Reason = "esp_terminal_failure",
+                        At = at,
+                        EventId = "evt-9",
+                    },
+                    Culprits = new List<DiagnosisCulprit>
+                    {
+                        new DiagnosisCulprit
+                        {
+                            Kind = DiagnosisCulpritKinds.App,
+                            Evidence = DiagnosisCulpritEvidence.InstallFailed,
+                            Key = "00000000-0000-4000-8000-0000000000a1",
+                            Name = "Contoso Notes",
+                            AppType = "WinGet",
+                            Intent = "Install",
+                            Targeted = "User",
+                            State = "Error",
+                            ErrorCode = "0x80d03805",
+                            ExitCode = "1",
+                            DetectionResult = "NotDetected",
+                            InstallStarts = 4,
+                            LastStartedAt = startedAt,
+                            FailedAt = failedAt,
+                            EspBlocking = true,
+                            ProgressPercent = 40,
+                            Confidence = "high",
+                            Scope = "device",
+                            StalledForMinutes = 15.5,
+                            EventId = "evt-7",
+                        },
+                    },
+                    Esp = new List<DiagnosisEspCategory>
+                    {
+                        new DiagnosisEspCategory
+                        {
+                            Category = "AccountSetup",
+                            State = "failed",
+                            Subcategories = new List<DiagnosisEspSubcategory>
+                            {
+                                new DiagnosisEspSubcategory { Name = "Apps", State = "failed", StatusText = "Failed", ErrorCode = "0x80d03805" },
+                            },
+                        },
+                    },
+                    EspConfig = new DiagnosisEspConfig
+                    {
+                        ContinueAnyway = false,
+                        TryAgain = true,
+                        Reset = false,
+                        TimeoutMinutes = 40,
+                        SkipUserEsp = false,
+                        SkipDeviceEsp = false,
+                        BlockingAppCount = 3,
+                    },
+                    Waiting = new List<DiagnosisWaitItem> { new DiagnosisWaitItem { Kind = DiagnosisWaitKinds.App, Name = "Contoso VPN", State = "installing" } },
+                    Caveats = new List<string> { DiagnosisCaveats.AgentStartedLate },
+                },
+            });
+    }
+
+    [Fact]
+    public void GetSessionDiagnosisResponse_drops_every_empty_slot()
+    {
+        AssertParity(
+            new
+            {
+                success = true,
+                sessionId = "0b6f7a37-1111-4d61-9c93-0aa111111111",
+                headline = new { outcome = "in_progress", cause = "none", verdictPath = "register:new" },
+            },
+            new GetSessionDiagnosisResponse
+            {
+                Success = true,
+                SessionId = "0b6f7a37-1111-4d61-9c93-0aa111111111",
+                Headline = new DiagnosisHeadline
+                {
+                    Outcome = DiagnosisOutcomes.InProgress,
+                    Cause = DiagnosisCauses.None,
+                    VerdictPath = VerdictPaths.RegisterNew,
+                },
+            });
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

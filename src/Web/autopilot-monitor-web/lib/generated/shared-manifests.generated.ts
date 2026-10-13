@@ -930,6 +930,66 @@ export const SHARED_MANIFEST = {
       "sentAtBatchCount"
     ]
   },
+  "diagnosis": {
+    "outcomes": [
+      "failed",
+      "stalled",
+      "awaiting_user",
+      "incomplete",
+      "succeeded",
+      "in_progress",
+      "pending",
+      "unknown"
+    ],
+    "causes": [
+      "completed",
+      "soft_failure",
+      "reconciled",
+      "esp_app_failure",
+      "esp_app_timeout",
+      "esp_step_failure",
+      "whiteglove_failure",
+      "agent_failure",
+      "rule_ko",
+      "admin_marked",
+      "agent_gave_up",
+      "sweep_timeout",
+      "superseded",
+      "agent_silent",
+      "no_progress",
+      "awaiting_user",
+      "whiteglove_sealed",
+      "none",
+      "unknown"
+    ],
+    "culpritKinds": [
+      "app",
+      "appx_package",
+      "policy_provider"
+    ],
+    "culpritEvidence": [
+      "install_failed",
+      "presumed_failed",
+      "presumed_stuck",
+      "in_flight",
+      "never_started",
+      "not_completed",
+      "named_by_esp",
+      "appx_log",
+      "provider_stalled"
+    ],
+    "waitKinds": [
+      "prerequisite",
+      "app",
+      "policy_provider"
+    ],
+    "caveats": [
+      "agent_started_late",
+      "agent_crashed",
+      "verdict_derived",
+      "blocking_list_truncated"
+    ]
+  },
   "eventTypes": [
     "aad_join_status",
     "aad_placeholder_user_detected",

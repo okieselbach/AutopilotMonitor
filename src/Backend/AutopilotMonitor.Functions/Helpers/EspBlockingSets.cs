@@ -1,4 +1,5 @@
-using System.Collections;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Helpers;
 
@@ -52,6 +53,22 @@ public sealed class EspBlockingSets
         => !string.IsNullOrEmpty(appId) && _all.Contains(appId!);
 
     /// <summary>
+    /// The blocking sets of a session: the latest <c>esp_config_detected</c> that carries lists
+    /// (<paramref name="events"/> in canonical order). A later emission without lists never erases
+    /// earlier positive evidence; null when no emission carried any.
+    /// </summary>
+    public static EspBlockingSets? FromLatest(IReadOnlyList<EnrollmentEvent> events)
+    {
+        for (var i = events.Count - 1; i >= 0; i--)
+        {
+            if (events[i].EventType != Constants.EventTypes.EspConfigDetected) continue;
+            var sets = FromEventData(events[i].Data);
+            if (sets != null) return sets;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Parses the payload of one <c>esp_config_detected</c> event. Returns null when the payload
     /// carries none of the <c>espTracked*</c> list keys (probe found no Diagnostics key — e.g.
     /// non-Autopilot device or pre-list agent build): "no lists observed" must stay
@@ -63,10 +80,10 @@ public sealed class EspBlockingSets
     {
         if (data == null) return null;
 
-        var win32 = ReadStringList(data, "espTrackedWin32AppIds");
-        var userWin32 = ReadStringList(data, "espTrackedUserWin32AppIds");
-        var msi = ReadStringList(data, "espTrackedMsiProductCodes");
-        var pfn = ReadStringList(data, "espTrackedModernAppPfns");
+        var win32 = EventDataReader.StringList(data, "espTrackedWin32AppIds");
+        var userWin32 = EventDataReader.StringList(data, "espTrackedUserWin32AppIds");
+        var msi = EventDataReader.StringList(data, "espTrackedMsiProductCodes");
+        var pfn = EventDataReader.StringList(data, "espTrackedModernAppPfns");
 
         if (win32 == null && userWin32 == null && msi == null && pfn == null)
             return null;
@@ -90,26 +107,5 @@ public sealed class EspBlockingSets
     }
 
     private static bool CountExceeds(IReadOnlyDictionary<string, object> data, string countKey, List<string>? list)
-    {
-        if (list == null) return false;
-        if (!data.TryGetValue(countKey, out var raw)) return false;
-        return long.TryParse(raw?.ToString(), out var count) && count > list.Count;
-    }
-
-    private static List<string>? ReadStringList(IReadOnlyDictionary<string, object> data, string key)
-    {
-        if (!data.TryGetValue(key, out var raw) || raw == null) return null;
-        // Strings enumerate as chars — exclude explicitly before the IEnumerable fallback.
-        if (raw is string) return null;
-        if (raw is not IEnumerable enumerable) return null;
-
-        var result = new List<string>();
-        foreach (var item in enumerable)
-        {
-            var s = item?.ToString()?.Trim();
-            if (!string.IsNullOrEmpty(s))
-                result.Add(s!);
-        }
-        return result;
-    }
+        => list != null && EventDataReader.Long(data, countKey) is long count && count > list.Count;
 }

@@ -307,6 +307,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "sessions/annotations/list",        EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/vulnerability-report", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/time-attribution", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        new("GET",    "sessions/{sessionId}/diagnosis", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/app",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/fleet-health",      EndpointPolicy.MemberRead),
         new("GET",    "metrics/time-attribution",  EndpointPolicy.MemberRead),

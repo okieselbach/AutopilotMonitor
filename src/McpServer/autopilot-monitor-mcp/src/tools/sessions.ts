@@ -17,6 +17,7 @@ import type {
   EnrollmentEvent,
   GetRuleResultsResponse,
   GetSessionAnnotationsResponse,
+  GetSessionDiagnosisResponse,
   GetSessionEventsResponse,
   GetSessionResponse,
   ImePatternHealthResponse,
@@ -454,7 +455,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'First tool when investigating a session. Returns: overview (status, duration, device, enrollment config); ' +
         'observation coverage (from when the agent actually watched, IME log tracker / collector / upload / ' +
         'diagnostics-package health, and coverage.gaps — one line per known blind spot; read it before treating a ' +
-        'missing event as proof that something did not happen); a key-event timeline (errors, warnings, phase ' +
+        'missing event as proof that something did not happen); headline (the backend verdict: outcome, cause, ' +
+        'failed ESP step, culprit apps, what an unfinished session waited for; null when unavailable); a key-event timeline (errors, warnings, phase ' +
         'transitions, app installs; noise filtered; capped at the 50 most relevant, stats.keyEventsTruncated says if ' +
         'more were dropped); rule analysis (per finding: ruleId, role, summary, key facts, explanation, remediation); ' +
         'aggregate stats. A key event with an error ' +
@@ -476,13 +478,16 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const eventsQuery = buildQuery({ tenantId, fields: SUMMARY_EVENT_FIELDS } as Record<string, string | undefined>);
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
-        const [sessionData, eventsData, analysisData, annotationsData] = await Promise.all([
+        const [sessionData, eventsData, analysisData, annotationsData, diagnosisData] = await Promise.all([
           apiFetch<GetSessionResponse>(`/api/sessions/${sessionId}${q}`, fetchOpts),
           apiFetch<GetSessionEventsResponse>(`/api/sessions/${sessionId}/events${eventsQuery}`, fetchOpts),
           apiFetch<GetRuleResultsResponse>(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null),
           // Human annotations (verdict + note per lane). Backend filters the platform-internal
           // globaladmin lane for non-global callers — pass-through, no re-shaping needed.
           apiFetch<GetSessionAnnotationsResponse>(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null),
+          // The backend verdict (outcome, cause, failed ESP step, culprits) — built from the row and
+          // every event, never from rule confidence. Null when it could not be built.
+          apiFetch<GetSessionDiagnosisResponse>(`/api/sessions/${sessionId}/diagnosis${q}`, fetchOpts).catch(() => null),
         ]);
 
         const s = sessionData.session;
@@ -656,6 +661,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const result = {
           overview,
           coverage,
+          headline: diagnosisData?.headline ?? null,
           keyEvents: mappedEvents,
           analysis,
           annotations,

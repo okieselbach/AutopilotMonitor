@@ -498,9 +498,7 @@ namespace AutopilotMonitor.Functions.Services
                 // positive evidence.
                 var espEvents = await GetSessionEventsByTypeAsync(
                     tenantId, sessionId, Constants.EventTypes.EspConfigDetected, maxResults: 50);
-                EspBlockingSets? sets = null;
-                for (var i = espEvents.Count - 1; i >= 0 && sets == null; i--)
-                    sets = EspBlockingSets.FromEventData(espEvents[i].Data);
+                var sets = EspBlockingSets.FromLatest(espEvents);
                 if (sets == null || sets.ListedCount == 0)
                     return 0;
 

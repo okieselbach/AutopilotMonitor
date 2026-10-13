@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Services
@@ -138,7 +139,7 @@ namespace AutopilotMonitor.Functions.Services
                     // every timed-out-but-actually-provisioned session through rule 1 straight to
                     // Failed, defeating the honest classification this class exists for
                     // (misclassification audit 2026-07-16).
-                    if (!Eq(TryGetDataString(evt, "failureType") ?? string.Empty, "agent_timeout"))
+                    if (!Eq(EventDataReader.String(evt, "failureType") ?? string.Empty, "agent_timeout"))
                         hasFailure = true;
                     else
                         agentStoppedForGood = true;
@@ -149,7 +150,7 @@ namespace AutopilotMonitor.Functions.Services
                 // AwaitingUser grace (a wait nothing can ever end).
                 else if (Eq(type, "agent_shutting_down"))
                 {
-                    var reason = TryGetDataString(evt, "reason") ?? string.Empty;
+                    var reason = EventDataReader.String(evt, "reason") ?? string.Empty;
                     if (Eq(reason, "max_lifetime"))
                         agentStoppedForGood = true;
                     else if (Eq(reason, "stopped_waiting"))
@@ -187,21 +188,15 @@ namespace AutopilotMonitor.Functions.Services
                 // treat as enabled/required, i.e. keep demanding the Hello terminal).
                 else if (Eq(type, "hello_policy_detected"))
                 {
-                    var raw = TryGetDataString(evt, "helloEnabled");
-                    if (bool.TryParse(raw, out var enabled))
-                    {
-                        if (enabled) sawHelloPolicyEnabled = true;
-                        else sawHelloPolicyDisabled = true;
-                    }
+                    var enabled = EventDataReader.Bool(evt, "helloEnabled");
+                    if (enabled == true) sawHelloPolicyEnabled = true;
+                    else if (enabled == false) sawHelloPolicyDisabled = true;
                 }
                 else if (Eq(type, "esp_config_detected"))
                 {
-                    var raw = TryGetDataString(evt, "skipUserStatusPage");
-                    if (bool.TryParse(raw, out var skip))
-                    {
-                        if (skip) sawSkipUserTrue = true;
-                        else sawSkipUserFalse = true;
-                    }
+                    var skip = EventDataReader.Bool(evt, "skipUserStatusPage");
+                    if (skip == true) sawSkipUserTrue = true;
+                    else if (skip == false) sawSkipUserFalse = true;
                 }
 
                 var msg = evt.Message;
@@ -531,12 +526,5 @@ namespace AutopilotMonitor.Functions.Services
 
         private static bool Eq(string a, string b) =>
             string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-
-        private static string? TryGetDataString(EnrollmentEvent evt, string key)
-        {
-            if (evt?.Data == null) return null;
-            if (!evt.Data.TryGetValue(key, out var raw) || raw == null) return null;
-            return raw.ToString();
-        }
     }
 }

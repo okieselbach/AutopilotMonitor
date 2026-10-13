@@ -1589,6 +1589,148 @@ export interface DeviceSessionRef {
   adminMarked: boolean;
 }
 
+/** One thing the evidence names as the cause: an app, a Store package or an ESP policy provider. */
+export interface DiagnosisCulprit {
+  /** What it is (DiagnosisCulpritKinds). */
+  kind: string;
+  /** How it was identified (DiagnosisCulpritEvidence). */
+  evidence: string;
+  /** Stable identity: the Intune app id, the package full name or the provider name; null when only a name is known. */
+  key?: string;
+  /** Display name. */
+  name: string;
+  /** App type as the agent reported it (Win32, MSI, WinGet). */
+  appType?: string;
+  /** Assignment intent as the agent reported it (Install, Available). */
+  intent?: string;
+  /** Who the app is assigned to as the agent reported it (User, Device, Dependency). */
+  targeted?: string;
+  /** The last install state the agent reported (Installing, Error, Downloading, NotInstalled). */
+  state?: string;
+  /** The error the app or package reported: decimal exit code or hex HRESULT, as sent. */
+  errorCode?: string;
+  /** The installer exit code (signed decimal). */
+  exitCode?: string;
+  /** The detection result after the install (Detected, NotDetected, DetectedDifferentVersion). */
+  detectionResult?: string;
+  /** How often the install started in this session. */
+  installStarts?: number;
+  /** The last install start. */
+  lastStartedAt?: string;
+  /** When the failure was reported. */
+  failedAt?: string;
+  /** True when the ESP lists the app as blocking; null when that is unknown (never false). */
+  espBlocking?: boolean;
+  /** Download progress of an app still in flight. */
+  progressPercent?: number;
+  /** The analyzer's confidence for a Store package (high, medium, low). */
+  confidence?: string;
+  /** Scope of a policy provider: device, or the user's SID. */
+  scope?: string;
+  /** How long a policy provider has been stuck. */
+  stalledForMinutes?: number;
+  /** The event the evidence comes from. */
+  eventId?: string;
+}
+
+/** The last reported state of one ESP phase. */
+export interface DiagnosisEspCategory {
+  /** DevicePreparation, DeviceSetup or AccountSetup. */
+  category: string;
+  /** succeeded, failed or in_progress. */
+  state: string;
+  /** The steps of the phase in reported order. */
+  subcategories: DiagnosisEspSubcategory[];
+}
+
+/** The ESP profile settings the device reported. */
+export interface DiagnosisEspConfig {
+  /** Users may continue past an error ("Continue anyway"). */
+  continueAnyway?: boolean;
+  /** Users may retry after an error. */
+  tryAgain?: boolean;
+  /** Users may reset the device after an error. */
+  reset?: boolean;
+  /** The ESP time limit in minutes. */
+  timeoutMinutes?: number;
+  /** The user part of the ESP (Account setup) is skipped. */
+  skipUserEsp?: boolean;
+  /** The device part of the ESP (Device setup) is skipped. */
+  skipDeviceEsp?: boolean;
+  /** Distinct apps the ESP lists as blocking; the lists are capped, see the blocking_list_truncated caveat. */
+  blockingAppCount?: number;
+}
+
+/** One step of an ESP phase. */
+export interface DiagnosisEspSubcategory {
+  /** Apps, Certificates, SecurityPolicies, NetworkConnections, WaitingForAadRegistration and so on. */
+  name: string;
+  /** The reported state: notStarted, inProgress, succeeded, failed or notRequired. */
+  state: string;
+  /** The ESP's own status text. */
+  statusText?: string;
+  /** The HRESULT of a failed step (lowercase hex). */
+  errorCode?: string;
+}
+
+/** The failed ESP step of an explicit failure. */
+export interface DiagnosisFailedStep {
+  /** ESP phase: DevicePreparation, DeviceSetup or AccountSetup; null when the failure named none. */
+  category?: string;
+  /** ESP subcategory such as Apps, Certificates, SecurityPolicies or NetworkConnections. */
+  subcategory?: string;
+  /** The ESP error as lowercase hex HRESULT (0x87d1041c). */
+  errorCode?: string;
+  /** The agent's failure type (Provisioning_AccountSetup_Apps_Failed, ESPProgress_Timeout, WhiteGlove_Failed). */
+  failureType?: string;
+  /** The agent's failure reason (esp_terminal_failure, oobe_update_not_finished). */
+  reason?: string;
+  /** When the agent reported the failure. */
+  at: string;
+  /** The event that carries the failure. */
+  eventId?: string;
+}
+
+/** The verdict of one session and the facts it rests on. */
+export interface DiagnosisHeadline {
+  /** The session status in the diagnosis vocabulary (DiagnosisOutcomes). */
+  outcome: string;
+  /** Why the session ended up there (DiagnosisCauses). */
+  cause: string;
+  /** The code path that set the status (VerdictPaths); derived for rows written before it was stamped. */
+  verdictPath: string;
+  /** The session's own reason text: the failure, stall or classification reason, or the reconcile reason of a success. The honest fallback whenever the cause is unknown. */
+  reasonText?: string;
+  /** When the verdict was reached (completion, stall detection or the last event); null while in progress. */
+  at?: string;
+  /** The analyze rule that marked the session failed (cause rule_ko). */
+  ruleId?: string;
+  /** The newer session of the same device that replaced this one (cause superseded). */
+  supersededBySessionId?: string;
+  /** The ESP step that failed, for an explicit failure. */
+  failedStep?: DiagnosisFailedStep;
+  /** What the evidence names as the cause, strongest first; at most five. */
+  culprits?: DiagnosisCulprit[];
+  /** The last reported state of each ESP phase (Device preparation, Device setup, Account setup). */
+  esp?: DiagnosisEspCategory[];
+  /** The ESP profile the device reported. */
+  espConfig?: DiagnosisEspConfig;
+  /** What the enrollment still waited for, for a session that did not finish. */
+  waiting?: DiagnosisWaitItem[];
+  /** Limits of the observation that weaken the verdict (DiagnosisCaveats). */
+  caveats?: string[];
+}
+
+/** Something an unfinished enrollment still waited for. */
+export interface DiagnosisWaitItem {
+  /** What it is (DiagnosisWaitKinds). */
+  kind: string;
+  /** The prerequisite, app or provider name as the agent reported it. */
+  name: string;
+  /** For an app: installing, downloading, pending or likely_stuck. */
+  state?: string;
+}
+
 /** Wire projection of one built-in diagnostics section. Condition travels as the enum NAME ("Always" | "RealmJoinWatcher" | "DevicePreparation"), never the integer — the web switches on the string. */
 export interface DiagnosticsBuiltInSectionWire {
   id: string;
@@ -2268,6 +2410,13 @@ export interface GetSessionDeletionsListResponse {
   strandedSinceMinutes?: number;
   count: number;
   sessions: SessionDeletionListItem[];
+}
+
+/** GET /api/sessions/{sessionId}/diagnosis — the session's verdict in one object: what happened (Outcome), why (Cause) and the evidence behind it. Built on demand from the session row and its events, never from rule confidence; analyze findings stay a separate list. */
+export interface GetSessionDiagnosisResponse {
+  success: boolean;
+  sessionId: string;
+  headline: DiagnosisHeadline;
 }
 
 /** Session events envelope (GetSessionEvents, paginated and unpaginated paths). Events carries full EnrollmentEvent items, or dictionary projections of them when the caller passed a fields= subset. */

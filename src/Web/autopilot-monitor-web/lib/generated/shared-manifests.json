@@ -926,6 +926,66 @@
       "sentAtBatchCount"
     ]
   },
+  "diagnosis": {
+    "outcomes": [
+      "failed",
+      "stalled",
+      "awaiting_user",
+      "incomplete",
+      "succeeded",
+      "in_progress",
+      "pending",
+      "unknown"
+    ],
+    "causes": [
+      "completed",
+      "soft_failure",
+      "reconciled",
+      "esp_app_failure",
+      "esp_app_timeout",
+      "esp_step_failure",
+      "whiteglove_failure",
+      "agent_failure",
+      "rule_ko",
+      "admin_marked",
+      "agent_gave_up",
+      "sweep_timeout",
+      "superseded",
+      "agent_silent",
+      "no_progress",
+      "awaiting_user",
+      "whiteglove_sealed",
+      "none",
+      "unknown"
+    ],
+    "culpritKinds": [
+      "app",
+      "appx_package",
+      "policy_provider"
+    ],
+    "culpritEvidence": [
+      "install_failed",
+      "presumed_failed",
+      "presumed_stuck",
+      "in_flight",
+      "never_started",
+      "not_completed",
+      "named_by_esp",
+      "appx_log",
+      "provider_stalled"
+    ],
+    "waitKinds": [
+      "prerequisite",
+      "app",
+      "policy_provider"
+    ],
+    "caveats": [
+      "agent_started_late",
+      "agent_crashed",
+      "verdict_derived",
+      "blocking_list_truncated"
+    ]
+  },
   "eventTypes": [
     "aad_join_status",
     "aad_placeholder_user_detected",
@@ -7948,6 +8008,562 @@
         }
       ]
     },
+    "DiagnosisCulprit": {
+      "kind": "object",
+      "doc": "One thing the evidence names as the cause: an app, a Store package or an ESP policy provider.",
+      "fields": [
+        {
+          "name": "kind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "What it is (DiagnosisCulpritKinds)."
+        },
+        {
+          "name": "evidence",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "How it was identified (DiagnosisCulpritEvidence)."
+        },
+        {
+          "name": "key",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Stable identity: the Intune app id, the package full name or the provider name; null when only a name is known."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Display name."
+        },
+        {
+          "name": "appType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "App type as the agent reported it (Win32, MSI, WinGet)."
+        },
+        {
+          "name": "intent",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Assignment intent as the agent reported it (Install, Available)."
+        },
+        {
+          "name": "targeted",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Who the app is assigned to as the agent reported it (User, Device, Dependency)."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The last install state the agent reported (Installing, Error, Downloading, NotInstalled)."
+        },
+        {
+          "name": "errorCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The error the app or package reported: decimal exit code or hex HRESULT, as sent."
+        },
+        {
+          "name": "exitCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The installer exit code (signed decimal)."
+        },
+        {
+          "name": "detectionResult",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The detection result after the install (Detected, NotDetected, DetectedDifferentVersion)."
+        },
+        {
+          "name": "installStarts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "How often the install started in this session."
+        },
+        {
+          "name": "lastStartedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The last install start."
+        },
+        {
+          "name": "failedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the failure was reported."
+        },
+        {
+          "name": "espBlocking",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "True when the ESP lists the app as blocking; null when that is unknown (never false)."
+        },
+        {
+          "name": "progressPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Download progress of an app still in flight."
+        },
+        {
+          "name": "confidence",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The analyzer's confidence for a Store package (high, medium, low)."
+        },
+        {
+          "name": "scope",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Scope of a policy provider: device, or the user's SID."
+        },
+        {
+          "name": "stalledForMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "How long a policy provider has been stuck."
+        },
+        {
+          "name": "eventId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The event the evidence comes from."
+        }
+      ]
+    },
+    "DiagnosisEspCategory": {
+      "kind": "object",
+      "doc": "The last reported state of one ESP phase.",
+      "fields": [
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "DevicePreparation, DeviceSetup or AccountSetup."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "succeeded, failed or in_progress."
+        },
+        {
+          "name": "subcategories",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosisEspSubcategory"
+            }
+          },
+          "doc": "The steps of the phase in reported order."
+        }
+      ]
+    },
+    "DiagnosisEspConfig": {
+      "kind": "object",
+      "doc": "The ESP profile settings the device reported.",
+      "fields": [
+        {
+          "name": "continueAnyway",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Users may continue past an error (\"Continue anyway\")."
+        },
+        {
+          "name": "tryAgain",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Users may retry after an error."
+        },
+        {
+          "name": "reset",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Users may reset the device after an error."
+        },
+        {
+          "name": "timeoutMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "The ESP time limit in minutes."
+        },
+        {
+          "name": "skipUserEsp",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "The user part of the ESP (Account setup) is skipped."
+        },
+        {
+          "name": "skipDeviceEsp",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "The device part of the ESP (Device setup) is skipped."
+        },
+        {
+          "name": "blockingAppCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Distinct apps the ESP lists as blocking; the lists are capped, see the blocking_list_truncated caveat."
+        }
+      ]
+    },
+    "DiagnosisEspSubcategory": {
+      "kind": "object",
+      "doc": "One step of an ESP phase.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Apps, Certificates, SecurityPolicies, NetworkConnections, WaitingForAadRegistration and so on."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The reported state: notStarted, inProgress, succeeded, failed or notRequired."
+        },
+        {
+          "name": "statusText",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The ESP's own status text."
+        },
+        {
+          "name": "errorCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The HRESULT of a failed step (lowercase hex)."
+        }
+      ]
+    },
+    "DiagnosisFailedStep": {
+      "kind": "object",
+      "doc": "The failed ESP step of an explicit failure.",
+      "fields": [
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "ESP phase: DevicePreparation, DeviceSetup or AccountSetup; null when the failure named none."
+        },
+        {
+          "name": "subcategory",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "ESP subcategory such as Apps, Certificates, SecurityPolicies or NetworkConnections."
+        },
+        {
+          "name": "errorCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The ESP error as lowercase hex HRESULT (0x87d1041c)."
+        },
+        {
+          "name": "failureType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The agent's failure type (Provisioning_AccountSetup_Apps_Failed, ESPProgress_Timeout, WhiteGlove_Failed)."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The agent's failure reason (esp_terminal_failure, oobe_update_not_finished)."
+        },
+        {
+          "name": "at",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When the agent reported the failure."
+        },
+        {
+          "name": "eventId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The event that carries the failure."
+        }
+      ]
+    },
+    "DiagnosisHeadline": {
+      "kind": "object",
+      "doc": "The verdict of one session and the facts it rests on.",
+      "fields": [
+        {
+          "name": "outcome",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The session status in the diagnosis vocabulary (DiagnosisOutcomes)."
+        },
+        {
+          "name": "cause",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Why the session ended up there (DiagnosisCauses)."
+        },
+        {
+          "name": "verdictPath",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The code path that set the status (VerdictPaths); derived for rows written before it was stamped."
+        },
+        {
+          "name": "reasonText",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The session's own reason text: the failure, stall or classification reason, or the reconcile reason of a success. The honest fallback whenever the cause is unknown."
+        },
+        {
+          "name": "at",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the verdict was reached (completion, stall detection or the last event); null while in progress."
+        },
+        {
+          "name": "ruleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The analyze rule that marked the session failed (cause rule_ko)."
+        },
+        {
+          "name": "supersededBySessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The newer session of the same device that replaced this one (cause superseded)."
+        },
+        {
+          "name": "failedStep",
+          "type": {
+            "kind": "ref",
+            "name": "DiagnosisFailedStep"
+          },
+          "optional": true,
+          "doc": "The ESP step that failed, for an explicit failure."
+        },
+        {
+          "name": "culprits",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosisCulprit"
+            }
+          },
+          "optional": true,
+          "doc": "What the evidence names as the cause, strongest first; at most five."
+        },
+        {
+          "name": "esp",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosisEspCategory"
+            }
+          },
+          "optional": true,
+          "doc": "The last reported state of each ESP phase (Device preparation, Device setup, Account setup)."
+        },
+        {
+          "name": "espConfig",
+          "type": {
+            "kind": "ref",
+            "name": "DiagnosisEspConfig"
+          },
+          "optional": true,
+          "doc": "The ESP profile the device reported."
+        },
+        {
+          "name": "waiting",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosisWaitItem"
+            }
+          },
+          "optional": true,
+          "doc": "What the enrollment still waited for, for a session that did not finish."
+        },
+        {
+          "name": "caveats",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Limits of the observation that weaken the verdict (DiagnosisCaveats)."
+        }
+      ]
+    },
+    "DiagnosisWaitItem": {
+      "kind": "object",
+      "doc": "Something an unfinished enrollment still waited for.",
+      "fields": [
+        {
+          "name": "kind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "What it is (DiagnosisWaitKinds)."
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The prerequisite, app or provider name as the agent reported it."
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "For an app: installing, downloading, pending or likely_stuck."
+        }
+      ]
+    },
     "DiagnosticsBuiltInSectionWire": {
       "kind": "object",
       "doc": "Wire projection of one built-in diagnostics section. Condition travels as the enum NAME (\"Always\" | \"RealmJoinWatcher\" | \"DevicePreparation\"), never the integer — the web switches on the string.",
@@ -10855,6 +11471,33 @@
               "kind": "ref",
               "name": "SessionDeletionListItem"
             }
+          }
+        }
+      ]
+    },
+    "GetSessionDiagnosisResponse": {
+      "kind": "object",
+      "doc": "GET /api/sessions/{sessionId}/diagnosis — the session's verdict in one object: what happened (Outcome), why (Cause) and the evidence behind it. Built on demand from the session row and its events, never from rule confidence; analyze findings stay a separate list.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "headline",
+          "type": {
+            "kind": "ref",
+            "name": "DiagnosisHeadline"
           }
         }
       ]

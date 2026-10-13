@@ -149,6 +149,17 @@ public sealed class SharedManifestParityTests
             ["analyzeRuleOperators"] = DryRunAnalyzeRuleFunction.KnownOperators.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             // Evidence keys per condition source: what a {{signal.key}} token can resolve (MCP rule lint).
             ["analyzeRuleEvidenceKeys"] = RuleEvidenceKeys.BySource,
+            // Vocabularies of the diagnosis headline (GET sessions/{id}/diagnosis): the portal's verdict
+            // texts and culprit labels key on the same values the builder writes.
+            ["diagnosis"] = new Dictionary<string, object?>
+            {
+                ["outcomes"] = DiagnosisOutcomes.All,
+                ["causes"] = DiagnosisCauses.All,
+                ["culpritKinds"] = DiagnosisCulpritKinds.All,
+                ["culpritEvidence"] = DiagnosisCulpritEvidence.All,
+                ["waitKinds"] = DiagnosisWaitKinds.All,
+                ["caveats"] = DiagnosisCaveats.All,
+            },
             ["eventTypes"] = ConstStrings(typeof(Constants.EventTypes)).OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             // Declaration order kept: the web derives a union type from this list, order is cosmetic
             // but a stable order keeps the generated file diff-minimal.

@@ -164,12 +164,7 @@ public static class TimeAttributionCalculator
 
         // Blocking set: latest esp_config_detected emission that carries lists (positive
         // evidence is never erased by a later probe failure; lists grow progressively).
-        EspBlockingSets? blockingSets = null;
-        for (var i = events.Count - 1; i >= 0 && blockingSets == null; i--)
-        {
-            if (events[i].EventType == Constants.EventTypes.EspConfigDetected)
-                blockingSets = EspBlockingSets.FromEventData(events[i].Data);
-        }
+        var blockingSets = EspBlockingSets.FromLatest(events);
         if (blockingSets == null || blockingSets.ListedCount == 0)
             flags |= TimeAttributionFlags.BlockingSetUnknown;
         else if (blockingSets.IsTruncated)
@@ -873,15 +868,15 @@ public static class TimeAttributionCalculator
             if (evt.EventType == Constants.EventTypes.OobeUpdatePage && evt.Data != null)
             {
                 pages.Add(new PageRecord(evt.Timestamp,
-                    DataString(evt.Data, "cxhEvent") ?? string.Empty,
-                    DataString(evt.Data, "page"),
-                    DataString(evt.Data, "name"),
-                    DataString(evt.Data, "result")));
+                    EventDataReader.String(evt.Data, "cxhEvent") ?? string.Empty,
+                    EventDataReader.String(evt.Data, "page"),
+                    EventDataReader.String(evt.Data, "name"),
+                    EventDataReader.String(evt.Data, "result")));
             }
             else if (evt.EventType == Constants.EventTypes.WindowsUpdateServicing)
             {
                 servicing.Add(evt.Data != null
-                    ? new ServicingStep(evt.Timestamp, DataString(evt.Data, "package"), DataString(evt.Data, "step"), DataString(evt.Data, "targetState"))
+                    ? new ServicingStep(evt.Timestamp, EventDataReader.String(evt.Data, "package"), EventDataReader.String(evt.Data, "step"), EventDataReader.String(evt.Data, "targetState"))
                     : new ServicingStep(evt.Timestamp, null, null, null));
             }
         }
@@ -1151,9 +1146,6 @@ public static class TimeAttributionCalculator
             return null;
         }
     }
-
-    private static string? DataString(Dictionary<string, object> data, string key) =>
-        data.TryGetValue(key, out var value) ? value?.ToString() : null;
 
     /// <summary>
     /// Cuts the update and the wait for the user out of the phase spans and adds them as their

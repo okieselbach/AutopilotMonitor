@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
 
@@ -77,7 +78,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 if (string.Equals(evt.EventType, "esp_phase_changed", StringComparison.OrdinalIgnoreCase))
                 {
-                    lastEspPhase = TryGetDataString(evt, "espPhase") ?? lastEspPhase;
+                    lastEspPhase = EventDataReader.String(evt, "espPhase") ?? lastEspPhase;
                     lastEspPhaseAt = evt.Timestamp;
                 }
             }
@@ -91,12 +92,7 @@ namespace AutopilotMonitor.Functions.Services
             // ---- Hello policy ----------------------------------------------------------
             var helloPolicyEvt = ordered.FirstOrDefault(e =>
                 string.Equals(e.EventType, "hello_policy_detected", StringComparison.OrdinalIgnoreCase));
-            bool? helloPolicyEnabled = null;
-            if (helloPolicyEvt != null)
-            {
-                var raw = TryGetDataString(helloPolicyEvt, "helloEnabled");
-                if (bool.TryParse(raw, out var parsed)) helloPolicyEnabled = parsed;
-            }
+            var helloPolicyEnabled = EventDataReader.Bool(helloPolicyEvt, "helloEnabled");
 
             // ---- AAD join state — placeholder vs real user vs unknown ------------------
             // Sources (newest wins):
@@ -125,10 +121,10 @@ namespace AutopilotMonitor.Functions.Services
                 else if (aadJoinState == "unknown"
                          && string.Equals(et, "aad_join_status", StringComparison.OrdinalIgnoreCase))
                 {
-                    var isFoo = TryGetDataString(evt, "isFooUser");
-                    if (bool.TryParse(isFoo, out var foo))
+                    var isFoo = EventDataReader.Bool(evt, "isFooUser");
+                    if (isFoo.HasValue)
                     {
-                        aadJoinState = foo ? "placeholder" : "real_user";
+                        aadJoinState = isFoo.Value ? "placeholder" : "real_user";
                         aadJoinStateAt = evt.Timestamp;
                     }
                 }
@@ -148,14 +144,13 @@ namespace AutopilotMonitor.Functions.Services
                 if (string.Equals(et, "autopilot_profile", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(et, "enrollment_facts_observed", StringComparison.OrdinalIgnoreCase))
                 {
-                    var hybridRaw = TryGetDataString(evt, "isHybridJoin");
-                    if (bool.TryParse(hybridRaw, out var h)) isHybridJoin = h;
-                    enrollmentType ??= TryGetDataString(evt, "enrollmentType");
+                    isHybridJoin = EventDataReader.Bool(evt, "isHybridJoin") ?? isHybridJoin;
+                    enrollmentType ??= EventDataReader.String(evt, "enrollmentType");
                 }
                 else if (enrollmentType == null
                          && string.Equals(et, "enrollment_type_detected", StringComparison.OrdinalIgnoreCase))
                 {
-                    enrollmentType = TryGetDataString(evt, "enrollmentType");
+                    enrollmentType = EventDataReader.String(evt, "enrollmentType");
                 }
             }
 
@@ -248,13 +243,6 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             return JsonConvert.SerializeObject(snapshot, Formatting.None);
-        }
-
-        private static string? TryGetDataString(EnrollmentEvent evt, string key)
-        {
-            if (evt?.Data == null) return null;
-            if (!evt.Data.TryGetValue(key, out var raw) || raw == null) return null;
-            return raw.ToString();
         }
     }
 }
