@@ -24,13 +24,15 @@ public class RuleTemplateInterpolatorTests
 
     // ── Shared cases (tests/fixtures/rule-template-interpolation) ─────────
 
-    private static readonly Lazy<JObject> Fixture = new(() =>
+    private static readonly Lazy<JObject> Fixture = new(() => LoadFixture("rule-template-interpolation"));
+
+    private static JObject LoadFixture(string folder)
     {
-        var path = Path.Combine(FindRepoRoot(), "tests", "fixtures", "rule-template-interpolation", "cases.json");
+        var path = Path.Combine(FindRepoRoot(), "tests", "fixtures", folder, "cases.json");
         // No date parsing: a timestamp-looking string must stay the string the renderers see.
         return JsonConvert.DeserializeObject<JObject>(
             File.ReadAllText(path), new JsonSerializerSettings { DateParseHandling = DateParseHandling.None })!;
-    });
+    }
 
     public static IEnumerable<object[]> CaseNames()
         => Fixture.Value["cases"]!.Select(c => new object[] { c.Value<string>("name")! });
@@ -155,6 +157,24 @@ public class RuleTemplateInterpolatorTests
         // list is a statement about them and not about a catalog without placeholders.
         Assert.True(templated >= 10, $"Only {templated} built-in rules carry a placeholder — did the catalog load?");
         Assert.True(offenders.Count == 0, "Placeholder reached a notification:\n" + string.Join("\n", offenders));
+    }
+
+    // ── Shared display cases (tests/fixtures/rule-text-display) ──────────
+    // The portal prunes a finding's text the same way before it renders the markdown.
+
+    private static readonly Lazy<JObject> DisplayFixture = new(() => LoadFixture("rule-text-display"));
+
+    public static IEnumerable<object[]> DisplayCaseNames()
+        => DisplayFixture.Value["cases"]!.Select(c => new object[] { c.Value<string>("name")! });
+
+    [Theory]
+    [MemberData(nameof(DisplayCaseNames))]
+    public void InterpolateForNotification_prunes_like_the_shared_display_case(string name)
+    {
+        var testCase = DisplayFixture.Value["cases"]!.Single(c => c.Value<string>("name") == name);
+        Assert.Equal(
+            testCase.Value<string>("expected")!,
+            RuleTemplateInterpolator.InterpolateForNotification(testCase.Value<string>("text"), AsDictionaries(testCase["matchedConditions"] as JObject)));
     }
 
     // ── End to end: engine evidence → alert ───────────────────────────────

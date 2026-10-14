@@ -67,6 +67,9 @@ export const api = {
     // Incomplete sessions — the lane is simply omitted, nothing is re-derived client-side).
     timeAttribution: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/time-attribution${qs({ tenantId })}`,
+    // The session's verdict (DiagnosisHeadline, D-357): outcome, cause, failed step, culprits.
+    diagnosis: (sessionId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/diagnosis${qs({ tenantId })}`,
     markFailed: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/mark-failed${qs({ tenantId })}`,
     markSucceeded: (sessionId: string, tenantId?: string) =>

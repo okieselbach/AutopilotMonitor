@@ -983,6 +983,12 @@ export const SHARED_MANIFEST = {
       "app",
       "policy_provider"
     ],
+    "prerequisites": [
+      "account_setup_provisioning_complete",
+      "hello_resolution",
+      "desktop_arrival",
+      "realmjoin_resolution"
+    ],
     "caveats": [
       "agent_started_late",
       "agent_crashed",

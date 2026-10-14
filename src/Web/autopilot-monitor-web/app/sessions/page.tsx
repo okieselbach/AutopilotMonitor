@@ -20,7 +20,7 @@ import { api } from "@/lib/api";
 import { isGuid } from "@/lib/inputValidation";
 import { isTerminalStatus } from "@/lib/sessionStatus";
 import { hasTenantReadScope } from "@/lib/tenantScope";
-import { ApiError, fetchBlob, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
+import { ApiError, fetchBlob, fetchOk, jsonBody } from "@/lib/apiClient";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
 import { useAutoScroll } from "./hooks/useAutoScroll";
@@ -29,16 +29,17 @@ import { useSessionEvents } from "./hooks/useSessionEvents";
 import { useSessionSignalR } from "./hooks/useSessionSignalR";
 import { useSessionDerivedData } from "./hooks/useSessionDerivedData";
 import { useSessionTenantConfig } from "./hooks/useSessionTenantConfig";
+import { useSessionTimeAttribution } from "./hooks/useSessionTimeAttribution";
 
 import SessionInfoCard from "./components/SessionInfoCard";
 import DeviceHistoryBanner from "./components/DeviceHistoryBanner";
 import PhaseTimeline from "./components/PhaseTimeline";
-import TimeAttributionLane, { SessionTimeBreakdownDto } from "./components/TimeAttributionLane";
+import TimeAttributionLane from "./components/TimeAttributionLane";
 import OsUpdateLiveHint from "./components/OsUpdateLiveHint";
 import EventTimeline from "./components/EventTimeline";
 import AnalysisResultsSection from "./components/AnalysisResultsSection";
 import { DiagnosticsSetupHint } from "./components/DiagnosticsSetupHint";
-import { showDiagnosticsSetupHint, showInvestigateHint } from "./components/sessionHintsLogic";
+import { showDiagnosisButton, showDiagnosticsSetupHint, showInvestigateHint } from "./components/sessionHintsLogic";
 import { InvestigateWithAiHint } from "@/components/InvestigateWithAiHint";
 import VulnerabilityReportSection from "./components/VulnerabilityReportSection";
 import IntegrityBypassSection from "./components/IntegrityBypassSection";
@@ -58,7 +59,7 @@ import { fitsReportRequest } from "@/lib/reportAttachments";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetSessionTimeAttributionResponse, SubmitSessionReportRequest } from "@/lib/generated/wire-types.generated";
+import type { SubmitSessionReportRequest } from "@/lib/generated/wire-types.generated";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
@@ -152,31 +153,8 @@ function SessionDetailContent() {
   const { session, setSession, sessionTenantId, loading } = detail;
   const events = eventsApi.events;
 
-  // F1 time attribution: fetch the pre-computed breakdown once the session is terminal.
-  // A null breakdown is normal (pre-feature session, Incomplete — no wall clock) and simply
-  // omits the lane; the fetch is fail-soft (the phase timeline must never depend on it).
-  const [timeBreakdown, setTimeBreakdown] = useState<SessionTimeBreakdownDto | null>(null);
-  const sessionStatusForAttribution = session?.status;
-  useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
-    const run = async () => {
-      if (sessionStatusForAttribution !== "Succeeded" && sessionStatusForAttribution !== "Failed") {
-        setTimeBreakdown(null);
-        return;
-      }
-      try {
-        const effectiveTenantId = sessionTenantId || tenantIdOverride || undefined;
-        const json = await fetchJson<GetSessionTimeAttributionResponse>(api.sessions.timeAttribution(sessionId, effectiveTenantId), getAccessToken);
-        if (!cancelled) setTimeBreakdown(json.breakdown ?? null);
-      } catch {
-        // fail-soft: no lane
-      }
-    };
-    void run();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, sessionStatusForAttribution, sessionTenantId]);
+  // F1 time attribution (null for live, Incomplete and pre-feature sessions: no lane).
+  const timeBreakdown = useSessionTimeAttribution(sessionId, session?.status, sessionTenantId || tenantIdOverride, getAccessToken);
 
   // Cross-tenant read-only view: a delegated ("MSP") admin viewing a MANAGED tenant's session. The backend
   // permits the reads (MemberRead + ?tenantId=, rescued by the delegated scope) but rejects the mutations
@@ -406,27 +384,56 @@ function SessionDetailContent() {
     }
   };
 
-  // Handle #event-{eventId} hash fragment (e.g. from diagnosis page links)
+  // #event-{eventId}: diagnosis links, evidence chips, shared URLs. The target is kept until its
+  // row is on screen — a later page of events, a filtered severity, a collapsed phase or timeline
+  // never lose it; only a finished walk without the event gives up. Every state change runs in a
+  // timer callback (not the effect body), and the inner delay lets React commit the expansion
+  // before the DOM lookup.
+  const [eventTarget, setEventTarget] = useState<string | null>(null);
   useEffect(() => {
-    if (loading || events.length === 0) return;
-    const hash = window.location.hash;
-    if (!hash.startsWith("#event-")) return;
-    // Deferred so the expansion setState runs in a timer callback, not the effect body;
-    // the inner delay then lets React commit the expanded phases before the DOM lookup.
-    setTimeout(() => {
-      // Expand all phases so the event element is in the DOM
-      expandAll();
+    const read = () => {
+      const hash = window.location.hash;
+      setEventTarget(hash.startsWith("#event-") ? decodeURIComponent(hash.slice("#event-".length)) : null);
+    };
+    const initial = setTimeout(read, 0);
+    window.addEventListener("hashchange", read);
+    return () => {
+      clearTimeout(initial);
+      window.removeEventListener("hashchange", read);
+    };
+  }, []);
+
+  const initialWalkComplete = eventsApi.initialWalkComplete;
+  useEffect(() => {
+    if (!eventTarget) return;
+    const target = events.find((e) => e.eventId === eventTarget);
+    if (!target && !initialWalkComplete) return; // a later page may still carry it
+    const done = () => {
+      setEventTarget(null);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    };
+    const timer = setTimeout(() => {
+      if (!target) return done();
+      const severity = target.severity;
+      if (severity && severity !== "Trace" && !severityFilters.has(severity)) {
+        // Runs again once the filter shows the event's severity.
+        setSeverityFilters((prev) => new Set(prev).add(severity));
+        return;
+      }
+      setTimelineExpanded(true);
+      setCollapsedPhases(new Set());
       setTimeout(() => {
-        const el = document.getElementById(hash.slice(1));
+        const el = document.getElementById(`event-${eventTarget}`);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
           el.classList.add("ring-2", "ring-amber-400", "ring-offset-1");
           setTimeout(() => el.classList.remove("ring-2", "ring-amber-400", "ring-offset-1"), 3000);
         }
+        done();
       }, 100);
     }, 0);
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  }, [loading, events.length]);
+    return () => clearTimeout(timer);
+  }, [eventTarget, events, initialWalkComplete, severityFilters]);
 
   const togglePhase = (phaseName: string) => {
     setCollapsedPhases(prev => {
@@ -536,9 +543,12 @@ function SessionDetailContent() {
                 Download Diagnostics
               </button>
             )}
-            {session?.status === 'Failed' && !isReadOnlyView && (
+            {showDiagnosisButton(session?.status, analysis.analysisResults.filter((r) => !r.resolvedAt).length) && (
               <button
-                onClick={() => router.push(diagnosisUrl(sessionId))}
+                onClick={() => {
+                  trackEvent("session_diagnosis_clicked", { status: session?.status ?? "" });
+                  router.push(diagnosisUrl(sessionId, { tenantId: isCrossTenantView ? viewedTenantId : undefined }));
+                }}
                 className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors flex items-center gap-2 text-sm"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

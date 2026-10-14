@@ -47,3 +47,21 @@ export interface InvestigateHintInput {
 export function showInvestigateHint(input: InvestigateHintInput): boolean {
   return input.status === "Failed" && input.analysisLoaded && !input.loadingAnalysis && input.findingCount === 0;
 }
+
+/**
+ * The Diagnosis button: every session that ended without success or is stuck, and a success only
+ * while an analyze finding is open on it. Read-only viewers get it too — the page only reads.
+ */
+export function showDiagnosisButton(status: string | undefined, openFindingCount: number): boolean {
+  switch (status) {
+    case "Failed":
+    case "Stalled":
+    case "AwaitingUser":
+    case "Incomplete":
+      return true;
+    case "Succeeded":
+      return openFindingCount > 0;
+    default:
+      return false;
+  }
+}

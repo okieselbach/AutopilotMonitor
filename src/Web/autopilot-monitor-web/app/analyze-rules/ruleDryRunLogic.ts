@@ -1,4 +1,6 @@
 import type { RuleDryRun, RuleDryRunCondition } from "@/lib/generated/wire-types.generated";
+import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
+import { resolvePresentation, type PresentationTemplate, type ResolvedPresentation } from "@/lib/rulePresentation";
 import { formToDryRunRule, jsonToForm, type AnalyzeRule, type PastedAnalyzeJson, type RuleForm } from "./types";
 
 /** The editor's current draft, or why it cannot be tested yet (JSON that does not parse). */
@@ -20,6 +22,24 @@ export function editorDraft(jsonMode: boolean, jsonText: string, form: RuleForm,
     }
   }
   return { rule: { ...(stored ?? {}), ...formToDryRunRule(source) } };
+}
+
+/**
+ * The draft's presentation as one dry-run fills it in, and the labels of the facts this session did not
+ * record (a fact sharing its label with a filled alternative counts as filled). Null without a block.
+ */
+export function presentationPreview(
+  rule: Record<string, unknown>,
+  matchedConditions: Record<string, unknown> | null | undefined
+): { resolved: ResolvedPresentation; notRecorded: string[] } | null {
+  const template = rule.presentation as PresentationTemplate | null | undefined;
+  const explanation = typeof rule.explanation === "string" ? rule.explanation : null;
+  const resolved = resolvePresentation(template, matchedConditions, explanation, interpolateRuleTemplate);
+  if (!resolved) return null;
+  const notRecorded = (template?.facts ?? [])
+    .filter((f) => f?.label && !resolved.facts.some((r) => r.label === f.label))
+    .map((f) => f.label);
+  return { resolved, notRecorded: [...new Set(notRecorded)] };
 }
 
 /** Plain words for the dry-run verdicts (RuleDryRunVerdict on the backend); an unknown value shows as is. */

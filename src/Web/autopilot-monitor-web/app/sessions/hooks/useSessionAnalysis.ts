@@ -9,8 +9,11 @@ import { fetchJson } from "@/lib/apiClient";
 export function useSessionAnalysis(
   sessionId: string,
   sessionTenantId: string | null,
-  getAccessToken: (forceRefresh?: boolean) => Promise<string | null>
+  getAccessToken: (forceRefresh?: boolean) => Promise<string | null>,
+  /** withVulnerabilityReport false: a page without the report (diagnosis) never reads it, also not on pushes. */
+  opts?: { withVulnerabilityReport?: boolean }
 ) {
+  const withVulnerabilityReport = opts?.withVulnerabilityReport ?? true;
   const [analysisResults, setAnalysisResults] = useState<RuleResult[]>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   // True after the first successful read: before it (and after only failed reads) an empty list means
@@ -47,7 +50,7 @@ export function useSessionAnalysis(
   }, [sessionId, sessionTenantId, getAccessToken]);
 
   const fetchVulnerabilityReport = useCallback(async (rescan = false) => {
-    if (!sessionTenantId || !isGuid(sessionTenantId)) return;
+    if (!withVulnerabilityReport || !sessionTenantId || !isGuid(sessionTenantId)) return;
     try {
       const data = await fetchJson<GetVulnerabilityReportResponse>(
         api.sessions.vulnerabilityReport(sessionId, sessionTenantId, rescan || undefined),
@@ -57,7 +60,7 @@ export function useSessionAnalysis(
     } catch (error) {
       console.error("Failed to fetch vulnerability report:", error);
     }
-  }, [sessionId, sessionTenantId, getAccessToken]);
+  }, [withVulnerabilityReport, sessionId, sessionTenantId, getAccessToken]);
 
   // Initial fetch on mount / when sessionTenantId resolves. Without these calls the
   // page-reload path shows empty placeholders ("No issues detected yet" / "No vulnerability

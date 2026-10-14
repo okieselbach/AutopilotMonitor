@@ -25,6 +25,7 @@ describe("api path ids are percent-encoded", () => {
       (id) => api.sessions.analysis(id),
       (id) => api.sessions.vulnerabilityReport(id),
       (id) => api.sessions.timeAttribution(id),
+      (id) => api.sessions.diagnosis(id),
       (id) => api.sessions.markFailed(id),
       (id) => api.sessions.markSucceeded(id),
       (id) => api.sessions.queueAction(id),

@@ -158,6 +158,7 @@ public sealed class SharedManifestParityTests
                 ["culpritKinds"] = DiagnosisCulpritKinds.All,
                 ["culpritEvidence"] = DiagnosisCulpritEvidence.All,
                 ["waitKinds"] = DiagnosisWaitKinds.All,
+                ["prerequisites"] = DiagnosisPrerequisites.All,
                 ["caveats"] = DiagnosisCaveats.All,
             },
             ["eventTypes"] = ConstStrings(typeof(Constants.EventTypes)).OrderBy(s => s, StringComparer.Ordinal).ToArray(),

@@ -43,8 +43,8 @@ export function networkTimelineUrl(
   return withQuery("/sessions/network-timeline", { id: sessionId, tenantId: opts?.tenantId });
 }
 
-export function diagnosisUrl(sessionId: string): Route {
-  return withQuery("/diagnosis", { id: sessionId });
+export function diagnosisUrl(sessionId: string, opts?: { tenantId?: string }): Route {
+  return withQuery("/diagnosis", { id: sessionId, tenantId: opts?.tenantId });
 }
 
 /** `source` is the install channel; the Intune default ("ime") is left out of the URL. */

@@ -5,16 +5,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
-import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { isGuid } from "@/lib/inputValidation";
-import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
+import { ruleTextBlocks, type RuleBlock } from "@/lib/ruleText";
+import { RuleText } from "@/components/findings/RuleText";
+import { PresentationPreview } from "@/components/findings/PresentationView";
 import type {
   AnalyzeRule as AnalyzeRuleWire,
   DryRunAnalyzeRuleRequest,
   DryRunAnalyzeRuleResponse,
   RuleDryRun,
 } from "@/lib/generated/wire-types.generated";
-import { confidenceSummary, evidenceText, eventCountText, verdictLabel, type DryRunDraft } from "../ruleDryRunLogic";
+import { confidenceSummary, evidenceText, eventCountText, presentationPreview, verdictLabel, type DryRunDraft } from "../ruleDryRunLogic";
 
 interface RuleDryRunPanelProps {
   /** Reads the draft at click time from whichever mode the editor is in (form or JSON). */
@@ -25,7 +26,8 @@ interface RuleDryRunPanelProps {
 
 interface Outcome {
   result: RuleDryRun;
-  explanation: string;
+  explanation: RuleBlock[];
+  presentation: ReturnType<typeof presentationPreview>;
 }
 
 /**
@@ -61,10 +63,8 @@ export function RuleDryRunPanel({ getDraft, idPrefix }: RuleDryRunPanelProps) {
         body: jsonBody<DryRunAnalyzeRuleRequest>({ sessionId: id, rule: draft.rule as unknown as AnalyzeRuleWire }),
       });
       trackEvent("rule_dryrun_run", { verdict: data.result.verdict });
-      const explanation = typeof draft.rule.explanation === "string"
-        ? interpolateRuleTemplate(draft.rule.explanation, data.result.matchedConditions)
-        : "";
-      setOutcome({ result: data.result, explanation });
+      const explanation = typeof draft.rule.explanation === "string" ? ruleTextBlocks(draft.rule.explanation, data.result.matchedConditions) : [];
+      setOutcome({ result: data.result, explanation, presentation: presentationPreview(draft.rule, data.result.matchedConditions) });
     } catch (e) {
       setOutcome(null);
       setError(apiErrorText(e, "The test could not run."));
@@ -107,7 +107,7 @@ export function RuleDryRunPanel({ getDraft, idPrefix }: RuleDryRunPanelProps) {
 }
 
 function DryRunResult({ outcome }: { outcome: Outcome }) {
-  const { result, explanation } = outcome;
+  const { result, explanation, presentation } = outcome;
   const fired = result.verdict === "fired";
   return (
     <div className="mt-4">
@@ -158,10 +158,19 @@ function DryRunResult({ outcome }: { outcome: Outcome }) {
         })}
       </ul>
 
-      {fired && explanation && (
+      {fired && presentation && (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-gray-700">How the finding shows</p>
+          <div className="mt-1">
+            <PresentationPreview resolved={presentation.resolved} notRecorded={presentation.notRecorded} />
+          </div>
+        </div>
+      )}
+
+      {fired && explanation.length > 0 && (
         <div className="mt-3">
           <p className="text-xs font-medium text-gray-700">Explanation preview</p>
-          <p className="mt-1 text-sm text-gray-700 leading-relaxed">{formatInlineMarkdown(explanation)}</p>
+          <RuleText blocks={explanation} className="mt-1 space-y-2 text-sm leading-relaxed text-gray-700" />
         </div>
       )}
     </div>

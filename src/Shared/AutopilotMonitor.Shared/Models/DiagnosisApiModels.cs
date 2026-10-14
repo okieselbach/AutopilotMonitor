@@ -369,6 +369,28 @@ namespace AutopilotMonitor.Shared.Models
         public static readonly IReadOnlyList<string> All = new[] { Prerequisite, App, PolicyProvider };
     }
 
+    /// <summary>
+    /// Names of a <see cref="DiagnosisWaitKinds.Prerequisite"/> wait item: the completion prerequisites
+    /// the decision engine lists in <c>completion_waiting.missingPrerequisites</c>.
+    /// </summary>
+    public static class DiagnosisPrerequisites
+    {
+        /// <summary>The account setup phase of the ESP has not reported its end.</summary>
+        public const string AccountSetupProvisioningComplete = "account_setup_provisioning_complete";
+
+        /// <summary>Windows Hello has not been set up or skipped.</summary>
+        public const string HelloResolution = "hello_resolution";
+
+        /// <summary>The user has not reached the desktop.</summary>
+        public const string DesktopArrival = "desktop_arrival";
+
+        /// <summary>RealmJoin has not finished.</summary>
+        public const string RealmJoinResolution = "realmjoin_resolution";
+
+        /// <summary>Every prerequisite, the engine's order.</summary>
+        public static readonly IReadOnlyList<string> All = new[] { AccountSetupProvisioningComplete, HelloResolution, DesktopArrival, RealmJoinResolution };
+    }
+
     /// <summary>Values of <see cref="DiagnosisHeadline.Caveats"/>.</summary>
     public static class DiagnosisCaveats
     {

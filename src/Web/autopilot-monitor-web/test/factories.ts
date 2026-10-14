@@ -11,7 +11,7 @@
  * wire type AND still lets a test force `data: undefined` at runtime to probe
  * legacy-payload tolerance.
  */
-import type { EnrollmentEvent, Session } from "@/types";
+import type { EnrollmentEvent, RuleResult, Session } from "@/types";
 
 export function makeSession(overrides: Partial<Session> = {}): Session {
   return Object.assign(
@@ -80,6 +80,28 @@ export function makeEvent(overrides: Partial<EnrollmentEvent> = {}): EnrollmentE
       sequence: 1,
       timestampClamped: false,
       rowKey: "",
+    },
+    overrides,
+  );
+}
+
+export function makeRuleResult(overrides: Partial<RuleResult> = {}): RuleResult {
+  return Object.assign(
+    {
+      resultId: "result-1",
+      sessionId: "session-1",
+      tenantId: "tenant-1",
+      ruleId: "ANALYZE-TEST-001",
+      ruleTitle: "Test rule",
+      severity: "warning",
+      category: "apps",
+      confidenceScore: 80,
+      explanation: "",
+      remediation: [],
+      relatedDocs: [],
+      matchedConditions: {} as Record<string, unknown>,
+      detectedAt: "2026-10-13T14:45:00Z",
+      isInterim: false,
     },
     overrides,
   );

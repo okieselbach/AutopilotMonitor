@@ -1,3 +1,5 @@
+using System.Reflection;
+using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Functions.Services.Diagnosis;
 using AutopilotMonitor.Shared.Models;
 
@@ -473,7 +475,7 @@ public class DiagnosisHeadlineBuilderTests
     public void The_agent_timeout_is_the_agent_giving_up_and_lists_what_it_waited_for()
     {
         var events = new Timeline()
-            .Add("completion_waiting", new() { ["missingPrerequisites"] = "desktop_arrived,hello_resolved" })
+            .Add("completion_waiting", new() { ["missingPrerequisites"] = "desktop_arrival,hello_resolution" })
             .Add("app_tracking_summary", new()
             {
                 ["installingNames"] = new List<object> { "Contoso Notes" },
@@ -487,10 +489,23 @@ public class DiagnosisHeadlineBuilderTests
         Assert.Equal(DiagnosisCauses.AgentGaveUp, h.Cause);
         Assert.Null(h.FailedStep);
         Assert.Collection(h.Waiting!,
-            w => { Assert.Equal(DiagnosisWaitKinds.Prerequisite, w.Kind); Assert.Equal("desktop_arrived", w.Name); },
-            w => Assert.Equal("hello_resolved", w.Name),
+            w => { Assert.Equal(DiagnosisWaitKinds.Prerequisite, w.Kind); Assert.Equal(DiagnosisPrerequisites.DesktopArrival, w.Name); },
+            w => Assert.Equal(DiagnosisPrerequisites.HelloResolution, w.Name),
             w => { Assert.Equal(DiagnosisWaitKinds.App, w.Kind); Assert.Equal("Contoso Notes", w.Name); Assert.Equal("installing", w.State); },
             w => { Assert.Equal("Contoso Agent", w.Name); Assert.Equal("pending", w.State); });
+    }
+
+    [Fact]
+    public void The_prerequisite_names_are_the_decision_engines_literals()
+    {
+        // The engine's literal class is internal to DecisionCore; the portal's wait labels key on this list.
+        var literals = typeof(DecisionEngine).GetNestedType("CompletionPrerequisites", BindingFlags.NonPublic)!
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral)
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .OrderBy(s => s, StringComparer.Ordinal);
+
+        Assert.Equal(literals, DiagnosisPrerequisites.All.OrderBy(s => s, StringComparer.Ordinal));
     }
 
     [Fact]

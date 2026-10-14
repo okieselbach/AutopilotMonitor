@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { Session, RuleResult } from "@/types";
+import { Session } from "@/types";
+import { useLatest } from "@/hooks/useLatest";
 import { isTerminalStatus } from "@/lib/sessionStatus";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import { useSignalRResync } from "@/contexts/SignalRContext";
@@ -33,6 +34,8 @@ interface UseSessionSignalRParams {
   fetchSessionDetails: () => Promise<void>;
   fetchAnalysisResults: (reanalyze?: boolean) => Promise<void>;
   fetchVulnerabilityReport: (rescan?: boolean) => Promise<void>;
+  /** Called on every event or session push for this session (the diagnosis page refetches its verdict). */
+  onActivity?: () => void;
 }
 
 /**
@@ -54,6 +57,10 @@ export function applySessionUpdate(prev: Session, update: Partial<Session>): Ses
  *  - listens for eventStream, newevents, ruleResultsReady, vulnerabilityReportReady
  *  - re-reads the session, analysis and vulnerability report after every connection gap
  *  - cleans up groups + handlers on unmount / sessionId change
+ *
+ * The handlers are registered once per connection and call the fetch callbacks through refs:
+ * those callbacks capture the session tenant, which is still unknown on the first render, and a
+ * handler holding that render's copy would ignore every ruleResultsReady push.
  */
 export function useSessionSignalR({
   sessionId,
@@ -71,8 +78,13 @@ export function useSessionSignalR({
   fetchSessionDetails,
   fetchAnalysisResults,
   fetchVulnerabilityReport,
+  onActivity,
 }: UseSessionSignalRParams): void {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
+  const fetchAnalysis = useLatest(fetchAnalysisResults);
+  const fetchVulnerability = useLatest(fetchVulnerabilityReport);
+  const scheduleEvents = useLatest(scheduleFetchEvents);
+  const activity = useLatest(onActivity);
 
   // After every connection gap. The events come through the join catch-up below; the session
   // object (its status arrives as a newevents delta), the analysis and the vulnerability report
@@ -125,7 +137,7 @@ export function useSessionSignalR({
   useEffect(() => {
     // Listen for event stream signal — backend sends a lightweight signal (no event payload).
     // Frontend fetches fresh events from Table Storage on receipt: canonical truth, no gaps.
-    const handleEventStream = (data: { sessionId: string; tenantId: string; newEventCount: number; newRuleResults?: RuleResult[] }) => {
+    const handleEventStream = (data: { sessionId: string; tenantId: string; newEventCount: number }) => {
       console.log('Event stream signal received via SignalR:', data);
       if (data.sessionId !== sessionIdRef.current) return;
 
@@ -140,17 +152,13 @@ export function useSessionSignalR({
         // Fetch full events from storage (single source of truth); the scheduler coalesces bursts.
         // Session updates arrive via the "newevents" message (tenant group) — no session
         // object in this signal to keep payloads minimal.
-        scheduleFetchEvents();
+        scheduleEvents.current();
       }
 
       if (data.tenantId) {
         setSessionTenantId(prev => prev || data.tenantId);
       }
-
-      // Rule results from SignalR (only on enrollment completion)
-      if (data.newRuleResults && data.newRuleResults.length > 0) {
-        fetchAnalysisResults();
-      }
+      activity.current?.();
     };
 
     // Listen for session delta updates via the tenant group ("newevents").
@@ -165,20 +173,21 @@ export function useSessionSignalR({
       if (data.tenantId) {
         setSessionTenantId(prev => prev || data.tenantId);
       }
+      activity.current?.();
     };
 
     // Listen for async rule engine results (pushed after background analysis completes)
     const handleRuleResultsReady = (data: { sessionId: string; tenantId: string; ruleResultCount: number }) => {
       if (data.sessionId !== sessionIdRef.current) return;
       console.info(`[SessionDetail] ruleResultsReady signal: ${data.ruleResultCount} results`);
-      fetchAnalysisResults();
+      void fetchAnalysis.current();
     };
 
     // Listen for async vulnerability correlation results
     const handleVulnerabilityReportReady = (data: { sessionId: string; tenantId: string; overallRisk: string }) => {
       if (data.sessionId !== sessionIdRef.current) return;
       console.info(`[SessionDetail] vulnerabilityReportReady signal: risk=${data.overallRisk}`);
-      fetchVulnerabilityReport();
+      void fetchVulnerability.current();
     };
 
     on('eventStream', handleEventStream);
@@ -192,6 +201,5 @@ export function useSessionSignalR({
       off('ruleResultsReady', handleRuleResultsReady);
       off('vulnerabilityReportReady', handleVulnerabilityReportReady);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [on, off]);
+  }, [on, off, sessionIdRef, sessionRef, setSession, setSessionTenantId, scheduleEvents, activity, fetchAnalysis, fetchVulnerability]);
 }

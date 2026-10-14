@@ -1,0 +1,55 @@
+{
+  "cases": [
+    {
+      "name": "a list item whose token was not recorded is dropped",
+      "text": "Facts:\n\n- **Reason:** `{{reason}}`\n- **ESP error code:** `{{errorCode}}`",
+      "matchedConditions": { "sig": { "field": "reason", "value": "esp_terminal_failure" } },
+      "expected": "Facts:\n\n- **Reason:** `esp_terminal_failure`"
+    },
+    {
+      "name": "a token in running text that was not recorded shows a dash",
+      "text": "The sweep closed this session after `{{timeoutHours}}` hour(s) of inactivity.",
+      "matchedConditions": {},
+      "expected": "The sweep closed this session after `–` hour(s) of inactivity."
+    },
+    {
+      "name": "a sentence about literal placeholders is removed, the rest of the line stays",
+      "text": "Check the app. Any field still shown as `{{…}}` was not recorded.",
+      "matchedConditions": {},
+      "expected": "Check the app."
+    },
+    {
+      "name": "blank runs left by a dropped item collapse and the text is trimmed",
+      "text": "First.\n\n- item {{x}}\n\n\nLast.\n",
+      "matchedConditions": {},
+      "expected": "First.\n\nLast."
+    },
+    {
+      "name": "numbered items are list items too",
+      "text": "1. Open {{appName}} in Intune\n2. Retry the enrollment",
+      "matchedConditions": {},
+      "expected": "2. Retry the enrollment"
+    },
+    {
+      "name": "recorded values fill list items and running text",
+      "text": "{{appName}} failed.\n\n- Starts: {{retry.count}}\n- Code: `{{errorCode}}`",
+      "matchedConditions": {
+        "failed": { "field": "appName", "value": "Contoso Notes", "errorCode": "0x80070652" },
+        "retry": { "count": 4 }
+      },
+      "expected": "Contoso Notes failed.\n\n- Starts: 4\n- Code: `0x80070652`"
+    },
+    {
+      "name": "windows line endings are normalized",
+      "text": "A.\r\nB {{x}}.",
+      "matchedConditions": {},
+      "expected": "A.\nB –."
+    },
+    {
+      "name": "a text without tokens passes unchanged",
+      "text": "**Bold** and `code`.\n\n- one\n- two",
+      "matchedConditions": null,
+      "expected": "**Bold** and `code`.\n\n- one\n- two"
+    }
+  ]
+}

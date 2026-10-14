@@ -4,8 +4,9 @@ import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { RuleResult } from "@/types";
-import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
-import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
+import { ruleStepInlines, ruleTextBlocks } from "@/lib/ruleText";
+import { RuleInlines, RuleText } from "@/components/findings/RuleText";
+import { EvidenceChips } from "@/components/findings/EvidenceChips";
 import { api } from "@/lib/api";
 import { dashboardUrl } from "@/lib/routes";
 import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
@@ -360,27 +361,29 @@ function AnalysisResultCard({
           {result.explanation && (
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-1">Explanation</h4>
-              <p className="text-sm text-gray-600">
-                {formatInlineMarkdown(interpolateRuleTemplate(result.explanation, result.matchedConditions))}
-              </p>
+              <RuleText blocks={ruleTextBlocks(result.explanation, result.matchedConditions)} className="space-y-2 text-sm text-gray-600" />
             </div>
           )}
 
           {result.remediation && result.remediation.length > 0 && (
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-1">Remediation</h4>
-              {result.remediation.map((rem, i) => (
-                <div key={i} className="mb-2">
-                  <p className="text-sm font-medium text-gray-600">
-                    {interpolateRuleTemplate(rem.title, result.matchedConditions)}
-                  </p>
-                  <ul className="list-disc list-inside text-sm text-gray-600 ml-2">
-                    {rem.steps.map((step, j) => (
-                      <li key={j}>{interpolateRuleTemplate(step, result.matchedConditions)}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              {result.remediation.map((rem, i) => {
+                // A step that names a value this session did not record is dropped, like a list item.
+                const steps = rem.steps.map((step) => ruleStepInlines(step, result.matchedConditions)).filter((s) => s !== null);
+                return (
+                  <div key={i} className="mb-2">
+                    <RuleText blocks={ruleTextBlocks(rem.title, result.matchedConditions)} className="text-sm font-medium text-gray-600" />
+                    <ul className="list-disc list-inside text-sm text-gray-600 ml-2">
+                      {steps.map((step, j) => (
+                        <li key={j}>
+                          <RuleInlines inlines={step} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -411,7 +414,7 @@ function AnalysisResultCard({
           {result.matchedConditions && Object.keys(result.matchedConditions).length > 0 && (
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-1">Evidence</h4>
-              <EvidenceEventLinks matchedConditions={result.matchedConditions} />
+              <EvidenceChips matchedConditions={result.matchedConditions} onSelect={openEventInTimeline} />
               <div className="p-2 bg-gray-900 rounded text-xs text-gray-100 font-mono overflow-x-auto">
                 <pre>{JSON.stringify(result.matchedConditions, null, 2)}</pre>
               </div>
@@ -423,49 +426,10 @@ function AnalysisResultCard({
   );
 }
 
-function scrollToEvent(eventId: string) {
-  const el = document.getElementById(`event-${eventId}`);
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("ring-2", "ring-amber-400", "ring-offset-1");
-    setTimeout(() => el.classList.remove("ring-2", "ring-amber-400", "ring-offset-1"), 3000);
-  }
-}
-
-function EvidenceEventLinks({ matchedConditions }: { matchedConditions: Record<string, unknown> }) {
-  const eventLinks: { signal: string; eventId: string; eventType?: string }[] = [];
-  const seenEventIds = new Set<string>();
-
-  for (const [signal, evidenceRaw] of Object.entries(matchedConditions)) {
-    if (signal.startsWith("factor_")) continue;
-    // Evidence values are rule-engine JSON; only object-shaped entries carry event links.
-    const evidence = evidenceRaw as { eventId?: string; eventType?: string } | string | null;
-    if (evidence && typeof evidence === "object" && evidence.eventId) {
-      // Multiple matched conditions can extract different fields from the
-      // same event — one chip per distinct event, not per condition.
-      if (seenEventIds.has(evidence.eventId)) continue;
-      seenEventIds.add(evidence.eventId);
-      eventLinks.push({ signal, eventId: evidence.eventId, eventType: evidence.eventType });
-    }
-  }
-
-  if (eventLinks.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-2 mb-2">
-      {eventLinks.map(({ signal, eventId, eventType }) => (
-        <button
-          key={signal}
-          onClick={() => scrollToEvent(eventId)}
-          className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors"
-          title={`Jump to event ${eventId}`}
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-          <span>{eventType || signal}</span>
-        </button>
-      ))}
-    </div>
-  );
+/**
+ * The page's #event- handler expands the event's phase, unhides a filtered severity and waits for a
+ * later page of events — a direct DOM lookup here missed every row that was not on screen yet.
+ */
+function openEventInTimeline(eventId: string) {
+  window.location.hash = `event-${encodeURIComponent(eventId)}`;
 }

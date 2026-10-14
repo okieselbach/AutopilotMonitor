@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  showDiagnosisButton,
   showDiagnosticsSetupHint,
   showInvestigateHint,
   type DiagnosticsSetupHintInput,
@@ -47,5 +48,21 @@ describe("showInvestigateHint", () => {
     ["an open or resolved finding", { findingCount: 1 }],
   ])("stays hidden for %s", (_label, patch) => {
     expect(showInvestigateHint({ ...investigate, ...patch })).toBe(false);
+  });
+});
+
+describe("showDiagnosisButton", () => {
+  it.each([
+    ["Failed", 0, true],
+    ["Stalled", 0, true],
+    ["AwaitingUser", 0, true],
+    ["Incomplete", 0, true],
+    ["Succeeded", 0, false],
+    ["Succeeded", 2, true],
+    ["InProgress", 3, false],
+    ["Pending", 1, false],
+    [undefined, 0, false],
+  ] as const)("%s with %d open findings → %s", (status, open, expected) => {
+    expect(showDiagnosisButton(status, open)).toBe(expected);
   });
 });

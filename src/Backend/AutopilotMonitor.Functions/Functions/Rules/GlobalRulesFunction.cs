@@ -170,10 +170,23 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             _logger.LogInformation("Global admin updating analyze rule {RuleId} for tenant {TenantId}", ruleId, tenantId);
 
-            var success = await _analyzeRuleService.UpdateRuleAsync(tenantId, rule);
-            var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule updated" : "Failed to update rule" });
-            return response;
+            // Same answers as the tenant route: the service rejects an invalid rule (presentation,
+            // evaluateOn, related docs) with ArgumentException and a stale write with InvalidOperationException.
+            try
+            {
+                var success = await _analyzeRuleService.UpdateRuleAsync(tenantId, rule);
+                var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule updated" : "Failed to update rule" });
+                return response;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return await req.ConflictAsync(ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return await req.BadRequestAsync(ex.Message);
+            }
         }
 
         /// <summary>

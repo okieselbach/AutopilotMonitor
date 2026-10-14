@@ -7,7 +7,9 @@ import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { RuleDryRunPanel } from "./RuleDryRunPanel";
 import { editorDraft } from "../ruleDryRunLogic";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
-import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
+import { parseInline, parseRuleText } from "@/lib/ruleText";
+import { RuleInlines, RuleText } from "@/components/findings/RuleText";
+import { PresentationTemplateView } from "@/components/findings/PresentationView";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
 import { SPARKLINE_BARS, sparklineBars } from "@/lib/ruleSparkline";
 
@@ -430,10 +432,18 @@ export default function AnalyzeRuleCard({
             </div>
           </div>
 
+          {rule.presentation && (
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-1">How a finding shows</h4>
+              <PresentationTemplateView presentation={rule.presentation} />
+            </div>
+          )}
+
           {rule.explanation && (
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-1">Explanation</h4>
-              <p className="text-sm text-gray-600 leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3">{formatInlineMarkdown(rule.explanation)}</p>
+              {/* The template as written: tokens are filled in per session. */}
+              <RuleText blocks={parseRuleText(rule.explanation)} className="space-y-2 text-sm text-gray-600 leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3" />
             </div>
           )}
 
@@ -445,7 +455,7 @@ export default function AnalyzeRuleCard({
                   <div key={idx} className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <h5 className="text-sm font-semibold text-green-800 mb-2">{rem.title}</h5>
                     <ol className="list-decimal list-inside space-y-1">
-                      {rem.steps.map((step, sIdx) => (<li key={sIdx} className="text-sm text-green-700">{step}</li>))}
+                      {rem.steps.map((step, sIdx) => (<li key={sIdx} className="text-sm text-green-700"><RuleInlines inlines={parseInline(step)} /></li>))}
                     </ol>
                   </div>
                 ))}

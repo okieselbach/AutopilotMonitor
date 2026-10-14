@@ -1,865 +1,291 @@
 "use client";
 
-import { sessionUrl } from "@/lib/routes";
-import { Suspense, useCallback, useEffect, useState, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useSignalR, useSignalRResync } from "../../contexts/SignalRContext";
-import { useTenant } from "../../contexts/TenantContext";
-import { useAuth } from "../../contexts/AuthContext";
-import { useNotifications } from "../../contexts/NotificationContext";
-import { ProtectedRoute } from "../../components/ProtectedRoute";
-import { api } from "@/lib/api";
-import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
-import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
-import { ConfidenceBadge, SeverityBadge } from "./components/DiagnosisBadges";
-import { Session, EnrollmentEvent, RuleResult } from "@/types";
-import { useAdminMode } from "@/hooks/useAdminMode";
-import { isGuid } from "@/lib/inputValidation";
-import { safeHttpUrl } from "@/lib/safeDocUrl";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { DocsLink } from "@/components/DocsLink";
 import { InvestigateWithAiHint } from "@/components/InvestigateWithAiHint";
+import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
+import { useSignalR } from "@/contexts/SignalRContext";
+import { useTenant } from "@/contexts/TenantContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/contexts/NotificationContext";
+import { useAdminMode } from "@/hooks/useAdminMode";
+import { useCopy } from "@/hooks/useCopy";
+import { trackEvent } from "@/lib/appInsights";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetRuleResultsResponse, GetSessionEventsResponse, GetSessionResponse } from "@/lib/generated/wire-types.generated";
-import { fetchJson } from "@/lib/apiClient";
-import { notifyApiError } from "@/contexts/NotificationContext";
+import { asGuidOrUndefined, isGuid } from "@/lib/inputValidation";
+import { isTerminalStatus } from "@/lib/sessionStatus";
+import { diagnosisUrl, sessionUrl } from "@/lib/routes";
+import { hasTenantReadScope } from "@/lib/tenantScope";
+import { useSessionDetail } from "../sessions/hooks/useSessionDetail";
+import { useSessionAnalysis } from "../sessions/hooks/useSessionAnalysis";
+import { useSessionEvents } from "../sessions/hooks/useSessionEvents";
+import { useSessionSignalR } from "../sessions/hooks/useSessionSignalR";
+import { useSessionTimeAttribution } from "../sessions/hooks/useSessionTimeAttribution";
+import { useSessionDiagnosis } from "./hooks/useSessionDiagnosis";
+import VerdictCard from "./components/VerdictCard";
+import ContextSection from "./components/ContextSection";
+import StepsSection from "./components/StepsSection";
+import TimeSection from "./components/TimeSection";
+import FindingsSection from "./components/FindingsSection";
+import NotesSection from "./components/NotesSection";
+import ProblemsSection from "./components/ProblemsSection";
+import { verdictText } from "./lib/verdictText";
+import { groupFindings } from "./lib/findingGroups";
+import { contextItems } from "./lib/contextItems";
+import { copySummary, stepsFrom, stepsPlain } from "./lib/steps";
+import { timeLanes } from "./lib/timeLanes";
+import { keyEvents, problemEvents } from "./lib/eventLists";
+
+/** How long after the end a session without findings may still be in its queued analysis. */
+const ANALYSIS_GRACE_MS = 5 * 60_000;
 
 export default function DiagnosisPage() {
-  // useSearchParams() in DiagnosisContent requires a Suspense boundary for static prerender.
+  // useSearchParams() requires a Suspense boundary for the static prerender.
   return (
     <Suspense fallback={null}>
-      <DiagnosisContent />
+      <DiagnosisRoute />
     </Suspense>
   );
 }
 
-function DiagnosisContent() {
+/**
+ * Identity from the query (`?id=&tenantId=`). The content is keyed by the session: the session hooks
+ * keep their state across an id change, and the verdict links to other sessions (superseded).
+ */
+function DiagnosisRoute() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  // Deep-link value is percent-decoded by useSearchParams; only a GUID may reach the API builders.
-  const sessionId = (isGuid(searchParams?.get("id")) ? searchParams!.get("id")!.trim() : "") as string;
+  // Percent-decoded deep-link values: only GUIDs may reach the API builders.
+  const raw = searchParams.get("id") ?? "";
+  const sessionId = isGuid(raw) ? raw.trim() : "";
+  const tenantIdOverride = asGuidOrUndefined(searchParams.get("tenantId"));
+  return <DiagnosisContent key={sessionId} requestedSessionId={sessionId} tenantIdOverride={tenantIdOverride} />;
+}
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [sessionTenantId, setSessionTenantId] = useState<string | null>(null);
-  const [events, setEvents] = useState<EnrollmentEvent[]>([]);
-  const [analysisResults, setAnalysisResults] = useState<RuleResult[]>([]);
-  // Any stored finding, resolved ones included: only a session without any may say "no rule flagged it".
-  const [hasAnyRuleResult, setHasAnyRuleResult] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [expandedResult, setExpandedResult] = useState<string | null>(null);
-  const [showEvidence, setShowEvidence] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const hasInitialFetch = useRef(false);
-  const lastFetchedSessionId = useRef<string | null>(null);
-  const sessionIdRef = useRef(sessionId);
-  // Eager tenant hydration lets the session + analysis fetches run in parallel,
-  // so the loading gate must wait for BOTH — otherwise a fast analysis response
-  // (or a slow/failed session fetch) would clear loading while `session` is
-  // still null and the page would flash a wrong IN PROGRESS / empty state.
-  const sessionFetchDone = useRef(false);
-  const analysisFetchDone = useRef(false);
-
-  const finishLoadingWhenSettled = useCallback(() => {
-    if (sessionFetchDone.current && analysisFetchDone.current) {
-      setLoading(false);
-    }
-  }, []);
-
+function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedSessionId: string; tenantIdOverride?: string }) {
+  const { getAccessToken, user } = useAuth();
+  // A member without a tenant role sees ProtectedRoute's notice; the empty id keeps the hooks inert.
+  const sessionId = !user || hasTenantReadScope(user) ? requestedSessionId : "";
+  const { globalAdminMode } = useAdminMode();
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
-  const { getAccessToken, user } = useAuth();
   const { addNotification } = useNotifications();
-  
-  const { globalAdminMode } = useAdminMode();
+  const { copied, copy } = useCopy();
 
-  // Declared ahead of the effects that call them (react-hooks/immutability:
-  // a later declaration would freeze the effect's view of the binding).
-  const fetchSessionDetails = useCallback(async () => {
-    try {
-      // Fetch the single session directly instead of pulling the entire session
-      // list and .find()-ing client-side. The backend resolves the tenant via
-      // ResolveSessionTenantIdAsync for global admins when tenantId is omitted.
-      const knownTenantId = sessionTenantId || (!globalAdminMode ? tenantId : null);
-      const endpoint =
-        knownTenantId && isGuid(knownTenantId)
-          ? api.sessions.get(sessionId, knownTenantId)
-          : api.sessions.get(sessionId);
-      const data = await fetchJson<GetSessionResponse>(endpoint, getAccessToken);
-      const found = data.session;
-      if (found) {
-        setSession(found);
-        setSessionTenantId(found.tenantId);
-      }
-    } catch (error) {
-      console.error("Failed to fetch session details:", error);
-      notifyApiError(addNotification, 'Backend Error', error, 'diagnosis-fetch-error', 'Unable to load session details.');
-    } finally {
-      sessionFetchDone.current = true;
-      finishLoadingWhenSettled();
-    }
-  }, [sessionId, sessionTenantId, tenantId, globalAdminMode, getAccessToken, finishLoadingWhenSettled, addNotification]);
-
-  // After every connection gap the session object is re-read; events and analysis come through
-  // the join catch-up below.
-  useSignalRResync(() => {
-    if (sessionId) void fetchSessionDetails();
+  const detail = useSessionDetail({ sessionId, tenantId, globalAdminMode, tenantIdOverride, user, getAccessToken, addNotification });
+  const analysis = useSessionAnalysis(sessionId, detail.sessionTenantId, getAccessToken, { withVulnerabilityReport: false });
+  const eventsApi = useSessionEvents({
+    sessionId,
+    sessionTenantId: detail.sessionTenantId,
+    sessionStatus: detail.session?.status ?? null,
+    resolveEffectiveTenantId: detail.resolveEffectiveTenantId,
+    sessionRef: detail.sessionRef,
+    fetchSessionDetails: detail.fetchSessionDetails,
+    setLoading: detail.setLoading,
+    isConnected,
+    getAccessToken,
+    addNotification,
+  });
+  const diagnosis = useSessionDiagnosis(sessionId, detail.sessionTenantId, getAccessToken);
+  useSessionSignalR({
+    sessionId,
+    sessionTenantId: detail.sessionTenantId,
+    tenantId,
+    sessionTenantIdFromSession: detail.session?.tenantId,
+    globalAdminMode,
+    sessionIdRef: detail.sessionIdRef,
+    sessionRef: detail.sessionRef,
+    resolveEffectiveTenantId: detail.resolveEffectiveTenantId,
+    signalR: { on, off, isConnected, joinGroup, leaveGroup },
+    scheduleFetchEvents: eventsApi.scheduleFetchEvents,
+    setSession: detail.setSession,
+    setSessionTenantId: detail.setSessionTenantId,
+    fetchSessionDetails: detail.fetchSessionDetails,
+    fetchAnalysisResults: analysis.fetchAnalysisResults,
+    fetchVulnerabilityReport: analysis.fetchVulnerabilityReport,
+    onActivity: diagnosis.scheduleRefetch,
   });
 
-  const fetchEvents = useCallback(async () => {
-    const effectiveTenantId = sessionTenantId || tenantId;
-    try {
-      const data = await fetchJson<GetSessionEventsResponse>(api.sessions.events(sessionId, effectiveTenantId), getAccessToken);
-      // No `fields` projection on this read, so every event is complete.
-      setEvents((data.events || []) as EnrollmentEvent[]);
-    } catch (error) {
-      console.error("Failed to fetch events:", error);
-      notifyApiError(addNotification, 'Backend Error', error, 'diagnosis-events-error', 'Unable to load session events.');
-    }
-  }, [sessionId, sessionTenantId, tenantId, getAccessToken, addNotification]);
+  const session = detail.session;
+  const breakdown = useSessionTimeAttribution(sessionId, session?.status, detail.sessionTenantId || tenantIdOverride, getAccessToken);
+  const headline = diagnosis.headline;
 
-  const fetchAnalysisResults = useCallback(async () => {
-    const effectiveTenantId = sessionTenantId || tenantId;
-    try {
-      const data = await fetchJson<GetRuleResultsResponse>(api.sessions.analysis(sessionId, effectiveTenantId), getAccessToken);
-      {
-        if (data.results) {
-          setHasAnyRuleResult(data.results.length > 0);
-          // Resolved findings (no longer detected by a later evaluation) are audit-only —
-          // the diagnosis flow must not present them as the probable cause.
-          setAnalysisResults(
-            data.results
-              .filter((r: RuleResult) => !r.resolvedAt)
-              .sort(
-                (a: RuleResult, b: RuleResult) =>
-                  b.confidenceScore - a.confidenceScore
-              )
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Failed to fetch analysis results:", error);
-    } finally {
-      analysisFetchDone.current = true;
-      finishLoadingWhenSettled();
-    }
-  }, [sessionId, sessionTenantId, tenantId, getAccessToken, finishLoadingWhenSettled]);
+  // Links keep the tenant of a cross-tenant view (Global Admin, MSP drill-in).
+  const viewedTenantId = (session?.tenantId ?? detail.sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
+  const crossTenant = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
+  const linkTenant = crossTenant ? viewedTenantId : undefined;
+  const eventHref = (eventId: string) => sessionUrl(sessionId, { tenantId: linkTenant, hash: `event-${eventId}` });
 
+  const results = analysis.analysisResults;
+  const groups = useMemo(() => groupFindings(results, headline?.outcome ?? "unknown", headline?.culprits), [results, headline]);
+  const verdict = useMemo(() => (headline ? verdictText(headline) : null), [headline]);
+  const steps = useMemo(() => stepsFrom(groups), [groups]);
+  const context = useMemo(() => contextItems(groups.context, headline?.caveats), [groups, headline]);
+  const lanes = useMemo(
+    () =>
+      timeLanes(breakdown, {
+        failedCategory: headline?.failedStep?.category,
+        failure: headline?.failedStep ? { at: headline.failedStep.at, label: headline.failedStep.category ? "ESP failed" : "Failed" } : null,
+        culprits: headline?.culprits,
+      }),
+    [breakdown, headline]
+  );
+  const key = useMemo(() => keyEvents(eventsApi.events, headline?.culprits), [eventsApi.events, headline]);
+  const problems = useMemo(() => problemEvents(eventsApi.events), [eventsApi.events]);
+
+  // The end-of-enrollment analysis runs from a queue, and a run without findings pushes nothing:
+  // for a few minutes after the end "no findings" may still mean "not analyzed yet".
+  const completedAt = session?.completedAt;
+  const [analysisMayRun, setAnalysisMayRun] = useState(false);
   useEffect(() => {
-    if (!sessionId) return;
-    if (!globalAdminMode && !tenantId) return; // wait for real tenant ID
-    const run = async () => {
-      sessionIdRef.current = sessionId;
-      if (lastFetchedSessionId.current !== sessionId) {
-        hasInitialFetch.current = false;
-        lastFetchedSessionId.current = sessionId;
-        sessionFetchDone.current = false;
-        analysisFetchDone.current = false;
-        setSessionTenantId(null);
-        setLoading(true);
-      }
-      if (hasInitialFetch.current) return;
-      hasInitialFetch.current = true;
-
-      // Performance: eager-set sessionTenantId from TenantContext when known, so
-      // the events/analysis effect fires in parallel with fetchSessionDetails
-      // instead of waiting for its roundtrip — eliminates the fetch waterfall.
-      // Global Admins in all-tenant view fall through with null (backend resolves
-      // the tenant from the session itself).
-      if (!globalAdminMode && isGuid(tenantId)) {
-        setSessionTenantId(tenantId);
-      }
-
-      await fetchSessionDetails();
-    };
-    void run();
-  }, [sessionId, tenantId, globalAdminMode, fetchSessionDetails]);
-
-  useEffect(() => {
-    if (sessionTenantId && sessionId) {
-      const run = async () => {
-        await Promise.all([fetchEvents(), fetchAnalysisResults()]);
-      };
-      void run();
-    }
-  }, [sessionTenantId, sessionId, fetchEvents, fetchAnalysisResults]);
-
-  // SignalR groups - subscribe-then-fetch pattern
-  useEffect(() => {
-    const effectiveTenantId = sessionTenantId || tenantId;
-    if (!sessionId || !isConnected || !effectiveTenantId) return;
-    const group = `session-${effectiveTenantId}-${sessionId}`;
-    // Cleared by the cleanup: a run superseded while its join was in flight (typically because
-    // sessionTenantId resolved) must not fetch on behalf of the run that replaced it.
-    let current = true;
-    const joinAndCatchUp = async () => {
-      await joinGroup(group);
-      if (!current) return;
-      // Re-fetch after group join to catch any missed during join
-      void Promise.all([fetchEvents(), fetchAnalysisResults()]);
-    };
-    void joinAndCatchUp();
-    // Every run that joined leaves in its own cleanup: group membership is reference-counted in
-    // the SignalR layer, and a leave that arrives before the join resolved is settled there.
+    if (!completedAt) return;
+    const left = Date.parse(completedAt) + ANALYSIS_GRACE_MS - Date.now();
+    const start = setTimeout(() => setAnalysisMayRun(left > 0), 0);
+    const end = left > 0 ? setTimeout(() => setAnalysisMayRun(false), left) : undefined;
     return () => {
-      current = false;
-      leaveGroup(group);
+      clearTimeout(start);
+      if (end) clearTimeout(end);
     };
-  }, [sessionId, isConnected, sessionTenantId, tenantId, joinGroup, leaveGroup, fetchEvents, fetchAnalysisResults]);
+  }, [completedAt]);
 
-  // Real-time analysis updates
+  const reported = useRef(false);
   useEffect(() => {
-    // eventStream carries { sessionId, tenantId, newEventCount, newRuleResults } — the full
-    // session object was removed from the payload long ago (see useSessionSignalR), so only
-    // the rule-result delta is consumed here.
-    const handleEventStream = (data: {
-      sessionId: string;
-      newRuleResults?: RuleResult[];
-    }) => {
-      if (data.sessionId !== sessionIdRef.current) return;
-      if (data.newRuleResults?.length) {
-        setAnalysisResults((prev) => {
-          const existingIds = new Set(prev.map((r) => r.ruleId));
-          const newResults = data.newRuleResults!.filter(
-            (r) => !existingIds.has(r.ruleId)
-          );
-          return [...prev, ...newResults].sort(
-            (a, b) => b.confidenceScore - a.confidenceScore
-          );
-        });
-      }
-    };
-    on("eventStream", handleEventStream);
-    return () => {
-      off("eventStream", handleEventStream);
-    };
-  }, [on, off]);
+    if (!headline || reported.current) return;
+    reported.current = true;
+    trackEvent("diagnosis_opened", { status: session?.status ?? "", outcome: headline.outcome, cause: headline.cause });
+  }, [headline, session?.status]);
 
-  const copyRemediation = (result: RuleResult) => {
-    const text = result.remediation
-      .map((r) => {
-        const title = interpolateRuleTemplate(r.title, result.matchedConditions);
-        const steps = r.steps
-          .map((s) => `  - ${interpolateRuleTemplate(s, result.matchedConditions)}`)
-          .join("\n");
-        return `${title}\n${steps}`;
-      })
-      .join("\n\n");
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(result.ruleId);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
+  useEffect(() => {
+    const label = session?.deviceName || session?.serialNumber;
+    document.title = label ? `Diagnosis · ${label} | Autopilot Monitor` : "Diagnosis | Autopilot Monitor";
+    return () => {
+      document.title = "Autopilot Monitor";
+    };
+  }, [session?.deviceName, session?.serialNumber]);
+
+  const openCount = groups.outcome.length + groups.primary.items.length + groups.context.length + groups.other.length;
+  const analysisNote = !analysis.analysisLoaded
+    ? "Loading findings…"
+    : openCount > 0
+      ? null
+      : !isTerminalStatus(session?.status)
+        ? "Findings appear here while the enrollment runs."
+        : analysisMayRun
+          ? "The analysis is still running; findings appear here when it finishes."
+          : "No analyze rule fired for this session.";
+
+  const timelineEventId = headline?.failedStep?.eventId ?? headline?.culprits?.find((c) => c.eventId)?.eventId;
+  const device = session?.deviceName || session?.serialNumber || null;
+
+  const onCopySummary = () => {
+    if (!headline || !verdict) return;
+    trackEvent("diagnosis_action", { action: "copy_summary" });
+    void copy(copySummary({ verdict, headline, device, steps, url: window.location.href }), "summary");
+  };
+  const onCopySteps = () => {
+    if (!steps) return;
+    trackEvent("diagnosis_action", { action: "copy_steps" });
+    void copy(stepsPlain(steps), "steps");
   };
 
-  // Derive error/warning events for evidence
-  const errorEvents = events.filter(
-    (e) => e.severity === "Error" || e.severity === "Critical"
-  );
-  const warningEvents = events.filter((e) => e.severity === "Warning");
-
-  // Keep this early-return wrapped in <ProtectedRoute>: on a fresh direct
-  // navigation (new tab, bookmark, shared link) the auth cache is empty, so the
-  // tenant-gated fetch never runs and `loading` stays true forever. Without the
-  // gate here we'd hang on "Loading diagnosis..." and never trigger the MSAL
-  // login redirect. See the matching note in app/sessions/[sessionId]/page.tsx.
-  if (loading) {
-    return (
-      <ProtectedRoute>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-gray-600">Loading diagnosis...</div>
-        </div>
-      </ProtectedRoute>
-    );
-  }
-
-  const primaryResult = analysisResults[0] || null;
-  // Global Admin / MSP drill-in into another tenant's session: the copied prompt names the tenant, and
-  // the actions that stay in the viewer's own tenant (dry-run as Tenant Admin, Report Session) drop out.
-  const crossTenant = !!sessionTenantId && !!tenantId && sessionTenantId.toLowerCase() !== tenantId.toLowerCase();
-  const otherResults = analysisResults.slice(1);
-  const primaryDocUrl = safeHttpUrl(primaryResult?.relatedDocs?.[0]?.url);
-
-  const statusLabel =
-    session?.status === "Failed"
-      ? "FAILED"
-      : session?.status === "Succeeded"
-      ? "SUCCEEDED"
-      : "IN PROGRESS";
-
-  const statusColor =
-    session?.status === "Failed"
-      ? "text-red-600"
-      : session?.status === "Succeeded"
-      ? "text-green-600"
-      : "text-blue-600";
-
   return (
-    <ProtectedRoute>
+    <ProtectedRoute requireTenantReadScope>
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
         <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <button
-                  onClick={() => router.back()}
-                  className="text-sm text-gray-600 hover:text-gray-900 mb-2 flex items-center"
-                >
-                  &larr; Back
-                </button>
-                <div className="flex items-center space-x-3">
-                  <svg
-                    className="w-8 h-8 text-amber-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                  <div>
-                    <h1 className="text-2xl font-normal text-gray-900">
-                      Diagnosis
-                    </h1>
-                    <p className="text-sm text-gray-500">
-                      Session{" "}
-                      <span className="font-mono">
-                        {sessionId.split("-")[0]?.toUpperCase()}
-                      </span>{" "}
-                      <span className={`font-semibold ${statusColor}`}>
-                        {statusLabel}
-                      </span>
-                      {session && (
-                        <span className="ml-2 text-gray-400">
-                          | {session.deviceName || session.serialNumber} |{" "}
-                          {session.manufacturer} {session.model}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() =>
-                    router.push(sessionUrl(sessionId))
-                  }
-                  className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-                >
-                  Full Details
-                </button>
-                <DocsLink path={DOCS_PATHS.guidedDiagnosis} label="Docs" />
-              </div>
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-6 sm:px-6 lg:px-8">
+            <div className="min-w-0">
+              {sessionId && (
+                <Link href={sessionUrl(sessionId, { tenantId: linkTenant })} className="text-sm text-gray-600 hover:text-gray-900">
+                  ← Session details
+                </Link>
+              )}
+              <h1 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xl font-normal text-gray-900">
+                Diagnosis
+                {session && (
+                  <SessionStatusBadge
+                    status={session.status}
+                    failureReason={session.failureReason}
+                    adminMarkedAction={session.adminMarkedAction}
+                    reconcileReason={session.reconcileReason}
+                    espSoftFailure={session.espSoftFailure}
+                  />
+                )}
+              </h1>
+              {session && (
+                <p className="mt-1 break-words text-sm text-gray-500">
+                  {[device, [session.manufacturer, session.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ")}
+                </p>
+              )}
             </div>
+            <DocsLink path={DOCS_PATHS.guidedDiagnosis} label="Docs" />
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          {analysisResults.length === 0 ? (
-            <div className="bg-white shadow rounded-lg p-12 text-center">
-              <svg
-                className="w-16 h-16 mx-auto text-gray-300 mb-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                />
-              </svg>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                No Diagnosis Available
-              </h2>
-              {session?.status === "Failed" && !hasAnyRuleResult ? (
-                <div className="mx-auto mb-4 max-w-lg">
-                  <InvestigateWithAiHint
-                    sessionId={sessionId}
-                    tenantId={crossTenant ? sessionTenantId ?? undefined : undefined}
-                    mcpAccess={user?.hasMcpAccess ?? false}
-                    canDryRun={(user?.isGlobalAdmin ?? false) || (user?.isGlobalReader ?? false) || ((user?.isTenantAdmin ?? false) && !crossTenant)}
-                    canReport={!crossTenant && ((user?.isTenantAdmin ?? false) || user?.role === "Operator" || (user?.isGlobalAdmin ?? false))}
-                    source="diagnosis"
-                  />
-                </div>
-              ) : (
-                <p className="text-gray-500 mb-4">
-                  {session?.status === "InProgress"
-                    ? "Analysis results will appear here as they are generated during the enrollment."
-                    : session?.status === "Succeeded"
-                    ? "This session completed successfully. No issues were detected."
-                    : "No analysis rules matched for this session. Check the event timeline for more details."}
-                </p>
-              )}
-              {errorEvents.length > 0 && (
-                <div className="mt-6 text-left max-w-lg mx-auto">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">
-                    Errors found in events ({errorEvents.length}):
-                  </h3>
-                  <div className="space-y-1">
-                    {errorEvents.slice(0, 5).map((e) => (
-                      <div
-                        key={e.eventId}
-                        className="text-sm text-red-600 bg-red-50 p-2 rounded"
-                      >
-                        {e.message}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+        <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+          {!requestedSessionId ? (
+            <p className="rounded-lg bg-white p-6 text-sm text-gray-600 shadow">This link does not name a valid session.</p>
           ) : (
-            <div className="space-y-6">
-              {/* Primary Suspect */}
-              {primaryResult && (
-                <div
-                  className={`bg-white shadow-lg rounded-lg overflow-hidden border-l-4 ${
-                    primaryResult.severity === "critical"
-                      ? "border-l-red-600"
-                      : primaryResult.severity === "high"
-                      ? "border-l-orange-500"
-                      : primaryResult.severity === "warning"
-                      ? "border-l-yellow-500"
-                      : "border-l-blue-500"
-                  }`}
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl">
-                          {primaryResult.severity === "critical"
-                            ? "\uD83C\uDFAF"
-                            : "\uD83D\uDD0D"}
-                        </span>
-                        <div>
-                          <div className="text-sm text-gray-500 uppercase font-medium tracking-wide">
-                            Primary Suspect
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <ConfidenceBadge
-                          score={primaryResult.confidenceScore}
-                        />
-                        <SeverityBadge severity={primaryResult.severity} />
-                      </div>
-                    </div>
-
-                    <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                      {primaryResult.ruleTitle}
-                    </h2>
-
-                    <p className="text-gray-600 leading-relaxed mb-6">
-                      {interpolateRuleTemplate(primaryResult.explanation, primaryResult.matchedConditions)}
-                    </p>
-
-                    {/* Evidence Summary */}
-                    {primaryResult.matchedConditions &&
-                      Object.keys(primaryResult.matchedConditions).length >
-                        0 && (
-                        <div className="mb-6">
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                            Evidence Found:
-                          </h3>
-                          <div className="space-y-1">
-                            {Object.entries(
-                              primaryResult.matchedConditions
-                            ).map(([key, value]) => (
-                              <div
-                                key={key}
-                                className="flex items-start space-x-2 text-sm"
-                              >
-                                <span className="text-gray-400 mt-0.5">
-                                  &#x2022;
-                                </span>
-                                <span className="text-gray-600">
-                                  <span className="font-medium">{key}:</span>{" "}
-                                  {typeof value === "object"
-                                    ? JSON.stringify(value)
-                                    : String(value)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                    {/* Quick Fix Box */}
-                    {primaryResult.remediation &&
-                      primaryResult.remediation.length > 0 && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-semibold text-green-800">
-                              Quick Fix
-                            </h3>
-                            <button
-                              onClick={() =>
-                                copyRemediation(primaryResult)
-                              }
-                              className="text-xs px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
-                            >
-                              {copiedId === primaryResult.ruleId
-                                ? "Copied!"
-                                : "Copy All"}
-                            </button>
-                          </div>
-                          {primaryResult.remediation.map((rem, i) => (
-                            <div key={i} className="mb-3 last:mb-0">
-                              <p className="text-sm font-medium text-green-700 mb-1">
-                                {interpolateRuleTemplate(rem.title, primaryResult.matchedConditions)}
-                              </p>
-                              <ul className="space-y-1">
-                                {rem.steps.map((step, j) => (
-                                  <li
-                                    key={j}
-                                    className="text-sm text-green-600 flex items-start space-x-2"
-                                  >
-                                    <span className="text-green-400 mt-0.5">
-                                      &#x2022;
-                                    </span>
-                                    <span>{interpolateRuleTemplate(step, primaryResult.matchedConditions)}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center space-x-3 mt-4">
-                      {primaryDocUrl && (
-                        <a
-                          href={primaryDocUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center space-x-1 text-sm text-green-700 hover:text-green-800"
-                        >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                            />
-                          </svg>
-                          <span>Learn More</span>
-                        </a>
-                      )}
-                      <button
-                        onClick={() =>
-                          setShowEvidence(
-                            showEvidence === primaryResult.ruleId
-                              ? null
-                              : primaryResult.ruleId
-                          )
-                        }
-                        className="inline-flex items-center space-x-1 text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        </svg>
-                        <span>
-                          {showEvidence === primaryResult.ruleId
-                            ? "Hide Evidence"
-                            : "View Evidence"}
-                        </span>
-                      </button>
-                    </div>
-
-                    {/* Evidence Detail */}
-                    {showEvidence === primaryResult.ruleId && (
-                      <div className="mt-4">
-                        <EvidenceEventLinks matchedConditions={primaryResult.matchedConditions} sessionId={sessionId} />
-                        <div className="p-4 bg-gray-900 rounded-lg">
-                          <pre className="text-xs text-gray-100 font-mono overflow-x-auto whitespace-pre-wrap">
-                            {JSON.stringify(
-                              primaryResult.matchedConditions,
-                              null,
-                              2
-                            )}
-                          </pre>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+            <>
+              {diagnosis.state === "loading" && (
+                <div aria-busy="true">
+                  <CardSkeleton />
                 </div>
               )}
-
-              {/* Other Possibilities */}
-              {otherResults.length > 0 && (
-                <div className="bg-white shadow rounded-lg overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      Other Possibilities
-                    </h2>
-                  </div>
-                  <div className="divide-y divide-gray-100">
-                    {otherResults.map((result) => (
-                      <div key={result.ruleId} className="px-6 py-4">
-                        <div
-                          className="flex items-center justify-between cursor-pointer"
-                          onClick={() =>
-                            setExpandedResult(
-                              expandedResult === result.ruleId
-                                ? null
-                                : result.ruleId
-                            )
-                          }
-                        >
-                          <div className="flex items-center space-x-4">
-                            <ConfidenceBadge
-                              score={result.confidenceScore}
-                              compact
-                            />
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {result.ruleTitle}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {result.category}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <SeverityBadge
-                              severity={result.severity}
-                              compact
-                            />
-                            <span className="text-gray-400">
-                              {expandedResult === result.ruleId
-                                ? "\u25BC"
-                                : "\u25B6"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {expandedResult === result.ruleId && (
-                          <div className="mt-4 pl-16 space-y-3">
-                            <p className="text-sm text-gray-600">
-                              {formatInlineMarkdown(interpolateRuleTemplate(result.explanation, result.matchedConditions))}
-                            </p>
-
-                            {result.remediation?.length > 0 && (
-                              <div className="bg-gray-50 rounded-lg p-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <h4 className="text-xs font-semibold text-gray-700">
-                                    Remediation
-                                  </h4>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      copyRemediation(result);
-                                    }}
-                                    className="text-xs text-green-700 hover:text-green-800"
-                                  >
-                                    {copiedId === result.ruleId
-                                      ? "Copied!"
-                                      : "Copy"}
-                                  </button>
-                                </div>
-                                {result.remediation.map((rem, i) => (
-                                  <div key={i} className="mb-2 last:mb-0">
-                                    <p className="text-xs font-medium text-gray-700">
-                                      {interpolateRuleTemplate(rem.title, result.matchedConditions)}
-                                    </p>
-                                    <ul className="list-disc list-inside text-xs text-gray-600 ml-2">
-                                      {rem.steps.map((step, j) => (
-                                        <li key={j}>{interpolateRuleTemplate(step, result.matchedConditions)}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {result.matchedConditions &&
-                              Object.keys(result.matchedConditions).length >
-                                0 && (
-                                <div>
-                                  <button
-                                    onClick={() =>
-                                      setShowEvidence(
-                                        showEvidence === result.ruleId
-                                          ? null
-                                          : result.ruleId
-                                      )
-                                    }
-                                    className="text-xs text-gray-500 hover:text-gray-700"
-                                  >
-                                    {showEvidence === result.ruleId
-                                      ? "Hide Evidence"
-                                      : "Show Evidence"}
-                                  </button>
-                                  {showEvidence === result.ruleId && (
-                                    <div className="mt-2">
-                                      <EvidenceEventLinks matchedConditions={result.matchedConditions} sessionId={sessionId} />
-                                      <div className="p-3 bg-gray-900 rounded text-xs text-gray-100 font-mono overflow-x-auto">
-                                        <pre>
-                                          {JSON.stringify(
-                                            result.matchedConditions,
-                                            null,
-                                            2
-                                          )}
-                                        </pre>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                            {result.relatedDocs?.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {result.relatedDocs.map((doc, i) => {
-                                  const href = safeHttpUrl(doc.url);
-                                  return href ? (
-                                    <a
-                                      key={i}
-                                      href={href}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-green-700 hover:text-green-800 underline"
-                                    >
-                                      {doc.title}
-                                    </a>
-                                  ) : (
-                                    <span key={i} className="text-xs text-gray-500">{doc.title}</span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+              {diagnosis.state === "error" && (
+                <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-6 text-sm text-gray-700 shadow">
+                  The verdict could not be loaded.
+                  <button
+                    type="button"
+                    onClick={() => void diagnosis.refetch()}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Try again
+                  </button>
                 </div>
               )}
-
-              {/* Error Events Summary */}
-              {errorEvents.length > 0 && (
-                <div className="bg-white shadow rounded-lg p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                    Error Events ({errorEvents.length})
-                  </h2>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {errorEvents.map((e) => (
-                      <div
-                        key={e.eventId}
-                        className="flex items-start space-x-3 text-sm bg-red-50 rounded-lg p-3"
-                      >
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">
-                          &#x2716;
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-0.5">
-                            <span className="text-xs text-gray-500 font-mono">
-                              {new Date(e.timestamp).toLocaleTimeString()}
-                            </span>
-                            <span className="text-xs text-gray-400">
-                              {e.source}
-                            </span>
-                          </div>
-                          <p className="text-red-700">{e.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {headline && verdict && (
+                <VerdictCard
+                  headline={headline}
+                  verdict={verdict}
+                  basedOn={openCount}
+                  timelineHref={timelineEventId ? eventHref(timelineEventId) : null}
+                  supersededHref={headline.supersededBySessionId ? diagnosisUrl(headline.supersededBySessionId, { tenantId: linkTenant }) : null}
+                  onCopySummary={onCopySummary}
+                  copied={copied === "summary"}
+                />
               )}
 
-              {/* Warning Events Summary */}
-              {warningEvents.length > 0 && (
-                <div className="bg-white shadow rounded-lg p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                    Warnings ({warningEvents.length})
-                  </h2>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {warningEvents.map((e) => (
-                      <div
-                        key={e.eventId}
-                        className="flex items-start space-x-3 text-sm bg-yellow-50 rounded-lg p-3"
-                      >
-                        <span className="text-yellow-500 mt-0.5 flex-shrink-0">
-                          &#x26A0;
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-0.5">
-                            <span className="text-xs text-gray-500 font-mono">
-                              {new Date(e.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <p className="text-yellow-700">{e.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              <ContextSection items={context} outcome={headline?.outcome ?? ""} />
+              {steps && <StepsSection steps={steps} onCopy={onCopySteps} copied={copied === "steps"} />}
+              <TimeSection
+                lanes={lanes}
+                keyEvents={key.items}
+                keyEventTotal={key.total}
+                eventHref={eventHref}
+                timelineHref={sessionUrl(sessionId, { tenantId: linkTenant })}
+              />
+              <FindingsSection groups={groups} analysisNote={analysisNote} eventHref={eventHref} />
+
+              {session?.status === "Failed" && analysis.analysisLoaded && results.length === 0 && !analysisMayRun && (
+                <InvestigateWithAiHint
+                  sessionId={sessionId}
+                  tenantId={linkTenant}
+                  mcpAccess={user?.hasMcpAccess ?? false}
+                  canDryRun={(user?.isGlobalAdmin ?? false) || (user?.isGlobalReader ?? false) || ((user?.isTenantAdmin ?? false) && !crossTenant)}
+                  canReport={!crossTenant && ((user?.isTenantAdmin ?? false) || user?.role === "Operator" || (user?.isGlobalAdmin ?? false))}
+                  source="diagnosis"
+                />
               )}
-            </div>
+
+              {sessionId && <NotesSection sessionId={sessionId} tenantId={detail.sessionTenantId || tenantIdOverride} user={user} getAccessToken={getAccessToken} />}
+              <ProblemsSection events={problems} eventHref={eventHref} />
+            </>
           )}
         </main>
       </div>
     </ProtectedRoute>
   );
 }
-
-function EvidenceEventLinks({ matchedConditions, sessionId }: { matchedConditions: Record<string, unknown>; sessionId: string }) {
-  const eventLinks: { signal: string; eventId: string; eventType?: string }[] = [];
-  const seenEventIds = new Set<string>();
-
-  for (const [signal, evidenceRaw] of Object.entries(matchedConditions)) {
-    if (signal.startsWith("factor_")) continue;
-    // Evidence values are rule-engine JSON; only object-shaped entries carry event links.
-    const evidence = evidenceRaw as { eventId?: string; eventType?: string } | string | null;
-    if (evidence && typeof evidence === "object" && evidence.eventId) {
-      // Multiple matched conditions can extract different fields from the
-      // same event — one chip per distinct event, not per condition.
-      if (seenEventIds.has(evidence.eventId)) continue;
-      seenEventIds.add(evidence.eventId);
-      eventLinks.push({ signal, eventId: evidence.eventId, eventType: evidence.eventType });
-    }
-  }
-
-  if (eventLinks.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-2 mb-2">
-      {eventLinks.map(({ signal, eventId, eventType }) => (
-        <a
-          key={signal}
-          href={sessionUrl(sessionId, { hash: `event-${eventId}` })}
-          className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors"
-          title={`View event in timeline: ${eventId}`}
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-          <span>{eventType || signal}</span>
-        </a>
-      ))}
-    </div>
-  );
-}
-

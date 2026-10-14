@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EMPTY_FORM, formToEvaluateOn, jsonToForm } from "../types";
+import { EMPTY_FORM, formRuleBody, formToEvaluateOn, jsonToForm, ruleToForm, type AnalyzeRule } from "../types";
 
 /**
  * The JSON editor serializes the FORM object (eval* checkbox fields), but what users
@@ -93,5 +93,28 @@ describe("jsonToForm", () => {
     expect(formToEvaluateOn(jsonToForm({ ...baseExport, evaluateOn }))).toEqual(evaluateOn);
     // Terminal-only stays clean of the field (undefined = backend default).
     expect(formToEvaluateOn(jsonToForm(baseExport))).toBeUndefined();
+  });
+});
+
+describe("presentation in the editor", () => {
+  const presentation = {
+    role: "cause",
+    summary: "{{failed.appName}} failed",
+    subject: { kind: "app", key: "{{failed.appId}}", name: "{{failed.appName}}" },
+    facts: [{ label: "Exit code", value: "{{failed.exitCode}}", format: "code" }],
+  };
+
+  it("survives a rule-shaped and a form-shaped JSON paste into the body a save sends", () => {
+    const fromExport = jsonToForm({ ruleId: "ANALYZE-CUSTOM-102", title: "t", conditions: [], presentation });
+    expect(formRuleBody(fromExport).presentation).toEqual(presentation);
+    const fromForm = jsonToForm({ ...EMPTY_FORM, presentation });
+    expect(formRuleBody(fromForm).presentation).toEqual(presentation);
+  });
+
+  it("is carried from a stored rule and removed when the JSON drops it", () => {
+    const stored = { ruleId: "ANALYZE-CUSTOM-103", title: "t", conditions: [], confidenceFactors: [], remediation: [], relatedDocs: [], presentation } as unknown as AnalyzeRule;
+    expect(ruleToForm(stored).presentation).toEqual(presentation);
+    expect(formRuleBody(jsonToForm({ ...ruleToForm(stored), presentation: null })).presentation).toBeNull();
+    expect(formRuleBody(EMPTY_FORM).presentation).toBeNull();
   });
 });

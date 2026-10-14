@@ -1,3 +1,5 @@
+import type { RulePresentation } from "@/lib/generated/wire-types.generated";
+
 export interface RelatedDoc {
   title: string;
   url: string;
@@ -99,6 +101,8 @@ export interface AnalyzeRule {
    * Interim triggers: "whiteglove_sealed" and "on_event:<eventType>".
    */
   evaluateOn?: string[] | null;
+  /** How the portal and the MCP show a finding of this rule (role, summary, subject, facts) — raw templates. */
+  presentation?: RulePresentation | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -127,6 +131,8 @@ export interface RuleForm {
   tags: string[];
   /** Effective "fire → mark session failed" carried as the new rule's default on import. */
   markSessionAsFailedDefault: boolean;
+  /** Carried through create/save so JSON mode can add, change or remove it (no form UI yet). */
+  presentation: RulePresentation | null;
 }
 
 export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enrollment"] as const;
@@ -216,6 +222,7 @@ export const EMPTY_FORM: RuleForm = {
   evalOnEventTypes: "",
   tags: [],
   markSessionAsFailedDefault: false,
+  presentation: null,
 };
 
 export function ruleToForm(rule: AnalyzeRule): RuleForm {
@@ -245,6 +252,7 @@ export function ruleToForm(rule: AnalyzeRule): RuleForm {
     // Fold the tenant override into the effective value: an exported rule that marks
     // sessions failed must keep doing so when re-created from its JSON.
     markSessionAsFailedDefault: rule.markSessionAsFailed ?? rule.markSessionAsFailedDefault ?? false,
+    presentation: rule.presentation ?? null,
   };
 }
 
@@ -322,6 +330,8 @@ export function formRuleBody(form: RuleForm) {
     confidenceFactors: form.confidenceFactors.filter(f => f.signal.trim()),
     remediation: form.remediation.filter(r => r.title.trim()),
     relatedDocs: form.relatedDocs.filter(d => d.title.trim() && d.url.trim()),
+    // null stores no block: a JSON edit that removes it removes it from the rule too.
+    presentation: form.presentation ?? null,
   };
 }
 
