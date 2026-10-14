@@ -10478,6 +10478,98 @@
         }
       ]
     },
+    "GetAppFleetContextResponse": {
+      "kind": "object",
+      "doc": "Response of GET apps/fleet-context?appName=: how one app fared in the tenant's other enrollments of the last WindowDays days, for the diagnosis page. One row is one enrollment; the asking session is left out.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "installed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Succeeded and not a skip."
+        },
+        {
+          "name": "skipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Succeeded as Skipped or Postponed: no install attempt."
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "incomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "The observation ended before an outcome."
+        },
+        {
+          "name": "inProgress",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "No outcome yet."
+        },
+        {
+          "name": "collisionExcluded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows left out because the name stood for two apps in one enrollment."
+        },
+        {
+          "name": "topFailureCodes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppAnalyticsFailureCode"
+            }
+          },
+          "doc": "The three most frequent failure codes of the failed rows, most frequent first."
+        }
+      ]
+    },
     "GetCpeMappingsResponse": {
       "kind": "object",
       "doc": "Response of GET vulnerability/cpe-mappings: every mapping plus the count.",

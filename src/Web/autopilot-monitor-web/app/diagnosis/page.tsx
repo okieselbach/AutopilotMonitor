@@ -18,14 +18,16 @@ import { trackEvent } from "@/lib/appInsights";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { asGuidOrUndefined, isGuid } from "@/lib/inputValidation";
 import { isTerminalStatus } from "@/lib/sessionStatus";
-import { diagnosisUrl, sessionUrl } from "@/lib/routes";
+import { dashboardUrl, diagnosisUrl, sessionUrl } from "@/lib/routes";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import { useSessionDetail } from "../sessions/hooks/useSessionDetail";
 import { useSessionAnalysis } from "../sessions/hooks/useSessionAnalysis";
 import { useSessionEvents } from "../sessions/hooks/useSessionEvents";
 import { useSessionSignalR } from "../sessions/hooks/useSessionSignalR";
 import { useSessionTimeAttribution } from "../sessions/hooks/useSessionTimeAttribution";
+import { useRuleFireStats } from "../sessions/hooks/useRuleFireStats";
 import { useSessionDiagnosis } from "./hooks/useSessionDiagnosis";
+import { useAppFleetContext } from "./hooks/useAppFleetContext";
 import VerdictCard from "./components/VerdictCard";
 import ContextSection from "./components/ContextSection";
 import StepsSection from "./components/StepsSection";
@@ -39,6 +41,7 @@ import { contextItems } from "./lib/contextItems";
 import { copySummary, stepsFrom, stepsPlain } from "./lib/steps";
 import { timeLanes } from "./lib/timeLanes";
 import { keyEvents, problemEvents } from "./lib/eventLists";
+import { fleetSessionsHref, fleetView } from "./lib/fleetContext";
 
 /** How long after the end a session without findings may still be in its queued analysis. */
 const ANALYSIS_GRACE_MS = 5 * 60_000;
@@ -66,7 +69,7 @@ function DiagnosisRoute() {
 }
 
 function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedSessionId: string; tenantIdOverride?: string }) {
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken, user, hasGlobalScope } = useAuth();
   // A member without a tenant role sees ProtectedRoute's notice; the empty id keeps the hooks inert.
   const sessionId = !user || hasTenantReadScope(user) ? requestedSessionId : "";
   const { globalAdminMode } = useAdminMode();
@@ -110,8 +113,11 @@ function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedS
   });
 
   const session = detail.session;
-  const breakdown = useSessionTimeAttribution(sessionId, session?.status, detail.sessionTenantId || tenantIdOverride, getAccessToken);
+  const sessionTenant = detail.sessionTenantId || tenantIdOverride;
+  const breakdown = useSessionTimeAttribution(sessionId, session?.status, sessionTenant, getAccessToken);
   const headline = diagnosis.headline;
+  const culprit = headline?.culprits?.[0];
+  const fleetContext = useAppFleetContext(culprit, sessionId, sessionTenant, getAccessToken);
 
   // Links keep the tenant of a cross-tenant view (Global Admin, MSP drill-in).
   const viewedTenantId = (session?.tenantId ?? detail.sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
@@ -120,6 +126,25 @@ function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedS
   const eventHref = (eventId: string) => sessionUrl(sessionId, { tenantId: linkTenant, hash: `event-${eventId}` });
 
   const results = analysis.analysisResults;
+  const fireStats = useRuleFireStats(sessionTenant || undefined, results.length);
+  const ruleFires = {
+    counts: fireStats.recentFires,
+    href: (ruleId: string) => dashboardUrl({ ruleId, tenant: fireStats.crossTenant ? sessionTenant : undefined }),
+  };
+  const fleet =
+    culprit?.kind === "app"
+      ? fleetView(
+          fleetContext,
+          fleetSessionsHref({
+            appName: culprit.name,
+            windowDays: fleetContext?.windowDays ?? 7,
+            viewedTenantId,
+            ownTenantId: tenantId,
+            globalAdminMode: globalAdminMode && hasGlobalScope,
+            delegatedScope: !!user?.isDelegated && !hasGlobalScope,
+          })
+        )
+      : null;
   const groups = useMemo(() => groupFindings(results, headline?.outcome ?? "unknown", headline?.culprits), [results, headline]);
   const verdict = useMemo(() => (headline ? verdictText(headline) : null), [headline]);
   const steps = useMemo(() => stepsFrom(groups), [groups]);
@@ -258,7 +283,7 @@ function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedS
                 />
               )}
 
-              <ContextSection items={context} outcome={headline?.outcome ?? ""} />
+              <ContextSection items={context} outcome={headline?.outcome ?? ""} fleet={fleet} />
               {steps && <StepsSection steps={steps} onCopy={onCopySteps} copied={copied === "steps"} />}
               <TimeSection
                 lanes={lanes}
@@ -267,7 +292,7 @@ function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedS
                 eventHref={eventHref}
                 timelineHref={sessionUrl(sessionId, { tenantId: linkTenant })}
               />
-              <FindingsSection groups={groups} analysisNote={analysisNote} eventHref={eventHref} />
+              <FindingsSection groups={groups} analysisNote={analysisNote} eventHref={eventHref} ruleFires={ruleFires} />
 
               {session?.status === "Failed" && analysis.analysisLoaded && results.length === 0 && !analysisMayRun && (
                 <InvestigateWithAiHint
@@ -280,7 +305,7 @@ function DiagnosisContent({ requestedSessionId, tenantIdOverride }: { requestedS
                 />
               )}
 
-              {sessionId && <NotesSection sessionId={sessionId} tenantId={detail.sessionTenantId || tenantIdOverride} user={user} getAccessToken={getAccessToken} />}
+              {sessionId && <NotesSection sessionId={sessionId} tenantId={sessionTenant} user={user} getAccessToken={getAccessToken} />}
               <ProblemsSection events={problems} eventHref={eventHref} />
             </>
           )}

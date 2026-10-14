@@ -40,6 +40,7 @@ public class FreeTextNameQueryParamTests
     [Theory]
     [InlineData("GET", "/api/apps/analytics", "apps/analytics", EndpointPolicy.MemberRead, TenantScoping.None)]
     [InlineData("GET", "/api/apps/sessions", "apps/sessions", EndpointPolicy.MemberRead, TenantScoping.None)]
+    [InlineData("GET", "/api/apps/fleet-context", "apps/fleet-context", EndpointPolicy.MemberRead, TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/apps/analytics", "global/apps/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/apps/sessions", "global/apps/sessions", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam)]
     [InlineData("DELETE", "/api/devices/block", "devices/block", EndpointPolicy.GlobalAdminOnly, TenantScoping.None)]
@@ -95,6 +96,21 @@ public class FreeTextNameQueryParamTests
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Equal(1, Json(res).GetProperty("total").GetInt32());
+    }
+
+    [Theory]
+    [MemberData(nameof(Names))]
+    public async Task App_fleet_context_matches_the_exact_name(string name, string encoded)
+    {
+        var function = new GetAppFleetContextFunction(
+            NullLogger<GetAppFleetContextFunction>.Instance, new AutopilotMonitor.Functions.Services.Apps.AppFleetContextService(MetricsWith(name)));
+
+        var res = await function.Run(EndpointHarness.Request(TenantId, queryString: $"?appName={encoded}&tenantId={TenantId}").Req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var root = Json(res);
+        Assert.Equal(name, root.GetProperty("appName").GetString());
+        Assert.Equal(1, root.GetProperty("installed").GetInt32());
     }
 
     [Theory]

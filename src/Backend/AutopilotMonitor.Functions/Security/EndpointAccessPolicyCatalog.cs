@@ -320,6 +320,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "apps/list",                 EndpointPolicy.MemberRead),
         new("GET",    "apps/analytics",            EndpointPolicy.MemberRead),
         new("GET",    "apps/sessions",             EndpointPolicy.MemberRead),
+        // The diagnosis page's fleet line: QueryParam scoping so it works in a cross-tenant view
+        // (Global Admin, delegated drill-in) like metrics/device-history.
+        new("GET",    "apps/fleet-context",        EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/usage",             EndpointPolicy.MemberRead),
         new("GET",    "metrics/sla",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/rule-stats",        EndpointPolicy.MemberRead),

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Route } from "next";
 import { RuleInlines, RuleText } from "@/components/findings/RuleText";
 import { EvidenceChips } from "@/components/findings/EvidenceChips";
+import { RecentFiresLine } from "@/components/findings/RecentFiresLine";
 import { ruleTextBlocks } from "@/lib/ruleText";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
 import { trackEvent } from "@/lib/appInsights";
@@ -17,6 +18,12 @@ const SEVERITY: Record<string, string> = {
   warning: "border-yellow-200 bg-yellow-100 text-yellow-800",
   info: "border-blue-200 bg-blue-100 text-blue-800",
 };
+
+/** The rule telemetry next to each finding: enrollments it fired on in 14 days, and the dashboard filtered to it. */
+export interface RuleFires {
+  counts: Record<string, number>;
+  href: (ruleId: string) => Route;
+}
 
 const PRIMARY_TONE: Record<PrimaryTone, string> = {
   red: "text-red-700",
@@ -37,11 +44,13 @@ export default function FindingsSection({
   groups,
   analysisNote,
   eventHref,
+  ruleFires,
 }: {
   groups: FindingGroups;
   /** Shown instead of rows while there are none (analysis running, no rule fired, read failed). */
   analysisNote: string | null;
   eventHref: (eventId: string) => Route;
+  ruleFires: RuleFires;
 }) {
   const sections: { label: string; tone: string; items: FindingView[] }[] = [
     { label: groups.primary.label, tone: PRIMARY_TONE[groups.primary.tone], items: groups.primary.items },
@@ -66,7 +75,7 @@ export default function FindingsSection({
           </p>
           <div className="divide-y divide-gray-200 border-b border-gray-200">
             {section.items.map((f) => (
-              <FindingRow key={f.result.ruleId} finding={f} eventHref={eventHref} />
+              <FindingRow key={f.result.ruleId} finding={f} eventHref={eventHref} ruleFires={ruleFires} />
             ))}
           </div>
         </div>
@@ -75,7 +84,7 @@ export default function FindingsSection({
   );
 }
 
-function FindingRow({ finding, eventHref }: { finding: FindingView; eventHref: (eventId: string) => Route }) {
+function FindingRow({ finding, eventHref, ruleFires }: { finding: FindingView; eventHref: (eventId: string) => Route; ruleFires: RuleFires }) {
   const [open, setOpen] = useState(false);
   const { result } = finding;
   const panelId = `finding-${result.ruleId}`;
@@ -120,14 +129,14 @@ function FindingRow({ finding, eventHref }: { finding: FindingView; eventHref: (
       </button>
       {open && (
         <div id={panelId} className="px-4 pb-5 sm:px-5 md:pl-[8.5rem]">
-          <FindingDetail finding={finding} eventHref={eventHref} />
+          <FindingDetail finding={finding} eventHref={eventHref} ruleFires={ruleFires} />
         </div>
       )}
     </div>
   );
 }
 
-function FindingDetail({ finding, eventHref }: { finding: FindingView; eventHref: (eventId: string) => Route }) {
+function FindingDetail({ finding, eventHref, ruleFires }: { finding: FindingView; eventHref: (eventId: string) => Route; ruleFires: RuleFires }) {
   const { result, presentation } = finding;
   const facts = presentation?.facts ?? [];
   const fixes = remediationGroups(result);
@@ -147,6 +156,15 @@ function FindingDetail({ finding, eventHref }: { finding: FindingView; eventHref
           </dl>
         )}
         <RuleText blocks={ruleTextBlocks(result.explanation, result.matchedConditions)} className="space-y-2 text-sm text-gray-600" />
+        {(ruleFires.counts[result.ruleId] ?? 0) > 0 && (
+          <p>
+            <RecentFiresLine
+              count={ruleFires.counts[result.ruleId]}
+              href={ruleFires.href(result.ruleId)}
+              linkClassName="not-italic font-medium text-blue-700 hover:underline"
+            />
+          </p>
+        )}
       </div>
       <div className="min-w-0 space-y-4">
         <div>

@@ -415,6 +415,16 @@ export const api = {
         version: opts?.version,
         source: appInstallSourceParam(opts?.source),
       })}`,
+    // The diagnosis page's fleet line (GetAppFleetContextResponse): one app in the tenant's other
+    // enrollments of the last week. tenantId enables the cross-tenant read (TenantScoping.QueryParam).
+    fleetContext: (appName: string, opts?: { source?: string; appId?: string; excludeSessionId?: string; tenantId?: string }) =>
+      `${API_BASE_URL}/api/apps/fleet-context${qs({
+        appName,
+        source: appInstallSourceParam(opts?.source),
+        appId: opts?.appId,
+        excludeSessionId: opts?.excludeSessionId,
+        tenantId: opts?.tenantId,
+      })}`,
 
     // Global Admin variants — tenantId is optional:
     //   - undefined → aggregates across ALL tenants

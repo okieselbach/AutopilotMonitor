@@ -253,9 +253,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var midpoint = now.AddDays(-days / 2.0);
 
             var inWindow = allSummaries
-                .Where(s => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
-                            && AppInstallSources.Normalize(s.Source) == source
-                            && s.StartedAt >= cutoff)
+                .Where(s => IsSameApp(s, appName, source) && s.StartedAt >= cutoff)
                 .ToList();
 
             // F1 PR1 (audit Q3): collision rows under this name mix in a second app's outcomes —
@@ -335,12 +333,12 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var vTotal = g.Count();
                     var vFailed = g.Count(s => s.Status == "Failed");
                     // Same PR0 convention as the top-level rate: skips are not attempts.
-                    var vSucceeded = g.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
+                    var vSucceeded = g.Count(s => MetricsMath.IsInstalled(s));
                     // Same measured population as the top-level duration stats: succeeded,
                     // non-skip, and a plausible observed duration (0s = start unobserved,
                     // >6h = back-stamped batch — both excluded, never averaged in).
                     var vDurations = g
-                        .Where(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s))
+                        .Where(s => MetricsMath.IsInstalled(s))
                         .Where(MetricsMath.HasMeasuredDuration)
                         .Select(s => s.DurationSeconds)
                         .ToList();
@@ -365,19 +363,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 .OrderByDescending(p => p.Failed)
                 .ToList();
 
-            var topFailureCodes = summaries
-                .Where(s => s.Status == "Failed" && !string.IsNullOrEmpty(s.FailureCode))
-                .GroupBy(s => s.FailureCode)
-                .Select(g => new AppAnalyticsFailureCode
-                {
-                    Code = g.Key,
-                    ExitCode = g.Select(s => s.ExitCode).FirstOrDefault(e => e.HasValue),
-                    Count = g.Count(),
-                    SampleMessage = g.Select(s => s.FailureMessage).FirstOrDefault(m => !string.IsNullOrEmpty(m)) ?? string.Empty
-                })
-                .OrderByDescending(f => f.Count)
-                .Take(5)
-                .ToList();
+            var topFailureCodes = TopFailureCodes(summaries, 5);
 
             var detectionLiesCount = summaries.Count(s =>
                 s.Status == "Succeeded" &&
@@ -407,7 +393,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var modelTotal = g.Count();
                     var modelFailed = g.Count(x => x.Summary.Status == "Failed");
                     // PR0 convention: skips are not attempts (same population as the headline rate).
-                    var modelSucceeded = g.Count(x => x.Summary.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(x.Summary));
+                    var modelSucceeded = g.Count(x => MetricsMath.IsInstalled(x.Summary));
                     var modelFailureRate = MetricsMath.TerminalFailureRatePct(modelFailed, modelSucceeded);
                     var lift = failureRate > 0
                         ? Math.Round(modelFailureRate / failureRate, 2)
@@ -462,6 +448,81 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             };
         }
 
+        /// <summary>
+        /// The rows of one app: its name case-insensitively and its normalized install channel. Shared
+        /// by the analytics, sessions and fleet-context views.
+        /// </summary>
+        internal static bool IsSameApp(AppInstallSummary s, string appName, string source)
+            => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
+               && AppInstallSources.Normalize(s.Source) == source;
+
+        /// <summary>
+        /// The most frequent failure codes of the failed rows, most frequent first: the code as the row
+        /// carries it (an error code, an exit code or a failure type), with the first exit code and the
+        /// first message of its rows.
+        /// </summary>
+        internal static List<AppAnalyticsFailureCode> TopFailureCodes(IEnumerable<AppInstallSummary> rows, int take)
+            => rows
+                .Where(s => s.Status == "Failed" && !string.IsNullOrEmpty(s.FailureCode))
+                .GroupBy(s => s.FailureCode)
+                .Select(g => new AppAnalyticsFailureCode
+                {
+                    Code = g.Key,
+                    ExitCode = g.Select(s => s.ExitCode).FirstOrDefault(e => e.HasValue),
+                    Count = g.Count(),
+                    SampleMessage = g.Select(s => s.FailureMessage).FirstOrDefault(m => !string.IsNullOrEmpty(m)) ?? string.Empty
+                })
+                .OrderByDescending(f => f.Count)
+                .Take(take)
+                .ToList();
+
+        // ── /apps/fleet-context ─────────────────────────────────────────────
+
+        /// <summary>Window of the fleet context: the week before the request.</summary>
+        public const int FleetContextDays = 7;
+
+        /// <summary>
+        /// How one app fared in the tenant's other enrollments. <paramref name="appRows"/> are the app's
+        /// rows (<see cref="IsSameApp"/>); one row is one enrollment, its row key starts with the session
+        /// id. Left out: rows before <paramref name="cutoff"/>, the rows of
+        /// <paramref name="excludeSessionId"/>, and with <paramref name="appId"/> a row carrying a
+        /// different app id (another app of the same name). Collision rows are left out and counted, as
+        /// in the analytics view. The outcome classes follow the analytics view.
+        /// </summary>
+        public static GetAppFleetContextResponse BuildFleetContextResponse(
+            IEnumerable<AppInstallSummary> appRows,
+            string appName,
+            string source,
+            string? appId,
+            string? excludeSessionId,
+            DateTime cutoff)
+        {
+            var others = appRows
+                .Where(s => s.StartedAt >= cutoff)
+                .Where(s => string.IsNullOrEmpty(excludeSessionId)
+                            || !string.Equals(s.SessionId, excludeSessionId, StringComparison.OrdinalIgnoreCase))
+                .Where(s => string.IsNullOrEmpty(appId)
+                            || string.IsNullOrEmpty(s.AppId)
+                            || string.Equals(s.AppId, appId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var rows = others.Where(s => !s.AppIdCollision).ToList();
+
+            return new GetAppFleetContextResponse
+            {
+                Success = true,
+                AppName = appName,
+                Source = source,
+                WindowDays = FleetContextDays,
+                Installed = rows.Count(MetricsMath.IsInstalled),
+                Skipped = rows.Count(s => s.Status == "Succeeded" && MetricsMath.IsSkipTerminalState(s)),
+                Failed = rows.Count(s => s.Status == "Failed"),
+                Incomplete = rows.Count(s => s.Status == "Incomplete"),
+                InProgress = rows.Count(s => s.Status is not ("Succeeded" or "Failed" or "Incomplete")),
+                CollisionExcluded = others.Count - rows.Count,
+                TopFailureCodes = TopFailureCodes(rows, 3),
+            };
+        }
+
         // ── /apps/sessions ──────────────────────────────────────────────────
 
         public static async Task<AppSessionsResponse> BuildSessionsResponseAsync(
@@ -479,9 +540,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var cutoff = DateTime.UtcNow.AddDays(-days);
 
             var summaries = allSummaries
-                .Where(s => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
-                            && AppInstallSources.Normalize(s.Source) == source
-                            && s.StartedAt >= cutoff)
+                .Where(s => IsSameApp(s, appName, source) && s.StartedAt >= cutoff)
                 .ToList();
 
             if (statusFilter == "failed")
@@ -565,9 +624,9 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             // as the headline failure rate, or a wave of not-applicable update policies would
             // fake an "improving" trend.
             var fhFailed = firstHalf.Count(s => s.Status == "Failed");
-            var fhSucceeded = firstHalf.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
+            var fhSucceeded = firstHalf.Count(s => MetricsMath.IsInstalled(s));
             var shFailed = secondHalf.Count(s => s.Status == "Failed");
-            var shSucceeded = secondHalf.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
+            var shSucceeded = secondHalf.Count(s => MetricsMath.IsInstalled(s));
             if (fhFailed + fhSucceeded < 5 || shFailed + shSucceeded < 5)
                 return ("stable", null);
 
@@ -606,7 +665,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var bTotal = items.Count;
                     var bFailed = items.Count(s => s.Status == "Failed");
                     // PR0 convention: skips are not attempts; durations read measured rows only.
-                    var bInstalled = items.Where(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s)).ToList();
+                    var bInstalled = items.Where(s => MetricsMath.IsInstalled(s)).ToList();
                     var bMeasured = bInstalled.Where(MetricsMath.HasMeasuredDuration).ToList();
                     return new AppAnalyticsTimeBucket
                     {

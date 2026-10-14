@@ -283,6 +283,8 @@ builder.Services.AddSingleton<HealthCheckService>();
 builder.Services.AddSingleton<BackendBuildInfo>();
 builder.Services.AddSingleton<GatherRuleService>();
 builder.Services.AddSingleton<AnalyzeRuleService>();
+// The fleet context's 60 s per-app cache must outlive a function instance.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Apps.AppFleetContextService>();
 // Cached per-tenant evaluateOn trigger sets for the ingest-side interim analyze enqueue
 // (internal/docs/rules/analyze-rule-triggers.md). Singleton so the 5-min TTL cache is shared.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry>();

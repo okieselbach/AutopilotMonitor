@@ -151,6 +151,32 @@ namespace AutopilotMonitor.Shared.Models
         public double LiftVsBaseline { get; set; }
     }
 
+    /// <summary>
+    /// Response of <c>GET apps/fleet-context?appName=</c>: how one app fared in the tenant's other
+    /// enrollments of the last <see cref="WindowDays"/> days, for the diagnosis page. One row is one
+    /// enrollment; the asking session is left out.
+    /// </summary>
+    public class GetAppFleetContextResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string AppName { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public int WindowDays { get; set; }
+        /// <summary>Succeeded and not a skip.</summary>
+        public int Installed { get; set; }
+        /// <summary>Succeeded as Skipped or Postponed: no install attempt.</summary>
+        public int Skipped { get; set; }
+        public int Failed { get; set; }
+        /// <summary>The observation ended before an outcome.</summary>
+        public int Incomplete { get; set; }
+        /// <summary>No outcome yet.</summary>
+        public int InProgress { get; set; }
+        /// <summary>Rows left out because the name stood for two apps in one enrollment.</summary>
+        public int CollisionExcluded { get; set; }
+        /// <summary>The three most frequent failure codes of the failed rows, most frequent first.</summary>
+        public IReadOnlyList<AppAnalyticsFailureCode> TopFailureCodes { get; set; } = default!;
+    }
+
     /// <summary>Response of <c>GET apps/sessions?appName=</c> and its global variant (offset-paged).</summary>
     public class AppSessionsResponse : IApiResponse
     {

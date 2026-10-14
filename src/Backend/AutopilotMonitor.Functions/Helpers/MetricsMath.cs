@@ -33,6 +33,13 @@ public static class MetricsMath
         => s.TerminalState == "Skipped" || s.TerminalState == "Postponed";
 
     /// <summary>
+    /// A real install: the row succeeded and was not a skip (<see cref="IsSkipTerminalState"/>). The
+    /// population of every success count and of the failure rate's denominator.
+    /// </summary>
+    public static bool IsInstalled(AppInstallSummary s)
+        => s.Status == "Succeeded" && !IsSkipTerminalState(s);
+
+    /// <summary>
     /// Upper plausibility bound for an observed install duration: 6 h, the agent's default
     /// max observation lifetime (AgentMaxLifetimeMinutes = 360) — nothing longer can have
     /// been continuously watched. Historically this mostly caught full-span pathologies

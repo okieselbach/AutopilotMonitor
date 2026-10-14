@@ -1,20 +1,15 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
-import Link from "next/link";
+import { useState, type ReactNode } from "react";
 import type { Route } from "next";
 import { RuleResult } from "@/types";
 import { ruleStepInlines, ruleTextBlocks } from "@/lib/ruleText";
 import { RuleInlines, RuleText } from "@/components/findings/RuleText";
 import { EvidenceChips } from "@/components/findings/EvidenceChips";
-import { api } from "@/lib/api";
 import { dashboardUrl } from "@/lib/routes";
-import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
-import { useAuth } from "@/contexts/AuthContext";
-import { useTenant } from "@/contexts/TenantContext";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
-import type { RuleStatsResponse } from "@/lib/generated/wire-types.generated";
-import { fetchJson } from "@/lib/apiClient";
+import { RecentFiresLine } from "@/components/findings/RecentFiresLine";
+import { useRuleFireStats } from "../hooks/useRuleFireStats";
 
 interface AnalysisResultsSectionProps {
   analysisResults: RuleResult[];
@@ -53,46 +48,13 @@ export default function AnalysisResultsSection({
   sessionTenantId,
   emptyState,
 }: AnalysisResultsSectionProps) {
-  const { getAccessToken } = useAuth();
-  const { tenantId } = useTenant();
-  const [ruleHitRates, setRuleHitRates] = useState<Record<string, number>>({});
-  const [ruleRecentFires, setRuleRecentFires] = useState<Record<string, number>>({});
   const [showResolved, setShowResolved] = useState(false);
-
-  const crossTenant = !!sessionTenantId && !!tenantId && sessionTenantId !== tenantId;
+  const { hitRates: ruleHitRates, recentFires: ruleRecentFires, crossTenant } = useRuleFireStats(sessionTenantId, analysisResults.length);
 
   // Resolved findings (a later evaluation no longer fired the rule — the session healed)
   // are kept for audit but are not open issues; they hide behind a toggle.
   const openResults = analysisResults.filter((r) => !r.resolvedAt);
   const resolvedResults = analysisResults.filter((r) => !!r.resolvedAt);
-
-  useEffect(() => {
-    if (!tenantId || analysisResults.length === 0) return;
-    const fetchStats = async () => {
-      try {
-        // Cross-tenant viewers read the session tenant's stats via the global route;
-        // a 403 (viewer without that scope) degrades to no stats — better than
-        // showing the viewer's own-tenant numbers next to a foreign session.
-        const url = crossTenant
-          ? api.metrics.globalRuleStats(undefined, undefined, "analyze", sessionTenantId)
-          : api.metrics.ruleStats(undefined, undefined, "analyze");
-        const data = await fetchJson<RuleStatsResponse>(url, getAccessToken);
-        const map: Record<string, number> = {};
-        const fires: Record<string, number> = {};
-        const windowStart = recentWindowStartIso(new Date(), 14);
-        for (const r of data.rules ?? []) {
-          if (r.hitRate > 0) map[r.ruleId] = r.hitRate;
-          const recent = sumRecentFires(r.trend, windowStart);
-          if (recent > 0) fires[r.ruleId] = recent;
-        }
-        setRuleHitRates(map);
-        setRuleRecentFires(fires);
-      } catch {
-        // Non-critical
-      }
-    };
-    fetchStats();
-  }, [tenantId, crossTenant, sessionTenantId, analysisResults.length, getAccessToken]);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -334,20 +296,12 @@ function AnalysisResultCard({
               </span>
             )}
             {recentFires != null && recentFires > 0 && (
-              <span
-                className="text-xs text-gray-500 italic"
-                title="May include this enrollment; based on rule telemetry (enrollments, not distinct devices)"
-              >
-                Fired in {recentFires} enrollment{recentFires === 1 ? "" : "s"} in the last 14 days
-                {" · "}
-                <Link
-                  href={sessionsHref}
-                  onClick={(e) => e.stopPropagation()}
-                  className="not-italic font-medium text-amber-700 hover:text-amber-800 underline"
-                >
-                  View sessions →
-                </Link>
-              </span>
+              <RecentFiresLine
+                count={recentFires}
+                href={sessionsHref}
+                onLinkClick={(e) => e.stopPropagation()}
+                linkClassName="not-italic font-medium text-amber-700 hover:text-amber-800 underline"
+              />
             )}
           </div>
         </div>

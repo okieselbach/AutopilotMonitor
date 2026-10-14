@@ -2178,6 +2178,27 @@ export interface GetAllTenantConfigurationsResponse {
   nextLink?: string;
 }
 
+/** Response of GET apps/fleet-context?appName=: how one app fared in the tenant's other enrollments of the last WindowDays days, for the diagnosis page. One row is one enrollment; the asking session is left out. */
+export interface GetAppFleetContextResponse {
+  success: boolean;
+  appName: string;
+  source: string;
+  windowDays: number;
+  /** Succeeded and not a skip. */
+  installed: number;
+  /** Succeeded as Skipped or Postponed: no install attempt. */
+  skipped: number;
+  failed: number;
+  /** The observation ended before an outcome. */
+  incomplete: number;
+  /** No outcome yet. */
+  inProgress: number;
+  /** Rows left out because the name stood for two apps in one enrollment. */
+  collisionExcluded: number;
+  /** The three most frequent failure codes of the failed rows, most frequent first. */
+  topFailureCodes: AppAnalyticsFailureCode[];
+}
+
 /** Response of GET vulnerability/cpe-mappings: every mapping plus the count. */
 export interface GetCpeMappingsResponse {
   mappings: CpeMappingItem[];

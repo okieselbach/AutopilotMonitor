@@ -931,6 +931,76 @@ public class TypedContractCompletionWireParityTests
             });
     }
 
+    [Fact]
+    public void GetAppFleetContextResponse_matches_the_anonymous_shape()
+    {
+        AssertWireIdentical(
+            new
+            {
+                success = true,
+                appName = "Contoso Notes",
+                source = "ime",
+                windowDays = 7,
+                installed = 11,
+                skipped = 1,
+                failed = 2,
+                incomplete = 1,
+                inProgress = 1,
+                collisionExcluded = 0,
+                topFailureCodes = new[]
+                {
+                    new { code = "0x80d03805", exitCode = (int?)1603, count = 2, sampleMessage = "Fatal error during installation" },
+                },
+            },
+            new GetAppFleetContextResponse
+            {
+                Success = true,
+                AppName = "Contoso Notes",
+                Source = "ime",
+                WindowDays = 7,
+                Installed = 11,
+                Skipped = 1,
+                Failed = 2,
+                Incomplete = 1,
+                InProgress = 1,
+                CollisionExcluded = 0,
+                TopFailureCodes = new[]
+                {
+                    new AppAnalyticsFailureCode { Code = "0x80d03805", ExitCode = 1603, Count = 2, SampleMessage = "Fatal error during installation" },
+                },
+            });
+    }
+
+    [Fact]
+    public void GetAppFleetContextResponse_drops_an_absent_exit_code()
+    {
+        AssertWireIdentical(
+            new
+            {
+                success = true,
+                appName = "Contoso Notes",
+                source = "ime",
+                windowDays = 7,
+                installed = 0,
+                skipped = 0,
+                failed = 1,
+                incomplete = 0,
+                inProgress = 0,
+                collisionExcluded = 1,
+                topFailureCodes = new[] { new { code = "esp_apps_timeout", count = 1, sampleMessage = "" } },
+            },
+            new GetAppFleetContextResponse
+            {
+                Success = true,
+                AppName = "Contoso Notes",
+                Source = "ime",
+                WindowDays = 7,
+                Failed = 1,
+                CollisionExcluded = 1,
+                TopFailureCodes = new[] { new AppAnalyticsFailureCode { Code = "esp_apps_timeout", Count = 1 } },
+            });
+    }
+
     // ── global/tenants/{tenantId}/offboarding ────────────────────────────────────────────
 
     [Fact]

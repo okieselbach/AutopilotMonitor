@@ -71,6 +71,14 @@ describe("api path ids are percent-encoded", () => {
     const analytics = new URL(api.apps.globalAnalytics("a/b", 30));
     expect(analytics.pathname).toBe("/api/global/apps/analytics");
     expect(analytics.searchParams.get("appName")).toBe("a/b");
+    const fleet = new URL(api.apps.fleetContext("100% a/b", { appId: "x", excludeSessionId: "s", tenantId: "t" }));
+    expect(fleet.pathname).toBe("/api/apps/fleet-context");
+    expect([...fleet.searchParams.entries()]).toEqual([
+      ["appName", "100% a/b"],
+      ["appId", "x"],
+      ["excludeSessionId", "s"],
+      ["tenantId", "t"],
+    ]);
   });
 
   it("no path builder lets an id escape its segment", async () => {
