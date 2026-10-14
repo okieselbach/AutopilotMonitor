@@ -50,10 +50,25 @@ public class SessionStatusTransitionTests
         Assert.Equal(allowed, TableStorageService.IsTerminalTransitionAllowed(existing, SessionStatus.AwaitingUser));
     }
 
-    // ---- Non-terminal incoming is governed by downstream guards, allowed here ----
+    // ---- Only an active session stalls: a stall report never overwrites a verdict, a waiting
+    // or a pre-provisioned session (an offline batch can carry session_stalled next to
+    // enrollment_complete, and the sweep can lose the race against the completion) ----
+    [Theory]
+    [InlineData("InProgress", true)]
+    [InlineData("Succeeded", false)]
+    [InlineData("Failed", false)]
+    [InlineData("Incomplete", false)]
+    [InlineData("AwaitingUser", false)]
+    [InlineData("Pending", false)]
+    [InlineData("Stalled", false)]
+    public void Only_an_active_session_stalls(string existing, bool allowed)
+    {
+        Assert.Equal(allowed, TableStorageService.IsTerminalTransitionAllowed(existing, SessionStatus.Stalled));
+    }
+
+    // ---- InProgress and Pending are governed by downstream guards, allowed here ----
     [Theory]
     [InlineData(SessionStatus.InProgress)]
-    [InlineData(SessionStatus.Stalled)]
     [InlineData(SessionStatus.Pending)]
     public void Non_terminal_incoming_is_allowed_here(SessionStatus incoming)
     {

@@ -1915,7 +1915,10 @@ namespace AutopilotMonitor.Functions.Services
         /// <item>Succeeded may UPGRADE any non-Succeeded state (late completion reconcile); idempotent no-op if already Succeeded.</item>
         /// <item>Failed / Incomplete (silent-terminal verdicts) never overwrite an existing terminal (Succeeded/Failed/Incomplete).</item>
         /// <item>AwaitingUser never regresses an existing terminal.</item>
-        /// <item>Non-terminal incoming statuses (InProgress/Stalled/Pending) are allowed here and governed by their own downstream guards.</item>
+        /// <item>Stalled marks an active session that stopped progressing: only InProgress can stall. A stall report that
+        /// arrives with or after a verdict (an offline batch carrying session_stalled and enrollment_complete, a sweep that
+        /// lost the race against the completion) never overwrites it, nor an AwaitingUser or Pending session.</item>
+        /// <item>InProgress and Pending are allowed here and governed by their own downstream guards.</item>
         /// </list>
         /// Static + pure so the reconcile matrix is unit-testable without Table Storage.
         /// </summary>
@@ -1930,6 +1933,7 @@ namespace AutopilotMonitor.Functions.Services
                 SessionStatus.Succeeded => existingStatus != SessionStatus.Succeeded.ToString(),
                 SessionStatus.Failed or SessionStatus.Incomplete => !existingTerminal,
                 SessionStatus.AwaitingUser => !existingTerminal,
+                SessionStatus.Stalled => existingStatus == SessionStatus.InProgress.ToString(),
                 // Idempotency: the agent emits whiteglove_complete twice (raw Shell-Core event
                 // + engine timeline event, ~1s apart). The second Pending write must not report
                 // a "transition" — that fired duplicate Pre-Provisioning Completed webhooks.
@@ -2079,13 +2083,8 @@ namespace AutopilotMonitor.Functions.Services
 
                     // Status transitions from EventIngestProcessor: Succeeded, Failed, Pending, Stalled,
                     // and InProgress (the last one only for healing a Stalled session back to active).
-                    // Guard: never regress a Pending (WhiteGlove) session to Stalled via the ingest
-                    // path — WhiteGlove sessions are deliberately long-lived and handled via re-registration.
-                    if (status == SessionStatus.Stalled && existingStatusStr == SessionStatus.Pending.ToString())
-                    {
-                        _logger.LogInformation($"Session {sessionId} is in Pending (WhiteGlove) state, skipping Stalled transition");
-                        return false;
-                    }
+                    // Stalled comes only from InProgress (IsTerminalTransitionAllowed), so a Pending
+                    // (WhiteGlove) session — long-lived on purpose, resumed by re-registration — never stalls.
 
                     // Guard: only allow InProgress transition if the current state is Stalled (healing).
                     // Other callers must not regress terminal or Pending state via this path.
