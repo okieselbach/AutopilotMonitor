@@ -30,7 +30,8 @@ public class UsageMetricsProjectionEquivalenceTests
     private static TableEntity FullRow(
         string sessionId, string status, DateTime startedAt,
         int? durationSeconds, DateTime? completedAt,
-        bool isPreProvisioned, DateTime? resumedAt)
+        bool isPreProvisioned, DateTime? resumedAt,
+        string enrollmentType = "v1", bool isHybridJoin = false, bool isSelfDeployingProfile = false)
     {
         var e = new TableEntity(TenantId, sessionId)
         {
@@ -40,6 +41,9 @@ public class UsageMetricsProjectionEquivalenceTests
             ["Model"] = "Model-X",
             ["IsUserDriven"] = true,
             ["IsPreProvisioned"] = isPreProvisioned,
+            ["EnrollmentType"] = enrollmentType,
+            ["IsHybridJoin"] = isHybridJoin,
+            ["IsSelfDeployingProfile"] = isSelfDeployingProfile,
             ["PlatformScriptCount"] = 4,
             ["RemediationScriptCount"] = 2,
             // Representative noise the usage compute never reads — present on a real wide row,
@@ -84,8 +88,10 @@ public class UsageMetricsProjectionEquivalenceTests
         Assert.Equal(fromFull.Status, fromProjected.Status);
         Assert.Equal(fromFull.Manufacturer, fromProjected.Manufacturer);
         Assert.Equal(fromFull.Model, fromProjected.Model);
-        Assert.Equal(fromFull.IsUserDriven, fromProjected.IsUserDriven);
         Assert.Equal(fromFull.IsPreProvisioned, fromProjected.IsPreProvisioned);
+        Assert.Equal(fromFull.EnrollmentType, fromProjected.EnrollmentType);
+        Assert.Equal(fromFull.IsHybridJoin, fromProjected.IsHybridJoin);
+        Assert.Equal(fromFull.IsSelfDeployingProfile, fromProjected.IsSelfDeployingProfile);
         Assert.Equal(fromFull.PlatformScriptCount, fromProjected.PlatformScriptCount);
         Assert.Equal(fromFull.RemediationScriptCount, fromProjected.RemediationScriptCount);
         // Wall-clock duration branches call UtcNow inside the mapper; two map calls microseconds
@@ -134,6 +140,22 @@ public class UsageMetricsProjectionEquivalenceTests
         var full = FullRow("s-run", "InProgress", DateTime.UtcNow.AddMinutes(-45),
             durationSeconds: null, completedAt: null,
             isPreProvisioned: false, resumedAt: null);
+
+        AssertUsageFieldsEqual(Sut.MapToSessionSummary(full), Sut.MapToSessionSummary(Project(full)));
+    }
+
+    [Theory]
+    [InlineData("v2", false, false)]
+    [InlineData("v1", true, false)]
+    [InlineData("v1", false, true)]
+    public void Deployment_type_columns_survive_projection(string enrollmentType, bool isHybridJoin, bool isSelfDeployingProfile)
+    {
+        // Each case sets one breakdown input away from its mapper default ("v1" / false), so dropping
+        // that column from the projection maps the projected row back to the default and fails here.
+        var full = FullRow("s-type", "Succeeded", DateTime.UtcNow.AddHours(-2),
+            durationSeconds: 1800, completedAt: DateTime.UtcNow.AddHours(-1.5),
+            isPreProvisioned: false, resumedAt: null,
+            enrollmentType, isHybridJoin, isSelfDeployingProfile);
 
         AssertUsageFieldsEqual(Sut.MapToSessionSummary(full), Sut.MapToSessionSummary(Project(full)));
     }

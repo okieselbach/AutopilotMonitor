@@ -1453,10 +1453,28 @@ export interface DeliveryLatencyMetrics {
   clockSkewPercent: number;
 }
 
+/** Sessions in the window in three groups, each summing to Total: enrollment type (AutopilotV1 + DevicePreparation), join type (EntraJoin + HybridJoin) and Autopilot deployment mode (UserDriven + SelfDeploying + WhiteGlove, summing to AutopilotV1). Every percentage is the share of all sessions in the window. */
 export interface DeploymentTypeMetrics {
+  /** Windows Autopilot sessions (classic, enrollment type v1). */
+  autopilotV1: number;
+  autopilotV1Percentage: number;
+  /** Windows Autopilot device preparation sessions (enrollment type v2). */
+  devicePreparation: number;
+  devicePreparationPercentage: number;
+  /** Sessions whose Autopilot profile does not ask for a hybrid join. */
+  entraJoin: number;
+  entraJoinPercentage: number;
+  /** Sessions whose Autopilot profile asks for a hybrid join. */
+  hybridJoin: number;
+  hybridJoinPercentage: number;
+  /** Autopilot v1 sessions that are neither pre-provisioned nor self-deploying. */
   userDriven: number;
-  whiteGlove: number;
   userDrivenPercentage: number;
+  /** Autopilot v1 sessions with a self-deploying profile that are not pre-provisioned. Sessions whose agent predates the profile flag count as user-driven. */
+  selfDeploying: number;
+  selfDeployingPercentage: number;
+  /** Pre-provisioned (White Glove) sessions. */
+  whiteGlove: number;
   whiteGlovePercentage: number;
 }
 
@@ -3463,7 +3481,7 @@ export interface PlatformUsageMetrics {
   performance: PerformanceMetrics;
   /** Hardware metrics */
   hardware: HardwareMetrics;
-  /** Deployment type metrics (User Driven vs White Glove) */
+  /** Sessions in the window by enrollment type, join type and Autopilot deployment mode */
   deploymentTypes: DeploymentTypeMetrics;
   /** App and script count metrics */
   appScripts: AppScriptMetrics;

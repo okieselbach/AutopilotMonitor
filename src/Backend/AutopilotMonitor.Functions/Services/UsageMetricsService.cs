@@ -164,25 +164,9 @@ namespace AutopilotMonitor.Functions.Services
             await Task.WhenAll(sessionsTask, userActivityTask, appRefsTask, platformStatsTask);
             var allSessions = await sessionsTask;
 
-            var today = now.Date;
             var last7Days = now.AddDays(-7);
             var last30Days = now.AddDays(-30);
 
-            // Session Metrics
-            var sessionMetrics = new SessionMetrics
-            {
-                Total = allSessions.Count,
-                Today = allSessions.Count(s => s.StartedAt >= today),
-                Last7Days = allSessions.Count(s => s.StartedAt >= last7Days),
-                Last30Days = allSessions.Count(s => s.StartedAt >= last30Days),
-                Succeeded = allSessions.Count(s => s.Status == SessionStatus.Succeeded),
-                Failed = allSessions.Count(s => s.Status == SessionStatus.Failed),
-                InProgress = allSessions.Count(s => s.Status == SessionStatus.InProgress),
-                Incomplete = allSessions.Count(s => s.Status == SessionStatus.Incomplete),
-                SuccessRate = CalculateSuccessRate(allSessions)
-            };
-
-            // Tenant Metrics
             var tenantMetrics = new TenantMetrics
             {
                 Total = allSessions.Select(s => s.TenantId).Distinct().Count(),
@@ -198,109 +182,20 @@ namespace AutopilotMonitor.Functions.Services
                     .Count()
             };
 
-            // User Metrics (from UserActivity table)
-            var userActivity = await userActivityTask;
-            var userMetrics = new UserMetrics
-            {
-                Total = userActivity.TotalUniqueUsers,
-                DailyLogins = userActivity.DailyLogins,
-                Active7Days = userActivity.ActiveUsersLast7Days,
-                Active30Days = userActivity.ActiveUsersLast30Days,
-                Note = userActivity.TotalUniqueUsers > 0 ? "" : "No user login activity recorded yet"
-            };
-
-            // Performance Metrics
-            // Non-terminal (InProgress/Stalled/Pending) sessions carry an unclamped wall-clock
-            // duration (now - StartedAt) that can read weeks and blow out avg/p95/p99. Clamp every
-            // sample to the same ceiling used for app-install durations at ingest, and surface how
-            // many were capped so the window stays honest. Terminal sessions are already <= cap.
-            const int durationCapSeconds = EventTimestampValidator.DefaultMaxDurationSeconds;
-            var completedSessions = allSessions.Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0).ToList();
-            var performanceMetrics = new PerformanceMetrics();
-
-            if (completedSessions.Any())
-            {
-                var durations = completedSessions.Select(s => Math.Min(s.DurationSeconds!.Value, durationCapSeconds) / 60.0).OrderBy(d => d).ToList();
-                performanceMetrics.AvgDurationMinutes = Math.Round(durations.Average(), 1);
-                performanceMetrics.MedianDurationMinutes = MetricsMath.Percentile(durations, 50);
-                performanceMetrics.P95DurationMinutes = MetricsMath.Percentile(durations, 95);
-                performanceMetrics.P99DurationMinutes = MetricsMath.Percentile(durations, 99);
-                performanceMetrics.SampleCount = durations.Count;
-                performanceMetrics.ClampedSessionCount = completedSessions.Count(s => s.DurationSeconds!.Value > durationCapSeconds);
-            }
-
-            // Hardware Metrics
-            var totalCount = allSessions.Count;
-            var hardwareMetrics = new HardwareMetrics
-            {
-                TopManufacturers = allSessions
-                    .GroupBy(s => s.Manufacturer)
-                    .Select(g => new HardwareCount
-                    {
-                        Name = g.Key,
-                        Count = g.Count(),
-                        Percentage = Math.Round((g.Count() / (double)totalCount) * 100, 1)
-                    })
-                    .OrderByDescending(x => x.Count)
-                    .Take(10)
-                    .ToList(),
-
-                TopModels = allSessions
-                    .GroupBy(s => s.Model)
-                    .Select(g => new HardwareCount
-                    {
-                        Name = g.Key,
-                        Count = g.Count(),
-                        Percentage = Math.Round((g.Count() / (double)totalCount) * 100, 1)
-                    })
-                    .OrderByDescending(x => x.Count)
-                    .Take(10)
-                    .ToList()
-            };
-
-            // Deployment Type Metrics
-            var userDrivenCount = allSessions.Count(s => s.IsUserDriven);
-            var whiteGloveCount = allSessions.Count(s => s.IsPreProvisioned);
-            var deploymentTypeMetrics = new DeploymentTypeMetrics
-            {
-                UserDriven = userDrivenCount,
-                WhiteGlove = whiteGloveCount,
-                UserDrivenPercentage = totalCount > 0 ? Math.Round((userDrivenCount / (double)totalCount) * 100, 1) : 0,
-                WhiteGlovePercentage = totalCount > 0 ? Math.Round((whiteGloveCount / (double)totalCount) * 100, 1) : 0
-            };
-
-            // App & Script Metrics
-            // appRefsTask was bounded by windowStart (NOT a fresh UtcNow) so the AppInstall lower
-            // bound is identical to the session window's — see the snapshot note above. relevantApps
-            // is filtered to sessionIdSet anyway, and an app installs during its session
-            // (StartedAt >= the session's), so bounding only drops rows already outside the window.
-            var allAppRefs = await appRefsTask;
-            var sessionIdSet = new HashSet<string>(allSessions.Select(s => s.SessionId));
-            var relevantApps = allAppRefs.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
-            var appsPerSessionList = relevantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
-
-            var appScriptMetrics = new AppScriptMetrics
-            {
-                AvgAppsPerSession = appsPerSessionList.Count > 0 ? Math.Round(appsPerSessionList.Average(), 1) : 0,
-                TotalUniqueApps = relevantApps.Select(a => a.AppName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                TotalPlatformScripts = allSessions.Sum(s => s.PlatformScriptCount),
-                TotalRemediationScripts = allSessions.Sum(s => s.RemediationScriptCount),
-                AvgPlatformScriptsPerSession = allSessions.Count > 0 ? Math.Round(allSessions.Average(s => (double)s.PlatformScriptCount), 1) : 0,
-                AvgRemediationScriptsPerSession = allSessions.Count > 0 ? Math.Round(allSessions.Average(s => (double)s.RemediationScriptCount), 1) : 0
-            };
-
             // Platform Stats (cumulative since release)
             var platformStats = await platformStatsTask;
 
+            // appRefsTask was bounded by windowStart (NOT a fresh UtcNow) so the AppInstall lower
+            // bound is identical to the session window's — see the snapshot note above.
             return new PlatformUsageMetrics
             {
-                Sessions = sessionMetrics,
+                Sessions = BuildSessionMetrics(allSessions, now),
                 Tenants = tenantMetrics,
-                Users = userMetrics,
-                Performance = performanceMetrics,
-                Hardware = hardwareMetrics,
-                DeploymentTypes = deploymentTypeMetrics,
-                AppScripts = appScriptMetrics,
+                Users = BuildUserMetrics(await userActivityTask),
+                Performance = BuildPerformanceMetrics(allSessions),
+                Hardware = BuildHardwareMetrics(allSessions),
+                DeploymentTypes = BuildDeploymentTypeMetrics(allSessions),
+                AppScripts = BuildAppScriptMetrics(allSessions, await appRefsTask),
                 PlatformStats = platformStats != null ? new PlatformStats
                 {
                     TotalEnrollments = platformStats.TotalEnrollments,
@@ -338,23 +233,7 @@ namespace AutopilotMonitor.Functions.Services
             await Task.WhenAll(sessionsTask, tenantStatsTask, userActivityTask, appRefsTask);
             var tenantSessions = await sessionsTask;
 
-            var today = now.Date;
-            var last7Days = now.AddDays(-7);
-            var last30Days = now.AddDays(-30);
-
-            // Session Metrics
-            var sessionMetrics = new SessionMetrics
-            {
-                Total = tenantSessions.Count,
-                Today = tenantSessions.Count(s => s.StartedAt >= today),
-                Last7Days = tenantSessions.Count(s => s.StartedAt >= last7Days),
-                Last30Days = tenantSessions.Count(s => s.StartedAt >= last30Days),
-                Succeeded = tenantSessions.Count(s => s.Status == SessionStatus.Succeeded),
-                Failed = tenantSessions.Count(s => s.Status == SessionStatus.Failed),
-                InProgress = tenantSessions.Count(s => s.Status == SessionStatus.InProgress),
-                Incomplete = tenantSessions.Count(s => s.Status == SessionStatus.Incomplete),
-                SuccessRate = CalculateSuccessRate(tenantSessions)
-            };
+            var sessionMetrics = BuildSessionMetrics(tenantSessions, now);
 
             // Cumulative "since signup" counter — incremented at registration, seeded/self-healed
             // by the nightly maintenance recompute. The window count is a floor: before the first
@@ -366,25 +245,59 @@ namespace AutopilotMonitor.Functions.Services
             var tenantMetrics = new TenantMetrics
             {
                 Total = 1,
-                Active7Days = tenantSessions.Any(s => s.StartedAt >= last7Days) ? 1 : 0,
-                Active30Days = tenantSessions.Any(s => s.StartedAt >= last30Days) ? 1 : 0
+                Active7Days = tenantSessions.Any(s => s.StartedAt >= now.AddDays(-7)) ? 1 : 0,
+                Active30Days = tenantSessions.Any(s => s.StartedAt >= now.AddDays(-30)) ? 1 : 0
             };
 
-            // User Metrics (from UserActivity table)
-            var userActivity = await userActivityTask;
-            var userMetrics = new UserMetrics
+            return new PlatformUsageMetrics
             {
-                Total = userActivity.TotalUniqueUsers,
-                DailyLogins = userActivity.DailyLogins,
-                Active7Days = userActivity.ActiveUsersLast7Days,
-                Active30Days = userActivity.ActiveUsersLast30Days,
-                Note = userActivity.TotalUniqueUsers > 0 ? "" : "No user login activity recorded yet"
+                Sessions = sessionMetrics,
+                Tenants = tenantMetrics,
+                Users = BuildUserMetrics(await userActivityTask),
+                Performance = BuildPerformanceMetrics(tenantSessions),
+                Hardware = BuildHardwareMetrics(tenantSessions),
+                DeploymentTypes = BuildDeploymentTypeMetrics(tenantSessions),
+                AppScripts = BuildAppScriptMetrics(tenantSessions, await appRefsTask)
             };
+        }
 
-            // Performance Metrics — clamp runaway non-terminal durations to the shared ceiling and
-            // report how many were capped (see platform path above for the rationale).
+        private static SessionMetrics BuildSessionMetrics(List<SessionSummary> sessions, DateTime now)
+        {
+            var today = now.Date;
+            var last7Days = now.AddDays(-7);
+            var last30Days = now.AddDays(-30);
+
+            return new SessionMetrics
+            {
+                Total = sessions.Count,
+                Today = sessions.Count(s => s.StartedAt >= today),
+                Last7Days = sessions.Count(s => s.StartedAt >= last7Days),
+                Last30Days = sessions.Count(s => s.StartedAt >= last30Days),
+                Succeeded = sessions.Count(s => s.Status == SessionStatus.Succeeded),
+                Failed = sessions.Count(s => s.Status == SessionStatus.Failed),
+                InProgress = sessions.Count(s => s.Status == SessionStatus.InProgress),
+                Incomplete = sessions.Count(s => s.Status == SessionStatus.Incomplete),
+                SuccessRate = CalculateSuccessRate(sessions)
+            };
+        }
+
+        private static UserMetrics BuildUserMetrics(UserActivityMetrics userActivity) => new()
+        {
+            Total = userActivity.TotalUniqueUsers,
+            DailyLogins = userActivity.DailyLogins,
+            Active7Days = userActivity.ActiveUsersLast7Days,
+            Active30Days = userActivity.ActiveUsersLast30Days,
+            Note = userActivity.TotalUniqueUsers > 0 ? "" : "No user login activity recorded yet"
+        };
+
+        private static PerformanceMetrics BuildPerformanceMetrics(List<SessionSummary> sessions)
+        {
+            // Non-terminal (InProgress/Stalled/Pending) sessions carry an unclamped wall-clock
+            // duration (now - StartedAt) that can read weeks and blow out avg/p95/p99. Clamp every
+            // sample to the same ceiling used for app-install durations at ingest, and surface how
+            // many were capped so the window stays honest. Terminal sessions are already <= cap.
             const int durationCapSeconds = EventTimestampValidator.DefaultMaxDurationSeconds;
-            var completedSessions = tenantSessions.Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0).ToList();
+            var completedSessions = sessions.Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0).ToList();
             var performanceMetrics = new PerformanceMetrics();
 
             if (completedSessions.Any())
@@ -398,85 +311,96 @@ namespace AutopilotMonitor.Functions.Services
                 performanceMetrics.ClampedSessionCount = completedSessions.Count(s => s.DurationSeconds!.Value > durationCapSeconds);
             }
 
-            // Hardware Metrics
-            var totalCount = tenantSessions.Count;
-            var hardwareMetrics = new HardwareMetrics();
+            return performanceMetrics;
+        }
 
-            if (totalCount > 0)
+        private static HardwareMetrics BuildHardwareMetrics(List<SessionSummary> sessions) => new()
+        {
+            TopManufacturers = TopHardware(sessions, s => s.Manufacturer),
+            TopModels = TopHardware(sessions, s => s.Model)
+        };
+
+        private static List<HardwareCount> TopHardware(List<SessionSummary> sessions, Func<SessionSummary, string> key)
+            => sessions
+                .GroupBy(key)
+                .Select(g => new HardwareCount
+                {
+                    Name = g.Key,
+                    Count = g.Count(),
+                    Percentage = MetricsMath.SharePct(g.Count(), sessions.Count)
+                })
+                .OrderByDescending(x => x.Count)
+                .Take(10)
+                .ToList();
+
+        /// <summary>
+        /// Splits the window by the fleet enrollment class (<see cref="TimeAttributionCalculator.GetEnrollmentClass"/>),
+        /// so the deployment modes exclude each other and sum to the Autopilot v1 count. The session's
+        /// IsUserDriven flag is no input: the agent sets it at every registration, self-deploying and
+        /// device preparation included.
+        /// </summary>
+        internal static DeploymentTypeMetrics BuildDeploymentTypeMetrics(IReadOnlyCollection<SessionSummary> sessions)
+        {
+            int devicePreparation = 0, selfDeploying = 0, whiteGlove = 0, userDriven = 0, hybridJoin = 0;
+            foreach (var session in sessions)
             {
-                hardwareMetrics.TopManufacturers = tenantSessions
-                    .GroupBy(s => s.Manufacturer)
-                    .Select(g => new HardwareCount
-                    {
-                        Name = g.Key,
-                        Count = g.Count(),
-                        Percentage = Math.Round((g.Count() / (double)totalCount) * 100, 1)
-                    })
-                    .OrderByDescending(x => x.Count)
-                    .Take(10)
-                    .ToList();
-
-                hardwareMetrics.TopModels = tenantSessions
-                    .GroupBy(s => s.Model)
-                    .Select(g => new HardwareCount
-                    {
-                        Name = g.Key,
-                        Count = g.Count(),
-                        Percentage = Math.Round((g.Count() / (double)totalCount) * 100, 1)
-                    })
-                    .OrderByDescending(x => x.Count)
-                    .Take(10)
-                    .ToList();
+                switch (TimeAttributionCalculator.GetEnrollmentClass(session))
+                {
+                    case "device_preparation": devicePreparation++; break;
+                    case "self_deploying": selfDeploying++; break;
+                    case "whiteglove": whiteGlove++; break;
+                    default: userDriven++; break;
+                }
+                if (session.IsHybridJoin) hybridJoin++;
             }
 
-            // Deployment Type Metrics
-            var userDrivenCount = tenantSessions.Count(s => s.IsUserDriven);
-            var whiteGloveCount = tenantSessions.Count(s => s.IsPreProvisioned);
-            var deploymentTypeMetrics = new DeploymentTypeMetrics
+            var total = sessions.Count;
+            var autopilotV1 = total - devicePreparation;
+            var entraJoin = total - hybridJoin;
+            return new DeploymentTypeMetrics
             {
-                UserDriven = userDrivenCount,
-                WhiteGlove = whiteGloveCount,
-                UserDrivenPercentage = totalCount > 0 ? Math.Round((userDrivenCount / (double)totalCount) * 100, 1) : 0,
-                WhiteGlovePercentage = totalCount > 0 ? Math.Round((whiteGloveCount / (double)totalCount) * 100, 1) : 0
-            };
-
-            // App & Script Metrics
-            // appRefsTask reused windowStart (identical to the session window lower bound) — joined
-            // to tenantSessionIdSet below.
-            var tenantAppRefs = await appRefsTask;
-            var tenantSessionIdSet = new HashSet<string>(tenantSessions.Select(s => s.SessionId));
-            var relevantTenantApps = tenantAppRefs.Where(a => tenantSessionIdSet.Contains(a.SessionId)).ToList();
-            var tenantAppsPerSession = relevantTenantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
-
-            var tenantAppScriptMetrics = new AppScriptMetrics
-            {
-                AvgAppsPerSession = tenantAppsPerSession.Count > 0 ? Math.Round(tenantAppsPerSession.Average(), 1) : 0,
-                TotalUniqueApps = relevantTenantApps.Select(a => a.AppName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                TotalPlatformScripts = tenantSessions.Sum(s => s.PlatformScriptCount),
-                TotalRemediationScripts = tenantSessions.Sum(s => s.RemediationScriptCount),
-                AvgPlatformScriptsPerSession = tenantSessions.Count > 0 ? Math.Round(tenantSessions.Average(s => (double)s.PlatformScriptCount), 1) : 0,
-                AvgRemediationScriptsPerSession = tenantSessions.Count > 0 ? Math.Round(tenantSessions.Average(s => (double)s.RemediationScriptCount), 1) : 0
-            };
-
-            return new PlatformUsageMetrics
-            {
-                Sessions = sessionMetrics,
-                Tenants = tenantMetrics,
-                Users = userMetrics,
-                Performance = performanceMetrics,
-                Hardware = hardwareMetrics,
-                DeploymentTypes = deploymentTypeMetrics,
-                AppScripts = tenantAppScriptMetrics
+                AutopilotV1 = autopilotV1,
+                AutopilotV1Percentage = MetricsMath.SharePct(autopilotV1, total),
+                DevicePreparation = devicePreparation,
+                DevicePreparationPercentage = MetricsMath.SharePct(devicePreparation, total),
+                EntraJoin = entraJoin,
+                EntraJoinPercentage = MetricsMath.SharePct(entraJoin, total),
+                HybridJoin = hybridJoin,
+                HybridJoinPercentage = MetricsMath.SharePct(hybridJoin, total),
+                UserDriven = userDriven,
+                UserDrivenPercentage = MetricsMath.SharePct(userDriven, total),
+                SelfDeploying = selfDeploying,
+                SelfDeployingPercentage = MetricsMath.SharePct(selfDeploying, total),
+                WhiteGlove = whiteGlove,
+                WhiteGlovePercentage = MetricsMath.SharePct(whiteGlove, total)
             };
         }
 
-        private double CalculateSuccessRate(List<SessionSummary> sessions)
+        /// <summary>
+        /// App rows are joined to the window's sessions; an app installs during its session
+        /// (StartedAt >= the session's), so a lower bound equal to the window start drops only rows
+        /// already outside the window.
+        /// </summary>
+        private static AppScriptMetrics BuildAppScriptMetrics(List<SessionSummary> sessions, List<SessionAppRef> appRefs)
         {
-            var completed = sessions.Count(s => s.Status == SessionStatus.Succeeded || s.Status == SessionStatus.Failed);
-            if (completed == 0) return 0;
+            var sessionIdSet = new HashSet<string>(sessions.Select(s => s.SessionId));
+            var relevantApps = appRefs.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
+            var appsPerSessionList = relevantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
 
-            var succeeded = sessions.Count(s => s.Status == SessionStatus.Succeeded);
-            return Math.Round((succeeded / (double)completed) * 100, 1);
+            return new AppScriptMetrics
+            {
+                AvgAppsPerSession = appsPerSessionList.Count > 0 ? Math.Round(appsPerSessionList.Average(), 1) : 0,
+                TotalUniqueApps = relevantApps.Select(a => a.AppName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                TotalPlatformScripts = sessions.Sum(s => s.PlatformScriptCount),
+                TotalRemediationScripts = sessions.Sum(s => s.RemediationScriptCount),
+                AvgPlatformScriptsPerSession = sessions.Count > 0 ? Math.Round(sessions.Average(s => (double)s.PlatformScriptCount), 1) : 0,
+                AvgRemediationScriptsPerSession = sessions.Count > 0 ? Math.Round(sessions.Average(s => (double)s.RemediationScriptCount), 1) : 0
+            };
         }
+
+        private static double CalculateSuccessRate(List<SessionSummary> sessions)
+            => MetricsMath.SharePct(
+                sessions.Count(s => s.Status == SessionStatus.Succeeded),
+                sessions.Count(s => s.Status == SessionStatus.Succeeded || s.Status == SessionStatus.Failed));
     }
 }

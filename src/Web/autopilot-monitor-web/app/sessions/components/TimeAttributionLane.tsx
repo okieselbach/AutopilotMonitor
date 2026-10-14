@@ -3,6 +3,7 @@
 import React from "react";
 import type { SessionTimeBreakdown } from "@/lib/generated/wire-types.generated";
 import { osUpdateDetail } from "./timeAttributionLogic";
+import { TIME_ATTRIBUTION_SEGMENTS } from "@/components/timeAttributionSegments";
 
 /**
  * F1 time attribution (insights spec §F1): renders the PRE-COMPUTED breakdown row of a
@@ -15,17 +16,6 @@ import { osUpdateDetail } from "./timeAttributionLogic";
 
 /** The session time breakdown (wire shape). */
 export type SessionTimeBreakdownDto = SessionTimeBreakdown;
-
-const SEGMENT_META: { key: string; label: string; color: string }[] = [
-  { key: "device_prep", label: "Device preparation", color: "bg-slate-400" },
-  { key: "esp_apps", label: "Apps (ESP)", color: "bg-blue-500" },
-  { key: "os_update", label: "Windows Update", color: "bg-cyan-500" },
-  { key: "awaiting_sign_in", label: "Waiting for sign-in", color: "bg-sky-200" },
-  { key: "identity_hello", label: "Identity & Hello", color: "bg-violet-500" },
-  { key: "user_esp", label: "User ESP", color: "bg-indigo-400" },
-  { key: "desktop_handoff", label: "Desktop handoff", color: "bg-emerald-500" },
-  { key: "unattributed", label: "Unattributed", color: "bg-gray-300" },
-];
 
 const FLAG_LABELS: Record<string, string> = {
   ClockSkewDropped: "Clock-skewed data dropped",
@@ -59,7 +49,7 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
   // the Windows Update slice.
   const updateDetail = osUpdateDetail(breakdown.osUpdates ?? []);
 
-  const parts = SEGMENT_META
+  const parts = TIME_ATTRIBUTION_SEGMENTS
     .map(meta => ({
       ...meta,
       seconds: totals.get(meta.key) ?? 0,

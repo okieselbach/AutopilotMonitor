@@ -20,6 +20,10 @@ public static class MetricsMath
         return finished > 0 ? Math.Round((double)failed / finished * 100, 1) : 0;
     }
 
+    /// <summary>Share of <paramref name="part"/> in <paramref name="total"/> in percent, one decimal, 0 when total is 0.</summary>
+    public static double SharePct(int part, int total)
+        => total > 0 ? Math.Round(part / (double)total * 100, 1) : 0;
+
     /// <summary>
     /// True when the row's terminal state says no real install attempt happened —
     /// Skipped (not applicable, e.g. WinGet "Update for X" with the target app absent)

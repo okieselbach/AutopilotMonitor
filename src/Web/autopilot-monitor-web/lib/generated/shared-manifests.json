@@ -7428,9 +7428,93 @@
     },
     "DeploymentTypeMetrics": {
       "kind": "object",
+      "doc": "Sessions in the window in three groups, each summing to Total: enrollment type (AutopilotV1 + DevicePreparation), join type (EntraJoin + HybridJoin) and Autopilot deployment mode (UserDriven + SelfDeploying + WhiteGlove, summing to AutopilotV1). Every percentage is the share of all sessions in the window.",
       "fields": [
         {
+          "name": "autopilotV1",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Windows Autopilot sessions (classic, enrollment type v1)."
+        },
+        {
+          "name": "autopilotV1Percentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "devicePreparation",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Windows Autopilot device preparation sessions (enrollment type v2)."
+        },
+        {
+          "name": "devicePreparationPercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "entraJoin",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions whose Autopilot profile does not ask for a hybrid join."
+        },
+        {
+          "name": "entraJoinPercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "hybridJoin",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions whose Autopilot profile asks for a hybrid join."
+        },
+        {
+          "name": "hybridJoinPercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
           "name": "userDriven",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Autopilot v1 sessions that are neither pre-provisioned nor self-deploying."
+        },
+        {
+          "name": "userDrivenPercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "selfDeploying",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Autopilot v1 sessions with a self-deploying profile that are not pre-provisioned. Sessions whose agent predates the profile flag count as user-driven."
+        },
+        {
+          "name": "selfDeployingPercentage",
           "type": {
             "kind": "primitive",
             "name": "number"
@@ -7441,14 +7525,8 @@
           "type": {
             "kind": "primitive",
             "name": "number"
-          }
-        },
-        {
-          "name": "userDrivenPercentage",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
+          },
+          "doc": "Pre-provisioned (White Glove) sessions."
         },
         {
           "name": "whiteGlovePercentage",
@@ -16319,7 +16397,7 @@
             "kind": "ref",
             "name": "DeploymentTypeMetrics"
           },
-          "doc": "Deployment type metrics (User Driven vs White Glove)"
+          "doc": "Sessions in the window by enrollment type, join type and Autopilot deployment mode"
         },
         {
           "name": "appScripts",

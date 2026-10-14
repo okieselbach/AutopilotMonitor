@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { enrollmentClassLabel } from "@/lib/enrollmentClass";
+import { TIME_ATTRIBUTION_SEGMENTS } from "@/components/timeAttributionSegments";
 
 /**
  * F1 fleet time attribution (insights spec §F1 "Surfaces"): renders the sweep-maintained
@@ -50,24 +52,6 @@ export interface TimeAttributionResponseDto {
 /** UI gate for rendering class statistics (spec: ≥20 clean sessions per class). */
 const MIN_SESSIONS_FOR_PANEL = 20;
 
-const SEGMENT_META: { key: string; label: string; color: string }[] = [
-  { key: "device_prep", label: "Device preparation", color: "bg-slate-400" },
-  { key: "esp_apps", label: "Apps (ESP)", color: "bg-blue-500" },
-  { key: "os_update", label: "Windows Update", color: "bg-cyan-500" },
-  { key: "awaiting_sign_in", label: "Waiting for sign-in", color: "bg-sky-200" },
-  { key: "identity_hello", label: "Identity & Hello", color: "bg-violet-500" },
-  { key: "user_esp", label: "User ESP", color: "bg-indigo-400" },
-  { key: "desktop_handoff", label: "Desktop handoff", color: "bg-emerald-500" },
-  { key: "unattributed", label: "Unattributed", color: "bg-gray-300" },
-];
-
-const CLASS_LABELS: Record<string, string> = {
-  user_driven: "User-driven",
-  whiteglove: "Pre-provisioning (WhiteGlove)",
-  self_deploying: "Self-deploying",
-  device_preparation: "Device Preparation (v2)",
-};
-
 function formatMinutes(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
   if (s < 60) return `${s}s`;
@@ -108,7 +92,7 @@ export default function TimeAttributionSection({ data }: { data: TimeAttribution
                 <div key={cls.enrollmentClass}>
                   <div className="flex items-baseline justify-between flex-wrap gap-1">
                     <span className="text-sm font-medium text-gray-700">
-                      {CLASS_LABELS[cls.enrollmentClass] ?? cls.enrollmentClass}
+                      {enrollmentClassLabel(cls.enrollmentClass)}
                     </span>
                     <span className="text-xs text-gray-400">
                       insufficient data (n={cls.cleanSessionCount}, needs {MIN_SESSIONS_FOR_PANEL})
@@ -119,7 +103,7 @@ export default function TimeAttributionSection({ data }: { data: TimeAttribution
               );
             }
 
-            const parts = SEGMENT_META
+            const parts = TIME_ATTRIBUTION_SEGMENTS
               .map(meta => ({
                 ...meta,
                 stat: cls.segmentStats.find(s => s.segmentKey === meta.key),
@@ -132,7 +116,7 @@ export default function TimeAttributionSection({ data }: { data: TimeAttribution
               <div key={cls.enrollmentClass}>
                 <div className="flex items-baseline justify-between flex-wrap gap-1 mb-1.5">
                   <span className="text-sm font-medium text-gray-700">
-                    {CLASS_LABELS[cls.enrollmentClass] ?? cls.enrollmentClass}
+                    {enrollmentClassLabel(cls.enrollmentClass)}
                     <span className="ml-2 text-xs font-normal text-gray-400">
                       n={cls.cleanSessionCount} · median total ≈ {formatMinutes(stackTotal)}
                     </span>
@@ -198,7 +182,7 @@ export default function TimeAttributionSection({ data }: { data: TimeAttribution
                           <td className="py-1.5 pr-4 text-gray-700 max-w-[220px] truncate" title={app.appName || app.appId}>
                             {app.appName || app.appId}
                           </td>
-                          <td className="py-1.5 pr-4 text-xs text-gray-400">{CLASS_LABELS[cls] ?? cls}</td>
+                          <td className="py-1.5 pr-4 text-xs text-gray-400">{enrollmentClassLabel(cls)}</td>
                           <td className="py-1.5 pr-4 text-right text-gray-500">{app.sessionCount}</td>
                           <td className="py-1.5 pr-4 text-right text-gray-700">{formatMinutes(app.medianSeconds)}</td>
                           <td className="py-1.5 text-right text-gray-700">

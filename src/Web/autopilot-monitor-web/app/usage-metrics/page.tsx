@@ -12,6 +12,14 @@ import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { PlatformUsageMetrics } from "@/lib/generated/wire-types.generated";
+import {
+  AppScriptsBlock,
+  DeploymentTypeBreakdown,
+  HardwareBlock,
+  PerformanceBlock,
+  SessionOutcomeCards,
+  SessionRecencyCards,
+} from "@/components/UsageMetricsBlocks";
 import { fetchJson } from "@/lib/apiClient";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { notifyApiError } from "@/contexts/NotificationContext";
@@ -95,15 +103,6 @@ function UsageMetricsContent() {
   }, [effectiveTenantId, fetchMetrics]);
 
   const selectedTenantName = tenants.find(t => t.tenantId === selectedTenantId)?.domainName;
-
-  const formatDuration = (minutes: number) => {
-    if (minutes < 60) {
-      return `${minutes.toFixed(1)}m`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours}h ${mins}m`;
-  };
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -195,108 +194,15 @@ function UsageMetricsContent() {
               <div className="text-3xl font-bold text-gray-900">{metrics.sessions.total.toLocaleString()}</div>
               <p className="text-xs text-gray-400 mt-1">last {metrics.windowDays ?? 90} days</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Today</div>
-              <div className="text-3xl font-bold text-blue-600">{metrics.sessions.today.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Last 7 Days</div>
-              <div className="text-3xl font-bold text-indigo-600">{metrics.sessions.last7Days.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Last 30 Days</div>
-              <div className="text-3xl font-bold text-purple-600">{metrics.sessions.last30Days.toLocaleString()}</div>
-            </div>
+            <SessionRecencyCards sessions={metrics.sessions} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mt-4">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Succeeded</div>
-              <div className="text-3xl font-bold text-green-600">{metrics.sessions.succeeded.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Failed</div>
-              <div className="text-3xl font-bold text-red-600">{metrics.sessions.failed.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1" title="Terminal, non-failure: timed out with no completion or failure signal. Excluded from the success rate.">Incomplete</div>
-              <div className="text-3xl font-bold text-slate-500">{metrics.sessions.incomplete.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">In Progress</div>
-              <div className="text-3xl font-bold text-yellow-600">{metrics.sessions.inProgress.toLocaleString()}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Success Rate</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.sessions.successRate}%</div>
-            </div>
-          </div>
+          <SessionOutcomeCards sessions={metrics.sessions} />
         </div>
 
-        {/* Deployment Types */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Deployment Types</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">User Driven</div>
-                  <div className="text-3xl font-bold text-blue-600">{metrics.deploymentTypes.userDriven.toLocaleString()}</div>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-semibold text-blue-500">{metrics.deploymentTypes.userDrivenPercentage}%</span>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div
-                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${metrics.deploymentTypes.userDrivenPercentage}%` }}
-                ></div>
-              </div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Pre-Provisioned</div>
-                  <div className="text-3xl font-bold text-purple-600">{metrics.deploymentTypes.whiteGlove.toLocaleString()}</div>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-semibold text-purple-500">{metrics.deploymentTypes.whiteGlovePercentage}%</span>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div
-                  className="bg-purple-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${metrics.deploymentTypes.whiteGlovePercentage}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DeploymentTypeBreakdown deploymentTypes={metrics.deploymentTypes} />
 
-        {/* Apps & Scripts */}
-        {metrics.appScripts && (
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Apps & Scripts</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Avg Apps / Session</div>
-                <div className="text-3xl font-bold text-blue-600">{metrics.appScripts.avgAppsPerSession}</div>
-                <p className="text-xs text-gray-400 mt-1">{metrics.appScripts.totalUniqueApps.toLocaleString()} unique apps total</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Avg Platform Scripts / Session</div>
-                <div className="text-3xl font-bold text-teal-600">{metrics.appScripts.avgPlatformScriptsPerSession}</div>
-                <p className="text-xs text-gray-400 mt-1">{metrics.appScripts.totalPlatformScripts.toLocaleString()} executions total</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Avg Remediation Scripts / Session</div>
-                <div className="text-3xl font-bold text-amber-600">{metrics.appScripts.avgRemediationScriptsPerSession}</div>
-                <p className="text-xs text-gray-400 mt-1">{metrics.appScripts.totalRemediationScripts.toLocaleString()} executions total</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {metrics.appScripts && <AppScriptsBlock appScripts={metrics.appScripts} />}
 
         {/* User Statistics */}
         <div className="mb-6">
@@ -355,91 +261,9 @@ function UsageMetricsContent() {
           )}
         </div>
 
-        {/* Performance Statistics */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Performance</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Average Duration</div>
-              <div className="text-3xl font-bold text-gray-900">{formatDuration(metrics.performance.avgDurationMinutes)}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Median Duration</div>
-              <div className="text-3xl font-bold text-blue-600">{formatDuration(metrics.performance.medianDurationMinutes)}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">P95 Duration</div>
-              <div className="text-3xl font-bold text-orange-600">{formatDuration(metrics.performance.p95DurationMinutes)}</div>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">P99 Duration</div>
-              <div className="text-3xl font-bold text-red-600">{formatDuration(metrics.performance.p99DurationMinutes)}</div>
-            </div>
-          </div>
-        </div>
+        <PerformanceBlock performance={metrics.performance} />
 
-        {/* Hardware Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Top Manufacturers */}
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Top Manufacturers</h2>
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="divide-y divide-gray-200">
-                {metrics.hardware.topManufacturers.length > 0 ? (
-                  metrics.hardware.topManufacturers.map((item, index) => (
-                    <div key={index} className="p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{item.name || 'Unknown'}</span>
-                        <div className="text-right">
-                          <span className="text-sm font-semibold text-gray-900">{item.count.toLocaleString()}</span>
-                          <span className="text-xs text-gray-500 ml-2">({item.percentage}%)</span>
-                        </div>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${item.percentage}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-8 text-center text-gray-500">No data available</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Top Models */}
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Top Models</h2>
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="divide-y divide-gray-200">
-                {metrics.hardware.topModels.length > 0 ? (
-                  metrics.hardware.topModels.map((item, index) => (
-                    <div key={index} className="p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{item.name || 'Unknown'}</span>
-                        <div className="text-right">
-                          <span className="text-sm font-semibold text-gray-900">{item.count.toLocaleString()}</span>
-                          <span className="text-xs text-gray-500 ml-2">({item.percentage}%)</span>
-                        </div>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${item.percentage}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-8 text-center text-gray-500">No data available</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <HardwareBlock hardware={metrics.hardware} />
         </>
         )}
       </div>

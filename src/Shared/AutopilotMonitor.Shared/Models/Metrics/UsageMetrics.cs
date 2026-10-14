@@ -35,7 +35,7 @@ namespace AutopilotMonitor.Shared.Models
         public HardwareMetrics Hardware { get; set; } = new();
 
         /// <summary>
-        /// Deployment type metrics (User Driven vs White Glove)
+        /// Sessions in the window by enrollment type, join type and Autopilot deployment mode
         /// </summary>
         public DeploymentTypeMetrics DeploymentTypes { get; set; } = new();
 
@@ -161,11 +161,44 @@ namespace AutopilotMonitor.Shared.Models
         public double Percentage { get; set; }
     }
 
+    /// <summary>
+    /// Sessions in the window in three groups, each summing to <see cref="SessionMetrics.Total"/>:
+    /// enrollment type (<see cref="AutopilotV1"/> + <see cref="DevicePreparation"/>), join type
+    /// (<see cref="EntraJoin"/> + <see cref="HybridJoin"/>) and Autopilot deployment mode
+    /// (<see cref="UserDriven"/> + <see cref="SelfDeploying"/> + <see cref="WhiteGlove"/>, summing to
+    /// <see cref="AutopilotV1"/>). Every percentage is the share of all sessions in the window.
+    /// </summary>
     public class DeploymentTypeMetrics
     {
+        /// <summary>Windows Autopilot sessions (classic, enrollment type v1).</summary>
+        public int AutopilotV1 { get; set; }
+        public double AutopilotV1Percentage { get; set; }
+
+        /// <summary>Windows Autopilot device preparation sessions (enrollment type v2).</summary>
+        public int DevicePreparation { get; set; }
+        public double DevicePreparationPercentage { get; set; }
+
+        /// <summary>Sessions whose Autopilot profile does not ask for a hybrid join.</summary>
+        public int EntraJoin { get; set; }
+        public double EntraJoinPercentage { get; set; }
+
+        /// <summary>Sessions whose Autopilot profile asks for a hybrid join.</summary>
+        public int HybridJoin { get; set; }
+        public double HybridJoinPercentage { get; set; }
+
+        /// <summary>Autopilot v1 sessions that are neither pre-provisioned nor self-deploying.</summary>
         public int UserDriven { get; set; }
-        public int WhiteGlove { get; set; }
         public double UserDrivenPercentage { get; set; }
+
+        /// <summary>
+        /// Autopilot v1 sessions with a self-deploying profile that are not pre-provisioned. Sessions
+        /// whose agent predates the profile flag count as user-driven.
+        /// </summary>
+        public int SelfDeploying { get; set; }
+        public double SelfDeployingPercentage { get; set; }
+
+        /// <summary>Pre-provisioned (White Glove) sessions.</summary>
+        public int WhiteGlove { get; set; }
         public double WhiteGlovePercentage { get; set; }
     }
 
