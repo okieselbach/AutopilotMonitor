@@ -313,6 +313,41 @@ describe('buildSessionCoverage — collectors, upload, disk', () => {
   });
 });
 
+describe('buildSessionCoverage — platform block', () => {
+  const base = { ...SESSION, blockedAt: at(3600), blockedUntil: at(3600 + 86400) };
+
+  it('reads an event-limit pause from the session record and says the silence after it proves nothing', () => {
+    const c = buildSessionCoverage(
+      { ...base, blockAction: 'Block', blockCause: 'event_limit', blockEventCount: 2553, blockEventThreshold: 2500 },
+      [ev('agent_started', 5)],
+    );
+    expect(c.upload.platformBlock).toEqual({
+      blockedAt: at(3600),
+      blockedUntil: at(3600 + 86400),
+      action: 'Block',
+      cause: 'event_limit',
+      eventCount: 2553,
+      eventThreshold: 2500,
+    });
+    expect(c.gaps).toEqual([
+      `Uploads were paused at ${at(3600)} until ${at(3600 + 86400)} by the platform's event limit (2553 events, limit 2500): no events reached the backend after that point while the pause lasted, so their absence proves nothing.`,
+    ]);
+  });
+
+  it('says a kill removed the agent and keeps the device unmonitored', () => {
+    const c = buildSessionCoverage({ ...base, blockAction: 'Kill', blockCause: 'operator' }, [ev('agent_started', 5)]);
+    expect(c.gaps).toEqual([
+      `Monitoring was ended at ${at(3600)} by the platform operator: the agent removed itself and the device stays unmonitored until ${at(3600 + 86400)}, so nothing after that point was observed.`,
+    ]);
+  });
+
+  it('adds nothing for a session the platform never blocked', () => {
+    const c = buildSessionCoverage(SESSION, [ev('agent_started', 5)]);
+    expect(c.upload.platformBlock).toBeUndefined();
+    expect(c.gaps).toEqual([]);
+  });
+});
+
 describe('buildSessionCoverage — diagnostics package', () => {
   it('reports packaging counters and a truncation gap (no paths)', () => {
     const c = buildSessionCoverage(SESSION, [

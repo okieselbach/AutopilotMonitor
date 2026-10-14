@@ -204,6 +204,20 @@ export const RULE_SUBMISSION_DECISIONS = [
 ] as const;
 export type RuleSubmissionDecision = (typeof RULE_SUBMISSION_DECISIONS)[number];
 
+/** What a device block does: Block pauses uploads, Kill ends monitoring (C# DeviceBlockActions). */
+export const DEVICE_BLOCK_ACTIONS = [
+  "Block",
+  "Kill",
+] as const;
+export type DeviceBlockAction = (typeof DEVICE_BLOCK_ACTIONS)[number];
+
+/** Why the platform blocked a session (C# SessionBlockCauses). */
+export const SESSION_BLOCK_CAUSES = [
+  "event_limit",
+  "operator",
+] as const;
+export type SessionBlockCause = (typeof SESSION_BLOCK_CAUSES)[number];
+
 /** Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources). */
 export const LOG_SOURCES = [
   "backend",

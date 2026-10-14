@@ -13,7 +13,8 @@
  * in particular before trusting the absence of an event. No backend field, no new event type:
  * the block is computed from the same event list the summary already fetches.
  */
-import type { EnrollmentEvent } from './generated/wire-types.generated.js';
+import type { EnrollmentEvent, SessionSummary } from './generated/wire-types.generated.js';
+import type { DeviceBlockAction, SessionBlockCause } from './generated/wire-vocabularies.generated.js';
 
 /** Event types the coverage block reads. Guarded against the catalog by event-types-drift.test.ts. */
 export const COVERAGE_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -159,6 +160,17 @@ export interface UploadCoverage {
   intercepted?: UploadInterception;
   backpressureEpisodes: number;
   diskSpaceLow: boolean;
+  /** Present when the platform blocked the session's device (event limit or platform operator) — from the session record. */
+  platformBlock?: PlatformBlock;
+}
+
+export interface PlatformBlock {
+  blockedAt: string;
+  blockedUntil: string | null;
+  action: string | null;
+  cause: string | null;
+  eventCount: number | null;
+  eventThreshold: number | null;
 }
 
 export type DiagnosticsStatus = 'uploaded' | 'failed' | 'skipped' | 'not_collected';
@@ -262,8 +274,15 @@ function isTerminalSessionStatus(status: unknown): boolean {
  * Folds the session's events (already stripped of historic-replay rows by the caller) into the
  * coverage block. Pure: no fetch, no clock.
  */
+type CoverageSession = { startedAt?: string | null; status?: string | null } & Partial<
+  Pick<SessionSummary, 'blockedAt' | 'blockedUntil' | 'blockAction' | 'blockCause' | 'blockEventCount' | 'blockEventThreshold'>
+>;
+
+const KILL: DeviceBlockAction = 'Kill';
+const OPERATOR: SessionBlockCause = 'operator';
+
 export function buildSessionCoverage(
-  session: { startedAt?: string | null; status?: string | null },
+  session: CoverageSession,
   events: readonly Ev[],
 ): SessionCoverage {
   const byType = new Map<string, Ev[]>();
@@ -465,6 +484,28 @@ export function buildSessionCoverage(
     backpressureEpisodes,
     diskSpaceLow: !!disk,
   };
+  const blockedAt = str(session.blockedAt);
+  if (blockedAt) {
+    const platformBlock: PlatformBlock = {
+      blockedAt,
+      blockedUntil: str(session.blockedUntil),
+      action: str(session.blockAction),
+      cause: str(session.blockCause),
+      eventCount: num(session.blockEventCount),
+      eventThreshold: num(session.blockEventThreshold),
+    };
+    upload.platformBlock = platformBlock;
+    const by =
+      platformBlock.cause === OPERATOR
+        ? 'the platform operator'
+        : `the platform's event limit${platformBlock.eventCount !== null && platformBlock.eventThreshold !== null ? ` (${platformBlock.eventCount} events, limit ${platformBlock.eventThreshold})` : ''}`;
+    const until = platformBlock.blockedUntil ? ` until ${platformBlock.blockedUntil}` : '';
+    gaps.push(
+      platformBlock.action === KILL
+        ? `Monitoring was ended at ${blockedAt} by ${by}: the agent removed itself and the device stays unmonitored${until}, so nothing after that point was observed.`
+        : `Uploads were paused at ${blockedAt}${until} by ${by}: no events reached the backend after that point while the pause lasted, so their absence proves nothing.`,
+    );
+  }
   if (spool) {
     const pending = num(spool.data?.pendingItemCount);
     gaps.push(`Telemetry spool pressure${pending !== null ? ` (${pending} items pending)` : ''}: events reached the backend late; anything after the last upload may still be on the device.`);

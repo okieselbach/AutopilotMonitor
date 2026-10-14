@@ -997,6 +997,9 @@ namespace AutopilotMonitor.Shared
             // SessionTimeoutHours (5h default) window and graduates to terminal Failed. Gives the
             // analyze pipeline a terminal event to fire on (parity with the agent's enrollment_failed).
             public const string SessionTimeout            = "session_timeout";
+            // Server-authored: written when the platform blocks the session's device (event limit or
+            // the platform operator). Marks the point after which the session's telemetry was refused.
+            public const string DeviceBlocked             = "device_blocked";
             public const string RemoteConfigFetchFailed   = "remote_config_fetch_failed";
             public const string AgentUnrestrictedModeChanged = "agent_unrestricted_mode_changed";
 

@@ -555,13 +555,30 @@ namespace AutopilotMonitor.Shared.Models
         public bool ExcessiveEventsAlerted { get; set; }
 
         /// <summary>
-        /// True once maintenance has auto-blocked or auto-killed the device for this runaway
-        /// session (see <see cref="AutopilotMonitor.Shared.Models.AdminConfiguration.ExcessiveEventAutoActionMode"/>).
-        /// Independent of <see cref="ExcessiveEventsAlerted"/> so warn and auto-action are
-        /// each idempotent on their own — admins can change the auto-action mode mid-flight
-        /// without re-firing the warn.
+        /// When the platform blocked this session's device (server clock). Null when the session
+        /// was never blocked. The Block* fields are a record written when the block is placed,
+        /// not the live block state: the agent stays paused until <see cref="BlockedUntil"/> even
+        /// when the block is lifted earlier.
         /// </summary>
-        public bool ExcessiveEventsAutoActioned { get; set; }
+        public DateTime? BlockedAt { get; set; }
+
+        /// <summary>The block action (<see cref="DeviceBlockActions"/>): Block pauses uploads, Kill ends monitoring.</summary>
+        public string? BlockAction { get; set; }
+
+        /// <summary>
+        /// When the block ends. A Block covers only this session (a new enrollment lifts it); a Kill
+        /// covers the whole device until then, new enrollments included.
+        /// </summary>
+        public DateTime? BlockedUntil { get; set; }
+
+        /// <summary>Why the session was blocked (<see cref="SessionBlockCauses"/>).</summary>
+        public string? BlockCause { get; set; }
+
+        /// <summary>The session's event count when the event limit blocked it. Null for other causes.</summary>
+        public int? BlockEventCount { get; set; }
+
+        /// <summary>The event limit the session exceeded. Null for other causes.</summary>
+        public int? BlockEventThreshold { get; set; }
 
         /// <summary>
         /// JSON-serialized <see cref="System.Collections.Generic.List{T}"/> of <see cref="ServerAction"/>

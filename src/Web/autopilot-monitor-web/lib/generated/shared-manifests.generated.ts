@@ -505,6 +505,14 @@ export const SHARED_MANIFEST = {
     "ime",
     "realmjoin"
   ],
+  "deviceBlockActions": [
+    "Block",
+    "Kill"
+  ],
+  "sessionBlockCauses": [
+    "event_limit",
+    "operator"
+  ],
   "sessionAnchorIneligibleSources": [
     "SystemTimelineWatcher",
     "WindowsUpdateWatcher",
@@ -1039,6 +1047,7 @@ export const SHARED_MANIFEST = {
     "desktop_detector_started",
     "desktop_excluded_user",
     "desktop_real_user_detected",
+    "device_blocked",
     "device_location",
     "device_registration_event",
     "diagnostics_collecting",

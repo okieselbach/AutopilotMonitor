@@ -3006,7 +3006,7 @@
       "description": "Detects when the server-side inactivity timeout closed the enrollment session (no agent telemetry for the configured SessionTimeoutHours window) before it ever completed or explicitly failed.",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "enabled": true,
       "baseConfidence": 80,
       "preconditions": [
@@ -3021,6 +3021,12 @@
           "eventType": "enrollment_failed",
           "operator": "not_exists",
           "description": "Suppress when an explicit enrollment_failed exists — that path is already covered by ANALYZE-ENRL-001; avoid double-reporting the same session."
+        },
+        {
+          "source": "event_data",
+          "eventType": "device_blocked",
+          "operator": "not_exists",
+          "description": "Suppress when the platform blocked the session's device: the silence is the refused uploads, which ANALYZE-ENRL-006 explains — 'the agent died or the device went offline' would be wrong."
         }
       ],
       "conditions": [
@@ -3451,6 +3457,116 @@
         "known-issue",
         "windows-update",
         "esp"
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-ENRL-006",
+      "title": "Monitoring Paused by a Protective Limit",
+      "description": "Detects when the platform blocked the session's device — automatically after an unusually high event volume, or by the platform operator — so the session's telemetry stopped reaching Autopilot Monitor.",
+      "severity": "warning",
+      "category": "enrollment",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "on_event:device_blocked"
+      ],
+      "trigger": "single",
+      "baseConfidence": 90,
+      "confidenceThreshold": 50,
+      "conditions": [
+        {
+          "signal": "device_blocked",
+          "source": "event_type",
+          "eventType": "device_blocked",
+          "operator": "exists",
+          "value": "",
+          "required": true
+        },
+        {
+          "signal": "event_count",
+          "source": "event_data",
+          "eventType": "device_blocked",
+          "dataField": "eventCount",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "event_limit",
+          "source": "event_data",
+          "eventType": "device_blocked",
+          "dataField": "threshold",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "blocked_until",
+          "source": "event_data",
+          "eventType": "device_blocked",
+          "dataField": "blockedUntil",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        }
+      ],
+      "explanation": "Autopilot Monitor stopped accepting telemetry from this session. A protective limit keeps a single device that sends far more events than an enrollment normally does from distorting your fleet data or overloading the platform. When a session crosses it, the device's uploads are paused for a limited time; in severe cases the agent ends monitoring and removes itself. The platform operator can apply the same pause by hand.\n\nA pause does not affect the enrollment itself: the agent keeps running and only holds back its uploads, so Windows Autopilot and Intune carry on as usual. While the pause lasts, no events from this session reach Autopilot Monitor, so the timeline and the final status reflect the last state the agent reported before it. A paused session does not affect the device's next enrollment, which starts unblocked. When the agent ended monitoring, the device stays unmonitored until the end time shown on the session page, new enrollments included.",
+      "remediation": [
+        {
+          "title": "Find what made the session so busy",
+          "steps": [
+            "Open the event timeline and look at which event type repeats most often before the pause — for example a network connection that drops and reconnects every few minutes, or a download that reports progress continuously",
+            "Fix the underlying condition (for example a loose dock, cable or Wi-Fi), then re-enroll the device if you need a complete record of the enrollment",
+            "If no event type stands out, report the session from its page so it can be looked at"
+          ]
+        },
+        {
+          "title": "What happens next",
+          "steps": [
+            "A pause ends on its own at the time shown on the session page; an agent that is still running then resumes uploading",
+            "After a pause, a new enrollment on this device starts unblocked",
+            "After the agent ended monitoring, wait for the end time shown on the session page before re-enrolling if you want the new enrollment monitored"
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Autopilot Monitor: Protective Limits",
+          "url": "https://docs.autopilotmonitor.com/concepts/protective-limits"
+        }
+      ],
+      "presentation": {
+        "role": "outcome",
+        "summary": "Monitoring was paused by a protective limit",
+        "facts": [
+          {
+            "label": "Paused at",
+            "value": "{{device_blocked.timestamp}}",
+            "format": "timestamp"
+          },
+          {
+            "label": "Events in this session",
+            "value": "{{event_count.value}}",
+            "format": "number"
+          },
+          {
+            "label": "Event limit",
+            "value": "{{event_limit.value}}",
+            "format": "number"
+          },
+          {
+            "label": "Paused until",
+            "value": "{{blocked_until.value}}",
+            "format": "timestamp"
+          }
+        ]
+      },
+      "tags": [
+        "enrollment",
+        "protective-limit",
+        "blocked"
       ]
     },
     {

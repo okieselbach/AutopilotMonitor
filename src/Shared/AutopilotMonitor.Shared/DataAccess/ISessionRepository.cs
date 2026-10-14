@@ -208,10 +208,10 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task MarkExcessiveEventsAlertedAsync(string tenantId, string sessionId);
 
         /// <summary>
-        /// Marks the session as already-auto-actioned so maintenance only blocks/kills the
-        /// device once per runaway session. Independent of <see cref="MarkExcessiveEventsAlertedAsync"/>.
+        /// Writes the block record onto the session (Sessions + SessionsIndex). A later record replaces
+        /// an earlier one. Returns false when the write failed; failures are logged, never thrown.
         /// </summary>
-        Task MarkExcessiveEventsAutoActionedAsync(string tenantId, string sessionId);
+        Task<bool> RecordSessionBlockAsync(string tenantId, string sessionId, SessionBlockRecord record);
 
         /// <summary>
         /// Open (non-terminal: Pending / InProgress / Stalled / AwaitingUser) sessions of the same

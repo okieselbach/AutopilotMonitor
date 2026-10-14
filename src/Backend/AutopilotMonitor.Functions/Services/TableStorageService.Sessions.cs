@@ -182,8 +182,7 @@ namespace AutopilotMonitor.Functions.Services
                 // Search-filterable column (rebootCountMin/Max push an OData filter on the index),
                 // so it MUST be projected — otherwise a StartedAt-shift full upsert drops it.
                 ["RebootCount"] = sessionEntity.GetInt32("RebootCount") ?? 0,
-                ["ExcessiveEventsAlerted"] = sessionEntity.GetBoolean("ExcessiveEventsAlerted") ?? false,
-                ["ExcessiveEventsAutoActioned"] = sessionEntity.GetBoolean("ExcessiveEventsAutoActioned") ?? false
+                ["ExcessiveEventsAlerted"] = sessionEntity.GetBoolean("ExcessiveEventsAlerted") ?? false
             };
 
             // Nullable fields — only written when present.
@@ -295,6 +294,27 @@ namespace AutopilotMonitor.Functions.Services
             var connectionType = sessionEntity.GetString("ConnectionType");
             if (!string.IsNullOrEmpty(connectionType))
                 indexEntity["ConnectionType"] = connectionType;
+
+            // Block record (RecordSessionBlockAsync merges it): the session list renders the
+            // Blocked pill from it, so a StartedAt-shift full upsert must keep it.
+            foreach (var col in SessionBlockDateColumns)
+            {
+                var at = sessionEntity.GetDateTimeOffset(col)?.UtcDateTime;
+                if (at.HasValue)
+                    indexEntity[col] = EnsureUtc(at.Value);
+            }
+            foreach (var col in SessionBlockStringColumns)
+            {
+                var val = sessionEntity.GetString(col);
+                if (!string.IsNullOrEmpty(val))
+                    indexEntity[col] = val;
+            }
+            foreach (var col in SessionBlockCountColumns)
+            {
+                var val = sessionEntity.GetInt32(col);
+                if (val.HasValue)
+                    indexEntity[col] = val.Value;
+            }
 
             return indexEntity;
         }
@@ -3635,6 +3655,12 @@ namespace AutopilotMonitor.Functions.Services
 
             var status = ParseStoredStatus(entity, sessionId);
 
+            // Block record: a later record (an operator's Kill over an event-limit block) merges over
+            // an earlier one and cannot clear the columns it no longer uses — the counts belong to the
+            // event limit only.
+            var blockCause = entity.GetString("BlockCause");
+            var isOperatorBlock = blockCause == SessionBlockCauses.Operator;
+
             return new SessionSummary
             {
                 SessionId = sessionId,
@@ -3697,7 +3723,12 @@ namespace AutopilotMonitor.Functions.Services
                 RemediationScriptCount = SafeGetInt32(entity, "RemediationScriptCount") ?? 0,
                 RebootCount = SafeGetInt32(entity, "RebootCount") ?? 0,
                 ExcessiveEventsAlerted = entity.GetBoolean("ExcessiveEventsAlerted") ?? false,
-                ExcessiveEventsAutoActioned = entity.GetBoolean("ExcessiveEventsAutoActioned") ?? false,
+                BlockedAt = SafeGetDateTime(entity, "BlockedAt"),
+                BlockAction = entity.GetString("BlockAction"),
+                BlockedUntil = SafeGetDateTime(entity, "BlockedUntil"),
+                BlockCause = blockCause,
+                BlockEventCount = isOperatorBlock ? null : SafeGetInt32(entity, "BlockEventCount"),
+                BlockEventThreshold = isOperatorBlock ? null : SafeGetInt32(entity, "BlockEventThreshold"),
                 FailureSnapshotJson = entity.GetString("FailureSnapshotJson") ?? string.Empty,
                 // PR3: cascade-delete state-machine columns. Empty/null on legacy rows is fine —
                 // SessionDeletionGuard treats null/empty as "None" (no cascade in flight).
@@ -4156,13 +4187,13 @@ namespace AutopilotMonitor.Functions.Services
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: $"PartitionKey eq '{tenantId}' and EventCount gt {threshold}",
-                    // SerialNumber + ExcessiveEventsAutoActioned added for the auto-block/kill
+                    // SerialNumber + BlockCause added for the auto-block/kill
                     // path in MaintenanceService — lets us decide and execute in one round-trip
                     // per qualifying session, without a follow-up GetSessionAsync.
                     // Status is mandatory for that path: SessionStatus.InProgress is ordinal 0, so
                     // an unselected column would leave every row looking in-progress and the
                     // auto-action eligibility gate silently always-true.
-                    select: new[] { "PartitionKey", "RowKey", "EventCount", "SerialNumber", "Status", "ExcessiveEventsAlerted", "ExcessiveEventsAutoActioned" });
+                    select: new[] { "PartitionKey", "RowKey", "EventCount", "SerialNumber", "Status", "ExcessiveEventsAlerted", "BlockCause" });
 
                 await foreach (var entity in query)
                 {
@@ -4174,7 +4205,7 @@ namespace AutopilotMonitor.Functions.Services
                         SerialNumber = entity.GetString("SerialNumber") ?? string.Empty,
                         Status = ParseStatusForAutoAction(entity.GetString("Status")),
                         ExcessiveEventsAlerted = entity.GetBoolean("ExcessiveEventsAlerted") ?? false,
-                        ExcessiveEventsAutoActioned = entity.GetBoolean("ExcessiveEventsAutoActioned") ?? false
+                        BlockCause = entity.GetString("BlockCause")
                     });
                 }
             }
@@ -4222,12 +4253,16 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        internal static readonly string[] SessionBlockDateColumns = { "BlockedAt", "BlockedUntil" };
+        internal static readonly string[] SessionBlockStringColumns = { "BlockAction", "BlockCause" };
+        internal static readonly string[] SessionBlockCountColumns = { "BlockEventCount", "BlockEventThreshold" };
+
         /// <summary>
-        /// Sets ExcessiveEventsAutoActioned=true on the session entity so the maintenance
-        /// auto-block/kill emission is idempotent. Best-effort Merge write; failures are
-        /// logged only (warn-path stays intact even if this fails).
+        /// Merges the block record into the Sessions row and the SessionsIndex mirror. A later record
+        /// merges over an earlier one; the columns it leaves out are ignored on read
+        /// (<c>MapToSessionSummary</c>). Best-effort: failures are logged and reported as false.
         /// </summary>
-        public async Task MarkExcessiveEventsAutoActionedAsync(string tenantId, string sessionId)
+        public async Task<bool> RecordSessionBlockAsync(string tenantId, string sessionId, SessionBlockRecord record)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -4237,11 +4272,19 @@ namespace AutopilotMonitor.Functions.Services
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
                 var update = new TableEntity(tenantId, sessionId)
                 {
-                    ["ExcessiveEventsAutoActioned"] = true
+                    ["BlockedAt"] = EnsureUtc(record.BlockedAt),
+                    ["BlockAction"] = record.Action,
+                    ["BlockCause"] = record.Cause,
                 };
+                if (record.BlockedUntil.HasValue)
+                    update["BlockedUntil"] = EnsureUtc(record.BlockedUntil.Value);
+                if (record.EventCount.HasValue)
+                    update["BlockEventCount"] = record.EventCount.Value;
+                if (record.EventThreshold.HasValue)
+                    update["BlockEventThreshold"] = record.EventThreshold.Value;
                 await tableClient.UpdateEntityAsync(update, ETag.All, TableUpdateMode.Merge);
 
-                // Dual-write into SessionsIndex so dashboard queries see the flag without a separate read.
+                // Dual-write into SessionsIndex so the session list sees the record without a separate read.
                 try
                 {
                     var entity = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId,
@@ -4251,12 +4294,14 @@ namespace AutopilotMonitor.Functions.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "SessionsIndex merge skipped for ExcessiveEventsAutoActioned on {SessionId}", sessionId);
+                    _logger.LogWarning(ex, "SessionsIndex merge failed for the block record of {SessionId}", sessionId);
                 }
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to mark session {SessionId} as ExcessiveEventsAutoActioned", sessionId);
+                _logger.LogWarning(ex, "Failed to record the block on session {SessionId}", sessionId);
+                return false;
             }
         }
 

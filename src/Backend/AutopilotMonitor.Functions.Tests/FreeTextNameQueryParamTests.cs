@@ -230,7 +230,8 @@ public class FreeTextNameQueryParamTests
             NullLogger<DeviceBlockFunction>.Instance,
             new BlockedDeviceService(securityRepo, Mock.Of<ISessionRepository>(), NullLogger<BlockedDeviceService>.Instance),
             maintenance.Object,
-            opsEvents);
+            opsEvents,
+            new SessionBlockRecorder(Mock.Of<ISessionRepository>(), Mock.Of<AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer>(), NullLogger<SessionBlockRecorder>.Instance));
     }
 
     private static JsonElement Json(HttpResponseData res)

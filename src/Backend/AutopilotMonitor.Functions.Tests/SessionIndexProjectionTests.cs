@@ -40,7 +40,10 @@ public class SessionIndexProjectionTests
             ["RemediationScriptCount"] = 3,
             ["RebootCount"] = 4,
             ["ExcessiveEventsAlerted"] = true,
-            ["ExcessiveEventsAutoActioned"] = true,
+            // Block record (RecordSessionBlockAsync merges it) — the session list renders the Blocked pill from it.
+            ["BlockedAt"] = new DateTimeOffset(StartedAt.AddMinutes(30)),
+            ["BlockAction"] = "Kill",
+            ["BlockCause"] = "operator",
             // Self-deploying/kiosk profile marker (session 320b3bf7) — search-filterable.
             ["IsSelfDeployingProfile"] = true,
             // W365 Cloud PC marker (agent-detected, sticky-true) — search-filterable.
@@ -72,7 +75,9 @@ public class SessionIndexProjectionTests
         // index), so it MUST survive a StartedAt-shift full upsert.
         Assert.Equal(4, idx.GetInt32("RebootCount"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAlerted"));
-        Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
+        Assert.True(idx.GetDateTimeOffset("BlockedAt").HasValue);
+        Assert.Equal("Kill", idx.GetString("BlockAction"));
+        Assert.Equal("operator", idx.GetString("BlockCause"));
         Assert.True(idx.GetBoolean("IsSelfDeployingProfile"));
         Assert.True(idx.GetBoolean("IsCloudPc"));
         Assert.Equal("AutopilotV1", idx.GetString("ValidatedBy"));

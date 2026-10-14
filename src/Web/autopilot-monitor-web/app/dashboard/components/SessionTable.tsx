@@ -16,6 +16,7 @@ import {
   parseSessionSearchQuery,
 } from "../lib/sessionSearchQuery";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
+import { BLOCKED_ICON_PATH, sessionBlockOf, sessionBlockTooltip } from "@/lib/sessionBlock";
 import { TenantFilterBar } from "./TenantFilterBar";
 import type { DeleteTarget } from "../hooks/useDeleteSession";
 import type { BlockTarget } from "../hooks/useBlockDevice";
@@ -1072,6 +1073,8 @@ function SessionCell({
   onBlockDevices: (targets: BlockTarget[]) => void;
   tenantDomainById: Map<string, string>;
 }) {
+  // The session's own block record reaches every role; the GA live list adds whole-device blocks.
+  const sessionBlock = sessionBlockOf(session);
   switch (columnKey) {
     case "device":
       return (
@@ -1159,13 +1162,13 @@ function SessionCell({
                 Cloud PC
               </span>
             )}
-            {blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) && (
+            {(sessionBlock || blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`)) && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800"
-                title="Device is currently blocked"
+                title={sessionBlock ? sessionBlockTooltip(sessionBlock) : "Device is currently blocked"}
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={BLOCKED_ICON_PATH} />
                 </svg>
                 Blocked
               </span>

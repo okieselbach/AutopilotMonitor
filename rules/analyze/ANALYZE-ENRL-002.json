@@ -5,7 +5,7 @@
   "description": "Detects when the server-side inactivity timeout closed the enrollment session (no agent telemetry for the configured SessionTimeoutHours window) before it ever completed or explicitly failed.",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled": true,
   "baseConfidence": 80,
   "preconditions": [
@@ -20,6 +20,12 @@
       "eventType": "enrollment_failed",
       "operator": "not_exists",
       "description": "Suppress when an explicit enrollment_failed exists — that path is already covered by ANALYZE-ENRL-001; avoid double-reporting the same session."
+    },
+    {
+      "source": "event_data",
+      "eventType": "device_blocked",
+      "operator": "not_exists",
+      "description": "Suppress when the platform blocked the session's device: the silence is the refused uploads, which ANALYZE-ENRL-006 explains — 'the agent died or the device went offline' would be wrong."
     }
   ],
   "conditions": [

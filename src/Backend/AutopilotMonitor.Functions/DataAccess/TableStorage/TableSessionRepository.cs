@@ -197,8 +197,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task MarkExcessiveEventsAlertedAsync(string tenantId, string sessionId)
             => _storage.MarkExcessiveEventsAlertedAsync(tenantId, sessionId);
 
-        public Task MarkExcessiveEventsAutoActionedAsync(string tenantId, string sessionId)
-            => _storage.MarkExcessiveEventsAutoActionedAsync(tenantId, sessionId);
+        public Task<bool> RecordSessionBlockAsync(string tenantId, string sessionId, SessionBlockRecord record)
+            => _storage.RecordSessionBlockAsync(tenantId, sessionId, record);
 
         public Task<ImeVersionSighting> RecordImeVersionAsync(string version, string tenantId, string sessionId)
             => _storage.RecordImeVersionAsync(version, tenantId, sessionId);

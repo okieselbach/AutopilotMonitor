@@ -43,6 +43,8 @@ export const DOCS_PATHS = {
   geographicPerformance: "/portal-guide/geographic-performance",
   geographicPerformanceNumbers: "/portal-guide/geographic-performance#how-the-numbers-are-calculated",
   statistics: "/concepts/averages-medians-and-percentiles",
+  // Session page block card (event limit / platform operator)
+  protectiveLimits: "/concepts/protective-limits",
   slaCompliance: "/portal-guide/sla-compliance",
   softwareInventory: "/portal-guide/software-inventory-and-vulnerabilities",
   usageMetrics: "/portal-guide/usage-metrics",

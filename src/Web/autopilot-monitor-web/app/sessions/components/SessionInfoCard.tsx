@@ -4,8 +4,10 @@ import { useState, type ReactNode } from "react";
 import { Session } from "@/types";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import FailureSnapshotBlock from "./FailureSnapshotBlock";
+import { MonitoringBlockedBlock } from "./MonitoringBlockedBlock";
 import { deviceClockDirection } from "./sessionInfoLogic";
 import { formatDuration } from "@/lib/formatting";
+import { sessionBlockOf } from "@/lib/sessionBlock";
 
 interface SessionInfoCardProps {
   session: Session;
@@ -21,6 +23,7 @@ interface SessionInfoCardProps {
 }
 
 export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected, standbySeconds, footerHint }: SessionInfoCardProps) {
+  const block = sessionBlockOf(session);
   const lastContactTooltip = session.lastEventAt
     ? `Last contact: ${new Date(session.lastEventAt).toLocaleString([], { dateStyle: "short", timeStyle: "medium" })}`
     : undefined;
@@ -148,7 +151,8 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
         </div>
       )}
       {footerHint}
-      <FailureSnapshotBlock failureSnapshotJson={session.failureSnapshotJson} />
+      <MonitoringBlockedBlock block={block} />
+      <FailureSnapshotBlock failureSnapshotJson={session.failureSnapshotJson} afterBlock={block !== null} />
     </div>
   );
 }

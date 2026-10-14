@@ -134,7 +134,7 @@ namespace AutopilotMonitor.Functions.Services
                 isBlocked: true, isKill: isKill, unblockAt: unblockAt,
                 message: isKill
                     ? "Device has been issued a remote kill signal."
-                    : "Device is temporarily blocked by an administrator.",
+                    : "Device is temporarily blocked by the platform.",
                 blockedSessionIds: isKill ? null : blockedSessionIds,
                 blockedSerial: blockedSerial,
                 identityBinding: identityBinding);

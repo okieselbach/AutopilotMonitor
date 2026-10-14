@@ -34,6 +34,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly TenantConfigurationService _tenantConfigService;
         private readonly AdminConfigurationService _adminConfigurationService;
         private readonly BlockedDeviceService _blockedDeviceService;
+        private readonly SessionBlockRecorder _sessionBlockRecorder;
         private readonly IUserUsageRepository _userUsageRepo;
         private readonly IDistressReportRepository _distressReportRepo;
         private readonly IOpsEventRepository _opsEventRepo;
@@ -70,6 +71,7 @@ namespace AutopilotMonitor.Functions.Services
             TenantConfigurationService tenantConfigService,
             AdminConfigurationService adminConfigurationService,
             BlockedDeviceService blockedDeviceService,
+            SessionBlockRecorder sessionBlockRecorder,
             IUserUsageRepository userUsageRepo,
             IDistressReportRepository distressReportRepo,
             IOpsEventRepository opsEventRepo,
@@ -100,6 +102,7 @@ namespace AutopilotMonitor.Functions.Services
             _tenantConfigService = tenantConfigService;
             _adminConfigurationService = adminConfigurationService;
             _blockedDeviceService = blockedDeviceService;
+            _sessionBlockRecorder = sessionBlockRecorder;
             _userUsageRepo = userUsageRepo;
             _distressReportRepo = distressReportRepo;
             _opsEventRepo = opsEventRepo;
@@ -473,7 +476,8 @@ namespace AutopilotMonitor.Functions.Services
                                 SessionStatus.Stalled,
                                 VerdictPaths.SweepStalled,
                                 stalledAt: now,
-                                failureReason: $"Agent silent for {silentMinutes}min (detected by maintenance sweep)");
+                                failureReason: DescribeBlockedMonitoring(silent)
+                                    ?? $"Agent silent for {silentMinutes}min (detected by maintenance sweep)");
                             silentMarked++;
                         }
 
@@ -570,6 +574,12 @@ namespace AutopilotMonitor.Functions.Services
                             // No-op if the verdict equals the current (non-terminal) state.
                             if (targetStatus == session.Status)
                                 continue;
+
+                            // A session the platform blocked went silent because its uploads were
+                            // refused: the classification stands, the reason names the block.
+                            var blockText = targetStatus == SessionStatus.Succeeded ? null : DescribeBlockedMonitoring(session);
+                            if (blockText != null)
+                                reason = $"{blockText}. {reason}";
 
                             var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
                                 session.TenantId,
@@ -812,6 +822,22 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// The session's block record for an event-limit auto-action. Both actions end with the block;
+        /// a Kill covers the whole device until then (a new session does not lift it).
+        /// </summary>
+        internal static SessionBlockRecord BuildEventLimitBlockRecord(
+            string action, DateTime blockedAt, int durationHours, int eventCount, int threshold)
+            => new()
+            {
+                BlockedAt = blockedAt,
+                Action = action,
+                BlockedUntil = blockedAt.AddHours(durationHours),
+                Cause = SessionBlockCauses.EventLimit,
+                EventCount = eventCount,
+                EventThreshold = threshold,
+            };
+
+        /// <summary>
         /// Pure eligibility gate for the runaway-session auto-action path: only a session that
         /// can still upload may cost its device a block. Mirrors the time-window watchdog's
         /// <c>Status eq 'InProgress'</c> filter, so neither detector ever blocks a device over a
@@ -850,9 +876,10 @@ namespace AutopilotMonitor.Functions.Services
         /// Auto-action path (Block/Kill): when <see cref="AdminConfiguration.ExcessiveEventAutoActionMode"/>
         /// is set and the session crosses the higher threshold, calls
         /// <see cref="BlockedDeviceService.BlockDeviceAsync"/>, emits a Critical
-        /// <c>ExcessiveSessionEventsAutoActioned</c> ops event, and marks
-        /// <c>ExcessiveEventsAutoActioned</c>. The two flags are independent so flipping the
-        /// mode mid-run never re-fires the warn.
+        /// <c>ExcessiveSessionEventsAutoActioned</c> ops event, and records the block on the
+        /// session (<see cref="SessionBlockRecorder"/>) — its <c>BlockCause</c> is the auto-action's
+        /// idempotency marker. Warn and auto-action are tracked apart so flipping the mode
+        /// mid-run never re-fires the warn.
         /// </para>
         /// Both paths skip when their threshold is 0; the whole sweep no-ops when both are off.
         /// <para>
@@ -907,7 +934,7 @@ namespace AutopilotMonitor.Functions.Services
                         {
                             if (!HasPendingExcessiveEventAction(
                                     candidate.EventCount, candidate.Status,
-                                    candidate.ExcessiveEventsAlerted, candidate.ExcessiveEventsAutoActioned,
+                                    candidate.ExcessiveEventsAlerted, candidate.BlockCause == SessionBlockCauses.EventLimit,
                                     warnEnabled ? warnThreshold : 0, autoEnabled ? autoMode : "Off", autoThreshold))
                                 continue;
 
@@ -927,7 +954,7 @@ namespace AutopilotMonitor.Functions.Services
                             }
 
                             // Auto-action tier: block/kill once per session when configured.
-                            if (autoEnabled && !session.ExcessiveEventsAutoActioned)
+                            if (autoEnabled && session.BlockCause != SessionBlockCauses.EventLimit)
                             {
                                 var action = DecideAutoAction(session.EventCount, autoMode, autoThreshold);
                                 if (action == null) continue;
@@ -961,7 +988,8 @@ namespace AutopilotMonitor.Functions.Services
                                     continue;
                                 }
 
-                                var reason = $"Auto-action: excessive session events ({session.EventCount} events ≥ threshold {autoThreshold})";
+                                var reason = $"Auto-action: excessive session events ({session.EventCount} events, limit {autoThreshold})";
+                                var blockedAt = DateTime.UtcNow;
                                 await _blockedDeviceService.BlockDeviceAsync(
                                     tenantId,
                                     session.SerialNumber,
@@ -974,7 +1002,19 @@ namespace AutopilotMonitor.Functions.Services
                                 await _opsEventService.RecordExcessiveSessionEventsAutoActionedAsync(
                                     tenantId, session.SessionId, session.SerialNumber,
                                     session.EventCount, autoThreshold, action, autoDurationHours);
-                                await _sessionRepo.MarkExcessiveEventsAutoActionedAsync(tenantId, session.SessionId);
+
+                                // The tenant's only view of the block: card, timeline event and audit entry.
+                                await _sessionBlockRecorder.RecordAsync(tenantId, session.SessionId, session.SerialNumber,
+                                    BuildEventLimitBlockRecord(action, blockedAt, autoDurationHours, session.EventCount, autoThreshold));
+                                await _maintenanceRepo.LogAuditEntryAsync(
+                                    tenantId, "CREATE", "DeviceBlock", session.SerialNumber, "System.Maintenance",
+                                    new Dictionary<string, string>
+                                    {
+                                        { "Action", action },
+                                        { "DurationHours", autoDurationHours.ToString() },
+                                        { "Reason", reason },
+                                        { "BlockedSessionId", session.SessionId },
+                                    });
                                 totalAutoActioned++;
                             }
                         }
@@ -1047,5 +1087,25 @@ namespace AutopilotMonitor.Functions.Services
         /// over its argument, pinned by <c>MaintenanceServerFrameLastContactTests</c>.</remarks>
         internal static DateTime ServerFrameLastContact(SessionSummary session)
             => session.LastIngestAt ?? session.LastEventAt ?? session.StartedAt;
+
+        /// <summary>
+        /// The status reason of a silent session the platform blocked, or null when its silence has
+        /// another cause. Refused uploads never stamp the last contact, so a contact after the block's
+        /// end means the agent came back and went silent for its own reasons.
+        /// </summary>
+        internal static string? DescribeBlockedMonitoring(SessionSummary session)
+        {
+            if (!session.BlockedAt.HasValue)
+                return null;
+            if (session.BlockedUntil.HasValue && ServerFrameLastContact(session) > session.BlockedUntil.Value)
+                return null;
+
+            var by = session.BlockCause == SessionBlockCauses.Operator
+                ? "the platform operator"
+                : "the platform's event limit";
+            return session.BlockAction == DeviceBlockActions.Kill
+                ? $"Monitoring ended by {by}"
+                : $"Monitoring paused by {by}";
+        }
     }
 }

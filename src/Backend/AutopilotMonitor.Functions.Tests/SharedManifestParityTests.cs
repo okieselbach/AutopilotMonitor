@@ -90,6 +90,9 @@ public sealed class SharedManifestParityTests
             ["annotationVerdicts"] = AnnotationVerdicts.All,
             // Install channels of the app rows (AppInstallSummary.Source and the per-app DTOs).
             ["appInstallSources"] = AppInstallSources.All,
+            // A session's block record (SessionSummary.BlockAction / BlockCause).
+            ["deviceBlockActions"] = DeviceBlockActions.All,
+            ["sessionBlockCauses"] = SessionBlockCauses.All,
             // Event sources whose rows never set a session's start; the portal's session duration applies them.
             ["sessionAnchorIneligibleSources"] = Constants.EventSources.SessionAnchorIneligible,
             // How an OOBE quality update ended (OsUpdateSpan.Outcome in the time attribution).

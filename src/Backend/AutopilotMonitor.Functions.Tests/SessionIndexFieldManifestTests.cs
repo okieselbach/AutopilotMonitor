@@ -76,7 +76,6 @@ public class SessionIndexFieldManifestTests
         ["RemediationScriptCount"] = 3,
         ["RebootCount"] = 4,
         ["ExcessiveEventsAlerted"] = true,
-        ["ExcessiveEventsAutoActioned"] = true,
         ["CompletedAt"] = new DateTimeOffset(StartedAt.AddMinutes(45)),
         ["FailureReason"] = "esp timeout",
         ["FailureSource"] = "ime",
@@ -102,6 +101,12 @@ public class SessionIndexFieldManifestTests
         ["AvgApiLatencyMs"] = 513.5,
         ["ApiRequestCount"] = 100,
         ["ConnectionType"] = "Ethernet",
+        ["BlockedAt"] = new DateTimeOffset(StartedAt.AddMinutes(30)),
+        ["BlockAction"] = "Block",
+        ["BlockedUntil"] = new DateTimeOffset(StartedAt.AddHours(24)),
+        ["BlockCause"] = "event_limit",
+        ["BlockEventCount"] = 2553,
+        ["BlockEventThreshold"] = 2500,
     };
 
     // ── Manifest shape ───────────────────────────────────────────────────────────

@@ -107,7 +107,7 @@ namespace AutopilotMonitor.Shared.Models
         /// or <c>"Kill"</c>. Off (default) keeps the warn-only behaviour;
         /// Block stops the device's uploads for <see cref="ExcessiveEventAutoActionDurationHours"/>;
         /// Kill issues a remote self-destruct signal. Action runs in the 2h maintenance batch,
-        /// is idempotent per session via <c>ExcessiveEventsAutoActioned</c>, and never downgrades
+        /// is idempotent per session via its block record (<c>SessionSummary.BlockCause</c>), and never downgrades
         /// an existing Kill to Block.
         /// </summary>
         public string ExcessiveEventAutoActionMode { get; set; } = "Off";

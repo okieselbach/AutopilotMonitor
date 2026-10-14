@@ -329,6 +329,7 @@ builder.Services.AddHttpClient(LogQuerySourceCatalog.HttpClientName, c => c.Time
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Ime.ImePatternHealthService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.SessionOwnerBindingObserver>();
 builder.Services.AddSingleton<BlockedDeviceService>();
+builder.Services.AddSingleton<SessionBlockRecorder>();
 builder.Services.AddSingleton<HardwareRejectionThrottleService>();
 builder.Services.AddSingleton<BlockedVersionService>();
 builder.Services.AddSingleton<KillSwitchEvaluator>();

@@ -116,7 +116,7 @@ export interface AdminConfiguration {
   desktopDetectorNoCandidateTimeoutMinutes: number;
   /** Maintenance alarm threshold: sessions with more events than this value trigger an ExcessiveSessionEvents ops alert (dispatched to Telegram/Teams). 0 = disabled. Default: 2000 (largest real sessions observed are ~500). */
   excessiveEventCountThreshold: number;
-  /** Auto-action mode for runaway sessions whose EventCount exceeds ExcessiveEventAutoActionThreshold. One of "Off", "Block", or "Kill". Off (default) keeps the warn-only behaviour; Block stops the device's uploads for ExcessiveEventAutoActionDurationHours; Kill issues a remote self-destruct signal. Action runs in the 2h maintenance batch, is idempotent per session via ExcessiveEventsAutoActioned, and never downgrades an existing Kill to Block. */
+  /** Auto-action mode for runaway sessions whose EventCount exceeds ExcessiveEventAutoActionThreshold. One of "Off", "Block", or "Kill". Off (default) keeps the warn-only behaviour; Block stops the device's uploads for ExcessiveEventAutoActionDurationHours; Kill issues a remote self-destruct signal. Action runs in the 2h maintenance batch, is idempotent per session via its block record (SessionSummary.BlockCause), and never downgrades an existing Kill to Block. */
   excessiveEventAutoActionMode: string;
   /** Event-count threshold for auto-block/kill. Must be greater than ExcessiveEventCountThreshold so operators see the warn first. 0 disables regardless of ExcessiveEventAutoActionMode. Default: 2500. */
   excessiveEventAutoActionThreshold: number;
@@ -3020,7 +3020,12 @@ export interface LocationSessionRow {
   remediationScriptCount: number;
   rebootCount: number;
   excessiveEventsAlerted: boolean;
-  excessiveEventsAutoActioned: boolean;
+  blockedAt?: string;
+  blockAction?: string;
+  blockedUntil?: string;
+  blockCause?: string;
+  blockEventCount?: number;
+  blockEventThreshold?: number;
   pendingActionsJson: string;
   pendingActionsQueuedAt?: string;
   failureSnapshotJson: string;
@@ -4707,8 +4712,18 @@ export interface SessionSummary {
   rebootCount: number;
   /** True once maintenance has emitted an ExcessiveSessionEvents ops alert for this session. Prevents duplicate alerts on subsequent maintenance runs for the same runaway session. */
   excessiveEventsAlerted: boolean;
-  /** True once maintenance has auto-blocked or auto-killed the device for this runaway session (see ExcessiveEventAutoActionMode). Independent of ExcessiveEventsAlerted so warn and auto-action are each idempotent on their own — admins can change the auto-action mode mid-flight without re-firing the warn. */
-  excessiveEventsAutoActioned: boolean;
+  /** When the platform blocked this session's device (server clock). Null when the session was never blocked. The Block* fields are a record written when the block is placed, not the live block state: the agent stays paused until BlockedUntil even when the block is lifted earlier. */
+  blockedAt?: string;
+  /** The block action (DeviceBlockActions): Block pauses uploads, Kill ends monitoring. */
+  blockAction?: string;
+  /** When the block ends. A Block covers only this session (a new enrollment lifts it); a Kill covers the whole device until then, new enrollments included. */
+  blockedUntil?: string;
+  /** Why the session was blocked (SessionBlockCauses). */
+  blockCause?: string;
+  /** The session's event count when the event limit blocked it. Null for other causes. */
+  blockEventCount?: number;
+  /** The event limit the session exceeded. Null for other causes. */
+  blockEventThreshold?: number;
   /** JSON-serialized List`1 of ServerAction pending delivery to the agent. Empty string when no actions are queued. The Ingest function reads this alongside the session's status fields (no extra I/O), attaches the actions to the response, and clears the column via a merge. */
   pendingActionsJson: string;
   /** When the first pending action was queued. Used for TTL and staleness detection — maintenance can purge actions older than a threshold to prevent zombie signals on long-dead sessions. */

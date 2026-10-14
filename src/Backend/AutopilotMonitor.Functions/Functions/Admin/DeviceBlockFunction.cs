@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
@@ -17,17 +19,20 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly BlockedDeviceService _blockedDeviceService;
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly OpsEventService _opsEventService;
+        private readonly SessionBlockRecorder _sessionBlockRecorder;
 
         public DeviceBlockFunction(
             ILogger<DeviceBlockFunction> logger,
             BlockedDeviceService blockedDeviceService,
             IMaintenanceRepository maintenanceRepo,
-            OpsEventService opsEventService)
+            OpsEventService opsEventService,
+            SessionBlockRecorder sessionBlockRecorder)
         {
             _logger = logger;
             _blockedDeviceService = blockedDeviceService;
             _maintenanceRepo = maintenanceRepo;
             _opsEventService = opsEventService;
+            _sessionBlockRecorder = sessionBlockRecorder;
         }
 
         /// <summary>GET /api/devices/blocked?tenantId={tenantId} — list all active blocks for a tenant</summary>
@@ -89,8 +94,24 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 // Normalize casing
                 action = string.Equals(action, "Kill", StringComparison.OrdinalIgnoreCase) ? "Kill" : "Block";
 
+                // Read before the block: a Kill without a session widens the block to the whole device
+                // and drops the session list it replaces.
+                var (alreadyBlocked, _, _, existingSessionIds) = await _blockedDeviceService.IsBlockedAsync(tenantId, serialNumber);
+
+                var blockedAt = DateTime.UtcNow;
                 await _blockedDeviceService.BlockDeviceAsync(
                     tenantId, serialNumber, durationHours, userIdentifier, reason, action, blockedSessionId);
+
+                // The operator's reason stays on the platform side; the session record carries only the cause.
+                var record = new SessionBlockRecord
+                {
+                    BlockedAt = blockedAt,
+                    Action = action,
+                    BlockedUntil = blockedAt.AddHours(durationHours),
+                    Cause = SessionBlockCauses.Operator,
+                };
+                foreach (var sessionId in SessionsToRecord(blockedSessionId, action, alreadyBlocked, existingSessionIds))
+                    await _sessionBlockRecorder.RecordAsync(tenantId, sessionId, serialNumber, record);
 
                 var auditFields = new Dictionary<string, string>
                 {
@@ -188,6 +209,26 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         /// <summary>
         /// Trims and rejects whitespace/empty sessionIds so the service layer never receives "  " as a valid session token.
         /// </summary>
+        /// <summary>
+        /// The sessions an operator block is recorded on: the named session, or — for a Kill that
+        /// widens an existing session block to the whole device — the sessions that block named.
+        /// A whole-device Block names no session and is recorded nowhere.
+        /// </summary>
+        internal static IReadOnlyList<string> SessionsToRecord(
+            string? blockedSessionId, string action, bool alreadyBlocked, string? existingBlockedSessionIds)
+        {
+            if (blockedSessionId != null)
+                return new[] { blockedSessionId };
+            if (action != DeviceBlockActions.Kill || !alreadyBlocked || string.IsNullOrWhiteSpace(existingBlockedSessionIds))
+                return Array.Empty<string>();
+            return existingBlockedSessionIds!
+                .Split(',')
+                .Select(id => id.Trim())
+                .Where(id => id.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
         internal static string? NormalizeOptionalSessionId(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;

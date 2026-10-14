@@ -55,7 +55,6 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
       remediationScriptCount: 0,
       rebootCount: 0,
       excessiveEventsAlerted: false,
-      excessiveEventsAutoActioned: false,
       pendingActionsJson: "",
       failureSnapshotJson: "",
       deletionState: "",

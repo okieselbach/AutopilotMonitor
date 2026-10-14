@@ -59,7 +59,6 @@ namespace AutopilotMonitor.Functions.Services
             "RemediationScriptCount",
             "RebootCount",
             "ExcessiveEventsAlerted",
-            "ExcessiveEventsAutoActioned",
         };
 
         /// <summary>Written only when the Sessions row carries a value (absent otherwise).</summary>
@@ -90,6 +89,12 @@ namespace AutopilotMonitor.Functions.Services
             "AvgApiLatencyMs",
             "ApiRequestCount",
             "ConnectionType",
+            "BlockedAt",
+            "BlockAction",
+            "BlockedUntil",
+            "BlockCause",
+            "BlockEventCount",
+            "BlockEventThreshold",
         };
 
         /// <summary>Every column an index row may carry (data columns; PK/RK excluded).</summary>
