@@ -91,6 +91,11 @@ export function deviceBlockUrl(
   return withQuery("/admin/security/device-block", { sessionId, reason, action });
 }
 
+/** Tenant Management narrowed to one tenant (its search box takes the id). */
+export function tenantManagementUrl(tenantId: string): Route {
+  return withQuery("/admin/tenants/management", { tenantId });
+}
+
 export function customsArchiveUrl(tenantId: string, historyRowKey: string): Route {
   return withQuery("/admin/customs-archive/detail", {
     tenantId,

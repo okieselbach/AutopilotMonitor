@@ -643,6 +643,8 @@ export const api = {
         pageSize: opts?.pageSize?.toString(),
         continuation: opts?.continuation,
       })}`,
+    /** One event by its id (`{Category}_{RowKey}`); an empty list when it is gone. */
+    get: (id: string) => `${API_BASE_URL}/api/global/ops-events${qs({ id })}`,
   },
 
   // ── Notifications ─────────────────────────────────────────────────────────

@@ -1295,7 +1295,7 @@ namespace AutopilotMonitor.Functions.Services
         public virtual Task RecordTenantSignupAsync(string tenantId, string upn)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantSignup, OpsEventSeverity.Info,
                 "New tenant signed up", tenantId, upn,
-                new { portalPath = "/admin/tenants" });
+                new { portalPath = $"/admin/tenants/management?tenantId={Uri.EscapeDataString(tenantId)}" });
 
         public virtual Task RecordSessionReportSubmittedAsync(string tenantId, string submittedBy, string sessionId, string reportId)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.SessionReportSubmitted, OpsEventSeverity.Info,
@@ -1337,7 +1337,8 @@ namespace AutopilotMonitor.Functions.Services
                 // DispatchAsync has its own top-level try/catch so unobserved exceptions are safe.
                 // The serialized details ride along: an outbound channel that only knows category,
                 // event and tenant GUID forces the reader back into the portal for every alert.
-                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId, entry.Details);
+                // The id the save assigned becomes the alert's link to exactly this event.
+                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId, entry.Details, entry.Id);
             }
             catch (Exception ex)
             {

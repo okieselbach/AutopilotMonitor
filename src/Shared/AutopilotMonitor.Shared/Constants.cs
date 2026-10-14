@@ -120,6 +120,24 @@ namespace AutopilotMonitor.Shared
             $"{PortalBaseUrl}/sessions?id={System.Uri.EscapeDataString(sessionId ?? string.Empty)}";
 
         /// <summary>
+        /// The session deep link for a reader who may sit outside the session's tenant (a Global
+        /// Admin's session watch): the portal opens the session's tenant directly instead of
+        /// trying the reader's own first.
+        /// </summary>
+        public static string PortalSessionUrl(string sessionId, string tenantId) =>
+            $"{PortalSessionUrl(sessionId)}&tenantId={System.Uri.EscapeDataString(tenantId ?? string.Empty)}";
+
+        /// <summary>
+        /// Opens one ops event's detail in the Ops page (Global Admin only). Carries the opaque
+        /// event id only: the details stay behind the portal sign-in.
+        /// </summary>
+        public static string PortalOpsEventUrl(string opsEventId) =>
+            $"{PortalBaseUrl}/admin/ops/?eventId={System.Uri.EscapeDataString(opsEventId ?? string.Empty)}";
+
+        /// <summary>The tenant's hardware whitelist settings, which also list the rejected models.</summary>
+        public const string PortalHardwareWhitelistPath = "/settings/tenant/hardware-whitelist";
+
+        /// <summary>
         /// The pairing link shown as QR code and typed into the receiver app. The code travels in the
         /// fragment (never reaches a server log); the trailing slash matches the static export.
         /// </summary>

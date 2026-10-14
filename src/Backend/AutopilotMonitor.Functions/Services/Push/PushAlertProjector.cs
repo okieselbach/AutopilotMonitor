@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -273,12 +274,19 @@ public static class PushAlertProjector
     }
 
     /// <summary>
+    /// Only a session link binds a push to a session. Any other deep link (an ops event, a
+    /// whitelist page) names no session, and its pushes must never replace each other.
+    /// </summary>
+    private static bool IsSessionUrl([NotNullWhen(true)] string? portalUrl) =>
+        portalUrl != null && portalUrl.StartsWith(Constants.PortalBaseUrl + "/sessions?id=", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Session-bound alerts collapse per session where the browser honours tags (best effort,
     /// K21); everything else is its own notification.
     /// </summary>
     private static string BuildTag(string? portalUrl, string entryId)
     {
-        if (portalUrl == null || !portalUrl.Contains("id=", StringComparison.Ordinal))
+        if (!IsSessionUrl(portalUrl))
             return entryId;
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(portalUrl));
         return "s-" + Convert.ToHexString(digest, 0, 6).ToLowerInvariant();
@@ -291,7 +299,7 @@ public static class PushAlertProjector
     /// </summary>
     public static string? BuildTopic(string? portalUrl, byte[]? hmacKey)
     {
-        if (portalUrl == null || hmacKey == null || hmacKey.Length == 0 || !portalUrl.Contains("id=", StringComparison.Ordinal))
+        if (!IsSessionUrl(portalUrl) || hmacKey == null || hmacKey.Length == 0)
             return null;
         var mac = HMACSHA256.HashData(hmacKey, Encoding.UTF8.GetBytes(portalUrl));
         return System.Buffers.Text.Base64Url.EncodeToString(mac.AsSpan(0, 24));

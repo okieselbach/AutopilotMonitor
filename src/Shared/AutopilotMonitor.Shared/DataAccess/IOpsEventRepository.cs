@@ -11,7 +11,17 @@ namespace AutopilotMonitor.Shared.DataAccess
     /// </summary>
     public interface IOpsEventRepository
     {
+        /// <summary>
+        /// Writes the event and sets <see cref="OpsEventEntry.Id"/> to the stored row's
+        /// <see cref="OpsEventId"/>, so the caller can link to exactly this row.
+        /// </summary>
         Task SaveOpsEventAsync(OpsEventEntry entry);
+
+        /// <summary>
+        /// Point read of one event by its <see cref="OpsEventId"/>; null when the id is malformed
+        /// or the row no longer exists (retention).
+        /// </summary>
+        Task<OpsEventEntry?> GetOpsEventAsync(string id);
 
         /// <summary>
         /// Returns all matching ops events in the given UTC window. <paramref name="category"/>
@@ -59,6 +69,45 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// is not listed here.
         /// </summary>
         public static readonly string[] All = { Consent, Maintenance, Security, Tenant, Agent, Sla, Platform };
+    }
+
+    /// <summary>
+    /// The one id shape of an ops event: <c>{Category}_{RowKey}</c>, the RowKey being the 19-digit
+    /// inverted-tick key. The portal deep link (<c>/admin/ops?eventId=</c>) and the
+    /// <c>?id=</c> lookup carry it, so it must stay parseable back to PartitionKey + RowKey.
+    /// </summary>
+    public static class OpsEventId
+    {
+        private const int RowKeyLength = 19;
+
+        public static string Format(string category, string rowKey) => $"{category}_{rowKey}";
+
+        /// <summary>True for a known category followed by a 19-digit RowKey; nothing else is an id.</summary>
+        public static bool TryParse(string? id, out string category, out string rowKey)
+        {
+            category = string.Empty;
+            rowKey = string.Empty;
+            if (string.IsNullOrEmpty(id))
+                return false;
+
+            var separator = id!.LastIndexOf('_');
+            if (separator <= 0 || id.Length - separator - 1 != RowKeyLength)
+                return false;
+
+            var candidate = id.Substring(0, separator);
+            if (Array.IndexOf(OpsEventCategory.All, candidate) < 0)
+                return false;
+
+            for (var i = separator + 1; i < id.Length; i++)
+            {
+                if (id[i] < '0' || id[i] > '9')
+                    return false;
+            }
+
+            category = candidate;
+            rowKey = id.Substring(separator + 1);
+            return true;
+        }
     }
 
     /// <summary>

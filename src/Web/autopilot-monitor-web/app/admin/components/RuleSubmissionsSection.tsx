@@ -23,6 +23,8 @@ import type {
   RuleSubmissionItem,
   RuleSubmissionListResponse,
 } from "@/lib/generated/wire-types.generated";
+import { CursorPagerFooter } from "./CursorPagerFooter";
+import { CopyButton } from "./CopyButton";
 
 const PAGE_SIZE = 20;
 const STATUS_FILTERS = ["pending", "approved", "declined", "withdrawn"] as const;
@@ -30,30 +32,6 @@ const STATUS_FILTERS = ["pending", "approved", "declined", "withdrawn"] as const
 interface RuleSubmissionsSectionProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
-}
-
-function CopyButton({ value, title = "Copy to clipboard" }: { value: string; title?: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-  return (
-    <button onClick={handleCopy} title={title} className="ml-1.5 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-      {copied ? (
-        <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-      )}
-    </button>
-  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -245,13 +223,7 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
                 ))}
               </tbody>
             </table>
-            <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{items.length} on page {pager.pageNumber}{pager.hasNext ? "" : " (last)"}</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => void pager.prev()} disabled={!pager.hasPrev || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Previous</button>
-                <button onClick={() => void pager.next()} disabled={!pager.hasNext || loading} className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next</button>
-              </div>
-            </div>
+            <CursorPagerFooter pager={pager} count={items.length} loading={loading} />
           </div>
         )}
       </div>

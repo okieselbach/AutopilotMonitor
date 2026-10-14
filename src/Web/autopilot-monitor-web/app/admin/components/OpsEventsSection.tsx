@@ -1,17 +1,20 @@
 "use client";
 
-import { sessionUrl, deviceBlockUrl } from "@/lib/routes";
-import { useEffect, useState } from "react";
+import { sessionUrl, deviceBlockUrl, tenantManagementUrl, trustedRoute } from "@/lib/routes";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import type { CursorPage } from "@/lib/cursorPager";
 import { useCursorPager } from "@/hooks/useCursorPager";
-import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
+import { extractSessionId, extractPortalPath, buildAutoReason } from "./opsEventSessionHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { OpsEventEntry, OpsEventListResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
+import { CursorPagerFooter } from "./CursorPagerFooter";
+import { CopyButton } from "./CopyButton";
 
 /** One ops event row (wire shape). */
 type OpsEvent = OpsEventEntry;
@@ -85,35 +88,16 @@ function CategoryBadge({ category }: { category: string }) {
   );
 }
 
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
+export function OpsEventsSection(props: OpsEventsSectionProps) {
+  // useSearchParams() needs a Suspense boundary for the static prerender.
   return (
-    <button
-      onClick={handleCopy}
-      title="Copy to clipboard"
-      className="ml-1.5 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-    >
-      {copied ? (
-        <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-      )}
-    </button>
+    <Suspense fallback={null}>
+      <OpsEventsSectionInner {...props} />
+    </Suspense>
   );
 }
 
-export function OpsEventsSection({
+function OpsEventsSectionInner({
   getAccessToken,
   setError,
   opsEventRetentionDays,
@@ -146,6 +130,28 @@ export function OpsEventsSection({
       return null;
     }
   };
+  // Deep link from an ops alert ("Open in the portal"): ?eventId=… opens that event's detail
+  // from a point read — no dependency on the row being in the current window or page.
+  const searchParams = useSearchParams();
+  const eventIdParam = searchParams?.get("eventId") ?? null;
+  const deepLinkConsumed = useRef(false);
+  useEffect(() => {
+    if (deepLinkConsumed.current || !eventIdParam) return;
+    deepLinkConsumed.current = true;
+    const run = async () => {
+      try {
+        const data = await fetchJson<OpsEventListResponse>(api.opsEvents.get(eventIdParam), getAccessToken);
+        // Match the id, not the first row: a backend without the ?id= lookup answers with the list.
+        const event = data.events?.find((e) => e.id === eventIdParam);
+        if (event) setSelectedEvent(event);
+        else setError(`This ops event no longer exists — ops events are kept for ${opsEventRetentionDays} days.`);
+      } catch (err) {
+        setError(apiErrorText(err, "Failed to load the ops event"));
+      }
+    };
+    void run();
+  }, [eventIdParam, getAccessToken, setError, opsEventRetentionDays]);
+
   const pager = useCursorPager(fetchEvents);
   const { reset } = pager;
   const events = pager.items;
@@ -407,27 +413,7 @@ export function OpsEventsSection({
             </table>
 
             {/* Pagination (Pattern B1 — backend-driven) */}
-            <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {filteredEvents.length} on page {pager.pageNumber}{searchQuery && ` (filtered)`}{pager.hasNext ? "" : " (last)"}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => void pager.prev()}
-                  disabled={!pager.hasPrev || loading}
-                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => void pager.next()}
-                  disabled={!pager.hasNext || loading}
-                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <CursorPagerFooter pager={pager} count={filteredEvents.length} loading={loading} filtered={!!searchQuery} />
           </div>
         )}
       </div>
@@ -502,6 +488,28 @@ export function OpsEventsSection({
                 </dl>
 
                 {(() => {
+                  const tenantUrl = selectedEvent.tenantId ? tenantManagementUrl(selectedEvent.tenantId) : null;
+                  const relatedPath = extractPortalPath(selectedEvent.details ?? null);
+                  // TenantSignup's related page IS the tenant — one button, not two.
+                  const relatedUrl = relatedPath && relatedPath !== tenantUrl ? trustedRoute(relatedPath) : null;
+                  if (!tenantUrl && !relatedUrl) return null;
+                  return (
+                    <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-2">
+                      {tenantUrl && (
+                        <Link href={tenantUrl} className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700">
+                          View tenant
+                        </Link>
+                      )}
+                      {relatedUrl && (
+                        <Link href={relatedUrl} className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700">
+                          Open related page
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {(() => {
                   const sessionId = extractSessionId(selectedEvent.details ?? null);
                   if (!sessionId) return null;
                   const reason = buildAutoReason(selectedEvent.eventType, sessionId);
@@ -512,7 +520,7 @@ export function OpsEventsSection({
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          href={sessionUrl(sessionId)}
+                          href={sessionUrl(sessionId, { tenantId: selectedEvent.tenantId ?? undefined })}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"

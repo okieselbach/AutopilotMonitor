@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
@@ -33,10 +34,11 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Evaluates alert rules for the given ops event and dispatches to the channels those
-        /// rules target. Safe to call fire-and-forget — never throws.
+        /// rules target. Safe to call fire-and-forget — never throws. <paramref name="opsEventId"/>
+        /// is the stored row's <see cref="OpsEventId"/>; every alert links to it.
         /// </summary>
         public async Task DispatchAsync(string category, string eventType, string severity,
-            string message, string? tenantId, string? detailsJson = null)
+            string message, string? tenantId, string? detailsJson = null, string? opsEventId = null)
         {
             try
             {
@@ -63,14 +65,14 @@ namespace AutopilotMonitor.Functions.Services
                 if (plain.Count > 0)
                 {
                     await _channelDispatcher.SendToChannelsAsync(plain,
-                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson: null),
+                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson: null, opsEventId),
                         NotificationScope.Platform);
                 }
 
                 if (withPayload.Count > 0)
                 {
                     await _channelDispatcher.SendToChannelsAsync(withPayload,
-                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson),
+                        BuildAlert(category, eventType, severity, message, tenantId, detailsJson, opsEventId),
                         NotificationScope.Platform);
                 }
 
@@ -145,8 +147,8 @@ namespace AutopilotMonitor.Functions.Services
         internal const int MaxDetailFacts = 12;
         internal const int MaxDetailValueLength = 256;
 
-        private static NotificationAlert BuildAlert(string category, string eventType,
-            string severity, string message, string? tenantId, string? detailsJson)
+        internal static NotificationAlert BuildAlert(string category, string eventType,
+            string severity, string message, string? tenantId, string? detailsJson, string? opsEventId)
         {
             var notifSeverity = severity switch
             {
@@ -176,6 +178,12 @@ namespace AutopilotMonitor.Functions.Services
 
             facts.AddRange(FlattenDetails(detailsJson));
 
+            // The link to the event is not payload: the event's page holds the details a channel
+            // may not carry (a push carries no message at all), so every alert gets it.
+            var actions = new List<NotificationAction>();
+            if (!string.IsNullOrEmpty(opsEventId))
+                actions.Add(new NotificationAction { Type = "openUrl", Title = "Open in the portal", Url = Constants.PortalOpsEventUrl(opsEventId!) });
+
             return new NotificationAlert
             {
                 // Machine-readable routing key for generic consumers — the same value the
@@ -187,6 +195,7 @@ namespace AutopilotMonitor.Functions.Services
                 Severity = notifSeverity,
                 ThemeColor = themeColor,
                 Facts = facts,
+                Actions = actions,
                 DataJson = detailsJson,
             };
         }

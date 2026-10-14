@@ -14,7 +14,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
     /// <summary>
     /// Cross-tenant READ endpoint for PLATFORM-OPERATIONAL events (Consent/Maintenance/Security/Tenant/Agent/
     /// SLA). Supports optional category + eventType/severity/minSeverity + dateFrom/dateTo filters (all
-    /// server-side except the tenant drill) and opt-in pagination. Authentication +
+    /// server-side except the tenant drill) and opt-in pagination, or one event by ?id=. Authentication +
     /// GlobalReadOrAdmin + TenantScoping.None enforced by PolicyEnforcementMiddleware — a Global Admin and the
     /// read-only Global Reader reach it, but a delegated ("MSP") admin does NOT: ops-events is the platform
     /// operator's view, not customer telemetry, so it stays GA/Reader-only (None ⇒ no scoped-route rescue for
@@ -45,6 +45,20 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             {
                 var callerTenantId = TenantHelper.GetTenantId(req);
                 var query = req.Query;
+
+                // ?id= is the deep link of one event (the ops-alert "Open in the portal" action):
+                // a point read that ignores every other parameter.
+                var id = query["id"];
+                if (!string.IsNullOrEmpty(id))
+                {
+                    if (!OpsEventId.TryParse(id, out _, out _))
+                        return await req.BadRequestAsync("id must be an ops event id ({Category}_{19-digit RowKey})");
+
+                    var single = await _repository.GetOpsEventAsync(id);
+                    var found = single == null ? new List<OpsEventEntry>() : new List<OpsEventEntry> { single };
+                    return await req.OkAsync(new OpsEventListResponse { Success = true, Count = found.Count, Events = found });
+                }
+
                 var category = query["category"];
                 var filterTenantId = query["tenantId"];
 

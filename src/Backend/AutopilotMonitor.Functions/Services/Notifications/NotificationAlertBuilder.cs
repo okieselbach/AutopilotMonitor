@@ -193,6 +193,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     new() { Name = "Serial", Value = serialNumber ?? "\u2013" },
                     new() { Name = "Data Quality", Value = "Unverified (pre-auth distress signal)" },
                 },
+                // No session exists for a rejected device: the whitelist page lists the rejected models.
+                Actions = new List<NotificationAction>
+                {
+                    new() { Type = "openUrl", Title = "Open hardware whitelist", Url = Constants.PortalBaseUrl + Constants.PortalHardwareWhitelistPath },
+                },
             };
         }
 

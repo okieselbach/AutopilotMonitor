@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
@@ -267,7 +268,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                                 type: "hardware_rejection",
                                 title: "New rejected hardware model",
                                 message: $"{manufacturer} {model} was rejected by the hardware whitelist.",
-                                href: "/settings/tenant/hardware-whitelist");
+                                href: Constants.PortalHardwareWhitelistPath);
                         }
                     }
                     catch (Exception bellEx)
@@ -297,7 +298,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                                 type: "tpm_pss_unsupported",
                                 title: "Device with incompatible TPM detected",
                                 message: $"Device {serialNumber}{(deviceLabel.Length > 0 ? $" ({deviceLabel})" : "")} reported a TPM that cannot perform RSA-PSS signing — the agent on this device cannot authenticate. A TPM firmware update or device replacement is required.",
-                                href: "/settings/tenant/hardware-whitelist");
+                                href: Constants.PortalHardwareWhitelistPath);
                         }
                     }
                     catch (Exception bellEx)

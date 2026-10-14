@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Push;
 using AutopilotMonitor.Shared;
@@ -191,6 +192,64 @@ public class PushAlertProjectorTests
         Assert.DoesNotContain("sess-1", topic);
         Assert.Null(PushAlertProjector.BuildTopic(Constants.PortalSessionUrl("sess-1"), null));
         Assert.Null(PushAlertProjector.BuildTopic(Constants.PortalBaseUrl, Encoding.UTF8.GetBytes("key")));
+    }
+
+    [Fact]
+    public void Ops_push_links_to_its_event_and_stays_its_own_notification()
+    {
+        const string eventId = "Security_2516103215872799164";
+        var alert = OpsAlertDispatchService.BuildAlert("Security", "ExcessiveSessionEventsAutoActioned", "Critical",
+            "Auto-block device " + Sentinel, "11111111-1111-1111-1111-111111111111", detailsJson: null, eventId);
+
+        var payload = PushAlertProjector.Project(alert, NotificationScope.Platform, "e6", Now);
+        var json = Encoding.UTF8.GetString(PushAlertProjector.ToJsonBytes(payload));
+
+        Assert.Equal(Constants.PortalOpsEventUrl(eventId), payload.PortalUrl);
+        // Two ops alerts must never replace each other on the lock screen or in the push service queue.
+        Assert.Equal("e6", payload.Tag);
+        Assert.Null(PushAlertProjector.BuildTopic(payload.PortalUrl, Encoding.UTF8.GetBytes("key")));
+        Assert.DoesNotContain(Sentinel, json);
+    }
+
+    [Fact]
+    public void Only_a_session_link_binds_a_push_to_a_session()
+    {
+        Alert(Constants.PortalSessionUrl("sess-1"), out var a, "a");
+        Alert(Constants.PortalSessionUrl("sess-1"), out var b, "b");
+        Alert(Constants.PortalBaseUrl + "/admin/backups/detail?id=backup-1", out var backup, "c");
+
+        Assert.Equal(a.Tag, b.Tag);
+        Assert.StartsWith("s-", a.Tag);
+        Assert.Equal("c", backup.Tag);
+        Assert.Null(PushAlertProjector.BuildTopic(backup.PortalUrl, Encoding.UTF8.GetBytes("key")));
+
+        static void Alert(string url, out PushPayload payload, string entryId)
+        {
+            var alert = EnrollmentFailed();
+            alert.Actions.Clear();
+            alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Open", Url = url });
+            payload = PushAlertProjector.Project(alert, Tenant, entryId, Now);
+        }
+    }
+
+    [Fact]
+    public void Session_watch_link_names_the_session_tenant_for_a_cross_tenant_watcher()
+    {
+        var url = Constants.PortalSessionUrl("sess-1", "22222222-2222-2222-2222-222222222222");
+
+        Assert.Equal(Constants.PortalBaseUrl + "/sessions?id=sess-1&tenantId=22222222-2222-2222-2222-222222222222", url);
+        Assert.NotNull(PushAlertProjector.BuildTopic(url, Encoding.UTF8.GetBytes("key")));
+    }
+
+    [Fact]
+    public void Hardware_rejected_push_links_to_the_whitelist()
+    {
+        var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert("Contoso", "Model 1", "ZZ998877");
+
+        var payload = PushAlertProjector.Project(alert, Tenant, "e7", Now);
+
+        Assert.Equal(Constants.PortalBaseUrl + Constants.PortalHardwareWhitelistPath, payload.PortalUrl);
+        Assert.Equal("e7", payload.Tag);
     }
 
     [Fact]

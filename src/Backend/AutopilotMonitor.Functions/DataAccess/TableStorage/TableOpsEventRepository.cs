@@ -50,6 +50,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             };
 
             await _table.UpsertEntityAsync(entity);
+            entry.Id = OpsEventId.Format(pk, rk);
+        }
+
+        public async Task<OpsEventEntry?> GetOpsEventAsync(string id)
+        {
+            if (!OpsEventId.TryParse(id, out var category, out var rowKey))
+                return null;
+
+            var response = await _table.GetEntityIfExistsAsync<TableEntity>(category, rowKey);
+            return response.HasValue ? MapToEntry(response.Value!) : null;
         }
 
         public async Task<List<OpsEventEntry>> GetOpsEventsAsync(
@@ -239,7 +249,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             return new OpsEventEntry
             {
-                Id        = $"{entity.PartitionKey}_{entity.RowKey}",
+                Id        = OpsEventId.Format(entity.PartitionKey, entity.RowKey),
                 Category  = entity.PartitionKey,
                 EventType = entity.GetString("EventType") ?? string.Empty,
                 Severity  = entity.GetString("Severity") ?? OpsEventSeverity.Info,

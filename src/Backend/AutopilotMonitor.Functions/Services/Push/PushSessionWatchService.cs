@@ -173,7 +173,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
                 foreach (var scope in ScopesOf(watch, tenantId))
                 {
                     var payload = PushAlertProjector.SystemMessage("session_watch", title, body, severity, scope, now,
-                        Constants.PortalSessionUrl(sessionId));
+                        Constants.PortalSessionUrl(sessionId, tenantId));
                     await _delivery.SendSystemToOwnerAsync(scope, watch.OwnerObjectId, payload, WatchPushTtl).ConfigureAwait(false);
                 }
 

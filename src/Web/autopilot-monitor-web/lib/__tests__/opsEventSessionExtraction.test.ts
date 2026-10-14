@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { extractSessionId, buildAutoReason } from "../../app/admin/components/opsEventSessionHelpers";
+import { extractSessionId, extractPortalPath, buildAutoReason } from "../../app/admin/components/opsEventSessionHelpers";
+import { tenantManagementUrl } from "../routes";
 
 // Locks in the contract that connects the Ops Events detail modal's "Block this
 // device" / "Kill this device" deep-link buttons to the Device Block form.
@@ -80,5 +81,34 @@ describe("buildAutoReason", () => {
 
   it("handles short session IDs without throwing", () => {
     expect(buildAutoReason("ExcessiveSessionEvents", "abc")).toBe("Excessive session events on session abc");
+  });
+});
+
+// The modal's "Open related page" follows an ops event's details.portalPath. Details are free
+// JSON, so only a same-origin path may become a link.
+describe("extractPortalPath", () => {
+  it("returns an in-app path with its query", () => {
+    expect(extractPortalPath(JSON.stringify({ portalPath: "/admin/reports/session-reports?reportId=r1" })))
+      .toBe("/admin/reports/session-reports?reportId=r1");
+  });
+
+  it("returns null without a usable portalPath", () => {
+    expect(extractPortalPath(null)).toBeNull();
+    expect(extractPortalPath("not json")).toBeNull();
+    expect(extractPortalPath(JSON.stringify({ sessionId: "s" }))).toBeNull();
+    expect(extractPortalPath(JSON.stringify({ portalPath: 42 }))).toBeNull();
+  });
+
+  it("refuses anything a browser could resolve to another origin", () => {
+    for (const portalPath of ["//evil.example", "/\\evil.example", "https://evil.example/x", "javascript:alert(1)", "admin/ops", "/admin\nops"]) {
+      expect(extractPortalPath(JSON.stringify({ portalPath }))).toBeNull();
+    }
+  });
+
+  // TenantSignup's portalPath is built by the backend in exactly this shape; the modal shows
+  // one "View tenant" button instead of two only while both sides agree.
+  it("matches the tenant link the backend writes for a signup", () => {
+    const tenantId = "11111111-1111-1111-1111-111111111111";
+    expect(tenantManagementUrl(tenantId)).toBe(`/admin/tenants/management?tenantId=${tenantId}`);
   });
 });
