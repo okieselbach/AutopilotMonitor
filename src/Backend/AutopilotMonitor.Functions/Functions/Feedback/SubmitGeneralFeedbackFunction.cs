@@ -28,7 +28,6 @@ namespace AutopilotMonitor.Functions.Functions.Feedback;
 public class SubmitGeneralFeedbackFunction
 {
     private const long MaxBodyBytes = 65_536;
-    private const string ReportsPath = "/admin/reports/user-feedback";
 
     private readonly ILogger<SubmitGeneralFeedbackFunction> _logger;
     private readonly IFeedbackRepository _feedbackRepo;
@@ -152,7 +151,7 @@ public class SubmitGeneralFeedbackFunction
         }
 
         _ = _globalNotifications.CreateNotificationAsync(
-            "feedback", "New Feedback", $"{entry.Upn} ({domainName ?? normalizedTenantId})", href: ReportsPath);
+            "feedback", "New Feedback", $"{entry.Upn} ({domainName ?? normalizedTenantId})", href: Constants.PortalUserFeedbackPath);
 
         _logger.LogInformation("General feedback {FeedbackId} stored for tenant {TenantId} ({Length} chars)",
             entry.FeedbackId, normalizedTenantId, message.Length);

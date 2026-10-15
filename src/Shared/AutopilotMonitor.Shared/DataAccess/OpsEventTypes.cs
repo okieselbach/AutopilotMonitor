@@ -109,6 +109,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         public const string FeedbackReceived              = "FeedbackReceived";
         /// <summary>
+        /// A member rated the portal in the feedback bubble (<c>POST feedback</c>) — once per person, a
+        /// dismissal raises nothing. Info. Message and details carry the stars and the comment length,
+        /// never the comment or the sender; the comment is read in the portal (User Feedback).
+        /// </summary>
+        public const string FeedbackRatingReceived        = "FeedbackRatingReceived";
+        /// <summary>
         /// A new tenant signed up: its first sign-in seeded the domain (<c>auth/me</c>). Info. Recorded
         /// next to the direct Telegram ping until that is retired (plan push-relay, Phase 0); message and
         /// details carry no personal data — the Tenants page has the rest.
@@ -194,7 +200,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen,
-            OffboardingFeedbackReceived, FeedbackReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
+            OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert, PushDeliveryFailed, PushEndpointRefused,

@@ -7,11 +7,13 @@ import { MAX_NOTIFICATION_CHANNELS, type NotificationChannel } from "@/app/setti
 import { toggleChannelBinding } from "./opsChannelRouting";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { SearchInput } from "@/components/SearchInput";
+import { filterOpsEventCatalog } from "./opsAlertRuleSearch";
 import type { ChannelHealthView } from "@/lib/channelHealth";
 
 /** Destination sentence of a platform Push channel (ChannelEditor shows it in place of the URL field). */
 const PUSH_DESTINATION_HINT_OPS =
-  "Delivers to the devices Global Administrators pair under Alerts › Push devices. The Payload option has no effect on Push.";
+  "Delivers to the devices Global Administrators pair under Alert Rules › Push devices. The Payload option has no effect on Push.";
 
 // All known ops event types grouped by category
 const OPS_EVENT_TYPES: Record<string, string[]> = {
@@ -170,6 +172,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // FeedbackReceived — a member sent feedback from the help menu. Info-tier; carries no text
     // and no sender, the feedback itself is read under Reports → User Feedback.
     "FeedbackReceived",
+    // FeedbackRatingReceived — a member rated the portal in the feedback bubble (once per person).
+    // Info-tier; carries the stars and the comment length, never the comment or the sender.
+    "FeedbackRatingReceived",
     "TenantSignup",
     "SessionReportSubmitted",
     "DiagFilesReportSubmitted",
@@ -282,6 +287,8 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
   ],
 };
 
+const OPS_EVENT_TYPE_COUNT = Object.values(OPS_EVENT_TYPES).flat().length;
+
 const SEVERITIES = ["Info", "Warning", "Error", "Critical"];
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -348,6 +355,7 @@ export function OpsAlertRulesSection({
   const [autoActionMode, setAutoActionMode] = useState<AutoActionMode>(autoActionModeProp);
   const [autoActionThreshold, setAutoActionThreshold] = useState(autoActionThresholdProp);
   const [autoActionDuration, setAutoActionDuration] = useState(autoActionDurationProp);
+  const [ruleQuery, setRuleQuery] = useState("");
 
   // Re-seed the local draft whenever a synced prop changes (config load/save),
   // replicating the previous sync effect's dependency-array comparison via the
@@ -409,6 +417,11 @@ export function OpsAlertRulesSection({
   const enabledRulesCount = rules.filter(r => r.enabled).length;
   const enabledProviders = channels.filter(c => c.enabled).length;
 
+  // The search narrows the rows shown; `rules` keeps every rule, so a save never drops a hidden one.
+  const trimmedQuery = ruleQuery.trim();
+  const visibleCatalog = filterOpsEventCatalog(OPS_EVENT_TYPES, ruleQuery);
+  const shownCount = visibleCatalog.reduce((n, [, eventTypes]) => n + eventTypes.length, 0);
+
   return (
     <div className="space-y-6">
       {/* Alert Rules */}
@@ -418,6 +431,16 @@ export function OpsAlertRulesSection({
           iconPath="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
           title="Alert Rules"
           subtitle={`Select which ops events trigger alerts. ${enabledRulesCount} rule(s) active, ${enabledProviders} provider(s) enabled.`}
+          trailing={
+            <SearchInput
+              value={ruleQuery}
+              onChange={setRuleQuery}
+              placeholder="Search rules..."
+              ariaLabel="Search alert rules"
+              name="alert-rule-search"
+              tone="amber"
+            />
+          }
         />
         <div className="p-6">
           {loadingConfig ? (
@@ -427,7 +450,14 @@ export function OpsAlertRulesSection({
             </div>
           ) : (
             <div className="space-y-6">
-              {Object.entries(OPS_EVENT_TYPES).map(([category, eventTypes]) => (
+              {trimmedQuery !== "" && (
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  {shownCount === 0
+                    ? `No alert rules match "${trimmedQuery}".`
+                    : `${shownCount} of ${OPS_EVENT_TYPE_COUNT} rules match.`}
+                </p>
+              )}
+              {visibleCatalog.map(([category, eventTypes]) => (
                 <div key={category}>
                   <h3 className={`text-sm font-semibold uppercase tracking-wide mb-2 ${CATEGORY_COLORS[category] ?? "text-gray-700 dark:text-gray-300"}`}>
                     {category}

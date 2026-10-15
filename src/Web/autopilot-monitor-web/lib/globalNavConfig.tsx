@@ -305,10 +305,13 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
       },
       {
         // Ops + Backups + Customs Archive are destructive platform operations — GA-only, hidden from a
-        // read-only Global Reader (routes are also gated via requireGlobalAdmin layouts).
+        // read-only Global Reader (routes are also gated via requireGlobalAdmin layouts). Alert Rules is
+        // the settings section /admin/settings/alerts; it lives only here, because a second entry under
+        // Settings would make that group auto-expand instead (first match wins).
         id: "ga-ops", label: "Ops", icon: <WrenchIcon />, visibility: "globalAdminOnly",
         items: [
           { id: "ga-maintenance", label: "Maintenance", href: "/admin/ops" },
+          { id: "ga-alert-rules", label: "Alert Rules", href: route("/admin/settings/alerts") },
           { id: "ga-session-cleanup", label: "Session Cleanup", href: "/admin/ops/session-cleanup" },
           { id: "ga-customs-archive", label: "Customs Archive", href: "/admin/customs-archive" },
           { id: "ga-backups", label: "Backups", href: "/admin/backups" },

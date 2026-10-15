@@ -221,7 +221,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Sends a Telegram notification when a user submits feedback via the in-app feedback bubble.
         /// Best-effort — silently no-ops if the webhook URL is not configured.
         /// </summary>
-        public async Task SendFeedbackAsync(string tenantId, string upn, string displayName, int rating, string? comment)
+        public virtual async Task SendFeedbackAsync(string tenantId, string upn, string displayName, int rating, string? comment)
         {
             try
             {

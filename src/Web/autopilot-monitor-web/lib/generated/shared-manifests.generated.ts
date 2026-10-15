@@ -656,6 +656,7 @@ export const SHARED_MANIFEST = {
     "McpServicePrincipalFirstSeen",
     "OffboardingFeedbackReceived",
     "FeedbackReceived",
+    "FeedbackRatingReceived",
     "TenantSignup",
     "SessionReportSubmitted",
     "DiagFilesReportSubmitted",

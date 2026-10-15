@@ -111,6 +111,7 @@ export const OPS_EVENT_TYPES = [
   "McpServicePrincipalFirstSeen",
   "OffboardingFeedbackReceived",
   "FeedbackReceived",
+  "FeedbackRatingReceived",
   "TenantSignup",
   "SessionReportSubmitted",
   "DiagFilesReportSubmitted",

@@ -137,6 +137,9 @@ namespace AutopilotMonitor.Shared
         /// <summary>The tenant's hardware whitelist settings, which also list the rejected models.</summary>
         public const string PortalHardwareWhitelistPath = "/settings/tenant/hardware-whitelist";
 
+        /// <summary>The Global Admin list of every feedback kind (help menu, rating bubble, offboarding).</summary>
+        public const string PortalUserFeedbackPath = "/admin/reports/user-feedback";
+
         /// <summary>
         /// The pairing link shown as QR code and typed into the receiver app. The code travels in the
         /// fragment (never reaches a server log); the trailing slash matches the static export.

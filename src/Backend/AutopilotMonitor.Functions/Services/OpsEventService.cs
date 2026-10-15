@@ -656,9 +656,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordOffboardingFeedbackReceivedAsync(
             string tenantId, string submittedBy, string? domainName, string historyRowKey)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
-                ? tenantId
-                : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
 
             var details = new Dictionary<string, object?>
             {
@@ -680,9 +678,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordFeedbackReceivedAsync(
             string tenantId, string submittedBy, string? domainName, string feedbackId, int length, bool hasContactEmail)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
-                ? tenantId
-                : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
 
             var details = new Dictionary<string, object?>
             {
@@ -690,7 +686,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["feedbackId"] = feedbackId,
                 ["length"] = length,
                 ["hasContactEmail"] = hasContactEmail,
-                ["portalPath"] = "/admin/reports/user-feedback",
+                ["portalPath"] = Constants.PortalUserFeedbackPath,
             };
 
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FeedbackReceived, OpsEventSeverity.Info,
@@ -698,11 +694,31 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, submittedBy, details);
         }
 
+        /// <summary>
+        /// Fired when a member rates the portal in the feedback bubble — at most once per person, never
+        /// for a dismissal. Info. Like <see cref="RecordFeedbackReceivedAsync"/>, message and details carry
+        /// neither the comment nor the sender: only the stars and the comment length; the comment is read
+        /// in the portal (User Feedback).
+        /// </summary>
+        public Task RecordFeedbackRatingReceivedAsync(
+            string tenantId, string submittedBy, string? domainName, int rating, int commentLength)
+        {
+            var details = new Dictionary<string, object?>
+            {
+                ["domainName"] = domainName,
+                ["rating"] = rating,
+                ["commentLength"] = commentLength,
+                ["portalPath"] = Constants.PortalUserFeedbackPath,
+            };
+
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FeedbackRatingReceived, OpsEventSeverity.Info,
+                $"Feedback rating {rating}/5 received from {TenantLabel(tenantId, domainName)}",
+                tenantId, submittedBy, details);
+        }
+
         public Task RecordTenantOffboardedAsync(string tenantId, string performedBy, Dictionary<string, int> deletedCounts, string? domainName = null)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
-                ? tenantId
-                : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
 
             // Wrap deletedCounts + domainName so the OpsEvents details panel still surfaces the
             // per-table counts AND the domain (needed because Table Storage is gone by emit time).
@@ -727,9 +743,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string performedBy, string failedPhase, string errorMessage,
             int retryCount, string? domainName = null)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
-                ? tenantId
-                : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
 
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantOffboardingFailed, OpsEventSeverity.Error,
                 $"Tenant {tenantLabel} offboarding failed at phase '{failedPhase}': {errorMessage}",
@@ -746,7 +760,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordTenantAutoApprovedAsync(string tenantId, string? domainName, string signupUpn)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantAutoApproved, OpsEventSeverity.Info,
                 $"Tenant {tenantLabel} was auto-activated after signup (signup by {signupUpn})",
                 tenantId, "System (auto-approve)", new { domainName, signupUpn });
@@ -763,7 +777,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>The provider accepted the activation welcome mail. Info-tier confirmation.</summary>
         public Task RecordWelcomeEmailSentAsync(string tenantId, string? domainName, string toEmail, string addressSource)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailSent, OpsEventSeverity.Info,
                 $"Welcome email sent to {toEmail} for tenant {tenantLabel} (address from {addressSource})",
                 tenantId, "System.Activation", new { domainName, toEmail, addressSource });
@@ -776,7 +790,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordWelcomeEmailSkippedAsync(string tenantId, string? domainName, string reason)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailSkipped, OpsEventSeverity.Warning,
                 $"No welcome email for tenant {tenantLabel} — {reason}",
                 tenantId, "System.Activation", new { domainName, reason });
@@ -788,7 +802,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordWelcomeEmailFailedAsync(string tenantId, string? domainName, string toEmail, string reason)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailFailed, OpsEventSeverity.Error,
                 $"Welcome email to {toEmail} failed for tenant {tenantLabel} — {reason}",
                 tenantId, "System.Activation", new { domainName, toEmail, reason });
@@ -804,7 +818,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>The provider accepted the farewell mail. Info-tier confirmation.</summary>
         public Task RecordFarewellEmailSentAsync(string tenantId, string? domainName, string toEmail)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailSent, OpsEventSeverity.Info,
                 $"Farewell email sent to {toEmail} for offboarded tenant {tenantLabel}",
                 tenantId, "System.Offboarding", new { domainName, toEmail });
@@ -817,7 +831,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordFarewellEmailSkippedAsync(string tenantId, string? domainName, string reason)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailSkipped, OpsEventSeverity.Warning,
                 $"No farewell email for offboarded tenant {tenantLabel} — {reason}",
                 tenantId, "System.Offboarding", new { domainName, reason });
@@ -829,7 +843,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordFarewellEmailFailedAsync(string tenantId, string? domainName, string toEmail, string reason)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailFailed, OpsEventSeverity.Error,
                 $"Farewell email to {toEmail} failed for offboarded tenant {tenantLabel} — {reason}",
                 tenantId, "System.Offboarding", new { domainName, toEmail, reason });
@@ -850,7 +864,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string? domainName, string? contactEmail, string? companyName,
             DateTime? trialStartedUtc, DateTime? trialExpiresUtc, string grantedBy, bool selfService)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             var expiryNote = trialExpiresUtc is DateTime expiry
                 ? $"until {expiry:yyyy-MM-dd HH:mm}Z"
                 : "with no end date set";
@@ -864,7 +878,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>Heads-up: a Pro trial ends within the next few days. Info-tier visibility signal.</summary>
         public Task RecordTenantTrialExpiringAsync(string tenantId, string? domainName, DateTime trialExpiresUtc, int daysLeft)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialExpiring, OpsEventSeverity.Info,
                 $"Pro trial for tenant {tenantLabel} expires in {daysLeft} day(s) ({trialExpiresUtc:yyyy-MM-dd HH:mm}Z)",
                 tenantId, "System.TrialSweep", new { domainName, trialExpiresUtc, daysLeft });
@@ -877,7 +891,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordTenantTrialExpiredAsync(string tenantId, string? domainName, DateTime trialExpiredUtc)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialExpired, OpsEventSeverity.Warning,
                 $"Pro trial for tenant {tenantLabel} expired ({trialExpiredUtc:yyyy-MM-dd HH:mm}Z) — tenant is now Community",
                 tenantId, "System.TrialSweep", new { domainName, trialExpiredUtc });
@@ -897,7 +911,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordTenantPlanDowngradedAsync(
             string tenantId, string? domainName, string caller, DateTime? retentionGraceEndsUtc, int storedRetentionDays)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             var graceNote = retentionGraceEndsUtc is DateTime graceEnd
                 ? $"retention grace until {graceEnd:yyyy-MM-dd HH:mm}Z"
                 : "no retention grace applicable";
@@ -915,7 +929,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordTenantRetentionGraceExpiringAsync(
             string tenantId, string? domainName, DateTime graceEndsUtc, int daysLeft, int storedRetentionDays)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantRetentionGraceExpiring, OpsEventSeverity.Warning,
                 $"Retention grace for downgraded tenant {tenantLabel} ends in {daysLeft} day(s) ({graceEndsUtc:yyyy-MM-dd HH:mm}Z) — " +
                 $"data older than the Community cap will then be deleted (stored retention {storedRetentionDays}d)",
@@ -930,7 +944,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordTenantRetentionGraceEndedAsync(
             string tenantId, string? domainName, DateTime graceEndedUtc, int storedRetentionDays)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantRetentionGraceEnded, OpsEventSeverity.Warning,
                 $"Retention grace for downgraded tenant {tenantLabel} ended ({graceEndedUtc:yyyy-MM-dd HH:mm}Z) — " +
                 $"the Community retention cap is now enforced and older data will be deleted (stored retention {storedRetentionDays}d)",
@@ -1046,7 +1060,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordDiagnosticsUploadConfigChangedAsync(
             string tenantId, string? domainName, DiagnosticsUploadConfigChange change, string changedBy, string source)
         {
-            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var tenantLabel = TenantLabel(tenantId, domainName);
             var quickConfig = string.Equals(source, Functions.Config.PatchTenantConfigurationFieldsFunction.CollectLogsSource, StringComparison.Ordinal);
             if (change.Enabled && quickConfig)
             {
@@ -1313,6 +1327,10 @@ namespace AutopilotMonitor.Functions.Services
                 new { submissionId, ruleKind, ruleId, portalPath = $"/admin/reports/rule-submissions?submissionId={Uri.EscapeDataString(submissionId)}" });
 
         // ── Core write method ──────────────────────────────────────────────────
+
+        /// <summary>How a message names a tenant: "domain (tenantId)", or the bare id without a domain.</summary>
+        private static string TenantLabel(string tenantId, string? domainName)
+            => string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
 
         private async Task WriteAsync(string category, string eventType, string severity,
             string message, string? tenantId, string? userId, object? details)

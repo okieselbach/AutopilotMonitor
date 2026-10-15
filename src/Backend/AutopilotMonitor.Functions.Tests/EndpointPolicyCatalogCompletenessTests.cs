@@ -209,6 +209,20 @@ public class EndpointPolicyCatalogCompletenessTests
     }
 
     /// <summary>
+    /// Both feedback answers raise an operator alert (FeedbackReceived, FeedbackRatingReceived), so both
+    /// admit members only: AuthenticatedUser would let any Entra sign-in reach the alert channels. The
+    /// bubble's eligibility poll stays open to every signed-in user and answers "not eligible" to a
+    /// non-member.
+    /// </summary>
+    [Fact]
+    public void FeedbackAnswers_AreMemberOnly_StatusPollStaysOpen()
+    {
+        Assert.Equal(EndpointPolicy.MemberRead, EndpointAccessPolicyCatalog.FindPolicy("POST", "/api/feedback")?.Policy);
+        Assert.Equal(EndpointPolicy.MemberRead, EndpointAccessPolicyCatalog.FindPolicy("POST", "/api/feedback/general")?.Policy);
+        Assert.Equal(EndpointPolicy.AuthenticatedUser, EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/feedback/status")?.Policy);
+    }
+
+    /// <summary>
     /// Unregistered routes must return null (fail-closed).
     /// </summary>
     [Theory]

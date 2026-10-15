@@ -278,10 +278,12 @@ public static class EndpointAccessPolicyCatalog
         // as an external identity, which does not activate a tenant.
         new("PUT",    "preview/notification-email", EndpointPolicy.AuthenticatedUserWithRole),
         new("GET",    "feedback/status",           EndpointPolicy.AuthenticatedUser),
-        new("POST",   "feedback",                  EndpointPolicy.AuthenticatedUser),
         new("GET",    "config/latest-versions",    EndpointPolicy.AuthenticatedUser),
 
         // ── MemberRead (Admin + Operator, later + Viewer) ───────────────
+        // The rating bubble only ever asks members (feedback/status), and a rating raises an operator
+        // alert — so, like feedback/general, the answer route admits members only.
+        new("POST",   "feedback",                            EndpointPolicy.MemberRead),
         // Help-menu feedback: every member may write to the team, a roleless caller may not (the
         // in-app rating route above stays AuthenticatedUser). The function caps it per user and day.
         new("POST",   "feedback/general",                    EndpointPolicy.MemberRead),

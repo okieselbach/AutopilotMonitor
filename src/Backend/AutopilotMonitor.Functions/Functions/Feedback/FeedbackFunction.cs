@@ -24,6 +24,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         private readonly TelegramNotificationService _telegramNotificationService;
         private readonly ISessionRepository _sessionRepo;
         private readonly IFeedbackRepository _feedbackRepo;
+        private readonly OpsEventService _opsEvents;
+        private readonly GlobalNotificationService _globalNotifications;
 
         public FeedbackFunction(
             ILogger<FeedbackFunction> logger,
@@ -32,7 +34,9 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             TenantAdminsService tenantAdminsService,
             TelegramNotificationService telegramNotificationService,
             ISessionRepository sessionRepo,
-            IFeedbackRepository feedbackRepo)
+            IFeedbackRepository feedbackRepo,
+            OpsEventService opsEvents,
+            GlobalNotificationService globalNotifications)
         {
             _logger = logger;
             _tenantConfigService = tenantConfigService;
@@ -41,6 +45,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             _telegramNotificationService = telegramNotificationService;
             _sessionRepo = sessionRepo;
             _feedbackRepo = feedbackRepo;
+            _opsEvents = opsEvents;
+            _globalNotifications = globalNotifications;
         }
 
         /// <summary>
@@ -122,9 +128,9 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         }
 
         /// <summary>
-        /// Records one answer to the rating bubble (<see cref="FeedbackPromptRules"/>).
-        /// A rating is stored once per person and pinged to Telegram; a dismissal is counted.
-        /// After a rating the person's row is final: further answers change nothing.
+        /// Records one answer to the rating bubble (<see cref="FeedbackPromptRules"/>): a rating is
+        /// stored once per person, a dismissal is counted. After a rating the person's row is final:
+        /// further answers change nothing.
         /// </summary>
         [Function("SubmitFeedback")]
         public async Task<HttpResponseData> Submit(
@@ -140,34 +146,11 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 // Request body size limit (1 MB)
                 var read = await req.ReadAsync<FeedbackRequest>(1_048_576);
                 if (read.Error != null) return read.Error;
-                var body = read.Value!;
 
-                // Validate rating
-                if (!body.Dismissed && body.Rating is not (>= 1 and <= 5))
-                {
-                    return await req.BadRequestAsync("Rating must be between 1 and 5");
-                }
-
-                // Trim comment to the shared feedback limit (Azure Tables caps a single property
-                // at 64 KB, so this stays well within).
-                var comment = body.Comment?.Trim();
-                if (comment?.Length > Constants.SubmissionLimits.FeedbackTextMaxChars)
-                    comment = comment.Substring(0, Constants.SubmissionLimits.FeedbackTextMaxChars);
-
-                var answer = new FeedbackAnswer(upn, tenantId, displayName, body.Dismissed, body.Rating, comment);
-                var stored = await _feedbackRepo.UpdateInAppFeedbackAsync(
-                    upn, current => FeedbackPromptRules.Apply(current, answer, DateTime.UtcNow));
-
-                // Telegram only for a rating that was actually recorded, fire-and-forget.
-                if (stored is { Submitted: true } && stored.Rating is int rating)
-                {
-                    _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
-                }
-
-                _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
-                    stored == null ? "unchanged" : body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
-
-                return await WriteJson(req, new SuccessOnlyResponse { Success = true });
+                var error = await ProcessSubmitAsync(tenantId, upn, displayName, read.Value!, DateTime.UtcNow);
+                return error != null
+                    ? await req.BadRequestAsync(error)
+                    : await WriteJson(req, new SuccessOnlyResponse { Success = true });
             }
             catch (UnauthorizedAccessException)
             {
@@ -177,6 +160,67 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "Feedback");
             }
+        }
+
+        /// <summary>
+        /// The answer decision without the HTTP shell, so tests drive every branch directly (same
+        /// pattern as <c>SubmitGeneralFeedbackFunction.ProcessSubmitAsync</c>). Returns the validation
+        /// error, or null once the answer is handled.
+        /// </summary>
+        internal async Task<string?> ProcessSubmitAsync(
+            string tenantId, string upn, string displayName, FeedbackRequest body, DateTime nowUtc)
+        {
+            if (!body.Dismissed && body.Rating is not (>= 1 and <= 5))
+                return "Rating must be between 1 and 5";
+
+            // Trim comment to the shared feedback limit (Azure Tables caps a single property
+            // at 64 KB, so this stays well within).
+            var comment = body.Comment?.Trim();
+            if (comment?.Length > Constants.SubmissionLimits.FeedbackTextMaxChars)
+                comment = comment.Substring(0, Constants.SubmissionLimits.FeedbackTextMaxChars);
+
+            var answer = new FeedbackAnswer(upn, tenantId, displayName, body.Dismissed, body.Rating, comment);
+            var stored = await _feedbackRepo.UpdateInAppFeedbackAsync(
+                upn, current => FeedbackPromptRules.Apply(current, answer, nowUtc));
+
+            // Only a rating that was actually recorded is announced — at most once per person.
+            if (stored is { Submitted: true } && stored.Rating is int rating)
+                await AnnounceRatingAsync(tenantId, upn, displayName, rating, comment);
+
+            _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
+                stored == null ? "unchanged" : body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
+
+            return null;
+        }
+
+        /// <summary>
+        /// The signals of a recorded rating, all best effort: a stored rating never fails because of
+        /// them. The ops event carries the stars and the comment length only, so an alert channel
+        /// receives no personal data; the Telegram ping keeps sender and comment until it is retired.
+        /// </summary>
+        private async Task AnnounceRatingAsync(string tenantId, string upn, string displayName, int rating, string? comment)
+        {
+            _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
+
+            var normalizedTenantId = tenantId.ToLowerInvariant();
+            // The domain makes the alert and the bell readable. The lookup never creates a
+            // configuration row; an unknown tenant simply keeps its GUID label.
+            var (config, exists) = await _tenantConfigService.TryGetConfigurationAsync(normalizedTenantId);
+            var domainName = exists && !string.IsNullOrWhiteSpace(config.DomainName) ? config.DomainName : null;
+
+            try
+            {
+                await _opsEvents.RecordFeedbackRatingReceivedAsync(
+                    normalizedTenantId, upn, domainName, rating, comment?.Length ?? 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FeedbackRatingReceived ops event failed for tenant {TenantId}", normalizedTenantId);
+            }
+
+            _ = _globalNotifications.CreateNotificationAsync(
+                "feedback", "New Rating", $"{upn} ({domainName ?? normalizedTenantId}) · {rating}/5",
+                href: Constants.PortalUserFeedbackPath);
         }
 
         /// <summary>
