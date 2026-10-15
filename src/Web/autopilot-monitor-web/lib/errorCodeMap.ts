@@ -90,11 +90,11 @@ function lookup(code: string | number | null | undefined): ErrorCodeLookup | nul
   const direct = errorCodeMap[lowered];
   if (direct) return { entry: direct, key: lowered };
 
-  // 2) Hex input normalisation ("0X..." → "0x...", strip leading zeros, repad to 8)
+  // 2) Hex input normalisation ("0X..." → "0x...", strip leading zeros, repad to 8; hex digits only)
   let hexKey: string | null = null;
   if (/^0x/i.test(raw)) {
     const body = raw.slice(2).toLowerCase().replace(/^0+/, "") || "0";
-    if (body.length <= 8) hexKey = "0x" + body.padStart(8, "0");
+    if (body.length <= 8 && /^[0-9a-f]+$/.test(body)) hexKey = "0x" + body.padStart(8, "0");
   } else {
     // 3) Signed-decimal HRESULT → unsigned hex  (e.g. -2147024891 → 0x80070005)
     const num = /^-\d+$/.test(raw) ? parseInt(raw, 10) : NaN;

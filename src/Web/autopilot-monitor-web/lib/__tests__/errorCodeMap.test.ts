@@ -127,6 +127,13 @@ describe("errorCodeMap", () => {
     it("does not derive outside the MSI range", () => {
       expect(getErrorCodeLookup("0x80070999")).toBeNull();
     });
+
+    it("rejects a hex body with non-hex characters", () => {
+      // parseInt("643z", 16) is 1603: without the check this garbage read as ERROR_INSTALL_FAILURE.
+      expect(getErrorCodeLookup("0x8007643z")).toBeNull();
+      expect(getErrorCodeLookup("0x8007zzzz")).toBeNull();
+      expect(getErrorCodeLookup("0x8007-123")).toBeNull();
+    });
   });
 
   describe("getEnrichedOrLookup", () => {

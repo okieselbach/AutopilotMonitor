@@ -38,7 +38,8 @@ namespace AutopilotMonitor.Shared.Services
         /// Look up an entry for a raw code value. Accepts decimal strings (<c>"1603"</c>),
         /// hex strings (<c>"0x80070005"</c>, <c>"0X80070005"</c>) and signed-decimal HRESULTs
         /// (<c>"-2147024891"</c>). A <c>0x8007xxxx</c> value without a direct entry resolves
-        /// through its low 16 bits to the decimal MSI entry. Returns <c>null</c> on a miss.
+        /// through its low 16 bits to the decimal MSI entry. Returns <c>null</c> on a miss and
+        /// never throws: the backend runs it over device-authored event data on every read.
         /// </summary>
         public static ErrorCodeEntry? TryLookup(string? rawCode) => TryLookupDetailed(rawCode)?.Entry;
 
@@ -57,29 +58,31 @@ namespace AutopilotMonitor.Shared.Services
             if (all.TryGetValue(lowered, out var direct))
                 return new ErrorCodeLookupResult(direct, lowered, null);
 
-            // 2) Hex input normalisation ("0X..." → "0x...", strip leading zeros, repad to 8)
-            string? hexKey = null;
+            // 2) Hex input ("0X..." → "0x...", leading zeros stripped, at most 8 hex digits).
+            //    AllowHexSpecifier admits hex digits only — no sign, no whitespace.
+            uint? code = null;
             if (raw.Length >= 2 && raw[0] == '0' && (raw[1] == 'x' || raw[1] == 'X'))
             {
-                var body = raw.Substring(2).TrimStart('0').ToLowerInvariant();
-                if (body.Length == 0) body = "0";
-                if (body.Length <= 8) hexKey = "0x" + body.PadLeft(8, '0');
+                var body = raw.Substring(2).TrimStart('0');
+                if (body.Length == 0) code = 0;
+                else if (body.Length <= 8 && uint.TryParse(body, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var parsed)) code = parsed;
             }
             // 3) Signed-decimal HRESULT → unsigned hex  (e.g. -2147024891 → 0x80070005)
             else if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var asLong) && asLong < 0 && asLong >= int.MinValue)
             {
-                hexKey = "0x" + unchecked((uint)asLong).ToString("x8", CultureInfo.InvariantCulture);
+                code = unchecked((uint)asLong);
             }
 
-            if (hexKey == null) return null;
+            if (code == null) return null;
+            var hexKey = "0x" + code.Value.ToString("x8", CultureInfo.InvariantCulture);
             if (all.TryGetValue(hexKey, out var hex))
                 return new ErrorCodeLookupResult(hex, hexKey, null);
 
             // 4) HRESULT_FROM_WIN32 derivation: facility 7, no direct entry, low word ≠ 0
             //    (0x80070000 must not resolve to "Success"), decimal entry present.
-            if (hexKey.StartsWith("0x8007", StringComparison.Ordinal))
+            if (code.Value >> 16 == 0x8007)
             {
-                var low = int.Parse(hexKey.Substring(6), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                var low = (int)(code.Value & 0xFFFF);
                 if (low != 0)
                 {
                     var decimalKey = low.ToString(CultureInfo.InvariantCulture);

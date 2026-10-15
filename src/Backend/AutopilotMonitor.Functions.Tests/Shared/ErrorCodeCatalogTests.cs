@@ -96,6 +96,39 @@ public sealed class ErrorCodeCatalogTests
         Assert.Null(ErrorCodeCatalog.TryLookup("not-a-code"));
     }
 
+    [Theory]
+    [InlineData("0x8007zzzz")]
+    [InlineData("0x8007g000")]
+    [InlineData("0x8007-123")]
+    [InlineData("0x8007+123")]
+    [InlineData("0x8007 123")]
+    [InlineData("0x00008007zzzz")]
+    [InlineData("0X8007ZZZZ")]
+    [InlineData("0x800706431")]
+    public void TryLookupDetailed_returns_null_for_malformed_hex(string raw)
+    {
+        // Device-authored values reach this lookup on every events read; a throw here answered 500.
+        Assert.Null(ErrorCodeCatalog.TryLookupDetailed(raw));
+    }
+
+    [Fact]
+    public void TryLookupDetailed_never_throws_for_any_short_tail_after_a_hex_prefix()
+    {
+        const string alphabet = "0159afAFgzZ-+ .x٠０";
+        var prefixes = new[] { "", "-", "0x", "0X", "0x0", "0x8007", "0x80070", "0x0000008007" };
+        var tails = new List<string> { "" };
+        for (var length = 1; length <= 4; length++)
+            tails.AddRange(tails.Where(t => t.Length == length - 1).SelectMany(t => alphabet.Select(c => t + c)).ToList());
+
+        foreach (var prefix in prefixes)
+            foreach (var tail in tails)
+            {
+                var raw = prefix + tail;
+                var ex = Record.Exception(() => ErrorCodeCatalog.TryLookupDetailed(raw));
+                Assert.True(ex == null, $"TryLookupDetailed(\"{raw}\") threw {ex?.GetType().Name}");
+            }
+    }
+
     [Fact]
     public void TryLookup_finds_lowercased_hex_direct()
     {

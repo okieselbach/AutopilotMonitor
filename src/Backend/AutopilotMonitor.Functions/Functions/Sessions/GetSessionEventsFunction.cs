@@ -108,7 +108,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     // Skip error-code enrichment when the projection drops Data (enrichment only
                     // writes into Data) — pure work avoidance for lean fields= queries.
                     if (EventFieldProjection.WantsData(filterFields))
-                        ErrorCodeEnricher.EnrichEvents(filtered);
+                        ErrorCodeEnricher.EnrichEvents(filtered, _logger);
 
                     return await req.OkAsync(new GetSessionEventsResponse
                     {
@@ -172,7 +172,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     : page.Items;
 
                 if (EventFieldProjection.WantsData(filterFields))
-                    ErrorCodeEnricher.EnrichEvents(pageItems);
+                    ErrorCodeEnricher.EnrichEvents(pageItems, _logger);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))

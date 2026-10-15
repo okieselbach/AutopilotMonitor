@@ -81,6 +81,7 @@ describe('lookupErrorCode', () => {
       expect(r.description).not.toContain('1603');
     }
     expect(lookupErrorCode('0x80070000').found).toBe(false);
+    expect(lookupErrorCode('0x8007643z').found).toBe(false);
     const direct = lookupErrorCode('0x80070005');
     expect(direct.found && 'derivedFromWin32' in direct ? direct.derivedFromWin32 : undefined).toBeUndefined();
   });

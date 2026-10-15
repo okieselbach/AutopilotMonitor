@@ -1,8 +1,10 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests.Services;
@@ -297,7 +299,7 @@ public sealed class ErrorCodeEnricherTests
             EventWithData(new() { { "irrelevantKey", "noop" } }),
         };
 
-        ErrorCodeEnricher.EnrichEvents(events);
+        ErrorCodeEnricher.EnrichEvents(events, NullLogger.Instance);
 
         Assert.True(events[0].Data.ContainsKey("errorCodeInfo"));
         Assert.True(events[1].Data.ContainsKey("exitCodeInfo"));
@@ -308,6 +310,39 @@ public sealed class ErrorCodeEnricherTests
     public void EnrichEvents_handles_null_input()
     {
         // Should not throw.
-        ErrorCodeEnricher.EnrichEvents(null);
+        ErrorCodeEnricher.EnrichEvents(null, NullLogger.Instance);
+    }
+
+    [Theory]
+    [InlineData("0x8007zzzz")]
+    [InlineData("0x8007g000")]
+    [InlineData("0x8007-123")]
+    public void EnrichEvent_leaves_a_malformed_device_code_unenriched(string raw)
+    {
+        var evt = EventWithData(new() { { "errorCode", raw } });
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.False(evt.Data.ContainsKey("errorCodeInfo"));
+    }
+
+    [Fact]
+    public void EnrichEvents_isolates_a_failing_event_from_the_rest_of_the_page()
+    {
+        var events = new[]
+        {
+            EventWithData(new() { { "errorCode", new ThrowingValue() } }),
+            EventWithData(new() { { "errorCode", "0x80070005" } }),
+        };
+
+        ErrorCodeEnricher.EnrichEvents(events, NullLogger.Instance);
+
+        Assert.False(events[0].Data.ContainsKey("errorCodeInfo"));
+        Assert.True(events[1].Data.ContainsKey("errorCodeInfo"));
+    }
+
+    private sealed class ThrowingValue
+    {
+        public override string ToString() => throw new FormatException("simulated lookup failure");
     }
 }

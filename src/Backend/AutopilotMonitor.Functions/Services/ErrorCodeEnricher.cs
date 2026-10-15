@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Services;
+using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -97,10 +98,24 @@ namespace AutopilotMonitor.Functions.Services
             return info;
         }
 
-        public static void EnrichEvents(IEnumerable<EnrollmentEvent>? events)
+        /// <summary>
+        /// Enriches each event on its own: <c>Data</c> is device-authored, and a failed lookup
+        /// leaves that one event unenriched instead of failing the whole response.
+        /// </summary>
+        public static void EnrichEvents(IEnumerable<EnrollmentEvent>? events, ILogger logger)
         {
             if (events == null) return;
-            foreach (var e in events) EnrichEvent(e);
+            foreach (var e in events)
+            {
+                try
+                {
+                    EnrichEvent(e);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "ErrorCodeEnricher: event {EventId} of session {SessionId} left unenriched", e.EventId, e.SessionId);
+                }
+            }
         }
 
         private static bool IsGatherRuleEvent(EnrollmentEvent evt) =>
