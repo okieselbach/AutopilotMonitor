@@ -39,6 +39,7 @@ export interface AppReportAnalytics {
   versionBreakdown: Array<{
     appVersion: string;
     installs: number;
+    succeeded: number;
     failed: number;
     failureRate: number;
     measuredInstalls: number;
@@ -55,6 +56,7 @@ export interface AppReportAnalytics {
     manufacturer: string;
     model: string;
     installs: number;
+    succeeded: number;
     failed: number;
     failureRate: number;
     liftVsBaseline: number;
@@ -136,6 +138,22 @@ export function appReportFileName(appName: string, days: number, date: Date): st
   return `app-report-${slug}-${days}d-${y}${m}${d}.pdf`;
 }
 
+/**
+ * Splits installs along the failure rate: its base (succeeded + failed) and the rows outside it
+ * (still installing, observation ended before an outcome, or skipped). Page and PDF show both,
+ * so a rate never sits next to a count it was not computed from.
+ */
+export function rateBase(row: { installs: number; succeeded: number; failed: number }): {
+  finished: number;
+  notCounted: number;
+} {
+  const finished = row.succeeded + row.failed;
+  return { finished, notCounted: Math.max(0, row.installs - finished) };
+}
+
+export const NOT_COUNTED_HINT =
+  "Not counted in the failure rate: still installing, observation ended before an outcome, or skipped as not applicable.";
+
 /** Human-readable tenant scope for the report title block. */
 export function scopeLabel(scope: {
   isAggregatedGlobalView: boolean;
@@ -165,6 +183,12 @@ function trendText(trend: string, delta: number | null): string {
   return "stable";
 }
 
+/** "Finished" and "Not counted" table cells; the PDF has no tooltip, so both are columns. */
+function rateBaseCells(row: { installs: number; succeeded: number; failed: number }): [string, string] {
+  const { finished, notCounted } = rateBase(row);
+  return [String(finished), notCounted > 0 ? String(notCounted) : "—"];
+}
+
 function failureRateTone(rate: number): KpiTone {
   if (rate >= 20) return "danger";
   if (rate >= 5) return "warning";
@@ -175,9 +199,15 @@ function failureRateTone(rate: number): KpiTone {
 export function prepareReportModel(input: AppReportInput): AppReportModel {
   const { analytics, appName, days, generatedAt } = input;
   const s = analytics.summary;
+  const totalNotCounted = rateBase({ installs: s.totalInstalls, succeeded: s.succeeded, failed: s.failed }).notCounted;
 
   const kpis: ReportKpi[] = [
-    { label: "Total installs", value: String(s.totalInstalls), tone: "default" },
+    {
+      label: "Total installs",
+      value: String(s.totalInstalls),
+      tone: "default",
+      hint: totalNotCounted > 0 ? `${totalNotCounted} not counted in failure rate` : undefined,
+    },
     {
       label: "Succeeded",
       value: String(s.succeeded),
@@ -244,7 +274,7 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
     .map((row) => [
       row.manufacturer,
       row.model,
-      String(row.installs),
+      ...rateBaseCells(row),
       String(row.failed),
       `${row.failureRate.toFixed(1)}%`,
       `${row.liftVsBaseline.toFixed(2)}x`,
@@ -252,7 +282,7 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
 
   const versionRows = analytics.versionBreakdown.slice(0, MAX_VERSION_ROWS).map((row) => [
     row.appVersion,
-    String(row.installs),
+    ...rateBaseCells(row),
     String(row.failed),
     `${row.failureRate.toFixed(1)}%`,
     row.measuredInstalls > 0 ? formatDuration(row.medianDurationSeconds) : "—",

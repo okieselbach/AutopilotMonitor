@@ -116,6 +116,8 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string AppVersion { get; set; } = string.Empty;
         public int Installs { get; set; }
+        /// <summary>Succeeded and not a skip. With Failed the base of FailureRate; the rest of Installs (in progress, incomplete, skipped) is outside it.</summary>
+        public int Succeeded { get; set; }
         public int Failed { get; set; }
         public double FailureRate { get; set; }
         public int MeasuredInstalls { get; set; }
@@ -146,6 +148,8 @@ namespace AutopilotMonitor.Shared.Models
         public string Manufacturer { get; set; } = string.Empty;
         public string Model { get; set; } = string.Empty;
         public int Installs { get; set; }
+        /// <summary>Succeeded and not a skip. With Failed the base of FailureRate; the rest of Installs (in progress, incomplete, skipped) is outside it.</summary>
+        public int Succeeded { get; set; }
         public int Failed { get; set; }
         public double FailureRate { get; set; }
         public double LiftVsBaseline { get; set; }

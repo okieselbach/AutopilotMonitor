@@ -25,14 +25,14 @@ function makeInput(): AppReportInput {
       },
       timeSeries,
       versionBreakdown: [
-        { appVersion: "1.2.0", installs: 500, failed: 1, failureRate: 0.2, measuredInstalls: 480, medianDurationSeconds: 52, p95DurationSeconds: 100 },
+        { appVersion: "1.2.0", installs: 500, succeeded: 490, failed: 1, failureRate: 0.2, measuredInstalls: 480, medianDurationSeconds: 52, p95DurationSeconds: 100 },
       ],
       topFailureCodes: [
         { code: "esp_apps_install_failure", exitCode: 1618, count: 1 },
       ],
       detectionLiesCount: 18,
       deviceModelBreakdown: [
-        { manufacturer: "Dell Inc.", model: "Latitude 5440", installs: 200, failed: 1, failureRate: 0.5, liftVsBaseline: 1.1 },
+        { manufacturer: "Dell Inc.", model: "Latitude 5440", installs: 200, succeeded: 195, failed: 1, failureRate: 0.5, liftVsBaseline: 1.1 },
       ],
       versionRegressions: [],
     },

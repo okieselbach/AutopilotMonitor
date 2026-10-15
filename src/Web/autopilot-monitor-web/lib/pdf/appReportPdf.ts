@@ -124,10 +124,11 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
   if (model.deviceModels.rows.length > 0) {
     drawTable(ctx, {
       columns: [
-        { header: "Manufacturer", width: 34 },
-        { header: "Model", width: 66 },
-        { header: "Installs", width: 20, align: "right" },
-        { header: "Failed", width: 20, align: "right" },
+        { header: "Manufacturer", width: 30 },
+        { header: "Model", width: 54 },
+        { header: "Finished", width: 18, align: "right" },
+        { header: "Not counted", width: 22, align: "right" },
+        { header: "Failed", width: 16, align: "right" },
         { header: "Failure rate", width: 22, align: "right" },
         { header: "Lift vs base", width: 18, align: "right" },
       ],
@@ -135,19 +136,20 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
       moreCount: model.deviceModels.moreCount,
     });
   } else {
-    emptySectionNote(ctx, "Not enough installs per device model to compute correlation.");
+    emptySectionNote(ctx, "Not enough finished installs per device model to compute correlation.");
   }
 
   if (model.versions.rows.length > 0) {
     sectionTitle(ctx, "Version Breakdown");
     drawTable(ctx, {
       columns: [
-        { header: "Version", width: 60 },
-        { header: "Installs", width: 22, align: "right" },
-        { header: "Failed", width: 22, align: "right" },
-        { header: "Failure rate", width: 26, align: "right" },
-        { header: "Median install", width: 25, align: "right" },
-        { header: "P95 install", width: 25, align: "right" },
+        { header: "Version", width: 46 },
+        { header: "Finished", width: 18, align: "right" },
+        { header: "Not counted", width: 22, align: "right" },
+        { header: "Failed", width: 16, align: "right" },
+        { header: "Failure rate", width: 22, align: "right" },
+        { header: "Median install", width: 28, align: "right" },
+        { header: "P95 install", width: 28, align: "right" },
       ],
       rows: model.versions.rows,
       moreCount: model.versions.moreCount,

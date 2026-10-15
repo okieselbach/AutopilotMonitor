@@ -13,7 +13,7 @@ import { getErrorCodeEntry, formatErrorCode, formatErrorCodeSource } from "@/lib
 import { trackEvent } from "@/lib/appInsights";
 // Static import is safe: appReportData is pure data prep with no jsPDF dependency —
 // jsPDF itself only loads with the dynamic import inside handleExportPdf.
-import { scopeLabel } from "@/lib/pdf/appReportData";
+import { NOT_COUNTED_HINT, rateBase, scopeLabel } from "@/lib/pdf/appReportData";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -58,6 +58,8 @@ interface TimeSeriesPoint {
 interface VersionRow {
   appVersion: string;
   installs: number;
+  /** Succeeded, not a skip — with failed the base of failureRate. */
+  succeeded: number;
   failed: number;
   failureRate: number;
   /** Succeeded installs with a plausible observed duration — the basis of the median/p95 below. */
@@ -97,6 +99,8 @@ interface DeviceModelRow {
   manufacturer: string;
   model: string;
   installs: number;
+  /** Succeeded, not a skip — with failed the base of failureRate. */
+  succeeded: number;
   failed: number;
   failureRate: number;
   liftVsBaseline: number;
@@ -437,6 +441,14 @@ function AppDetailContent() {
     return tickYears ? `${monthDay}/${String(d.getUTCFullYear()).slice(2)}` : monthDay;
   }
 
+  const totalNotCounted = analytics
+    ? rateBase({
+        installs: analytics.summary.totalInstalls,
+        succeeded: analytics.summary.succeeded,
+        failed: analytics.summary.failed,
+      }).notCounted
+    : 0;
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
@@ -517,7 +529,12 @@ function AppDetailContent() {
             <>
               {/* Summary cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                <SummaryCard label="Total" value={analytics.summary.totalInstalls.toString()} />
+                <SummaryCard
+                  label="Total"
+                  value={analytics.summary.totalInstalls.toString()}
+                  note={totalNotCounted > 0 ? `${totalNotCounted} not counted` : undefined}
+                  hint={totalNotCounted > 0 ? NOT_COUNTED_HINT : undefined}
+                />
                 <SummaryCard
                   label="Succeeded"
                   value={analytics.summary.succeeded.toString()}
@@ -753,42 +770,57 @@ function AppDetailContent() {
                         <tr>
                           <th className="px-3 py-2">Manufacturer</th>
                           <th className="px-3 py-2">Model</th>
-                          <th className="px-3 py-2 text-right">Installs</th>
+                          <th
+                            className="px-3 py-2 text-right"
+                            title="Installs with an outcome (succeeded or failed): the base of the failure rate."
+                          >
+                            Finished
+                          </th>
                           <th className="px-3 py-2 text-right">Failed</th>
                           <th className="px-3 py-2 text-right">Failure Rate</th>
                           <th className="px-3 py-2 text-right">Lift vs baseline</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {analytics.deviceModelBreakdown.map((row, i) => (
-                          <tr key={`${row.manufacturer}-${row.model}-${i}`}>
-                            <td className="px-3 py-2 text-gray-700">{row.manufacturer}</td>
-                            <td className="px-3 py-2 text-gray-900">{row.model}</td>
-                            <td className="px-3 py-2 text-right text-gray-700">{row.installs}</td>
-                            <td className="px-3 py-2 text-right text-red-700">{row.failed}</td>
-                            <td className="px-3 py-2 text-right text-gray-900">
-                              {row.failureRate.toFixed(1)}%
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <span
-                                className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                  row.liftVsBaseline >= 2
-                                    ? "bg-red-100 text-red-800"
-                                    : row.liftVsBaseline >= 1.2
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-emerald-100 text-emerald-800"
-                                }`}
-                              >
-                                {row.liftVsBaseline.toFixed(2)}×
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {analytics.deviceModelBreakdown.map((row, i) => {
+                          const { finished, notCounted } = rateBase(row);
+                          return (
+                            <tr key={`${row.manufacturer}-${row.model}-${i}`}>
+                              <td className="px-3 py-2 text-gray-700">{row.manufacturer}</td>
+                              <td className="px-3 py-2 text-gray-900">{row.model}</td>
+                              <td className="px-3 py-2 text-right text-gray-700">
+                                {finished}
+                                {notCounted > 0 && (
+                                  <span className="ml-1 text-xs text-gray-400 dark:text-gray-500" title={NOT_COUNTED_HINT}>
+                                    +{notCounted} not counted
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-red-700">{row.failed}</td>
+                              <td className="px-3 py-2 text-right text-gray-900">
+                                {row.failureRate.toFixed(1)}%
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    row.liftVsBaseline >= 2
+                                      ? "bg-red-100 text-red-800"
+                                      : row.liftVsBaseline >= 1.2
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-emerald-100 text-emerald-800"
+                                  }`}
+                                >
+                                  {row.liftVsBaseline.toFixed(2)}×
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <EmptyState text="Not enough installs per device model to compute correlation" />
+                  <EmptyState text="Not enough finished installs per device model to compute correlation" />
                 )}
               </Card>
 
@@ -1032,11 +1064,14 @@ function SummaryCard({
   value,
   color,
   hint,
+  note,
 }: {
   label: string;
   value: string;
   color?: string;
   hint?: string;
+  /** Visible line under the value; the hint explains it on hover. */
+  note?: string;
 }) {
   return (
     <div className="bg-white rounded-lg shadow p-3">
@@ -1044,6 +1079,11 @@ function SummaryCard({
         {label}
       </div>
       <div className={`text-xl font-semibold mt-1 ${color ?? "text-gray-900"}`}>{value}</div>
+      {note && (
+        <div className="text-xs text-gray-400 dark:text-gray-500" title={hint}>
+          {note}
+        </div>
+      )}
     </div>
   );
 }

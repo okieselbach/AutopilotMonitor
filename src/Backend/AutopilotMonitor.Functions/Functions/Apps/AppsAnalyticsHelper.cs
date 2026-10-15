@@ -346,6 +346,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     {
                         AppVersion = g.Key,
                         Installs = vTotal,
+                        Succeeded = vSucceeded,
                         Failed = vFailed,
                         FailureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded),
                         MeasuredInstalls = vDurations.Count,
@@ -384,26 +385,30 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     Model = sessionLookup[$"{s.TenantId}|{s.SessionId}"].Model ?? "Unknown"
                 })
                 .GroupBy(x => new { x.Manufacturer, x.Model })
-                // Sample floor on FINISHED installs — the displayed metric is the terminal-only
-                // failure rate, so a model with many in-flight installs but few outcomes is still
-                // too noisy to rank.
-                .Where(g => g.Count(x => x.Summary.Status == "Failed" || x.Summary.Status == "Succeeded") >= 5)
-                .Select(g =>
+                .Select(g => new
                 {
-                    var modelTotal = g.Count();
-                    var modelFailed = g.Count(x => x.Summary.Status == "Failed");
+                    g.Key,
+                    Installs = g.Count(),
+                    Failed = g.Count(x => x.Summary.Status == "Failed"),
                     // PR0 convention: skips are not attempts (same population as the headline rate).
-                    var modelSucceeded = g.Count(x => MetricsMath.IsInstalled(x.Summary));
-                    var modelFailureRate = MetricsMath.TerminalFailureRatePct(modelFailed, modelSucceeded);
+                    Succeeded = g.Count(x => MetricsMath.IsInstalled(x.Summary))
+                })
+                // Sample floor on exactly the rate's base (failed + succeeded, no skips): a model
+                // with many in-flight or skipped rows but few outcomes is still too noisy to rank.
+                .Where(m => m.Failed + m.Succeeded >= 5)
+                .Select(m =>
+                {
+                    var modelFailureRate = MetricsMath.TerminalFailureRatePct(m.Failed, m.Succeeded);
                     var lift = failureRate > 0
                         ? Math.Round(modelFailureRate / failureRate, 2)
                         : 0;
                     return new AppDeviceModelBreakdownItem
                     {
-                        Manufacturer = g.Key.Manufacturer,
-                        Model = g.Key.Model,
-                        Installs = modelTotal,
-                        Failed = modelFailed,
+                        Manufacturer = m.Key.Manufacturer,
+                        Model = m.Key.Model,
+                        Installs = m.Installs,
+                        Succeeded = m.Succeeded,
+                        Failed = m.Failed,
                         FailureRate = modelFailureRate,
                         LiftVsBaseline = lift
                     };

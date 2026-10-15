@@ -511,6 +511,8 @@ export interface AppDeviceModelBreakdownItem {
   manufacturer: string;
   model: string;
   installs: number;
+  /** Succeeded and not a skip. With Failed the base of FailureRate; the rest of Installs (in progress, incomplete, skipped) is outside it. */
+  succeeded: number;
   failed: number;
   failureRate: number;
   liftVsBaseline: number;
@@ -660,6 +662,8 @@ export interface AppSessionsResponse {
 export interface AppVersionBreakdownItem {
   appVersion: string;
   installs: number;
+  /** Succeeded and not a skip. With Failed the base of FailureRate; the rest of Installs (in progress, incomplete, skipped) is outside it. */
+  succeeded: number;
   failed: number;
   failureRate: number;
   measuredInstalls: number;

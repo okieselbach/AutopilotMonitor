@@ -155,6 +155,9 @@ public class AppsAnalyticsFailureRateTests
 
         var version = root.GetProperty("versionBreakdown")[0];
         Assert.Equal(4, version.GetProperty("installs").GetInt32());
+        // The rate's base travels with the row, so the UI can show 1 / (1 + 1) next to 4 installs.
+        Assert.Equal(1, version.GetProperty("succeeded").GetInt32());
+        Assert.Equal(1, version.GetProperty("failed").GetInt32());
         Assert.Equal(50d, version.GetProperty("failureRate").GetDouble());
 
         // All four installs land in today's bucket → same terminal-only rate there.
@@ -228,21 +231,35 @@ public class AppsAnalyticsFailureRateTests
                 Model = sessionId.StartsWith("s-a") ? "ModelA" : "ModelB",
             });
 
+        static AppInstallSummary Skip(string sessionId)
+        {
+            var skip = A("Succeeded", sessionId: sessionId);
+            skip.TerminalState = "Skipped";
+            return skip;
+        }
+
         var summaries = new List<AppInstallSummary>();
-        // ModelA: 5 finished (1 failed → 20%) + 3 in-flight → ranked, rate undiluted.
+        // ModelA: 5 finished (1 failed → 20%) + 3 in-flight + 1 skip → ranked, rate undiluted.
         summaries.Add(A("Failed", sessionId: "s-a-0"));
         for (var i = 1; i <= 4; i++) summaries.Add(A("Succeeded", sessionId: $"s-a-{i}"));
         for (var i = 5; i <= 7; i++) summaries.Add(A("InProgress", sessionId: $"s-a-{i}"));
-        // ModelB: 4 finished + 6 in-flight — 10 installs, but below the 5-finished floor.
+        summaries.Add(Skip("s-a-8"));
+        // ModelB: 4 finished + 6 in-flight + 2 skips — 12 installs and 6 rows with status Failed
+        // or Succeeded, but the rate's base is 4: below the floor.
         for (var i = 0; i <= 3; i++) summaries.Add(A("Failed", sessionId: $"s-b-{i}"));
         for (var i = 4; i <= 9; i++) summaries.Add(A("InProgress", sessionId: $"s-b-{i}"));
+        summaries.Add(Skip("s-b-10"));
+        summaries.Add(Skip("s-b-11"));
 
         var root = await BuildAnalyticsAsync(summaries, sessionRepo.Object);
 
         var breakdown = root.GetProperty("deviceModelBreakdown");
         var model = Assert.Single(breakdown.EnumerateArray());
         Assert.Equal("ModelA", model.GetProperty("model").GetString());
-        Assert.Equal(8, model.GetProperty("installs").GetInt32());
+        Assert.Equal(9, model.GetProperty("installs").GetInt32());
+        // The rate's base: 1 / (1 + 4); the in-flight rows and the skip stay outside it.
+        Assert.Equal(4, model.GetProperty("succeeded").GetInt32());
+        Assert.Equal(1, model.GetProperty("failed").GetInt32());
         Assert.Equal(20d, model.GetProperty("failureRate").GetDouble());
     }
 }

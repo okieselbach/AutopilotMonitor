@@ -812,6 +812,7 @@ public class TypedContractCompletionWireParityTests
             {
                 appVersion = "1.2.3",
                 installs = 4,
+                succeeded = 3,
                 failed = 1,
                 failureRate = 25.0,
                 measuredInstalls = 3,
@@ -822,6 +823,7 @@ public class TypedContractCompletionWireParityTests
             {
                 AppVersion = "1.2.3",
                 Installs = 4,
+                Succeeded = 3,
                 Failed = 1,
                 FailureRate = 25.0,
                 MeasuredInstalls = 3,
@@ -855,6 +857,7 @@ public class TypedContractCompletionWireParityTests
                 manufacturer = "Contoso",
                 model = "Book 3",
                 installs = 8,
+                succeeded = 6,
                 failed = 2,
                 failureRate = 25.0,
                 liftVsBaseline = 1.5,
@@ -864,6 +867,7 @@ public class TypedContractCompletionWireParityTests
                 Manufacturer = "Contoso",
                 Model = "Book 3",
                 Installs = 8,
+                Succeeded = 6,
                 Failed = 2,
                 FailureRate = 25.0,
                 LiftVsBaseline = 1.5,

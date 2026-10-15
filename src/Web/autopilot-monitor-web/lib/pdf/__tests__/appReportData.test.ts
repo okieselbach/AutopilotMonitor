@@ -106,6 +106,8 @@ describe("prepareReportModel", () => {
     expect(model.fileName).toBe("app-report-realmjoin-agent-device-90d-20260818.pdf");
     expect(model.kpis).toHaveLength(8);
     expect(model.kpis[0]).toMatchObject({ label: "Total installs", value: "912" });
+    // 912 − (888 succeeded + 1 failed): the 20 skips plus 3 rows without an outcome.
+    expect(model.kpis[0].hint).toBe("23 not counted in failure rate");
     expect(model.kpis[1].hint).toBe("+20 skipped (not applicable)");
     expect(model.kpis[3]).toMatchObject({ value: "0.1%", tone: "default" });
     expect(model.kpis[6].value).toBe("stable");
@@ -170,11 +172,19 @@ describe("prepareReportModel", () => {
     expect(model.failureCodes.rows[1][1]).toBe("Unknown code");
   });
 
+  it("omits the total-installs hint when every install is finished", () => {
+    const model = prepareReportModel(
+      makeInput({ summary: { ...makeAnalytics().summary, totalInstalls: 889, skipped: 0 } })
+    );
+    expect(model.kpis[0].hint).toBeUndefined();
+  });
+
   it("sorts device models by lift and truncates to 10", () => {
     const models = Array.from({ length: 12 }, (_, i) => ({
       manufacturer: "Contoso",
       model: `Model ${i}`,
-      installs: 10,
+      installs: 12,
+      succeeded: 11 - i,
       failed: i,
       failureRate: i * 5,
       liftVsBaseline: i * 0.3,
@@ -183,21 +193,37 @@ describe("prepareReportModel", () => {
     expect(model.deviceModels.rows).toHaveLength(10);
     expect(model.deviceModels.moreCount).toBe(2);
     expect(model.deviceModels.rows[0][1]).toBe("Model 11");
-    expect(model.deviceModels.rows[0][5]).toBe("3.30x");
+    expect(model.deviceModels.rows[0][6]).toBe("3.30x");
+  });
+
+  it("shows the failure rate's base next to the rows outside it", () => {
+    const model = prepareReportModel(
+      makeInput({
+        deviceModelBreakdown: [
+          // The field case: 11 failed of 22 finished = 50%, plus 6 rows without an outcome.
+          { manufacturer: "Contoso", model: "Book 14", installs: 28, succeeded: 11, failed: 11, failureRate: 50, liftVsBaseline: 1.57 },
+          { manufacturer: "Contoso", model: "Book 16", installs: 5, succeeded: 5, failed: 0, failureRate: 0, liftVsBaseline: 0 },
+        ],
+      })
+    );
+    expect(model.deviceModels.rows[0].slice(2, 6)).toEqual(["22", "6", "11", "50.0%"]);
+    expect(model.deviceModels.rows[1].slice(2, 4)).toEqual(["5", "—"]);
   });
 
   it("shows version durations only when measured", () => {
     const model = prepareReportModel(
       makeInput({
         versionBreakdown: [
-          { appVersion: "1.0", installs: 5, failed: 0, failureRate: 0, measuredInstalls: 5, medianDurationSeconds: 90, p95DurationSeconds: 120 },
-          { appVersion: "1.1", installs: 3, failed: 1, failureRate: 33.3, measuredInstalls: 0, medianDurationSeconds: 0, p95DurationSeconds: 0 },
+          { appVersion: "1.0", installs: 5, succeeded: 5, failed: 0, failureRate: 0, measuredInstalls: 5, medianDurationSeconds: 90, p95DurationSeconds: 120 },
+          { appVersion: "1.1", installs: 3, succeeded: 1, failed: 1, failureRate: 50, measuredInstalls: 0, medianDurationSeconds: 0, p95DurationSeconds: 0 },
         ],
       })
     );
-    expect(model.versions.rows[0][4]).toBe("2m");
-    expect(model.versions.rows[1][4]).toBe("—");
+    expect(model.versions.rows[0].slice(1, 3)).toEqual(["5", "—"]);
+    expect(model.versions.rows[1].slice(1, 3)).toEqual(["2", "1"]);
+    expect(model.versions.rows[0][5]).toBe("2m");
     expect(model.versions.rows[1][5]).toBe("—");
+    expect(model.versions.rows[1][6]).toBe("—");
   });
 
   it("emits detection-lies text with singular/plural forms", () => {
