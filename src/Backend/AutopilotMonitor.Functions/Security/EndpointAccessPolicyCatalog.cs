@@ -17,7 +17,11 @@ public enum TenantScoping
     /// <summary>TenantId comes from {tenantId} route parameter. Middleware enforces cross-tenant check.</summary>
     RouteParam,
 
-    /// <summary>TenantId comes from ?tenantId= query parameter (optional, falls back to JWT tenant). Middleware enforces cross-tenant check.</summary>
+    /// <summary>
+    /// TenantId comes from ?tenantId= query parameter (optional, falls back to JWT tenant). Middleware enforces cross-tenant check.
+    /// On a delegated read tier (GlobalReadOrAdmin included) this also admits a delegated (MSP) reader of the named tenant —
+    /// a platform route whose ?tenantId= is only a handler-side filter stays <see cref="None"/>.
+    /// </summary>
     QueryParam,
 }
 
@@ -557,7 +561,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/time-attribution", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/device-journeys", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // Operator-only classifier diagnostics and drift alerts; the handler reads ?tenantId= itself. None, so no
+        // delegated (MSP) reader reaches them.
+        new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/analytics",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/sessions",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
@@ -567,19 +573,24 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/sla",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/rule-stats",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/vulnerability", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        // One tenant's organization usage by account (?tenantId= read by the handler): deliberately None, not
-        // QueryParam — the route enumerates accounts (UPNs), which the delegated path must never reach.
+        // A named tenant's MCP use — its accounts (UPNs) and their tools, the daily counts, the organization view.
+        // The handlers read ?tenantId= themselves: deliberately None, not QueryParam, so the delegated path never
+        // reaches them.
+        new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/mcp-usage/organization", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // The operator's report queue: GA-only AdminNote, the submitter's comment and contact data. ?tenantId= is a
+        // filter the handler reads itself; None, so no delegated reader reaches it.
+        new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin),
         // Mints the HMAC ticket for the anonymous proxied stream above (the MCP's report download).
         new("POST",   "global/session-reports/download-ticket", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/session-reports/download-url", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
         // Community rule submissions, operator side: cross-tenant read (Global Reader included), decision GA-only.
-        new("GET",    "global/rule-submissions",            EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // The list carries the contact e-mail and the review; ?tenantId= is a filter the handler reads itself, None
+        // so no delegated reader reaches it (the tenant's own list, rules/submissions, is admin-only).
+        new("GET",    "global/rule-submissions",            EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalAdminOnly),

@@ -1,12 +1,15 @@
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -1123,6 +1126,126 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed);
     }
 
+    /// <summary>
+    /// Operator reads whose ?tenantId= is a handler-side filter for a Global Admin / Global Reader: session reports
+    /// (GA-only AdminNote, submitter contact data), rule submissions (contact e-mail, reviewer, review comment), a
+    /// tenant's MCP usage (its accounts and their tools) and verdict calibration (classifier diagnostics, drift
+    /// alerts). None of it is the managed tenant's telemetry, so a delegated (MSP) reader never reaches them.
+    /// </summary>
+    public static TheoryData<string> OperatorFilterReads => new()
+    {
+        "/api/global/session-reports",
+        "/api/global/rule-submissions",
+        "/api/global/metrics/mcp-usage",
+        "/api/global/metrics/mcp-usage/daily",
+        "/api/global/metrics/verdict-calibration",
+    };
+
+    [Theory]
+    [MemberData(nameof(OperatorFilterReads))]
+    public async Task Delegated_OperatorFilterReads_WithManagedTenantId_AreForbidden(string path)
+    {
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", path, TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Theory]
+    [MemberData(nameof(OperatorFilterReads))]
+    public async Task GlobalReader_OperatorFilterReads_WithTenantFilter_StayAllowed(string path)
+    {
+        const string upn = "reader@vendor.example";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+
+        var result = await h.Middleware.DecideAsync("GET", path, TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.True(result.Context!.IsGlobalReader);
+    }
+
+    // ── Invoke adapter: the tenantId the middleware authorizes is the one the handler reads ──
+    // Handlers read req.Query (HttpUtility.ParseQueryString), which comma-joins a repeated key. Deciding on the
+    // first value alone let ?tenantId=B&tenantId=C pass the cross-tenant check on B while the handler read "B,C".
+
+    private static async Task<(bool NextCalled, int StatusCode, RequestContext? Context)> InvokeAsync(
+        Harness h, string path, string queryString, ClaimsPrincipal principal)
+    {
+        var http = new DefaultHttpContext();
+        http.Request.Method = "GET";
+        http.Request.Path = path;
+        http.Request.QueryString = new QueryString(queryString);
+        http.Response.Body = new MemoryStream();
+        var items = new Dictionary<object, object> { ["HttpRequestContext"] = http, ["ClaimsPrincipal"] = principal };
+        var context = new Mock<FunctionContext>();
+        context.SetupGet(c => c.Items).Returns(items);
+
+        var nextCalled = false;
+        await h.Middleware.Invoke(context.Object, _ => { nextCalled = true; return Task.CompletedTask; });
+        items.TryGetValue(RequestContext.ItemsKey, out var resolved);
+        return (nextCalled, http.Response.StatusCode, resolved as RequestContext);
+    }
+
+    [Fact]
+    public async Task Invoke_RepeatedTenantId_DelegatedReader_IsForbidden()
+    {
+        // B is managed, C is not — the handler would read "B,C", so the decision is taken on "B,C".
+        const string tenantC = "33333333-3333-3333-3333-333333333333";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var run = await InvokeAsync(h, "/api/global/metrics/fleet-health", $"?tenantId={TenantB}&tenantId={tenantC}",
+            AuthedPrincipal(TenantA, "msp@partner.example"));
+
+        Assert.False(run.NextCalled);
+        Assert.Equal(403, run.StatusCode);
+    }
+
+    [Fact]
+    public async Task Invoke_ManagedTenantId_DelegatedReader_IsAdmitted()
+    {
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var run = await InvokeAsync(h, "/api/global/metrics/fleet-health", $"?tenantId={TenantB}",
+            AuthedPrincipal(TenantA, "msp@partner.example"));
+
+        Assert.True(run.NextCalled);
+        Assert.True(run.Context!.IsDelegatedReader);
+        Assert.Equal(TenantB, run.Context.TargetTenantId);
+    }
+
+    [Theory]
+    [InlineData("?tenantId=22222222-2222-2222-2222-222222222222")]
+    [InlineData("?tenantId=22222222-2222-2222-2222-222222222222&tenantId=33333333-3333-3333-3333-333333333333")]
+    [InlineData("?tenantid=22222222-2222-2222-2222-222222222222&TENANTID=33333333-3333-3333-3333-333333333333")]
+    [InlineData("?tenantId=&tenantId=33333333-3333-3333-3333-333333333333")]
+    // Encoded keys: %49 is 'I' on both paths. Only HttpUtility decodes the non-standard %u0049, but the handler
+    // parses Url.Query, where System.Uri has already escaped the stray '%' — neither path sees a tenantId.
+    [InlineData("?tenant%49d=22222222-2222-2222-2222-222222222222")]
+    [InlineData("?tenant%u0049d=22222222-2222-2222-2222-222222222222")]
+    public async Task Invoke_TargetTenantId_IsTheValueTheHandlerReads(string queryString)
+    {
+        const string path = "/api/global/metrics/fleet-health";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+
+        var run = await InvokeAsync(h, path, queryString, AuthedPrincipal(TenantA, "ga@vendor.example"));
+
+        // The handler's view: req.Query over the request Url (QueryParamGuardTests pins that implementation).
+        var handlerRequest = new Mock<Microsoft.Azure.Functions.Worker.Http.HttpRequestData>(Mock.Of<FunctionContext>()) { CallBase = true };
+        handlerRequest.SetupGet(r => r.Url).Returns(new Uri("https://localhost" + path + queryString));
+        var handlerTenantId = handlerRequest.Object.Query["tenantId"];
+
+        Assert.True(run.NextCalled);
+        Assert.Equal(string.IsNullOrWhiteSpace(handlerTenantId) ? TenantA : handlerTenantId, run.Context!.TargetTenantId);
+    }
+
     [Fact]
     public async Task Delegated_CustomsArchive_OnManagedTenant_IsForbidden_ExcludeDelegated()
     {
@@ -1274,12 +1397,70 @@ public class PolicyEnforcementMiddlewareTests
     [InlineData("GET", "/api/global/distress-reports", TenantScoping.None)]
     // ops-events is platform-OPERATIONAL data — GA/Reader-only by intent (not a can't-bound limit), so None.
     [InlineData("GET", "/api/global/ops-events", TenantScoping.None)]
+    // Operator reads with a ?tenantId= filter: OperatorFilterReads above.
     public void GlobalRoute_DelegatedAccessibility_MatchesContract(string method, string path, TenantScoping expected)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);
         Assert.NotNull(entry);
         Assert.Equal(EndpointPolicy.GlobalReadOrAdmin, entry!.Policy);
         Assert.Equal(expected, entry.TenantScoping);
+    }
+
+    // ── Catalog ratchet: every platform route a delegated (MSP) caller reaches is a deliberate entry ──
+    // QueryParam/RouteParam on a GlobalReadOrAdmin route admits a delegated reader of the named tenant, whether the
+    // author meant an authorization scope or only a handler-side filter — that is how session reports and a tenant's
+    // MCP accounts once reached MSP callers. A route belongs on this list only if its handler binds to the named
+    // tenant AND returns that tenant's own data: no operator notes or review comments, no contact data, no account
+    // lists, no platform-internal diagnostics. Anything else stays None (the handler can still read ?tenantId=
+    // itself) or carries excludeDelegated. The subset tier admits a delegated caller on the bounded aggregate.
+    private static readonly string[] DelegatedReachablePlatformRoutes =
+    {
+        "GET config/all",
+        "GET global/apps/analytics",
+        "GET global/apps/list",
+        "GET global/apps/sessions",
+        "GET global/audit/logs",
+        "GET global/metrics/agent-efficiency",
+        "GET global/metrics/app",
+        "GET global/metrics/device-journeys",
+        "GET global/metrics/fleet-health",
+        "GET global/metrics/geographic",
+        "GET global/metrics/geographic/sessions",
+        "GET global/metrics/rule-stats",
+        "GET global/metrics/sla",
+        "GET global/metrics/summary",
+        "GET global/metrics/time-attribution",
+        "GET global/metrics/usage",
+        "GET global/metrics/vulnerability",
+        "GET global/raw/events",
+        "GET global/raw/sessions",
+        "GET global/rules/analyze",
+        "GET global/rules/gather",
+        "GET global/search/sessions",
+        "GET global/search/sessions-by-cve",
+        "GET global/search/sessions-by-event",
+        "GET global/session-annotations",
+        "GET global/sessions",
+        "GET global/stats/sessions",
+        "GET vulnerability/software-inventory",
+    };
+
+    [Fact]
+    public void DelegatedReachablePlatformRoutes_AreTheSanctionedSet()
+    {
+        var reachable = EndpointAccessPolicyCatalog.Entries
+            .Where(e => e.Policy == EndpointPolicy.GlobalReadOrDelegatedSubset
+                || (e.Policy == EndpointPolicy.GlobalReadOrAdmin
+                    && (e.TenantScoping is TenantScoping.QueryParam or TenantScoping.RouteParam)
+                    && !e.ExcludeDelegated))
+            .Select(e => $"{e.HttpMethod} {e.RouteTemplate}")
+            .ToArray();
+
+        var added = reachable.Except(DelegatedReachablePlatformRoutes).ToArray();
+        var removed = DelegatedReachablePlatformRoutes.Except(reachable).ToArray();
+        Assert.True(added.Length == 0 && removed.Length == 0,
+            $"Delegated-reachable platform routes changed. Added: [{string.Join(", ", added)}] — decide per the rule " +
+            $"above (None / excludeDelegated, or add it to the list). Removed: [{string.Join(", ", removed)}].");
     }
 
     // ── Catalog contract: platform-operational GA/Reader-only reads carry ExcludeDelegated ──

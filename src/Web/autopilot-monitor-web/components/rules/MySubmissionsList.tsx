@@ -31,6 +31,18 @@ export function submissionStatusBadge(status: string): { label: string; cls: str
 }
 
 /**
+ * Whether a rule page shows the admin-only hint instead of the list. Submissions are TenantAdminOrGA on the own
+ * tenant, and only a platform-scope (Global Admin / Global Reader) override reads a foreign tenant's through the
+ * operator list — a delegated (MSP) reader gets the hint like an Operator or Viewer instead of a 403.
+ */
+export function isSubmissionsAdminOnly(
+  isReadOnly: boolean,
+  scope: { isGlobalOverride: boolean; isDelegatedScope: boolean },
+): boolean {
+  return isReadOnly && !(scope.isGlobalOverride && !scope.isDelegatedScope);
+}
+
+/**
  * The tenant's own community submissions of one rule kind. Pending rows are the ones an admin
  * wants to see, so they show by default; decided and withdrawn rows sit behind "Show all". Renders
  * nothing while there is nothing to show, so pages without submissions stay unchanged. Closed rows

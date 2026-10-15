@@ -43,7 +43,7 @@ import { fetchJson, jsonBody } from "@/lib/apiClient";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { utcDateDaysAgo } from "@/lib/timeWindow";
 import { CommunityContributionBox } from "@/components/rules/CommunityContributionBox";
-import { MySubmissionsList } from "@/components/rules/MySubmissionsList";
+import { MySubmissionsList, isSubmissionsAdminOnly } from "@/components/rules/MySubmissionsList";
 import { SubmitRulesModal } from "@/components/rules/SubmitRulesModal";
 
 /** Rule telemetry window without `?days=` — the backend's own rule-stats default (today−30 … today). */
@@ -133,9 +133,7 @@ function AnalyzeRulesContent() {
   // A read-only Global Reader — and an own-tenant admin viewing a FOREIGN tenant (cross-tenant override) —
   // is read-only. Backend also enforces (rules write is TenantAdminOrGA, cross-tenant blocked for non-GA).
   const isReadOnly = !(user?.isGlobalAdmin || (user?.isTenantAdmin && !isGlobalOverride));
-  // Community submissions are TenantAdminOrGA on the own tenant; only a global-scope override reads them through
-  // the operator list. Everyone else (Operator, Viewer) gets a hint instead of a 403 on the list call.
-  const submissionsAdminOnly = isReadOnly && !isGlobalOverride;
+  const submissionsAdminOnly = isSubmissionsAdminOnly(isReadOnly, scope);
 
   // Cross-tenant write routing: in a Global Admin override the JWT-scoped rules/analyze/{id} route
   // resolves the tenant from the caller's token and would silently upsert into the GA's OWN tenant

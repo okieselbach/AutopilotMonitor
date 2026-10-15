@@ -72,7 +72,11 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         var requestPath = httpContext.Request.Path.Value ?? string.Empty;
         var httpMethod = httpContext.Request.Method;
-        var queryTenantId = httpContext.Request.Query["tenantId"].FirstOrDefault();
+        // Joined like the handlers' req.Query, which comma-joins a repeated key (empty values included): the
+        // cross-tenant decision is taken on the very string the handler reads, never on the first of several values.
+        var queryTenantId = httpContext.Request.Query.TryGetValue("tenantId", out var tenantIdValues)
+            ? string.Join(",", tenantIdValues.ToArray())
+            : null;
 
         // Sanitized copies for logging only — never used for routing/authorization decisions.
         var logPath = LogSanitizer.Clean(requestPath);

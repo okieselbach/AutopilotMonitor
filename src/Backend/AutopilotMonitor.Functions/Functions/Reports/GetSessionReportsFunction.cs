@@ -31,7 +31,8 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
             try
             {
-                // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
+                // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware. The route is
+                // unscoped on purpose: ?tenantId= is a filter, and no delegated (MSP) reader may reach the AdminNote.
                 var callerTenantId = TenantHelper.GetTenantId(req);
 
                 var query = req.Query;
