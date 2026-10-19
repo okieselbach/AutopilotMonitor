@@ -20,17 +20,39 @@ public class TenantAdminManagementFunction
     private readonly TenantAdminsService _tenantAdminsService;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
+    private readonly ISelfServiceAssignees _selfServiceAssignees;
 
     public TenantAdminManagementFunction(
         ILogger<TenantAdminManagementFunction> logger,
         TenantAdminsService tenantAdminsService,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService)
+        ISignalRNotificationService signalRService,
+        ISelfServiceAssignees selfServiceAssignees)
     {
         _logger = logger;
         _tenantAdminsService = tenantAdminsService;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
+        _selfServiceAssignees = selfServiceAssignees;
+    }
+
+    /// <summary>
+    /// A member who is removed or disabled loses their self-service delegation (read access to every tenant this
+    /// tenant manages) with it: the assignment ends and each managed customer's trail records the loss. Runs after
+    /// the member write and before <see cref="CutLiveStreamsAsync"/>, so the re-join sees both. Fail-soft — the scope
+    /// resolution ignores an assignment without an enabled membership anyway, so a failure here costs only the
+    /// cleanup and the customer audit row.
+    /// </summary>
+    private async Task EndSelfServiceAssignmentAsync(string tenantId, string adminUpn, string actor, string reason)
+    {
+        try
+        {
+            await _selfServiceAssignees.EndAssignmentAsync(tenantId, adminUpn, actor, reason);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ending the self-service delegation of {AdminUpn} in tenant {TenantId} failed ({Reason})", adminUpn, tenantId, reason);
+        }
     }
 
     /// <summary>
@@ -187,6 +209,7 @@ public class TenantAdminManagementFunction
             upn!
         );
 
+        await EndSelfServiceAssignmentAsync(requestCtx.TargetTenantId, adminUpn, upn!, DelegationSelfService.AssigneeReasons.MemberRemoved);
         await CutLiveStreamsAsync(adminUpn);
 
         _logger.LogInformation($"Tenant Admin removed: {adminUpn} from tenant {requestCtx.TargetTenantId} by {upn}");
@@ -223,6 +246,7 @@ public class TenantAdminManagementFunction
             new Dictionary<string, string> { { "Action", "Disable" } }
         );
 
+        await EndSelfServiceAssignmentAsync(requestCtx.TargetTenantId, adminUpn, upn!, DelegationSelfService.AssigneeReasons.MemberDisabled);
         await CutLiveStreamsAsync(adminUpn);
 
         _logger.LogInformation($"Tenant Admin disabled: {adminUpn} for tenant {requestCtx.TargetTenantId} by {upn}");

@@ -598,4 +598,160 @@ public class DelegatedAdminServiceTests
         repo.Verify(r => r.UpdateTenantGroupAsync(GroupId1, "Renamed", "Service Desk"), Times.Once);
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Once);
     }
+
+    // ── Self-service groups: an assignment counts only while its assignee is an enabled member of the owner ──
+
+    private static readonly string SelfServiceGroup = Constants.TenantGroupIds.ForHomeTenant(HomeTenant);
+
+    /// <summary>The assignee's TenantAdmins row in the owning tenant: enabled, disabled, or none (null).</summary>
+    private static void OwnerMember(Mock<IAdminRepository> repo, string upn, bool? enabled) =>
+        repo.Setup(r => r.GetTenantMemberAsync(HomeTenant, upn)).ReturnsAsync(enabled is bool isEnabled
+            ? new TenantMember { TenantId = HomeTenant, Upn = upn, Role = Constants.TenantRoles.Viewer, IsEnabled = isEnabled }
+            : null);
+
+    [Fact]
+    public async Task GetScope_SelfServiceGroup_EnabledOwnerMember_ConfersTheGroupsTenants()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA, TenantB);
+        OwnerMember(repo, Upn, enabled: true);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantA));
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantB));
+    }
+
+    [Theory]
+    [InlineData(false)] // disabled under Access Management
+    [InlineData(null)]  // removed — a failed read reaches the gate the same way (the repository returns null)
+    public async Task GetScope_SelfServiceGroup_WithoutAnEnabledOwnerMembership_ConfersNothing(bool? enabled)
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        OwnerMember(repo, Upn, enabled);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(scope.IsEmpty);
+        repo.Verify(r => r.GetGroupMembershipAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetScope_SelfServiceGroup_MembershipInAnotherTenant_DoesNotCount()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        repo.Setup(r => r.GetTenantMemberAsync(TenantC, Upn)).ReturnsAsync(new TenantMember { TenantId = TenantC, Upn = Upn });
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(scope.IsEmpty);
+        repo.Verify(r => r.GetTenantMemberAsync(HomeTenant, Upn), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetScope_SelfServiceGroup_ApplicationPrincipal_IsGatedOnItsAppKeyRow()
+    {
+        const string appKey = "app:0a0a0a0a-0000-0000-0000-000000000001";
+        var (svc, repo) = Build();
+        repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(appKey)).ReturnsAsync(new List<TenantGroupAssignment>
+        {
+            new() { Upn = appKey, GroupId = SelfServiceGroup, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
+        });
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        var app = new AdminIdentity(appKey, HomeTenant, Oid);
+
+        Assert.True((await svc.GetScopeAsync(app)).IsEmpty);
+
+        OwnerMember(repo, appKey, enabled: true);
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, (await svc.GetFreshScopeAsync(app)).RoleFor(TenantA));
+    }
+
+    [Fact]
+    public async Task GetScope_OperatorGroup_NeverReadsTenantMembership()
+    {
+        // Operator groups (GUID ids) are granted by a Global Admin to people who are not members of any owner.
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(GroupId1));
+        GroupTenants(repo, GroupId1, TenantA);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantA));
+        repo.Verify(r => r.GetTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetScope_DirectGrantAndOperatorGroup_SurviveASuppressedSelfServiceGroup()
+    {
+        var (svc, repo) = Build();
+        Returns(repo, Row(TenantC));
+        ReturnsGroups(repo, Assignment(SelfServiceGroup), Assignment(GroupId1));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        GroupTenants(repo, GroupId1, TenantB);
+        OwnerMember(repo, Upn, enabled: false);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.Null(scope.RoleFor(TenantA));
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantB));
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantC));
+    }
+
+    [Fact]
+    public async Task GetScope_OwnerMembershipRead_IsPartOfTheCachedRowScope()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        OwnerMember(repo, Upn, enabled: true);
+
+        await svc.GetScopeAsync(Id(Upn));
+        await svc.GetScopeAsync(Id(Upn));
+
+        repo.Verify(r => r.GetTenantMemberAsync(HomeTenant, Upn), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetFreshScope_BypassesAWarmCache_AndRefreshesIt()
+    {
+        // A SignalR re-join right after a revoke must not be admitted by a scope cached before it.
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        OwnerMember(repo, Upn, enabled: true);
+        Assert.NotNull((await svc.GetScopeAsync(Id(Upn))).RoleFor(TenantA)); // warms this instance's cache
+
+        OwnerMember(repo, Upn, enabled: null); // removed elsewhere — this cache was not invalidated
+
+        Assert.NotNull((await svc.GetScopeAsync(Id(Upn))).RoleFor(TenantA)); // the cached answer (≤ 30 s)
+        Assert.True((await svc.GetFreshScopeAsync(Id(Upn))).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(Upn))).IsEmpty); // written back: the cache now agrees
+        repo.Verify(r => r.GetTenantMemberAsync(HomeTenant, Upn), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task GetFreshScope_NullIdentity_IsEmpty_WithoutTouchingStorage()
+    {
+        var (svc, repo) = Build();
+
+        Assert.True((await svc.GetFreshScopeAsync(null)).IsEmpty);
+        repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("msp-99999999-9999-9999-9999-999999999999", "99999999-9999-9999-9999-999999999999")]
+    [InlineData("tpl-aaaaaaaa", null)]
+    [InlineData("0f8fad5bd9cb469fa16570867728950e", null)]
+    [InlineData("msp-", null)]
+    [InlineData("MSP-99999999-9999-9999-9999-999999999999", null)]
+    [InlineData(null, null)]
+    public void TenantGroupIds_OwnerOf_IsTheInverseOfForHomeTenant_ForSelfServiceIdsOnly(string? groupId, string? expectedOwner)
+    {
+        Assert.Equal(expectedOwner, Constants.TenantGroupIds.OwnerOf(groupId));
+    }
 }

@@ -271,6 +271,8 @@ builder.Services.AddSingleton<GlobalAdminService>();
 builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<DelegatedSlotService>();
 builder.Services.AddSingleton<DelegationSelfService>();
+// The self-service assignee rule for Access Management (member remove/disable) and the GA group route.
+builder.Services.AddSingleton<ISelfServiceAssignees>(sp => sp.GetRequiredService<DelegationSelfService>());
 builder.Services.AddSingleton<McpUserService>();
 builder.Services.AddSingleton<McpClientRegistrationService>();
 builder.Services.AddSingleton<PreviewWhitelistService>();

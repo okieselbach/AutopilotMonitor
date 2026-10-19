@@ -161,7 +161,7 @@ export function SectionDelegatedAccess() {
 
   const assignableUpns = useMemo(() => {
     const assigned = new Set((assignees?.assignees ?? []).map((a) => a.upn.toLowerCase()));
-    return admins.filter((a) => !assigned.has(a.upn.toLowerCase())).map((a) => a.upn);
+    return admins.filter((a) => a.isEnabled && !assigned.has(a.upn.toLowerCase())).map((a) => a.upn);
   }, [admins, assignees]);
 
   if (!canEditConfig) {
@@ -408,7 +408,7 @@ export function SectionDelegatedAccess() {
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Your users with access</p>
                 <p className="text-xs text-gray-500">
-                  Members of your tenant (Access Management) who may read every managed tenant — read-only, configuration secrets redacted.
+                  Members of your tenant (Access Management) who may read every managed tenant — read-only, configuration secrets redacted. Removing or disabling a member under Access Management ends their access here; after re-enabling, assign them again.
                 </p>
                 {assignees && assignees.assignees.length > 0 && (
                   <ul className="divide-y divide-gray-100">
@@ -465,7 +465,7 @@ export function SectionDelegatedAccess() {
                   </button>
                 </div>
                 {user?.upn && assignableUpns.length === 0 && (assignees?.assignees.length ?? 0) === 0 && (
-                  <p className="text-xs text-gray-400">Add members under Access Management first.</p>
+                  <p className="text-xs text-gray-400">Add or enable members under Access Management first.</p>
                 )}
               </div>
             </>

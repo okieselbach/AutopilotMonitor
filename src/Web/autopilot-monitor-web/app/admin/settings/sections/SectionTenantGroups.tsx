@@ -231,7 +231,8 @@ export function SectionTenantGroups() {
     async (t: TenantGroup) => {
       const upn = (assignUpn[t.groupId] || "").trim();
       if (!canAssign(t.groupId)) return;
-      const role = assignRole[t.groupId] || "DelegatedReader";
+      // A self-service group is read-only for every assignee; the backend refuses any other role there.
+      const role = t.ownerTenantId ? "DelegatedReader" : assignRole[t.groupId] || "DelegatedReader";
       const ok = await mutate(
         `assign:${t.groupId}`,
         api.tenantGroups.assign(t.groupId),
@@ -507,14 +508,16 @@ export function SectionTenantGroups() {
                           autoComplete="off"
                           className="w-full sm:w-auto sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         />
-                        <select
-                          value={assignRole[t.groupId] || "DelegatedReader"}
-                          onChange={(e) => setAssignRole((p) => ({ ...p, [t.groupId]: e.target.value }))}
-                          className="flex-1 sm:flex-none min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
-                        >
-                          <option value="DelegatedReader">Reader</option>
-                          <option value="DelegatedAdmin">Admin</option>
-                        </select>
+                        {!t.ownerTenantId && (
+                          <select
+                            value={assignRole[t.groupId] || "DelegatedReader"}
+                            onChange={(e) => setAssignRole((p) => ({ ...p, [t.groupId]: e.target.value }))}
+                            className="flex-1 sm:flex-none min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                          >
+                            <option value="DelegatedReader">Reader</option>
+                            <option value="DelegatedAdmin">Admin</option>
+                          </select>
+                        )}
                         <button
                           onClick={() => handleAssign(t)}
                           disabled={!canAssign(t.groupId) || busyKey === `assign:${t.groupId}`}

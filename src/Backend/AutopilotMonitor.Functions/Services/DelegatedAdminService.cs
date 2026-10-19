@@ -20,6 +20,10 @@ namespace AutopilotMonitor.Functions.Services;
 /// GATED on the caller's home tenant (JWT tid) being Pro — the MSP seat is a Pro capability of the tenant
 /// the admin is homed in, while the managed targets may be any edition. Row resolution is cached briefly
 /// (UPN-keyed; binding + gate applied per call); every mutation invalidates the cache.
+///
+/// An assignment to a tenant's self-service group (<see cref="Constants.TenantGroupIds"/>) confers scope only
+/// while its assignee is an ENABLED member of the owning tenant — re-checked at every row resolution, so a
+/// person removed or disabled under Access Management stops reading the managed customers on every path.
 /// </summary>
 public class DelegatedAdminService
 {
@@ -66,12 +70,24 @@ public class DelegatedAdminService
     /// and a rebind / home-tenant edition change converges within the respective cache TTLs.
     /// </para>
     /// </summary>
-    public virtual async Task<DelegatedScope> GetScopeAsync(AdminIdentity? identity)
+    public virtual Task<DelegatedScope> GetScopeAsync(AdminIdentity? identity)
+        => ResolveScopeAsync(identity, bypassRowCache: false);
+
+    /// <summary>
+    /// <see cref="GetScopeAsync"/> with the assignment rows and the self-service membership read fresh, never
+    /// from this instance's cache (the fresh result is written back). For decisions that outlive the request —
+    /// a SignalR group join keeps streaming until the connection drops, and the client re-joins right after a
+    /// revoke, possibly on an instance whose cached scope predates it. Binding and entitlement keep their caches.
+    /// </summary>
+    public virtual Task<DelegatedScope> GetFreshScopeAsync(AdminIdentity? identity)
+        => ResolveScopeAsync(identity, bypassRowCache: true);
+
+    private async Task<DelegatedScope> ResolveScopeAsync(AdminIdentity? identity, bool bypassRowCache)
     {
         if (identity == null)
             return DelegatedScope.Empty;
 
-        var scope = await GetRowScopeAsync(identity.Upn);
+        var scope = await GetRowScopeAsync(identity.Upn, bypassRowCache);
         if (scope.IsEmpty)
             return scope;
 
@@ -89,11 +105,11 @@ public class DelegatedAdminService
     }
 
     /// <summary>The scope the assignment ROWS (direct + group-derived) confer on a UPN, ignoring identity binding
-    /// and entitlement. Cached briefly (UPN-keyed).</summary>
-    private async Task<DelegatedScope> GetRowScopeAsync(string upn)
+    /// and entitlement. Cached briefly (UPN-keyed); <paramref name="bypassCache"/> skips the read, never the write.</summary>
+    private async Task<DelegatedScope> GetRowScopeAsync(string upn, bool bypassCache)
     {
         var cacheKey = $"delegated-scope:{upn}";
-        if (_cache.TryGetValue<DelegatedScope>(cacheKey, out var cached) && cached != null)
+        if (!bypassCache && _cache.TryGetValue<DelegatedScope>(cacheKey, out var cached) && cached != null)
             return cached;
 
         var rows = await _adminRepo.GetDelegatedTenantsAsync(upn);
@@ -128,6 +144,18 @@ public class DelegatedAdminService
             var role = NormalizeRole(assignment.Role, upn, $"group:{assignment.GroupId}");
             if (role == null)
                 continue;
+
+            // A self-service group's assignees are its owner's own members, so the precondition of that grant is
+            // re-checked here, not trusted from grant time: no enabled TenantAdmins row in the owning tenant (removed,
+            // disabled, or the read failed) ⇒ the assignment confers nothing.
+            var owner = Constants.TenantGroupIds.OwnerOf(assignment.GroupId);
+            if (owner != null && (await _adminRepo.GetTenantMemberAsync(owner, upn))?.IsEnabled != true)
+            {
+                _logger.LogWarning(
+                    "[DelegatedAdmin] Ignoring the assignment of {Upn} to self-service group {GroupId}: not an enabled member of the owning tenant {OwnerTenantId}",
+                    upn, assignment.GroupId, owner);
+                continue;
+            }
 
             // Members from ONE partition read (meta-backed: a missing meta row ⇒ no group, no scope).
             var membership = await _adminRepo.GetGroupMembershipAsync(assignment.GroupId);
@@ -529,8 +557,9 @@ public class TenantGroupEntity : ITableEntity
 /// <summary>
 /// A row in the <see cref="Constants.TableNames.TenantGroupAssignments"/> table: delegated-admin UPN X
 /// is assigned to group T at role <see cref="Role"/>. PK = UPN (lowercase), RK = groupId. Resolving
-/// a UPN's scope point-scans this by PK, then expands each group into its tenant members. Operator-managed
-/// only (no PendingApproval flow); fail-closed — only enabled + recognized-role assignments confer scope.
+/// a UPN's scope point-scans this by PK, then expands each group into its tenant members. Written by operators
+/// and by self-service delegation (no PendingApproval flow); fail-closed — only enabled + recognized-role
+/// assignments confer scope, and a self-service assignment only while its assignee is an enabled member of the owner.
 /// </summary>
 public class TenantGroupAssignmentEntity : ITableEntity
 {

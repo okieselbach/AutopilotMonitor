@@ -302,7 +302,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Management SDK (1.33) exposes no user-level connection close: (1) strip the user from all
         /// groups server-side, and (2) push "accessRevoked" to the user's connections — the web
         /// client restarts its connection on receipt, and every re-join then re-runs authorization
-        /// against the fresh (≤30s-cached) scope. Residual: a tampered client that ignores (2) and
+        /// (a delegated cross-tenant join against an uncached scope). Residual: a tampered client that ignores (2) and
         /// whose connection-scoped memberships survive (1) keeps its streams until the connection
         /// drops. Warning (not Debug) on failure so it reaches App Insights.
         /// </summary>

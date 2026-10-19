@@ -1378,13 +1378,21 @@ namespace AutopilotMonitor.Shared
         /// <summary>
         /// Deterministic ids of the implicit self-service Tenant Group every managing (MSP) tenant owns:
         /// <c>msp-{homeTenantId}</c>. Its members are the customers that accepted an invitation; its assignees are
-        /// the managing tenant's own users. Ordinary group to every consumer (scope resolution, middleware, MCP).
+        /// the managing tenant's own users, and an assignment confers scope only while its assignee is an enabled
+        /// member of that tenant (checked at every scope resolution). Operator-created groups carry GUID ids and
+        /// never match the prefix.
         /// </summary>
         public static class TenantGroupIds
         {
             public const string SelfServicePrefix = "msp-";
             public static string ForHomeTenant(string homeTenantId) => SelfServicePrefix + homeTenantId.ToLowerInvariant();
             public static bool IsSelfService(string? groupId) => groupId != null && groupId.StartsWith(SelfServicePrefix, System.StringComparison.Ordinal);
+
+            /// <summary>The managing tenant that owns a self-service group (the inverse of <see cref="ForHomeTenant"/>), or null for any other group id.</summary>
+            public static string? OwnerOf(string? groupId)
+                => IsSelfService(groupId) && groupId!.Length > SelfServicePrefix.Length
+                    ? groupId.Substring(SelfServicePrefix.Length)
+                    : null;
         }
 
         /// <summary>Machine-readable <c>code</c> values of the self-service delegation 4xx bodies.</summary>
@@ -1519,7 +1527,8 @@ namespace AutopilotMonitor.Shared
 
             // Tenant Group assignments — which delegated-admin UPN is assigned to which group.
             // PK=UPN (lowercase), RK=groupId. Hot path: GetScopeAsync point-scans by PK to expand the
-            // UPN's groups into the effective tenant set. NOT tenant-id-keyed (offboarding never touches it).
+            // UPN's groups into the effective tenant set. NOT tenant-id-keyed: offboarding removes only the
+            // assignments to the tenant's own self-service group (RowKey == "msp-{tenantId}").
             public const string TenantGroupAssignments = "TenantGroupAssignments";
 
             // Self-service delegation invitations + slot release holds of a managing (MSP) tenant.

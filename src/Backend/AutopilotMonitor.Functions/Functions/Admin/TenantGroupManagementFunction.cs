@@ -26,6 +26,9 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// customer sees "who can read my tenant" / "access removed"); the group appears there under its customer-facing
 /// name (<see cref="DelegationSelfService.CustomerNameOf"/>), never its internal name. Group create/rename/label
 /// carry no access change — they are logged operationally only (no AuditLogs partition).
+///
+/// A tenant's self-service group (<see cref="Constants.TenantGroupIds"/>) keeps the self-service assignee rule
+/// even here: a Global Admin assigns only enabled members of the owning tenant, read-only, bound to it as home.
 /// </summary>
 public class TenantGroupManagementFunction
 {
@@ -36,6 +39,7 @@ public class TenantGroupManagementFunction
     private readonly ISignalRNotificationService _signalRService;
     private readonly DelegatedSlotService _slots;
     private readonly ProConferralService _proConferral;
+    private readonly ISelfServiceAssignees _selfServiceAssignees;
 
     private const string AuditEntity = "DelegatedGroupAccess";
 
@@ -46,7 +50,8 @@ public class TenantGroupManagementFunction
         IMaintenanceRepository maintenanceRepo,
         ISignalRNotificationService signalRService,
         DelegatedSlotService slots,
-        ProConferralService proConferral)
+        ProConferralService proConferral,
+        ISelfServiceAssignees selfServiceAssignees)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
@@ -55,6 +60,7 @@ public class TenantGroupManagementFunction
         _signalRService = signalRService;
         _slots = slots;
         _proConferral = proConferral;
+        _selfServiceAssignees = selfServiceAssignees;
     }
 
     /// <summary>The managing tenant that owns <paramref name="groupId"/> (self-service group), or null for operator groups / unknown groups.</summary>
@@ -319,7 +325,8 @@ public class TenantGroupManagementFunction
     ///         "homeTenantId": "&lt;optional override&gt;", "objectId": "&lt;optional&gt;" }.
     /// The UPN's identity binding is resolved automatically (sign-in history, then UPN domain → onboarded
     /// tenant); 422 HomeTenantUnresolved when neither works, 409 if the UPN is already bound elsewhere
-    /// (rebind explicitly via global/identity-bindings).
+    /// (rebind explicitly via global/identity-bindings). A tenant's self-service group takes only enabled members of
+    /// its owner, read-only and bound to the owner (<see cref="AssignToOwnedGroupCoreAsync"/>).
     /// </summary>
     [Function("AssignTenantGroup")]
     [Authorize]
@@ -350,6 +357,16 @@ public class TenantGroupManagementFunction
             return await NotFound(req);
 
         var upn = body.Upn.ToLowerInvariant();
+
+        var owner = Constants.TenantGroupIds.OwnerOf(group.GroupId);
+        if (owner != null)
+        {
+            var failure = await AssignToOwnedGroupCoreAsync(owner, upn, role, body.HomeTenantId, body.ObjectId, currentUpn);
+            return failure == null
+                ? await req.CreatedAsync(new MessageResponse { Message = "Assigned to group" })
+                : await DelegationSelfServiceFunction.FailAsync(req, failure);
+        }
+
         var identity = await IdentityBindingRules.ResolveForGrantAsync(_identityResolver, upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
@@ -383,12 +400,36 @@ public class TenantGroupManagementFunction
                 { "Group", DelegationSelfService.CustomerNameOf(group) },
                 { "GroupId", groupId },
                 { "Role", role },
-                { "Reason", "group-assigned" },
+                { "Reason", DelegationSelfService.AssigneeReasons.GroupAssigned },
             });
 
         _logger.LogInformation("Group {GroupId} assigned to {Upn} ({Role}) by {By}", groupId, upn, role, currentUpn);
 
         return await req.CreatedAsync(new MessageResponse { Message = "Assigned to group" });
+    }
+
+    /// <summary>
+    /// Testable core of a Global Admin assignment into a tenant's self-service group. The self-service assignee rule
+    /// applies (<see cref="ISelfServiceAssignees.AssignMemberAsync"/>): an enabled member of the owning tenant, bound to
+    /// it as home, read-only. The group's tenants already occupy the owner's slots, so no slot check. Null on success.
+    /// </summary>
+    internal async Task<DelegationFailure?> AssignToOwnedGroupCoreAsync(
+        string ownerTenantId, string upn, string role, string? homeTenantId, string? objectId, string? currentUpn)
+    {
+        if (role != Constants.DelegatedRoles.DelegatedReader)
+            return new DelegationFailure(400, Constants.ApiErrorCodes.BadRequest,
+                $"A self-service group grants read-only access; role must be '{Constants.DelegatedRoles.DelegatedReader}'.");
+        if (!string.IsNullOrWhiteSpace(objectId)
+            || (!string.IsNullOrWhiteSpace(homeTenantId) && !string.Equals(homeTenantId, ownerTenantId, StringComparison.OrdinalIgnoreCase)))
+            return new DelegationFailure(400, Constants.ApiErrorCodes.BadRequest,
+                "Assignees of a self-service group are members of the owning tenant and are bound to it; omit homeTenantId and objectId.");
+
+        var result = await _selfServiceAssignees.AssignMemberAsync(ownerTenantId, upn, currentUpn ?? "", DelegationSelfService.AssigneeReasons.GroupAssigned);
+        if (!result.Ok)
+            return result.Failure;
+
+        _logger.LogInformation("Self-service group of {OwnerTenantId} assigned to {Upn} by {By}", ownerTenantId, upn, currentUpn);
+        return null;
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId}/assignees/{upn} — unassign a UPN. GlobalAdminOnly.</summary>
@@ -431,7 +472,7 @@ public class TenantGroupManagementFunction
                 {
                     { "Group", DelegationSelfService.CustomerNameOf(group) },
                     { "GroupId", groupId },
-                    { "Reason", "group-unassigned" },
+                    { "Reason", DelegationSelfService.AssigneeReasons.GroupUnassigned },
                 });
         }
 

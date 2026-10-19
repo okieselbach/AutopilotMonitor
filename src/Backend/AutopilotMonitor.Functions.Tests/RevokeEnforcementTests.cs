@@ -77,7 +77,8 @@ public class RevokeEnforcementTests
     }
 
     private static (TenantGroupManagementFunction Fn, Mock<IAdminRepository> Repo,
-        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildGroupFn(ProConferralService? proConferral = null)
+        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildGroupFn(
+        ProConferralService? proConferral = null, ISelfServiceAssignees? assignees = null)
     {
         var repo = new Mock<IAdminRepository>();
         // Loose-mock defaults return a null Task — every repo read the flows touch needs a concrete setup.
@@ -90,7 +91,7 @@ public class RevokeEnforcementTests
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
             NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo),
-            proConferral ?? TestProConferral.Inert());
+            proConferral ?? TestProConferral.Inert(), assignees ?? new FakeSelfServiceAssignees(signalR));
         return (fn, repo, audit, signalR);
     }
 
@@ -474,5 +475,80 @@ public class RevokeEnforcementTests
         repo.Setup(r => r.UpdateTenantGroupAsync("tpl-missing", "Renamed", null)).ReturnsAsync(false);
         Assert.Equal(TenantGroupManagementFunction.GroupUpdateOutcome.NotFound,
             await fn.UpdateGroupCoreAsync("tpl-missing", new UpdateTenantGroupRequest { Name = "Renamed" }, "ga@vendor.example"));
+    }
+
+    // --- A Global Admin assigning into a tenant's self-service group gets the self-service rule ---
+
+    [Fact]
+    public async Task AssignToOwnedGroupCore_AppliesTheSelfServiceRule_AsTheGlobalAdmin()
+    {
+        var assignees = new FakeSelfServiceAssignees();
+        var (fn, _, audit, _) = BuildGroupFn(assignees: assignees);
+
+        var failure = await fn.AssignToOwnedGroupCoreAsync(
+            OwnerTenant, UpnLower, Constants.DelegatedRoles.DelegatedReader, null, null, "ga@vendor.example");
+
+        Assert.Null(failure);
+        var assigned = Assert.Single(assignees.Assigned);
+        Assert.Equal((OwnerTenant, UpnLower, "ga@vendor.example", DelegationSelfService.AssigneeReasons.GroupAssigned), assigned);
+        VerifyNoAudit(audit); // the rule writes the customers' CREATE rows itself
+    }
+
+    [Fact]
+    public async Task AssignToOwnedGroupCore_DelegatedAdminRole_IsRefused_RuleNotConsulted()
+    {
+        var assignees = new FakeSelfServiceAssignees();
+        var (fn, _, _, _) = BuildGroupFn(assignees: assignees);
+
+        var failure = await fn.AssignToOwnedGroupCoreAsync(
+            OwnerTenant, UpnLower, Constants.DelegatedRoles.DelegatedAdmin, null, null, "ga@vendor.example");
+
+        Assert.Equal(400, failure?.Status);
+        Assert.Empty(assignees.Assigned);
+    }
+
+    [Theory]
+    [InlineData("44444444-4444-4444-4444-444444444444", null)]
+    [InlineData(null, "55555555-5555-5555-5555-555555555555")]
+    [InlineData(OwnerTenant, "55555555-5555-5555-5555-555555555555")]
+    public async Task AssignToOwnedGroupCore_ForeignHomeOrObjectId_IsRefused_RuleNotConsulted(string? homeTenantId, string? objectId)
+    {
+        var assignees = new FakeSelfServiceAssignees();
+        var (fn, _, _, _) = BuildGroupFn(assignees: assignees);
+
+        var failure = await fn.AssignToOwnedGroupCoreAsync(
+            OwnerTenant, UpnLower, Constants.DelegatedRoles.DelegatedReader, homeTenantId, objectId, "ga@vendor.example");
+
+        Assert.Equal(400, failure?.Status);
+        Assert.Empty(assignees.Assigned);
+    }
+
+    [Fact]
+    public async Task AssignToOwnedGroupCore_HomeNamingTheOwner_Passes()
+    {
+        var assignees = new FakeSelfServiceAssignees();
+        var (fn, _, _, _) = BuildGroupFn(assignees: assignees);
+
+        var failure = await fn.AssignToOwnedGroupCoreAsync(
+            OwnerTenant, UpnLower, Constants.DelegatedRoles.DelegatedReader, OwnerTenant.ToUpperInvariant(), null, "ga@vendor.example");
+
+        Assert.Null(failure);
+        Assert.Single(assignees.Assigned);
+    }
+
+    [Theory]
+    [InlineData(400, Constants.DelegationCodes.NotATenantMember)]
+    [InlineData(403, Constants.DelegationCodes.DelegatedAdminNotAllowed)]
+    [InlineData(409, Constants.DelegationCodes.IdentityBindingConflict)]
+    public async Task AssignToOwnedGroupCore_RuleFailure_IsPassedThrough(int status, string code)
+    {
+        var assignees = new FakeSelfServiceAssignees { AssignFails = new DelegationFailure(status, code, "refused") };
+        var (fn, _, _, _) = BuildGroupFn(assignees: assignees);
+
+        var failure = await fn.AssignToOwnedGroupCoreAsync(
+            OwnerTenant, UpnLower, Constants.DelegatedRoles.DelegatedReader, null, null, "ga@vendor.example");
+
+        Assert.Equal(status, failure?.Status);
+        Assert.Equal(code, failure?.Code);
     }
 }

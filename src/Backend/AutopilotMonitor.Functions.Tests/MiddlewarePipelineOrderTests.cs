@@ -1,5 +1,6 @@
 using System.IO;
 using AutopilotMonitor.Functions.Middleware;
+using AutopilotMonitor.Functions.Services;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -9,7 +10,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// HTTP route, and the raw table/log proxies rely on the <c>RequestContext</c> it resolves. Nothing
 /// at runtime would notice if the registration in <c>Program.cs</c> were dropped or moved in front of
 /// <see cref="AuthenticationMiddleware"/> (the policy step reads the principal the auth step stores) —
-/// the routes would simply open up. This source scan pins the registration and its order.
+/// the routes would simply open up. This source scan pins the registration and its order, plus the one
+/// service registration that ending delegated access depends on.
 /// </summary>
 public class MiddlewarePipelineOrderTests
 {
@@ -85,6 +87,17 @@ public class MiddlewarePipelineOrderTests
             var at = src.IndexOf($"UseMiddleware<{answering}>()", System.StringComparison.Ordinal);
             Assert.True(at < 0 || correlation < at, $"CorrelationIdMiddleware must run before {answering}");
         }
+    }
+
+    [Fact]
+    public void Self_service_assignee_rule_is_registered_as_the_delegation_service()
+    {
+        // Access Management (member remove/disable) and the GA group route take it by constructor; without the
+        // registration every route of both classes fails to activate, and nothing checks DI before a request.
+        var src = ProgramSource();
+
+        Assert.Equal(1, Count(src,
+            $"AddSingleton<{nameof(ISelfServiceAssignees)}>(sp => sp.GetRequiredService<{nameof(DelegationSelfService)}>())"));
     }
 
     private static int Count(string haystack, string needle)

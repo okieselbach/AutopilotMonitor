@@ -646,6 +646,57 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Context!.IsDelegatedReader);
     }
 
+    /// <summary>The caller is assigned to <paramref name="home"/>'s self-service group, which manages <paramref name="managed"/>.</summary>
+    private static void AsSelfServiceAssignee(Harness h, string home, string managed)
+    {
+        var groupId = Constants.TenantGroupIds.ForHomeTenant(home);
+        h.Repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
+            .ReturnsAsync(new List<TenantGroupAssignment>
+            {
+                new() { GroupId = groupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
+            });
+        h.Repo.Setup(r => r.GetGroupMembershipAsync(groupId))
+            .ReturnsAsync(new TenantGroupMembership { GroupId = groupId, TenantIds = new List<string> { managed } });
+    }
+
+    [Fact]
+    public async Task Delegated_SelfServiceAssignee_RemovedFromTheManagingTenant_IsForbiddenOnTheManagedTenant()
+    {
+        // A member removed or disabled under Access Management may still hold the msp-{home} assignment row;
+        // it no longer rescues them into the customers the managing tenant manages.
+        const string upn = "leaver@partner.example";
+        var h = BuildHarness();
+        AsSelfServiceAssignee(h, home: TenantA, managed: TenantB); // harness default: no TenantAdmins row anywhere
+
+        var result = await h.Middleware.DecideAsync(
+            "GET", "/api/sessions/abc-123/events", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delegated_SelfServiceAssignee_EnabledInTheManagingTenant_ReadsTheManagedTenant()
+    {
+        const string upn = "analyst@partner.example";
+        var h = BuildHarness();
+        AsSelfServiceAssignee(h, home: TenantA, managed: TenantB);
+        h.Repo.Setup(r => r.GetTenantMemberAsync(TenantA, upn)).ReturnsAsync(new TenantMember
+        {
+            Upn = upn,
+            TenantId = TenantA,
+            Role = Constants.TenantRoles.Viewer,
+            IsEnabled = true,
+        });
+
+        var result = await h.Middleware.DecideAsync(
+            "GET", "/api/sessions/abc-123/events", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.Equal(TenantB, result.Context!.TargetTenantId);
+        Assert.True(result.Context!.IsDelegatedReader);
+    }
+
     [Fact]
     public async Task Delegated_SessionMutation_IsForbidden()
     {

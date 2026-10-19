@@ -184,6 +184,73 @@ public class TenantAdminManagementFunctionTests
         Assert.Equal(new[] { "user@contoso.com" }, h.SignalR.DisconnectedUsers);
     }
 
+    // ── removal and disable end the member's self-service delegation, before the stream cut ──
+
+    [Fact]
+    public async Task Remove_ends_the_self_service_assignment_before_cutting_streams()
+    {
+        var h = BuildHarness();
+        var (req, ctx) = BuildRequest(new { });
+
+        var response = await h.Function.RemoveTenantAdmin(req, TenantId, "Leaver@Contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var ended = Assert.Single(h.Assignees.Ended);
+        Assert.Equal(TenantId, ended.HomeTenantId);
+        Assert.Equal("leaver@contoso.com", ended.Upn.ToLowerInvariant());
+        Assert.Equal(CallerUpn, ended.Actor);
+        Assert.Equal(DelegationSelfService.AssigneeReasons.MemberRemoved, ended.Reason);
+        Assert.Equal(0, ended.DisconnectsBefore);
+        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Disable_ends_the_self_service_assignment_before_cutting_streams()
+    {
+        var h = BuildHarness();
+        var (req, ctx) = BuildRequest(new { });
+
+        var response = await h.Function.DisableTenantAdmin(req, TenantId, "Leaver@Contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var ended = Assert.Single(h.Assignees.Ended);
+        Assert.Equal(TenantId, ended.HomeTenantId);
+        Assert.Equal("leaver@contoso.com", ended.Upn.ToLowerInvariant());
+        Assert.Equal(DelegationSelfService.AssigneeReasons.MemberDisabled, ended.Reason);
+        Assert.Equal(0, ended.DisconnectsBefore);
+        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Enable_add_and_role_change_never_end_an_assignment()
+    {
+        var h = BuildHarness();
+
+        var (enable, ctx1) = BuildRequest(new { });
+        await h.Function.EnableTenantAdmin(enable, TenantId, "user@contoso.com", ctx1);
+        var (add, ctx2) = BuildRequest(new { upn = "new@contoso.com", role = "viewer" });
+        await h.Function.AddTenantAdmin(add, TenantId, ctx2);
+        var (demote, ctx3) = BuildRequest(new { role = "viewer", canManageBootstrapTokens = false });
+        await h.Function.UpdateMemberPermissions(demote, TenantId, "user@contoso.com", ctx3);
+
+        Assert.Empty(h.Assignees.Ended);
+    }
+
+    [Fact]
+    public async Task Remove_still_succeeds_and_cuts_streams_when_ending_the_assignment_fails()
+    {
+        // Fail-soft: the scope resolution ignores an assignment without an enabled membership anyway.
+        var h = BuildHarness();
+        h.Assignees.EndThrows = new InvalidOperationException("storage unavailable");
+        var (req, ctx) = BuildRequest(new { });
+
+        var response = await h.Function.RemoveTenantAdmin(req, TenantId, "leaver@contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(h.Assignees.Ended);
+        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
     // ── harness ─────────────────────────────────────────────────────────────
 
     private sealed class Harness
@@ -191,6 +258,7 @@ public class TenantAdminManagementFunctionTests
         public TenantAdminManagementFunction Function = default!;
         public Mock<IAdminRepository> AdminRepo = default!;
         public FakeSignalRNotificationService SignalR = default!;
+        public FakeSelfServiceAssignees Assignees = default!;
     }
 
     private static Harness BuildHarness()
@@ -210,13 +278,15 @@ public class TenantAdminManagementFunctionTests
 
         var maintenanceRepo = new Mock<IMaintenanceRepository>(MockBehavior.Loose);
         var signalR = new FakeSignalRNotificationService();
+        var assignees = new FakeSelfServiceAssignees(signalR);
 
         return new Harness
         {
             Function = new TenantAdminManagementFunction(
-                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object, signalR),
+                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object, signalR, assignees),
             AdminRepo = adminRepo,
             SignalR = signalR,
+            Assignees = assignees,
         };
     }
 

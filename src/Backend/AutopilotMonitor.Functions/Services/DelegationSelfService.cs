@@ -27,12 +27,31 @@ public sealed record TenantManagerView(string? GroupId, string? OwnerTenantId, s
     IReadOnlyList<TenantGroupAssignment> Assignees, DateTime? SinceUtc, bool Revocable);
 
 /// <summary>
+/// The self-service assignee rule for the routes outside the self-service surface: Access Management ends the
+/// assignment of a member it removes or disables, and a Global Admin assigns into a tenant's self-service group
+/// under the same rule. Implementations may throw; each caller decides how a failure surfaces.
+/// </summary>
+public interface ISelfServiceAssignees
+{
+    /// <summary>
+    /// Ends <paramref name="upn"/>'s assignment to <paramref name="homeTenantId"/>'s self-service group and audits the
+    /// loss under every managed tenant with <paramref name="reason"/>. False, with nothing written, when the person
+    /// is not assigned. Never cuts live streams — the caller does that after its own writes.
+    /// </summary>
+    Task<bool> EndAssignmentAsync(string homeTenantId, string upn, string actor, string reason);
+
+    /// <summary>Assigns an enabled member of <paramref name="homeTenantId"/> to its self-service group (read-only), audited with <paramref name="reason"/>.</summary>
+    Task<DelegationResult<TenantGroupAssignment>> AssignMemberAsync(string homeTenantId, string upn, string actor, string reason);
+}
+
+/// <summary>
 /// The customer-facing half of delegated ("MSP") administration — no Global Admin involved:
 /// <list type="bullet">
 ///   <item>A Pro (managing) tenant owns exactly ONE implicit Tenant Group, <c>msp-{tenantId}</c>
 ///   (<see cref="Constants.TenantGroupIds"/>). Its members are the customer tenants that ACCEPTED an invitation;
-///   its assignees are the managing tenant's own users. <c>DelegatedAdminService.GetScopeAsync</c>, the policy
-///   middleware and the MCP server need no change — the group is an ordinary group to them.</item>
+///   its assignees are the managing tenant's own ENABLED members — <c>DelegatedAdminService</c> re-checks that
+///   membership at every scope resolution, and removing or disabling the member under Access Management ends the
+///   assignment (<see cref="ISelfServiceAssignees"/>).</item>
 ///   <item>Invitations are signed single-use links (<see cref="DelegationInviteTicket"/>); the row's Pending
 ///   status + ETag flip is the one-shot authority. The ACCEPTING tenant is always the caller's validated JWT
 ///   tenant — a link never names its target.</item>
@@ -43,10 +62,22 @@ public sealed record TenantManagerView(string? GroupId, string? OwnerTenantId, s
 /// </list>
 /// Self-service grants are always <see cref="Constants.DelegatedRoles.DelegatedReader"/> (read-only).
 /// </summary>
-public class DelegationSelfService
+public class DelegationSelfService : ISelfServiceAssignees
 {
     public const string SourceSelfService = "self-service";
     public const string SourceOperator = "operator";
+
+    /// <summary>The <c>Reason</c> an assignee's <c>DelegatedGroupAccess</c> audit row carries under every managed tenant.</summary>
+    public static class AssigneeReasons
+    {
+        public const string SelfServiceAssigned = "self-service-assigned";
+        public const string SelfServiceUnassigned = "self-service-unassigned";
+        public const string GroupAssigned = "group-assigned";
+        public const string GroupUnassigned = "group-unassigned";
+        public const string MemberRemoved = "member-removed";
+        public const string MemberDisabled = "member-disabled";
+    }
+
     /// <summary>
     /// The label a managed tenant sees for operator-provisioned access: direct grants, and operator-created groups
     /// without a <see cref="TenantGroup.CustomerLabel"/>. Operator groups are internal organisation — their names
@@ -315,14 +346,17 @@ public class DelegationSelfService
     public Task<List<TenantGroupAssignment>> ListAssigneesAsync(string homeTenantId)
         => _delegatedAdmins.GetGroupAssigneesAsync(Constants.TenantGroupIds.ForHomeTenant(homeTenantId.ToLowerInvariant()));
 
-    public async Task<DelegationResult<TenantGroupAssignment>> AssignAsync(string homeTenantId, string upn, string actor)
+    public Task<DelegationResult<TenantGroupAssignment>> AssignAsync(string homeTenantId, string upn, string actor)
+        => AssignMemberAsync(homeTenantId, upn, actor, AssigneeReasons.SelfServiceAssigned);
+
+    public async Task<DelegationResult<TenantGroupAssignment>> AssignMemberAsync(string homeTenantId, string upn, string actor, string reason)
     {
         var home = homeTenantId.ToLowerInvariant();
         var normalizedUpn = upn.ToLowerInvariant();
         if (!(await _entitlements.GetEntitlementsAsync(home)).DelegatedAdminAllowed)
             return DelegationResult<TenantGroupAssignment>.Fail(403, Constants.DelegationCodes.DelegatedAdminNotAllowed, "Delegated administration is a Pro capability.");
-        if (await _adminRepo.GetTenantMemberAsync(home, normalizedUpn) == null)
-            return DelegationResult<TenantGroupAssignment>.Fail(400, Constants.DelegationCodes.NotATenantMember, "Only members of your own tenant (Access Management) can be assigned.");
+        if (!await IsEnabledMemberAsync(home, normalizedUpn))
+            return NotAnEnabledMember();
 
         var groupId = await EnsureOwnedGroupAsync(home);
         try
@@ -336,11 +370,20 @@ public class DelegationSelfService
             return DelegationResult<TenantGroupAssignment>.Fail(409, Constants.DelegationCodes.IdentityBindingConflict, ex.Message);
         }
 
+        // Removing or disabling a member writes the member row first and then ends the assignment; this side writes
+        // the assignment first and then reads the member again. Whichever runs second sees the other's write, so an
+        // assignment racing the member's removal never outlives it.
+        if (!await IsEnabledMemberAsync(home, normalizedUpn))
+        {
+            await _delegatedAdmins.UnassignGroupAsync(normalizedUpn, groupId);
+            return NotAnEnabledMember();
+        }
+
         var tenants = await _adminRepo.GetGroupTenantsAsync(groupId);
         foreach (var tenant in tenants)
         {
             await _audit.LogAuditEntryAsync(tenant, "CREATE", AuditGroupAccess, normalizedUpn, actor.ToLowerInvariant(),
-                new Dictionary<string, string> { { "GroupId", groupId }, { "Role", Constants.DelegatedRoles.DelegatedReader }, { "Reason", "self-service-assigned" }, { "HomeTenantId", home } });
+                new Dictionary<string, string> { { "GroupId", groupId }, { "Role", Constants.DelegatedRoles.DelegatedReader }, { "Reason", reason }, { "HomeTenantId", home } });
         }
         var assignment = (await _delegatedAdmins.GetGroupAssigneesAsync(groupId)).FirstOrDefault(a => a.Upn == normalizedUpn)
             ?? new TenantGroupAssignment { Upn = normalizedUpn, GroupId = groupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true, AssignedBy = actor.ToLowerInvariant() };
@@ -349,20 +392,34 @@ public class DelegationSelfService
 
     public async Task<DelegationResult<bool>> UnassignAsync(string homeTenantId, string upn, string actor)
     {
+        if (!await EndAssignmentAsync(homeTenantId, upn, actor, AssigneeReasons.SelfServiceUnassigned))
+            return DelegationResult<bool>.Fail(404, Constants.DelegationCodes.AssigneeNotFound, "That person is not assigned.");
+
+        await _signalR.DisconnectUserAsync(upn.ToLowerInvariant());
+        return DelegationResult<bool>.Success(true);
+    }
+
+    public async Task<bool> EndAssignmentAsync(string homeTenantId, string upn, string actor, string reason)
+    {
         var home = homeTenantId.ToLowerInvariant();
         var normalizedUpn = upn.ToLowerInvariant();
         var groupId = Constants.TenantGroupIds.ForHomeTenant(home);
         if (!await _delegatedAdmins.UnassignGroupAsync(normalizedUpn, groupId))
-            return DelegationResult<bool>.Fail(404, Constants.DelegationCodes.AssigneeNotFound, "That person is not assigned.");
+            return false;
 
-        await _signalR.DisconnectUserAsync(normalizedUpn);
         foreach (var tenant in await _adminRepo.GetGroupTenantsAsync(groupId))
         {
             await _audit.LogAuditEntryAsync(tenant, "DELETE", AuditGroupAccess, normalizedUpn, actor.ToLowerInvariant(),
-                new Dictionary<string, string> { { "GroupId", groupId }, { "Reason", "self-service-unassigned" }, { "HomeTenantId", home } });
+                new Dictionary<string, string> { { "GroupId", groupId }, { "Reason", reason }, { "HomeTenantId", home } });
         }
-        return DelegationResult<bool>.Success(true);
+        return true;
     }
+
+    private async Task<bool> IsEnabledMemberAsync(string tenantId, string upn)
+        => (await _adminRepo.GetTenantMemberAsync(tenantId, upn))?.IsEnabled == true;
+
+    private static DelegationResult<TenantGroupAssignment> NotAnEnabledMember()
+        => DelegationResult<TenantGroupAssignment>.Fail(400, Constants.DelegationCodes.NotATenantMember, "Only enabled members of the managing tenant (Access Management) can be assigned.");
 
     // ── Managers (managed tenant's side) ─────────────────────────────────────────
 

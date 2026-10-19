@@ -176,7 +176,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
 
         /// <summary>
         /// Variant D for the tenant's own self-service Tenant Group: rows whose
-        /// <c>RowKey == "msp-{tenantId}"</c> (TenantGroupAssignments: PK=managed tenant). Takes
+        /// <c>RowKey == "msp-{tenantId}"</c> (TenantGroupAssignments: PK=assignee UPN). Takes
         /// the tenant GUID and derives the group id itself.
         /// </summary>
         public Task<int> WipeByOwnedGroupRowKeyAsync(

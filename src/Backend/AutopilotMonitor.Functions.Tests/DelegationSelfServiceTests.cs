@@ -500,6 +500,119 @@ public class DelegationSelfServiceTests
         Assert.Equal(404, r.Failure!.Status);
     }
 
+    // ── Assignees are ENABLED members of the managing tenant — at grant time, and when the membership ends ──
+
+    private static void AssignedToTheGroup(Harness h) =>
+        h.Repo.Setup(x => x.GetGroupAssignmentsForUpnAsync(MspUser))
+            .ReturnsAsync(new List<TenantGroupAssignment> { new() { Upn = MspUser, GroupId = GroupId } });
+
+    private static void VerifyNoAuditOf(Harness h, string action) =>
+        h.Audit.Verify(a => a.LogAuditEntryAsync(It.IsAny<string>(), action, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Dictionary<string, string>?>()), Times.Never);
+
+    [Fact]
+    public async Task Assign_DisabledMember_400_NothingWritten()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        h.Repo.Setup(x => x.GetTenantMemberAsync(Home, MspUser))
+            .ReturnsAsync(new TenantMember { Upn = MspUser, TenantId = Home, Role = "Operator", IsEnabled = false });
+
+        var r = await h.Svc.AssignAsync(Home, MspUser, MspAdmin);
+
+        Assert.Equal(400, r.Failure!.Status);
+        Assert.Equal(Constants.DelegationCodes.NotATenantMember, r.Failure.Code);
+        h.Repo.Verify(x => x.AssignGroupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>()), Times.Never);
+        h.Repo.Verify(x => x.EnsureOwnedTenantGroupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        VerifyNoAuditOf(h, "CREATE");
+    }
+
+    [Fact]
+    public async Task Assign_MemberRemovedWhileAssigning_IsRolledBack_400_NoCreateAudit()
+    {
+        // The removal wrote the member row before this assignment existed, so its cleanup found nothing to end;
+        // the re-read after the write catches it instead.
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        h.Repo.SetupSequence(x => x.GetTenantMemberAsync(Home, MspUser))
+            .ReturnsAsync(new TenantMember { Upn = MspUser, TenantId = Home, Role = "Operator" })
+            .ReturnsAsync((TenantMember?)null);
+        AssignedToTheGroup(h);
+
+        var r = await h.Svc.AssignAsync(Home, MspUser, MspAdmin);
+
+        Assert.Equal(400, r.Failure!.Status);
+        Assert.Equal(Constants.DelegationCodes.NotATenantMember, r.Failure.Code);
+        h.Repo.Verify(x => x.AssignGroupAsync(MspUser, GroupId, Constants.DelegatedRoles.DelegatedReader, true, MspAdmin), Times.Once);
+        h.Repo.Verify(x => x.UnassignGroupAsync(MspUser, GroupId), Times.Once);
+        VerifyNoAuditOf(h, "CREATE");
+    }
+
+    [Fact]
+    public async Task AssignMember_ReasonAndActorReachEveryCustomersAudit()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        h.GroupTenants.Add(Other);
+
+        var r = await h.Svc.AssignMemberAsync(Home, MspUser, "GA@Vendor.Example", DelegationSelfService.AssigneeReasons.GroupAssigned);
+
+        Assert.True(r.Ok);
+        foreach (var tenant in new[] { Customer, Other })
+        {
+            h.Audit.Verify(a => a.LogAuditEntryAsync(tenant, "CREATE", "DelegatedGroupAccess", MspUser, "ga@vendor.example",
+                It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "group-assigned" && d["HomeTenantId"] == Home)), Times.Once);
+        }
+    }
+
+    [Fact]
+    public async Task EndAssignment_Assigned_UnassignsAndAuditsEveryCustomerWithTheReason_WithoutDisconnecting()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        h.GroupTenants.Add(Other);
+        AssignedToTheGroup(h);
+
+        var ended = await h.Svc.EndAssignmentAsync(Home, "Analyst@Partner.Example", "Admin@Partner.Example", DelegationSelfService.AssigneeReasons.MemberRemoved);
+
+        Assert.True(ended);
+        h.Repo.Verify(x => x.UnassignGroupAsync(MspUser, GroupId), Times.Once);
+        foreach (var tenant in new[] { Customer, Other })
+        {
+            h.Audit.Verify(a => a.LogAuditEntryAsync(tenant, "DELETE", "DelegatedGroupAccess", MspUser, MspAdmin,
+                It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "member-removed" && d["GroupId"] == GroupId)), Times.Once);
+        }
+        Assert.Empty(h.SignalR.DisconnectedUsers); // the caller cuts the streams after its own writes
+    }
+
+    [Fact]
+    public async Task EndAssignment_NotAssigned_IsANoOp_WithoutAudit()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+
+        var ended = await h.Svc.EndAssignmentAsync(Home, MspUser, MspAdmin, DelegationSelfService.AssigneeReasons.MemberDisabled);
+
+        Assert.False(ended);
+        h.Repo.Verify(x => x.UnassignGroupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        VerifyNoAuditOf(h, "DELETE");
+    }
+
+    [Fact]
+    public async Task Unassign_Assigned_AuditsTheSelfServiceReason_AndDisconnectsOnce()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        AssignedToTheGroup(h);
+
+        var r = await h.Svc.UnassignAsync(Home, MspUser, MspAdmin);
+
+        Assert.True(r.Ok);
+        h.Audit.Verify(a => a.LogAuditEntryAsync(Customer, "DELETE", "DelegatedGroupAccess", MspUser, MspAdmin,
+            It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "self-service-unassigned")), Times.Once);
+        Assert.Equal(new[] { MspUser }, h.SignalR.DisconnectedUsers);
+    }
+
     // ── Managers (customer side) ────────────────────────────────────────────────
 
     [Fact]
