@@ -231,16 +231,6 @@ public class DelegatedAdminService
         };
     }
 
-    /// <summary>Transitions an assignment's status (e.g. PendingApproval → Active on approval, → Revoked).</summary>
-    public async Task<bool> SetStatusAsync(string upn, string tenantId, string status)
-    {
-        upn = upn.ToLowerInvariant();
-        tenantId = tenantId.ToLowerInvariant();
-        var ok = await _adminRepo.SetDelegatedAdminStatusAsync(upn, tenantId, status);
-        Invalidate(upn);
-        return ok;
-    }
-
     public async Task<bool> SetEnabledAsync(string upn, string tenantId, bool isEnabled)
     {
         upn = upn.ToLowerInvariant();
@@ -262,14 +252,6 @@ public class DelegatedAdminService
     /// <summary>Every assignment row across all delegated admins — for the operator/GA management UI.</summary>
     public Task<List<DelegatedAdminEntry>> GetAllAsync()
         => _adminRepo.GetAllDelegatedAdminsAsync();
-
-    /// <summary>All assignment rows for a UPN (any status) — for the operator/admin management UI.</summary>
-    public Task<List<DelegatedAdminEntry>> GetAssignmentsForUpnAsync(string upn)
-        => _adminRepo.GetDelegatedTenantsAsync(upn.ToLowerInvariant());
-
-    /// <summary>All assignment rows targeting a tenant (any status) — for the customer "who manages me?" UI.</summary>
-    public Task<List<DelegatedAdminEntry>> GetAssigneesForTenantAsync(string tenantId)
-        => _adminRepo.GetDelegatedAssigneesAsync(tenantId.ToLowerInvariant());
 
     // --- Tenant Groups (app-internal tenant bundles) ---
     //

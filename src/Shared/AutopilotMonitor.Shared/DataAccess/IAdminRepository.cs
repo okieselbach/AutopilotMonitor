@@ -23,7 +23,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> DisableGlobalAdminAsync(string upn);
 
         // --- MCP Users ---
-        Task<bool> IsMcpUserAsync(string upn);
         Task<McpUserEntry?> GetMcpUserAsync(string upn);
         Task<List<McpUserEntry>> GetAllMcpUsersAsync();
         Task<bool> AddMcpUserAsync(string upn, string addedBy);
@@ -41,10 +40,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>All assignment rows targeting one tenant (cross-partition RowKey scan — admin UI, not hot path).
         /// Powers the customer's "who manages my tenant?" view including pending requests.</summary>
         Task<List<DelegatedAdminEntry>> GetDelegatedAssigneesAsync(string tenantId);
-        Task<DelegatedAdminEntry?> GetDelegatedAdminAsync(string upn, string tenantId);
         /// <summary>Creates or replaces an assignment row (upsert on PK=upn, RK=tenantId).</summary>
         Task<bool> UpsertDelegatedAdminAsync(string upn, string tenantId, string role, string status, string source, string grantedBy);
-        Task<bool> SetDelegatedAdminStatusAsync(string upn, string tenantId, string status);
         Task<bool> SetDelegatedAdminEnabledAsync(string upn, string tenantId, bool isEnabled);
         Task<bool> RemoveDelegatedAdminAsync(string upn, string tenantId);
 

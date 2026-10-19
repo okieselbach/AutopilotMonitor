@@ -152,29 +152,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // --- MCP Users ---
 
-        public async Task<bool> IsMcpUserAsync(string upn)
-        {
-            if (string.IsNullOrWhiteSpace(upn))
-                return false;
-
-            try
-            {
-                var normalizedUpn = upn.ToLowerInvariant();
-                var entity = await _mcpUsersTableClient.GetEntityAsync<McpUserEntity>(
-                    "McpUsers", normalizedUpn);
-                return entity?.Value != null && entity.Value.IsEnabled;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking MCP user status for {Upn}", upn);
-                return false;
-            }
-        }
-
         public async Task<McpUserEntry?> GetMcpUserAsync(string upn)
         {
             if (string.IsNullOrWhiteSpace(upn))
@@ -338,23 +315,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return entries;
         }
 
-        public async Task<DelegatedAdminEntry?> GetDelegatedAdminAsync(string upn, string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(tenantId))
-                return null;
-
-            try
-            {
-                var result = await _delegatedAdminsTableClient.GetEntityAsync<DelegatedAdminEntity>(
-                    upn.ToLowerInvariant(), tenantId.ToLowerInvariant());
-                return result.Value == null ? null : MapToDelegatedEntry(result.Value);
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return null;
-            }
-        }
-
         public async Task<bool> UpsertDelegatedAdminAsync(
             string upn, string tenantId, string role, string status, string source, string grantedBy)
         {
@@ -378,27 +338,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             await _delegatedAdminsTableClient.UpsertEntityAsync(entity);
             return true;
-        }
-
-        public async Task<bool> SetDelegatedAdminStatusAsync(string upn, string tenantId, string status)
-        {
-            upn = upn.ToLowerInvariant();
-            tenantId = tenantId.ToLowerInvariant();
-
-            try
-            {
-                var result = await _delegatedAdminsTableClient.GetEntityAsync<DelegatedAdminEntity>(upn, tenantId);
-                var entity = result.Value;
-                if (entity == null) return false;
-
-                entity.Status = status;
-                await _delegatedAdminsTableClient.UpdateEntityAsync(entity, ETag.All);
-                return true;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return false;
-            }
         }
 
         public async Task<bool> SetDelegatedAdminEnabledAsync(string upn, string tenantId, bool isEnabled)

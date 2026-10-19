@@ -249,13 +249,27 @@ public class DelegatedAdminServiceTests
     [Fact]
     public async Task Revoke_InvalidatesCache()
     {
+        // RemoveAsync is the revoke the operator route runs (DelegatedAdminManagementFunction.RevokeCoreAsync).
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA));
-        repo.Setup(r => r.SetDelegatedAdminStatusAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
+        repo.Setup(r => r.RemoveDelegatedAdminAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
 
         await svc.GetScopeAsync(Id(Upn));
-        await svc.SetStatusAsync(Upn, TenantA, Constants.DelegatedStatus.Revoked);
+        await svc.RemoveAsync(Upn, TenantA);
+        await svc.GetScopeAsync(Id(Upn));
+
+        repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Disable_InvalidatesCache()
+    {
+        var (svc, repo) = Build();
+        Returns(repo, Row(TenantA));
+        repo.Setup(r => r.SetDelegatedAdminEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>())).ReturnsAsync(true);
+
+        await svc.GetScopeAsync(Id(Upn));
+        await svc.SetEnabledAsync(Upn, TenantA, false);
         await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Exactly(2));
