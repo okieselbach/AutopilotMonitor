@@ -1,4 +1,4 @@
-import { COMMUNITY_WINDOW_CAP_DAYS } from "@/lib/timeWindow";
+import { COMMUNITY_WINDOW_CAP_DAYS, utcWeekStart } from "@/lib/timeWindow";
 
 /** One server timeline point (UTC calendar day). */
 export interface TimelinePoint {
@@ -14,12 +14,6 @@ export interface TimelineBar {
   label: string;
   success: number;
   failed: number;
-}
-
-function weekStartUtc(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -45,7 +39,7 @@ export function timelineBars(points: readonly TimelinePoint[], days: number): Ti
 
   const weeks = new Map<string, { success: number; failed: number }>();
   for (const p of points) {
-    const week = weekStartUtc(p.date);
+    const week = utcWeekStart(p.date);
     const bucket = weeks.get(week) ?? { success: 0, failed: 0 };
     bucket.success += p.success;
     bucket.failed += p.failed;

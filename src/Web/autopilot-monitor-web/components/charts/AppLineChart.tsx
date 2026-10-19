@@ -26,6 +26,10 @@ export interface AppLineChartProps {
   yUnit?: string;
   yDomain?: [number | "auto", number | "auto"];
   formatXTick?: (value: unknown) => string;
+  /** No legend — for a single series the card title already names. */
+  hideLegend?: boolean;
+  /** Whole numbers only on the Y axis. */
+  integerTicks?: boolean;
 }
 
 /**
@@ -41,6 +45,8 @@ export default function AppLineChart({
   yUnit,
   yDomain,
   formatXTick,
+  hideLegend,
+  integerTicks,
 }: AppLineChartProps) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -61,6 +67,7 @@ export default function AppLineChart({
           domain={yDomain}
           tickFormatter={yUnit ? (v: number) => `${v}${yUnit}` : undefined}
           width={48}
+          {...(integerTicks ? { allowDecimals: false } : {})}
         />
         <Tooltip
           contentStyle={tooltipStyle}
@@ -72,7 +79,7 @@ export default function AppLineChart({
             name,
           ]}
         />
-        <Legend wrapperStyle={legendStyle} iconType="plainline" />
+        {!hideLegend && <Legend wrapperStyle={legendStyle} iconType="plainline" />}
         {series.map((s, idx) => (
           <Line
             key={s.dataKey}

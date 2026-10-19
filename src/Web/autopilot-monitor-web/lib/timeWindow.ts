@@ -42,6 +42,13 @@ export function utcDateDaysAgo(days: number, now: Date = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** The Monday of the UTC week a calendar day (yyyy-MM-dd) falls in — the key of a weekly bar. */
+export function utcWeekStart(isoDate: string): string {
+  const d = new Date(isoDate + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Progress-estimate storage key for a window: windows beyond the Community cap keep their own
  * estimate, so a year's compute time never becomes the estimate for a week (and existing keys stay).

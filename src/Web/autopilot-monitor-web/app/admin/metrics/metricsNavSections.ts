@@ -1,4 +1,5 @@
 export const METRICS_NAV_SECTIONS = [
+  { id: "customers", label: "Customers", description: "New tenants per day and the growth over time" },
   { id: "platform-metrics", label: "Platform Metrics", description: "Agent performance, delivery latency, crash rates, and platform health" },
   { id: "usage", label: "Platform Usage", description: "Platform usage statistics across all tenants" },
   { id: "mcp-usage", label: "MCP Usage", description: "MCP API usage metrics across all users" },

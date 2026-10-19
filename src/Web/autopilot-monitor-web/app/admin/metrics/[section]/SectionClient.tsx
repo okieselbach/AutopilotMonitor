@@ -3,12 +3,14 @@
 import { notFound } from "next/navigation";
 import { type MetricsSectionId } from "../metricsNavSections";
 import { SectionAgentMetrics } from "../sections/SectionAgentMetrics";
+import { SectionCustomers } from "../sections/SectionCustomers";
 import { SectionPlatformUsage } from "../sections/SectionPlatformUsage";
 import { SectionMcpUsage } from "../sections/SectionMcpUsage";
 import { SectionVerdictCalibration } from "../sections/SectionVerdictCalibration";
 import { SectionImePatternHealth } from "../sections/SectionImePatternHealth";
 
 const SECTION_COMPONENTS: Record<MetricsSectionId, React.ComponentType> = {
+  "customers": SectionCustomers,
   "platform-metrics": SectionAgentMetrics,
   "usage": SectionPlatformUsage,
   "mcp-usage": SectionMcpUsage,

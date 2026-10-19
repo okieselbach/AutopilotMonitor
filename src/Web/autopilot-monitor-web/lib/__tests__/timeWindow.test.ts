@@ -6,6 +6,7 @@ import {
   effectiveWindowDays,
   parseWindowDays,
   utcDateDaysAgo,
+  utcWeekStart,
   windowProgressKey,
 } from "@/lib/timeWindow";
 
@@ -41,6 +42,13 @@ describe("time window", () => {
     const now = new Date("2026-10-09T23:30:00Z");
     expect(utcDateDaysAgo(30, now)).toBe("2026-09-09");
     expect(utcDateDaysAgo(365, now)).toBe("2025-10-09");
+  });
+
+  it("anchors a day on the Monday of its UTC week, across a year boundary too", () => {
+    expect(utcWeekStart("2026-10-19")).toBe("2026-10-19"); // Monday
+    expect(utcWeekStart("2026-10-25")).toBe("2026-10-19"); // Sunday
+    expect(utcWeekStart("2026-10-21")).toBe("2026-10-19");
+    expect(utcWeekStart("2027-01-01")).toBe("2026-12-28"); // Friday → Monday of the previous year
   });
 
   it("gives long windows their own progress estimate and leaves existing keys alone", () => {

@@ -262,6 +262,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
       {
         id: "ga-metrics", label: "Metrics", icon: <ChartBarIcon />,
         items: [
+          { id: "ga-customers", label: "Customers", href: route("/admin/metrics/customers") },
           { id: "ga-platform-metrics", label: "Platform Metrics", href: route("/admin/metrics/platform-metrics") },
           { id: "ga-usage", label: "Platform Usage", href: route("/admin/metrics/usage") },
           { id: "ga-active-users", label: "Active Users", href: "/admin/presence" },
