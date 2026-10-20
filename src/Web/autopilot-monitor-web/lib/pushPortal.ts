@@ -1,8 +1,9 @@
 /**
  * Pure helpers of the portal side of the Web Push channel (plan push-relay): the provider
  * constant, the pairing-code grouping shown next to the QR code, the human names of the wire's
- * closed platform and status lists, and the "is a Push channel enabled" gate the hosts use to
- * decide whether the devices panel renders at all (K4: the channel is the one switch).
+ * closed platform and status lists, and the channel gates — whether the saved Push channel is
+ * enabled (K4: the channel is the one switch for pairing and delivery), whether another channel
+ * of a list already is Push, and whether a devices panel renders.
  *
  * No Tailwind class strings live here — lib/ is outside the Tailwind content globs, so the chip
  * classes stay in the component and key off {@link statusTone}.
@@ -97,11 +98,34 @@ export interface PushChannelLike {
  * True when the SAVED channel list carries an enabled Push channel. Accepts the parsed list or
  * the stored JSON string (TenantConfiguration.notificationChannelsJson /
  * AdminConfiguration.opsNotificationChannelsJson); a blank, malformed or redacted string is
- * "no channel", never an exception — the panel simply does not render.
+ * "no channel", never an exception.
  */
 export function hasEnabledPushChannel(channels: readonly PushChannelLike[] | string | null | undefined): boolean {
   const list = typeof channels === "string" || channels == null ? parseChannelList(channels) : channels;
   return list.some((c) => c && c.enabled === true && isPushProvider(c.providerType));
+}
+
+/**
+ * True when a channel OTHER than `channelId` in the (unsaved) list carries the Push provider,
+ * enabled or not. Every Push channel delivers to the same paired devices of the scope, so a
+ * second one would only repeat each alert; the provider picker offers Push to one channel.
+ */
+export function hasOtherPushChannel(channels: readonly { id: string; providerType: number }[], channelId: string): boolean {
+  return channels.some((c) => c.id !== channelId && isPushProvider(c.providerType));
+}
+
+/**
+ * Whether a devices panel renders: always while the scope's Push channel is enabled; with the
+ * channel off only while a device paired in this very scope is left to remove (a Global
+ * Administrator's platform device listed in the home tenant is managed on the platform side).
+ * Unknown devices — still loading or failed to load — count as none.
+ */
+export function showPushDevicesPanel(
+  channelEnabled: boolean,
+  devices: readonly { scope: string }[] | null | undefined,
+  scope: PushScope,
+): boolean {
+  return channelEnabled || (devices ?? []).some((d) => d.scope === scope);
 }
 
 function parseChannelList(json: string | null | undefined): PushChannelLike[] {

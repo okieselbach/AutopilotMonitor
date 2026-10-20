@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Push;
 using AutopilotMonitor.Shared;
@@ -14,9 +15,11 @@ namespace AutopilotMonitor.Functions.Services.Push;
 /// <summary>
 /// Who is pairing or managing devices: the authenticated caller as the middleware resolved it.
 /// <paramref name="IsScopeAdmin"/> = sees and manages every device of the scope; <paramref name="IsGlobalAdmin"/>
-/// = the caller's own devices may live in the platform partition (session watches fan out there).
+/// = the caller's own devices may live in the platform partition (session watches fan out there);
+/// <paramref name="AppRoles"/> = the token's raw Entra app-role values (pairing records the member role they grant).
 /// </summary>
-public sealed record PushCaller(string Upn, string ObjectId, string HomeTenantId, bool IsScopeAdmin, bool IsGlobalAdmin = false);
+public sealed record PushCaller(string Upn, string ObjectId, string HomeTenantId, bool IsScopeAdmin, bool IsGlobalAdmin = false,
+    IReadOnlyList<string>? AppRoles = null);
 
 /// <summary>Outcome of a pairing/device operation; the function maps it to a status + error code.</summary>
 public enum PushOpError
@@ -93,10 +96,22 @@ public class PushPairingService
             return PushOpResult<CreatePairingResponse>.Fail(PushOpError.NotConfigured, "The push channel is not configured on the platform.");
         if (!await _eligibility.HasPushChannelAsync(scope).ConfigureAwait(false))
             return PushOpResult<CreatePairingResponse>.Fail(PushOpError.ChannelRequired, "Add and enable a Push notification channel first.");
-        if (!await _eligibility.IsEligibleAsync(scope, caller.Upn, caller.ObjectId, caller.HomeTenantId).ConfigureAwait(false))
-            return PushOpResult<CreatePairingResponse>.Fail(PushOpError.NotEligible, "Pairing needs an Admin or Operator role held in the member list of this tenant.");
 
+        // Pairing is a portal action from a signed-in session: it counts as a sign-in for freshness,
+        // and it records the live app-role claim BEFORE the role check, so a member known only
+        // through Entra app roles can pair without waiting for the next recorded sign-in.
         var now = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(caller.HomeTenantId) && !string.IsNullOrEmpty(caller.ObjectId))
+        {
+            var claimRole = await _eligibility.ClaimRoleAsync(caller.HomeTenantId, caller.Upn, caller.AppRoles).ConfigureAwait(false);
+            await _repo.StampOwnerSignInAsync(caller.HomeTenantId.ToLowerInvariant(), caller.ObjectId.ToLowerInvariant(),
+                caller.Upn.ToLowerInvariant(), now, claimRole).ConfigureAwait(false);
+        }
+
+        if (!await _eligibility.IsEligibleAsync(scope, caller.Upn, caller.ObjectId, caller.HomeTenantId).ConfigureAwait(false))
+            return PushOpResult<CreatePairingResponse>.Fail(PushOpError.NotEligible,
+                scope.IsPlatform ? "Push notifications on the platform need the Global Administrator role." : null);
+
         var code = GenerateCode();
         var grant = new PushPairingGrant
         {
@@ -110,9 +125,6 @@ public class PushPairingService
             ExpiresUtc = now.AddMinutes(Constants.Push.PairingGrantMinutes),
         };
         await _repo.AddGrantAsync(grant).ConfigureAwait(false);
-
-        // Pairing is a portal action from a signed-in session: it counts as a sign-in for freshness.
-        await _repo.StampOwnerSignInAsync(grant.OwnerHomeTenantId, grant.OwnerObjectId, grant.OwnerUpn, now).ConfigureAwait(false);
         Track("created", scope);
 
         return PushOpResult<CreatePairingResponse>.Success(new CreatePairingResponse
@@ -445,6 +457,9 @@ public class PushPairingService
         var device = await _repo.GetDeviceAsync(scope.Key, deviceId).ConfigureAwait(false);
         if (device == null || !(caller.IsScopeAdmin || IsOwn(device, caller)))
             return PushOpResult<TestWebhookNotificationResponse>.Fail(PushOpError.NotFound);
+        // The channel is the one switch (K4); a switched-off channel is a state the panel shows inline.
+        if (!await _eligibility.HasPushChannelAsync(scope).ConfigureAwait(false))
+            return PushOpResult<TestWebhookNotificationResponse>.Success(new TestWebhookNotificationResponse { Success = false, Message = "The Push channel is off — paired devices receive nothing." });
         if (device.Status != Constants.Push.DeviceStatus.Active)
             return PushOpResult<TestWebhookNotificationResponse>.Success(new TestWebhookNotificationResponse { Success = false, Message = $"The device is {device.Status.ToLowerInvariant()} — only active devices receive pushes." });
 
@@ -470,11 +485,7 @@ public class PushPairingService
         if (scope.IsPlatform)
             return "Platform operator";
         var (config, exists) = await _tenantConfig.TryGetConfigurationAsync(scope.Key).ConfigureAwait(false);
-        if (!exists)
-            return scope.Key;
-        if (!string.IsNullOrWhiteSpace(config.CompanyName)) return config.CompanyName;
-        if (!string.IsNullOrWhiteSpace(config.DomainName)) return config.DomainName;
-        return scope.Key;
+        return TenantDisplayName.Of(exists ? config : null, scope.Key);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { Reveal } from "./Reveal";
 const ROWS = [
   {
     label: "Deployment visibility",
-    monitor: "Real-time phase tracking with live push updates",
+    monitor: "Real-time phase tracking with live updates",
     standard: "None — black box until it finishes or fails",
   },
   {

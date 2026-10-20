@@ -9,6 +9,7 @@ import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } fro
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { SearchInput } from "@/components/SearchInput";
 import { filterOpsEventCatalog } from "./opsAlertRuleSearch";
+import { hasOtherPushChannel } from "@/lib/pushPortal";
 import type { ChannelHealthView } from "@/lib/channelHealth";
 
 /** Destination sentence of a platform Push channel (ChannelEditor shows it in place of the URL field). */
@@ -639,6 +640,7 @@ export function OpsAlertRulesSection({
               showEventToggles={false}
               pushDestinationHint={PUSH_DESTINATION_HINT_OPS}
               health={channelHealth?.get(channel.id) ?? null}
+              pushTaken={hasOtherPushChannel(channels, channel.id)}
             />
           ))}
 

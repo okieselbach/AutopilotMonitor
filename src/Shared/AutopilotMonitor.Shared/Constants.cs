@@ -1731,7 +1731,8 @@ namespace AutopilotMonitor.Shared
             //   PushOwners        PK = owner's HOME tenant, RK = oid. LastSignInUtc stamped once per
             //                     portal sign-in — the freshness source that retires devices of
             //                     people who stopped signing in (roles are app-internal, never
-            //                     Entra-synchronized). Never pruned on its own.
+            //                     Entra-synchronized) — with ClaimRole, the Entra app-role member
+            //                     role of a person without a TenantAdmins row. Never pruned on its own.
             //   PushPairingGrants PK = "grant", RK = SHA-256(code). Ten-minute one-shot pairing
             //                     codes; TenantId property for the offboarding property wipe;
             //                     expired lazily on redeem and by the maintenance sweep.

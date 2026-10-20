@@ -256,6 +256,58 @@ public class NotificationChannelsTests
             Assert.Equal("Invalid webhook provider type.", error);
     }
 
+    [Theory]
+    [InlineData(40, false)]   // Telegram
+    [InlineData(40, true)]
+    [InlineData(50, false)]   // Push
+    [InlineData(50, true)]
+    [InlineData(60, false)]   // E-mail
+    [InlineData(60, true)]
+    public void ValidateModel_LegacyWebhook_RefusesANewlySetNonWebhookProvider_ForEveryCaller(int providerType, bool isGlobalAdmin)
+    {
+        var existing = TenantConfiguration.CreateDefault("tenant-1");
+        var candidate = TenantConfiguration.CreateDefault("tenant-1");
+        candidate.WebhookProviderType = providerType;
+        candidate.WebhookUrl = "https://hooks.example/x";
+
+        Assert.Equal("The legacy webhook supports webhook providers only; use a notification channel for the others.",
+            TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin));
+    }
+
+    [Theory]
+    [InlineData(40)]
+    [InlineData(50)]
+    [InlineData(60)]
+    public void ValidateModel_LegacyWebhook_KeepsAnUnchangedStoredNonWebhookProviderSaveable(int providerType)
+    {
+        var existing = TenantConfiguration.CreateDefault("tenant-1");
+        existing.WebhookProviderType = providerType;
+        existing.WebhookUrl = "https://hooks.example/x";
+        var candidate = TenantConfiguration.CreateDefault("tenant-1");
+        candidate.WebhookProviderType = providerType;
+        candidate.WebhookUrl = "https://hooks.example/x";
+        candidate.CompanyName = "Contoso";   // an unrelated change
+
+        Assert.Null(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false));
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(10)]
+    [InlineData(20)]
+    [InlineData(30)]
+    [InlineData(0)]
+    public void ValidateModel_LegacyWebhook_TakesWebhookProvidersOrNone(int providerType)
+    {
+        var existing = TenantConfiguration.CreateDefault("tenant-1");
+        existing.WebhookProviderType = 50;   // even switching away from a stored Push value
+        var candidate = TenantConfiguration.CreateDefault("tenant-1");
+        candidate.WebhookProviderType = providerType;
+        candidate.WebhookUrl = "https://hooks.example/x";
+
+        Assert.Null(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false));
+    }
+
     [Fact]
     public void ValidateNotificationChannels_RejectsBadPerChannelHeaders()
     {

@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "14 October 2026";
+const LAST_UPDATED = "20 October 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -80,13 +80,15 @@ export default function PrivacyPage() {
             <li>Sign-in identity from Microsoft Entra ID — user principal name, display name, and tenant ID</li>
             <li>Audit records of administrative actions, including who performed them and when</li>
             <li>Content you choose to enter about a session — report comments and annotations (a verdict on the analysis plus notes) — stored with your tenant&apos;s data and attributed to the author</li>
+            <li>If you pair a device for push notifications: its name, platform, push endpoint and encryption keys, the receiver app version, delivery times, and your user principal name and object ID — kept until the device is unpaired, and removed automatically when you stop signing in to the portal. The notification history stays on the device.</li>
             <li>Operational request telemetry used to run and support the service</li>
             <li>A <strong>contact address</strong> and <strong>company name</strong> for your tenant, if provided</li>
           </ul>
           <p className="text-gray-700">
             The contact address and company name are used <strong>only to reach and identify you about this service</strong> — a
             technical problem affecting your tenant, a security matter, a support request, or a change that needs an
-            administrator&apos;s attention. They are never used for marketing and never shared. Both are optional on the
+            administrator&apos;s attention — and the company name also names your tenant in the alerts your own notification
+            channels and paired devices receive. They are never used for marketing and never shared. Both are optional on the
             Community plan and required before a Pro trial. Your administrators set and change them under Settings →
             Tenant → Contact, and clearing a field removes it. Where an organization gave a notification address during sign-up
             (tenant activation), that address is copied once as the initial contact and is yours to change from then on.
@@ -157,8 +159,11 @@ export default function PrivacyPage() {
           </p>
           <p className="text-gray-700">
             Further connections exist only because you configure them: your own Azure storage account for diagnostics,
-            notification channels such as Teams, Slack, Discord, or a generic webhook, and your own AI assistant if a user connects
-            one through the MCP integration. The platform itself makes no calls to any AI or LLM provider.{" "}
+            notification channels such as Teams, Slack, Discord, a generic webhook, or push notifications to devices your
+            admins and operators pair, and your own AI assistant if a user connects one through the MCP integration. A push notification
+            is encrypted end to end for the receiving device and travels through the push service of its platform (Apple,
+            Google, Microsoft or Mozilla), which sees only ciphertext and delivery metadata. The platform itself makes no
+            calls to any AI or LLM provider.{" "}
             <DocsLink href={DOCS_DATA_FLOWS}>Data Flows &amp; External Services</DocsLink> maps every outbound connection
             and what it carries. The <DocsLink href={DOCS_DPA}>data processing agreement</DocsLink> is the authoritative
             document for the parties engaged and the terms of their engagement; its list of sub-processors names them.
@@ -213,7 +218,7 @@ export default function PrivacyPage() {
             <li><strong>Entra ID authentication</strong> for portal users with a restricted signing-algorithm allow-list and identity PII logging disabled</li>
             <li><strong>Fail-closed authorization</strong> — every API route must be registered with an access policy; an unregistered route is unreachable</li>
             <li><strong>Structural tenant isolation</strong> — storage partitioning by tenant, with the tenant identity taken from the validated token and never from a client-supplied header</li>
-            <li><strong>Encryption</strong> — HTTPS with a TLS 1.2 floor in transit, Azure Storage encryption at rest with platform-managed keys</li>
+            <li><strong>Encryption</strong> — HTTPS with a TLS 1.2 floor in transit, Azure Storage encryption at rest with platform-managed keys; push notifications are encrypted end to end for the paired device (RFC 8291)</li>
             <li><strong>Managed identity instead of storage keys</strong>, and secret-less OIDC deployment pipelines</li>
             <li><strong>Rate limiting</strong> per device, per portal user, and per MCP user, and an event limit per enrollment session that pauses a device&apos;s uploads when it sends far more than an enrollment needs</li>
             <li><strong>Verifiable agent binaries</strong> — Authenticode-signed scripts and binaries, third-party libraries only with their vendor&apos;s own signature, a catalog signed by glueckkanja AG that lists every file of the agent package and is checked on the device before anything runs, Sigstore build attestation, and SHA-256 verification at download, through an independent backend cross-check, and at runtime</li>

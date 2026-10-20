@@ -3,7 +3,7 @@ export const TENANT_NAV_SECTIONS = [
   { id: "delegations", label: "Delegated Access", description: "Who can read your tenant, and the tenants you manage (MSP)" },
   { id: "autopilot", label: "Autopilot Validation", description: "Autopilot device and corporate identifier validation" },
   { id: "hardware-whitelist", label: "Hardware Whitelist", description: "Manufacturer and model whitelist configuration" },
-  { id: "notifications", label: "Notifications", description: "Webhook notification configuration" },
+  { id: "notifications", label: "Notifications", description: "Notification channels and paired push devices" },
   { id: "sla-targets", label: "SLA Targets", description: "SLA targets and breach notification settings" },
   { id: "ai-integration", label: "AI Integration", description: "Connect AI assistants and self-hosted AI clients through MCP" },
   { id: "bootstrap-sessions", label: "Bootstrap Sessions", description: "Create and manage bootstrap tokens" },

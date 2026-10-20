@@ -14,9 +14,11 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 
 /// <summary>
 /// The real <see cref="PushEligibility"/> over mocked role and configuration reads: the channel
-/// switch per scope (K4), the table-backed role predicate for tenant members (Admin/Operator,
-/// never Viewer) and for Global Admins (GlobalAdmin with a matching identity binding, never a
-/// Global Reader), and the owner-freshness window (K3).
+/// switch per scope (K4), the role predicate for tenant members (Admin/Operator, never Viewer —
+/// the TenantAdmins row first, else the Entra app-role claim recorded at sign-in, home tenant
+/// only and only while app roles stay enabled), the live claim a pairing records, Global Admins
+/// (GlobalAdmin with a matching identity binding, never a Global Reader), and the owner-freshness
+/// window (K3).
 /// </summary>
 public class PushEligibilityTests
 {
@@ -27,6 +29,7 @@ public class PushEligibilityTests
     private const string ObjectId = "aaaaaaaa-0000-0000-0000-000000000001";
     private const string OtherObjectId = "aaaaaaaa-0000-0000-0000-000000000002";
     private static readonly NotificationScope Tenant = NotificationScope.Tenant(TenantId);
+    private static readonly NotificationScope Home = NotificationScope.Tenant(HomeTenantId);
     private static readonly DateTime Now = new(2026, 10, 7, 12, 0, 0, DateTimeKind.Utc);
 
     // ── HasPushChannelAsync ──────────────────────────────────────────────────
@@ -195,6 +198,128 @@ public class PushEligibilityTests
 
         Assert.False(await h.Sut.IsEligibleAsync(Tenant, "  ", ObjectId, HomeTenantId));
         h.AdminRepo.Verify(r => r.GetTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // ── IsEligibleAsync — tenant scope, Entra app-role claim ─────────────────
+
+    [Theory]
+    [InlineData(Constants.TenantRoles.Admin)]
+    [InlineData(Constants.TenantRoles.Operator)]
+    public async Task Claim_only_member_with_an_alerting_role_is_eligible_in_the_home_tenant(string role)
+    {
+        var h = new Harness();
+        h.Owner(Now, claimRole: role);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.True(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+    }
+
+    [Fact]
+    public async Task Claim_only_viewer_is_not_eligible()
+    {
+        var h = new Harness();
+        h.Owner(Now, claimRole: Constants.TenantRoles.Viewer);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.False(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+    }
+
+    [Theory]
+    [InlineData(false, true)]    // the tenant switched app roles off since the sign-in
+    [InlineData(true, false)]    // no stored configuration at all
+    public async Task Claim_role_counts_only_while_the_tenant_keeps_app_roles_enabled(bool appRolesEnabled, bool configExists)
+    {
+        var h = new Harness();
+        h.Owner(Now, claimRole: Constants.TenantRoles.Admin);
+        h.HomeConfig(appRolesEnabled, configExists);
+
+        Assert.False(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+    }
+
+    [Fact]
+    public async Task Disabled_member_row_beats_the_claim_role()
+    {
+        var h = new Harness();
+        h.HomeMember(Constants.TenantRoles.Admin, enabled: false);
+        h.Owner(Now, claimRole: Constants.TenantRoles.Admin);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.False(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+    }
+
+    [Fact]
+    public async Task Viewer_member_row_beats_an_admin_claim_role()
+    {
+        var h = new Harness();
+        h.HomeMember(Constants.TenantRoles.Viewer);
+        h.Owner(Now, claimRole: Constants.TenantRoles.Admin);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.False(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+    }
+
+    [Fact]
+    public async Task Claim_role_never_reaches_a_tenant_other_than_the_home_tenant()
+    {
+        var h = new Harness();
+        h.Owner(Now, claimRole: Constants.TenantRoles.Admin);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.False(await h.Sut.IsEligibleAsync(Tenant, Upn, ObjectId, HomeTenantId));
+        h.TenantConfig.Verify(t => t.TryGetConfigurationAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Claim_role_eligibility_leaves_freshness_to_its_own_check()
+    {
+        var h = new Harness();
+        h.Owner(Now.AddDays(-(h.Settings.OwnerInactivityDays + 10)), claimRole: Constants.TenantRoles.Admin);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.True(await h.Sut.IsEligibleAsync(Home, Upn, ObjectId, HomeTenantId));
+        Assert.False(await h.Sut.IsOwnerFreshAsync(HomeTenantId, ObjectId, Now));
+    }
+
+    // ── ClaimRoleAsync (the live claim a pairing records) ───────────────────
+
+    [Theory]
+    [InlineData(new[] { Constants.TenantRoles.Admin }, Constants.TenantRoles.Admin)]
+    [InlineData(new[] { Constants.TenantRoles.Viewer, Constants.TenantRoles.Operator }, Constants.TenantRoles.Operator)]
+    [InlineData(new[] { Constants.TenantRoles.Viewer }, Constants.TenantRoles.Viewer)]
+    [InlineData(new[] { "SomethingElse" }, null)]
+    public async Task Live_claim_without_a_member_row_maps_to_its_highest_member_role(string[] appRoles, string? expected)
+    {
+        var h = new Harness();
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.Equal(expected, await h.Sut.ClaimRoleAsync(HomeTenantId, Upn, appRoles));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Live_claim_is_not_recorded_where_a_member_row_decides(bool rowEnabled)
+    {
+        var h = new Harness();
+        h.HomeMember(Constants.TenantRoles.Operator, enabled: rowEnabled);
+        h.HomeConfig(appRolesEnabled: true);
+
+        Assert.Null(await h.Sut.ClaimRoleAsync(HomeTenantId, "Admin@Contoso.INVALID", new[] { Constants.TenantRoles.Admin }));
+    }
+
+    [Fact]
+    public async Task Live_claim_is_not_recorded_with_app_roles_off_without_roles_or_for_an_application()
+    {
+        var off = new Harness();
+        off.HomeConfig(appRolesEnabled: false);
+        Assert.Null(await off.Sut.ClaimRoleAsync(HomeTenantId, Upn, new[] { Constants.TenantRoles.Admin }));
+
+        var h = new Harness();
+        h.HomeConfig(appRolesEnabled: true);
+        Assert.Null(await h.Sut.ClaimRoleAsync(HomeTenantId, Upn, null));
+        Assert.Null(await h.Sut.ClaimRoleAsync(HomeTenantId, Upn, Array.Empty<string>()));
+        Assert.Null(await h.Sut.ClaimRoleAsync(HomeTenantId,
+            Constants.PrincipalKeys.ForApplication("22222222-2222-2222-2222-222222222222"), new[] { Constants.TenantRoles.Admin }));
     }
 
     // ── IsEligibleAsync — platform scope ─────────────────────────────────────
@@ -393,10 +518,19 @@ public class PushEligibilityTests
             => AdminRepo.Setup(r => r.GetIdentityBindingAsync(Upn))
                 .ReturnsAsync(new AdminIdentityBinding { Upn = Upn, TenantId = tenantId, ObjectId = objectId });
 
-        public void Owner(DateTime lastSignInUtc)
+        public void Owner(DateTime lastSignInUtc, string? claimRole = null)
             => Repo.Owners[(HomeTenantId, ObjectId)] = new PushOwner
             {
-                HomeTenantId = HomeTenantId, ObjectId = ObjectId, Upn = Upn, LastSignInUtc = lastSignInUtc,
+                HomeTenantId = HomeTenantId, ObjectId = ObjectId, Upn = Upn, LastSignInUtc = lastSignInUtc, ClaimRole = claimRole,
             };
+
+        /// <summary>The home tenant's configuration: its app-role switch (no channel needed for eligibility).</summary>
+        public void HomeConfig(bool appRolesEnabled, bool exists = true)
+            => TenantConfig.Setup(t => t.TryGetConfigurationAsync(HomeTenantId))
+                .ReturnsAsync((new TenantConfiguration { TenantId = HomeTenantId, EntraAppRolesEnabled = appRolesEnabled }, exists));
+
+        public void HomeMember(string role, bool enabled = true)
+            => AdminRepo.Setup(r => r.GetTenantMemberAsync(HomeTenantId, Upn))
+                .ReturnsAsync(new TenantMember { TenantId = HomeTenantId, Upn = Upn, Role = role, IsEnabled = enabled });
     }
 }

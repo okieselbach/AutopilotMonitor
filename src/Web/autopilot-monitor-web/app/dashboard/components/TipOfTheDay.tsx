@@ -11,6 +11,7 @@ const tips = [
   "The Software Analyzer detects installed software across enrollments \u2014 find open vulnerabilities fast.",
   "Use the Local Admin Analyzer to spot legitimate vs. unexpected local admin accounts.",
   "Connect Teams or Slack under Notifications to get real-time enrollment alerts in your channel.",
+  "Get a push on your phone when an enrollment finishes: add a Push channel under Settings → Notifications, pair your phone, then click Notify me when done on a running session.",
   "Share the Progress Portal link with your team \u2014 anyone can check enrollment status by serial number.",
   "Missing an event in your sessions? Use Gather Rules to collect it.",
   "Analyze Rules are continuously refined \u2014 analysis results may shift as rules improve. This is normal.",

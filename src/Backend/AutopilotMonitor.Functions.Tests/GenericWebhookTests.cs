@@ -64,6 +64,21 @@ public class GenericWebhookTests
         Assert.Equal(WebhookProviderType.GenericJson, new GenericJsonRenderer().ProviderType);
     }
 
+    [Fact]
+    public void GenericJsonRenderer_SlaAlert_CarriesTheTenantNameAndTheTenantIdAsFacts()
+    {
+        var alert = NotificationAlertBuilder.BuildSlaResolvedAlert("11111111-1111-1111-1111-111111111111", "Contoso",
+            "Duration", 42, 60, firstBreachAt: null, resolvedAt: new DateTime(2026, 10, 20, 9, 0, 0, DateTimeKind.Utc));
+
+        using var doc = JsonDocument.Parse(new GenericJsonRenderer().RenderToJson(alert));
+        var facts = doc.RootElement.GetProperty("facts");
+
+        Assert.Equal("Tenant", facts[0].GetProperty("name").GetString());
+        Assert.Equal("Contoso", facts[0].GetProperty("value").GetString());
+        Assert.Equal("Tenant ID", facts[1].GetProperty("name").GetString());
+        Assert.Equal("11111111-1111-1111-1111-111111111111", facts[1].GetProperty("value").GetString());
+    }
+
     [Theory]
     [InlineData(true, "enrollment_succeeded")]
     [InlineData(false, "enrollment_failed")]

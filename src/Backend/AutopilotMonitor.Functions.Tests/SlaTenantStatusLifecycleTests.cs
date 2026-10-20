@@ -1138,4 +1138,48 @@ public class SlaTenantStatusLifecycleTests
         Assert.Equal("consecutive_failures", send.Alert.EventType);
         Assert.Equal(NotificationScope.Tenant(TenantId), send.Scope);
     }
+
+    // ── Tenant name in the alert texts ──────────────────────────────────────
+
+    [Fact]
+    public async Task BreachAndResolvedSends_NameTheTenantByItsCompanyName()
+    {
+        var h = new Harness();
+        var config = WithSlaChannel(CreateConfig(successRate: true));
+        config.CompanyName = "Contoso";
+        config.DomainName = "contoso.com";
+        h.SetTenants(config);
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 8, failed: 4));
+        await h.Service.EvaluateAllTenantsAsync();
+
+        var breach = Assert.Single(h.ChannelSends).Alert;
+        Assert.Contains(breach.Facts, f => f.Name == "Tenant" && f.Value == "Contoso");
+        Assert.Contains(breach.Facts, f => f.Name == "Tenant ID" && f.Value == TenantId);
+        h.ChannelSends.Clear();
+
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 12, failed: 0));
+        await h.Service.EvaluateAllTenantsAsync();
+
+        var resolved = Assert.Single(h.ChannelSends).Alert;
+        Assert.Equal("SLA breach resolved for Contoso: Success Rate is back within target.", resolved.Summary);
+        Assert.Contains(resolved.Facts, f => f.Name == "Tenant ID" && f.Value == TenantId);
+    }
+
+    [Fact]
+    public async Task ConsecutiveFailures_InlinePath_NamesTheTenantByItsDomainWithoutACompanyName()
+    {
+        var h = new Harness();
+        var sends = new List<ChannelSend>();
+        var config = WithSlaChannel(CreateConfig(consecutive: true, consecThreshold: 3));
+        config.DomainName = "contoso.com";
+        var (svc, _) = BuildInlineService(h.StatusRepo, config, FailedPage(3), sends);
+        var failedSession = new SessionSummary { TenantId = TenantId, SessionId = "s3", Status = SessionStatus.Failed, DeviceName = "DEV-01", FailureReason = "timeout" };
+
+        await svc.EvaluateSessionCompletionAsync(TenantId, failedSession);
+
+        var alert = Assert.Single(sends).Alert;
+        Assert.Equal("Alert: 3 enrollments failed in a row for contoso.com", alert.Summary);
+        Assert.Contains(alert.Facts, f => f.Name == "Tenant" && f.Value == "contoso.com");
+        Assert.Contains(alert.Facts, f => f.Name == "Tenant ID" && f.Value == TenantId);
+    }
 }

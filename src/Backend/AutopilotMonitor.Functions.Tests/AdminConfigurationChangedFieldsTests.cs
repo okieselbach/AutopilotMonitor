@@ -273,4 +273,30 @@ public class AdminConfigurationChangedFieldsTests
         Assert.NotNull(typeError);
         Assert.DoesNotContain("secret.example", typeError);
     }
+
+    [Fact]
+    public void Ops_channels_refuse_a_second_push_channel_but_keep_a_stored_pair_saveable()
+    {
+        var one = OpsPushChannels("phones");
+        var pair = OpsPushChannels("phones", "phones-2");
+
+        var draft = AdminConfiguration.CreateDefault();
+        draft.OpsNotificationChannelsJson = one;
+        Assert.Equal(
+            "Invalid ops notification channels: only one Push channel is allowed — a single channel already reaches every paired device.",
+            PatchAdminConfigurationFunction.ApplyFields(draft, new JObject { ["opsNotificationChannelsJson"] = pair }));
+
+        // A pair stored before the rule saves unchanged and may be reduced.
+        var stored = AdminConfiguration.CreateDefault();
+        stored.OpsNotificationChannelsJson = pair;
+        Assert.Null(PatchAdminConfigurationFunction.ApplyFields(stored, new JObject { ["opsNotificationChannelsJson"] = pair }));
+        Assert.Null(PatchAdminConfigurationFunction.ApplyFields(stored, new JObject { ["opsNotificationChannelsJson"] = one }));
+    }
+
+    private static string OpsPushChannels(params string[] ids)
+        => AutopilotMonitor.Shared.Models.Notifications.NotificationChannel.SerializeList(ids.Select(id =>
+            new AutopilotMonitor.Shared.Models.Notifications.NotificationChannel
+            {
+                Id = id, Name = id, ProviderType = (int)AutopilotMonitor.Shared.Models.Notifications.WebhookProviderType.Push, Enabled = true,
+            }));
 }

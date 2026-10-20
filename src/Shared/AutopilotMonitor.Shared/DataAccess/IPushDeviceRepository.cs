@@ -35,8 +35,11 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // --- Owners (PK = home tenant, RK = oid) ---
         Task<PushOwner?> GetOwnerAsync(string homeTenantId, string objectId);
-        /// <summary>Upsert of the sign-in stamp — one write per portal sign-in.</summary>
-        Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc);
+        /// <summary>
+        /// Upsert of the whole sign-in stamp — one write per portal sign-in: the time and
+        /// <paramref name="claimRole"/> (<see cref="PushOwner.ClaimRole"/>; null clears it).
+        /// </summary>
+        Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc, string? claimRole);
 
         // --- Session watches (PK = tenantId, RK = "{sessionId}_{oid}") ---
         Task UpsertWatchAsync(PushSessionWatch watch);
@@ -118,6 +121,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string ObjectId { get; set; } = string.Empty;
         public string Upn { get; set; } = string.Empty;
         public DateTime LastSignInUtc { get; set; }
+        /// <summary>
+        /// The member role (Constants.TenantRoles) the Entra app-role claim granted in the home tenant at
+        /// the last portal sign-in, recorded only while the person has no TenantAdmins row there; null
+        /// otherwise. A send has no token, so this is the role a claim-only member is checked against.
+        /// </summary>
+        public string? ClaimRole { get; set; }
     }
 
     /// <summary>"Notify my devices when this session ends" — one row per (session, person), stored in the SESSION's tenant.</summary>

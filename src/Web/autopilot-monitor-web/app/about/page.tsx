@@ -20,9 +20,9 @@ const FEATURES = [
   {
     title: "Real-Time Enrollment Monitoring",
     description:
-      "Track every Windows Autopilot enrollment phase as it happens. Live push updates surface device registration, ESP progress, app installs, and user phase transitions without manual refreshing.",
+      "Track every Windows Autopilot enrollment phase as it happens. Live updates surface device registration, ESP progress, app installs, and user phase transitions without manual refreshing.",
     color: "blue",
-    bullets: ["Live phase-by-phase tracking", "Near real-time push updates via SignalR", "Per-device event stream with timestamps"],
+    bullets: ["Live phase-by-phase tracking", "Near real-time updates via SignalR", "Per-device event stream with timestamps"],
   },
   {
     title: "Intelligent Analyze Rules",
@@ -242,7 +242,7 @@ export default function AboutPage() {
                   "Azure Functions (.NET Isolated, Flex Consumption) — serverless, scalable API",
                   "Azure Table Storage — high-throughput event ingestion",
                   "Azure Blob Storage — diagnostics and log bundle storage",
-                  "Azure SignalR Service — real-time push to the portal",
+                  "Azure SignalR Service — live updates in the portal",
                 ],
               },
               {
@@ -269,6 +269,7 @@ export default function AboutPage() {
                 items: [
                   "Microsoft Intune — agent deployment target",
                   "Microsoft Teams, Slack, Discord & generic JSON webhooks — start, success, failure, hardware rejection and SLA alerts",
+                  "Push notifications — end-to-end encrypted alerts and Notify me when done on paired phones and browsers",
                   "Intune Management Extension (IME) log — event source for log pattern detection",
                   "WMI & Registry — extended data gather rules",
                   "Model Context Protocol (MCP) server — AI assistants query sessions, fleet metrics and diagnostics (read-only)",

@@ -22,7 +22,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "Can I follow a Windows Autopilot enrollment live?",
     answer:
-      "Yes. Assign the Autopilot Monitor bootstrapper script to your Autopilot device groups in Intune. During enrollment the agent captures Enrollment Status Page (ESP) phases, app downloads and installs, errors, reboots, and performance snapshots and pushes them to the portal as they happen. You see every device's progress without refreshing the page or touching the device.",
+      "Yes. Assign the Autopilot Monitor bootstrapper script to your Autopilot device groups in Intune. During enrollment the agent captures Enrollment Status Page (ESP) phases, app downloads and installs, errors, reboots, and performance snapshots and streams them to the portal as they happen. You see every device's progress without refreshing the page or touching the device.",
   },
   {
     question: "Why did my Autopilot enrollment fail, and how do I find out without touching the device?",
@@ -42,7 +42,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "How do I get alerted when an Autopilot enrollment fails?",
     answer:
-      "Configure a notification channel for Microsoft Teams, Slack, Discord, or a generic JSON webhook and choose which triggers fire: enrollment start, success, or failure. The same channel carries SLA breach and resolution alerts, consecutive-failure alerts, and hardware rejection notices. Configuration and hardware alerts also appear as bell notifications in the portal.",
+      "Configure a notification channel for Microsoft Teams, Slack, Discord, a generic JSON webhook, or push notifications to the phones and browsers your admins and operators pair, and choose which triggers fire: enrollment start, success, or failure. The same channel carries SLA breach and resolution alerts, consecutive-failure alerts, and hardware rejection notices. Admins and Operators can also click Notify me when done on a running enrollment to get a push when it finishes. Configuration and hardware alerts also appear as bell notifications in the portal.",
   },
   {
     question: "Is there reporting on Autopilot deployments, such as success rate, duration, and failing apps?",

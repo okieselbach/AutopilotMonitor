@@ -211,9 +211,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 draft.OpsNotificationChannelsJson = NotificationChannel.RestoreRedactedList(
                     draft.OpsNotificationChannelsJson, storedChannels);
 
-                // Same structural gate the tenant channel list passes. No GA gate on Telegram here:
-                // this endpoint is GlobalAdminOnly by policy.
-                var channelsError = TenantConfigValidation.ValidateNotificationChannels(draft.OpsNotificationChannelsJson);
+                // Same structural gate and one-Push-channel rule the tenant channel list passes. No GA
+                // gate on Telegram here: this endpoint is GlobalAdminOnly by policy.
+                var channelsError = TenantConfigValidation.ValidateNotificationChannels(draft.OpsNotificationChannelsJson)
+                    ?? TenantConfigValidation.ValidateSinglePushChannel(draft.OpsNotificationChannelsJson, storedChannels);
                 if (channelsError != null)
                     return $"Invalid ops notification channels: {channelsError}";
             }

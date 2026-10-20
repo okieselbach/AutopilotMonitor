@@ -186,6 +186,14 @@ namespace AutopilotMonitor.Functions.Helpers
                 && !Shared.Models.Notifications.NotificationChannel.IsSupportedProviderType(candidate.WebhookProviderType))
                 return "Invalid webhook provider type.";
 
+            // ...and only a webhook provider: its destination passed the webhook URL gate above, never
+            // the channel gates of Telegram, Push or E-mail. Only a CHANGED value is checked, so a
+            // stored one stays saveable.
+            if (candidate.WebhookProviderType != existing.WebhookProviderType
+                && candidate.WebhookProviderType != 0
+                && !Shared.Models.Notifications.NotificationChannel.IsWebhookUrlProvider(candidate.WebhookProviderType))
+                return "The legacy webhook supports webhook providers only; use a notification channel for the others.";
+
             var headersError = ValidateWebhookCustomHeaders(candidate.WebhookCustomHeadersJson);
             if (headersError != null)
                 return $"Invalid custom headers: {headersError}";
@@ -198,6 +206,10 @@ namespace AutopilotMonitor.Functions.Helpers
                 candidate.NotificationChannelsJson, existing.NotificationChannelsJson, isGlobalAdmin);
             if (telegramGateError != null)
                 return telegramGateError;
+
+            var pushCountError = ValidateSinglePushChannel(candidate.NotificationChannelsJson, existing.NotificationChannelsJson);
+            if (pushCountError != null)
+                return $"Invalid notification channels: {pushCountError}";
 
             var brandingUrlError = ValidateBrandingImageUrl(candidate.EnrollmentSummaryBrandingImageUrl);
             if (brandingUrlError != null)
@@ -456,9 +468,8 @@ namespace AutopilotMonitor.Functions.Helpers
         /// Global-Admin gate for the providers that send through PLATFORM-owned infrastructure
         /// (<see cref="Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider"/>):
         /// Telegram through the platform bot (the token lives in PreviewConfig, not in tenant
-        /// config), Push through the platform's push sender and VAPID key, E-mail through the
-        /// platform's sender identity and provider key — GA-only until the customer release. A tenant admin must not be able to create or retarget one — hiding
-        /// the provider in the UI is not a control.
+        /// config), E-mail through the platform's sender identity and provider key. A tenant admin
+        /// must not be able to create or retarget one — hiding the provider in the UI is not a control.
         /// <para>
         /// Compares against the stored config so a non-GA caller can still save unrelated changes
         /// while a GA-created gated channel is present: only ADDING one, changing an existing
@@ -492,7 +503,6 @@ namespace AutopilotMonitor.Functions.Helpers
                 {
                     var provider = channel.ProviderType switch
                     {
-                        (int)Shared.Models.Notifications.WebhookProviderType.Push => "Push",
                         (int)Shared.Models.Notifications.WebhookProviderType.Email => "E-mail",
                         _ => "Telegram",
                     };
@@ -502,6 +512,25 @@ namespace AutopilotMonitor.Functions.Helpers
 
             return null;
         }
+
+        /// <summary>
+        /// At most one Push channel per scope, enabled or not: one already reaches every paired device
+        /// of the scope, so a second would only deliver each alert twice. Compared with the stored list,
+        /// so a pair saved before this rule stays saveable until it is reduced — only a save that raises
+        /// the count above one is refused, for every caller (a Global Admin too). The tenant and the ops
+        /// channel lists both pass it. Returns an error message, or null.
+        /// </summary>
+        internal static string? ValidateSinglePushChannel(string? candidateJson, string? existingJson)
+        {
+            var count = CountPushChannels(candidateJson);
+            return count > 1 && count > CountPushChannels(existingJson)
+                ? "only one Push channel is allowed — a single channel already reaches every paired device."
+                : null;
+        }
+
+        private static int CountPushChannels(string? json)
+            => Shared.Models.Notifications.NotificationChannel.ParseList(json)
+                .Count(c => c.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push);
 
         /// <summary>
         /// Validates a generic-webhook HMAC signing secret. Returns an error message, or null when

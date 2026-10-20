@@ -95,11 +95,13 @@ internal sealed class InMemoryPushDeviceRepository : IPushDeviceRepository
     public Task<PushOwner?> GetOwnerAsync(string homeTenantId, string objectId)
         => Task.FromResult(Owners.TryGetValue((homeTenantId.ToLowerInvariant(), objectId.ToLowerInvariant()), out var o) ? o : null);
 
-    public Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc)
+    /// <summary>Replaces the whole row, like the production upsert: a null claim role clears the stored one.</summary>
+    public Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc, string? claimRole)
     {
         Owners[(homeTenantId.ToLowerInvariant(), objectId.ToLowerInvariant())] = new PushOwner
         {
             HomeTenantId = homeTenantId.ToLowerInvariant(), ObjectId = objectId.ToLowerInvariant(), Upn = upn, LastSignInUtc = signInUtc,
+            ClaimRole = claimRole,
         };
         return Task.CompletedTask;
     }

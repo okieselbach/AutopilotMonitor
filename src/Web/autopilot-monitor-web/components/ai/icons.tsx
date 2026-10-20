@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** Stroke icons for the /ai page (24-unit grid, currentColor). */
+/** Stroke icons for the /ai page and the landing (24-unit grid, currentColor). */
 
 type IconProps = { className?: string };
 
@@ -89,6 +89,18 @@ export const CopyIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="9" y="9" width="13" height="13" rx="2" />
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </Icon>
+);
+export const LockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </Icon>
+);
+/** The bell of the portal's Notify me when done button (SessionWatchButton). */
+export const BellIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
   </Icon>
 );
 

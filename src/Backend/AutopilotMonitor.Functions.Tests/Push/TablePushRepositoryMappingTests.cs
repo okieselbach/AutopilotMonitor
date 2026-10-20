@@ -8,11 +8,11 @@ using Azure.Data.Tables;
 namespace AutopilotMonitor.Functions.Tests.Push;
 
 /// <summary>
-/// Store → Map round trip of <see cref="TablePushRepository"/> for the three models it projects
-/// (<see cref="PushDevice"/>, <see cref="PushPairingGrant"/>, <see cref="PushSessionWatch"/>;
-/// <see cref="PushOwner"/> is written inline, not through a Store/Map pair). Every row is a
-/// credential or binds one, so a column dropped on either side is a silently unpaired phone or a
-/// reusable code. The comparisons run by reflection over the model's public properties: a property
+/// Store → Map round trip of <see cref="TablePushRepository"/> for the four models it projects
+/// (<see cref="PushDevice"/>, <see cref="PushPairingGrant"/>, <see cref="PushOwner"/>,
+/// <see cref="PushSessionWatch"/>). Every row is a credential, binds one or decides who receives
+/// pushes, so a column dropped on either side is a silently unpaired phone, a reusable code or a
+/// lost role. The comparisons run by reflection over the model's public properties: a property
 /// added later is covered without touching this file, and the fixture guard fails until the fixture
 /// carries a distinct non-default value for it.
 /// </summary>
@@ -28,6 +28,7 @@ public class TablePushRepositoryMappingTests
     // Documented key mappings: model property → entity key, where the value does not live in a column of its own name.
     private static readonly Dictionary<string, string> DeviceKeys = new() { ["Scope"] = "PartitionKey", ["DeviceId"] = "RowKey" };
     private static readonly Dictionary<string, string> GrantKeys = new() { ["CodeHash"] = "RowKey" };
+    private static readonly Dictionary<string, string> OwnerKeys = new() { ["HomeTenantId"] = "PartitionKey", ["ObjectId"] = "RowKey" };
     private static readonly Dictionary<string, string> WatchKeys = new() { ["TenantId"] = "PartitionKey" };
 
     // ── Devices ─────────────────────────────────────────────────────────────
@@ -216,6 +217,75 @@ public class TablePushRepositoryMappingTests
         AssertDatesStoredAsUtc(input, entity, mapped);
     }
 
+    // ── Owners ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Owner_round_trip_preserves_every_property()
+    {
+        var owner = FullOwner();
+
+        var mapped = TablePushRepository.MapOwner(TablePushRepository.StoreOwner(owner));
+
+        AssertSameProperties(owner, mapped);
+    }
+
+    [Fact]
+    public void Owner_fixture_sets_every_property_to_a_distinct_non_default_value()
+        => AssertFixtureIsDistinctAndNonDefault(FullOwner());
+
+    [Fact]
+    public void Owner_store_writes_every_property_as_a_column_or_key()
+    {
+        var owner = FullOwner();
+
+        var entity = TablePushRepository.StoreOwner(owner);
+
+        Assert.Equal(owner.HomeTenantId, entity.PartitionKey);
+        Assert.Equal(owner.ObjectId, entity.RowKey);
+        AssertEveryPropertyIsStored<PushOwner>(entity, OwnerKeys);
+    }
+
+    [Fact]
+    public void Owner_store_lower_cases_keys_and_upn_but_keeps_the_role_verbatim()
+    {
+        var owner = FullOwner();
+        owner.HomeTenantId = "22222222-AAAA-2222-2222-222222222222";
+        owner.ObjectId = "AAAAAAAA-0000-0000-0000-000000000001";
+        owner.Upn = "Owner@Contoso.invalid";
+
+        var mapped = TablePushRepository.MapOwner(TablePushRepository.StoreOwner(owner));
+
+        Assert.Equal("22222222-aaaa-2222-2222-222222222222", mapped.HomeTenantId);
+        Assert.Equal(OwnerObjectId, mapped.ObjectId);
+        Assert.Equal("owner@contoso.invalid", mapped.Upn);
+        Assert.Equal(Constants.TenantRoles.Operator, mapped.ClaimRole);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Owner_without_a_claim_role_maps_to_null(string? stored)
+    {
+        var owner = FullOwner();
+        owner.ClaimRole = null;
+        var entity = TablePushRepository.StoreOwner(owner);
+        entity["ClaimRole"] = stored;
+
+        Assert.Null(TablePushRepository.MapOwner(entity).ClaimRole);
+        Assert.Null(TablePushRepository.MapOwner(new TableEntity(OwnerHomeTenantId, OwnerObjectId)).ClaimRole);
+    }
+
+    [Fact]
+    public void Owner_store_labels_the_sign_in_date_utc_without_moving_it()
+    {
+        var input = WithUnspecifiedKinds(FullOwner());
+
+        var entity = TablePushRepository.StoreOwner(input);
+        var mapped = TablePushRepository.MapOwner(entity);
+
+        AssertDatesStoredAsUtc(input, entity, mapped);
+    }
+
     // ── Watches ─────────────────────────────────────────────────────────────
 
     [Fact]
@@ -348,6 +418,15 @@ public class TablePushRepositoryMappingTests
         DeviceId = DeviceId,
         FailedAttempts = 2,
         ETag = "W/\"datetime'2026-10-07T08%3A30%3A00.0000000Z'\"",
+    };
+
+    private static PushOwner FullOwner() => new()
+    {
+        HomeTenantId = OwnerHomeTenantId,
+        ObjectId = OwnerObjectId,
+        Upn = "owner@contoso.invalid",
+        LastSignInUtc = Anchor,
+        ClaimRole = Constants.TenantRoles.Operator,
     };
 
     private static PushSessionWatch FullWatch() => new()

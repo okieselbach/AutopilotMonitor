@@ -17,8 +17,9 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 /// The pairing flow end to end against the in-memory repository and a fake push service:
 /// create → begin → redeem (Pending) → confirm (Active, confirmation push), the one-shot redeem,
 /// the five-failure burn, expiry, the device token, re-subscribe re-arming a Stale row, the
-/// role/channel gates, grant ownership (a grant answers only to its creator) and the
-/// one-per-host-and-hour ops event for a refused subscription endpoint.
+/// role/channel gates (the channel also silences the device test, never the device list), the
+/// pairing of a member known only through an Entra app role, grant ownership (a grant answers
+/// only to its creator) and the one-per-host-and-hour ops event for a refused subscription endpoint.
 /// </summary>
 public class PushPairingServiceTests
 {
@@ -302,6 +303,124 @@ public class PushPairingServiceTests
         h.Eligibility.Setup(e => e.HasPushChannelAsync(Tenant)).ReturnsAsync(true);
         h.Eligibility.Setup(e => e.IsEligibleAsync(Tenant, Admin.Upn, Admin.ObjectId, Admin.HomeTenantId)).ReturnsAsync(false);
         Assert.Equal(PushOpError.NotEligible, (await h.Sut.CreateAsync(Tenant, Admin)).Error);
+    }
+
+    [Fact]
+    public async Task A_refused_pairing_names_the_needed_role_only_on_the_platform()
+    {
+        var h = new Harness();
+        h.Eligibility.Setup(e => e.IsEligibleAsync(It.IsAny<NotificationScope>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+
+        var tenant = await h.Sut.CreateAsync(Tenant, Admin);
+        var platform = await h.Sut.CreateAsync(NotificationScope.Platform, Admin);
+
+        // The tenant refusal carries the function's default text ("…in this tenant's member list.").
+        Assert.Equal(PushOpError.NotEligible, tenant.Error);
+        Assert.Null(tenant.Message);
+        Assert.Equal(PushOpError.NotEligible, platform.Error);
+        Assert.Equal("Push notifications on the platform need the Global Administrator role.", platform.Message);
+        Assert.Empty(h.Repo.Grants);
+    }
+
+    [Fact]
+    public async Task A_member_known_only_through_an_entra_app_role_can_pair_at_once()
+    {
+        var host = new AppRoleHost(appRolesEnabled: true);
+        var member = new PushCaller("member@contoso.invalid", "aaaaaaaa-0000-0000-0000-000000000004", TenantId, IsScopeAdmin: true,
+            AppRoles: new[] { Constants.TenantRoles.Admin });
+
+        var created = await host.Sut.CreateAsync(Tenant, member);
+
+        // No TenantAdmins row and no earlier sign-in stamp: the pairing recorded the live claim first.
+        Assert.True(created.Ok);
+        Assert.Equal(Constants.TenantRoles.Admin, host.Repo.Owners[(TenantId, member.ObjectId)].ClaimRole);
+        Assert.Single(host.Repo.Grants);
+    }
+
+    [Fact]
+    public async Task Without_the_app_role_or_with_app_roles_off_the_pairing_is_refused()
+    {
+        var withoutRole = new AppRoleHost(appRolesEnabled: true);
+        var plainUser = new PushCaller("user@contoso.invalid", "aaaaaaaa-0000-0000-0000-000000000005", TenantId, IsScopeAdmin: false);
+        Assert.Equal(PushOpError.NotEligible, (await withoutRole.Sut.CreateAsync(Tenant, plainUser)).Error);
+        Assert.Null(withoutRole.Repo.Owners[(TenantId, plainUser.ObjectId)].ClaimRole);
+
+        var appRolesOff = new AppRoleHost(appRolesEnabled: false);
+        var claimAdmin = plainUser with { AppRoles = new[] { Constants.TenantRoles.Admin } };
+        Assert.Equal(PushOpError.NotEligible, (await appRolesOff.Sut.CreateAsync(Tenant, claimAdmin)).Error);
+        Assert.Null(appRolesOff.Repo.Owners[(TenantId, plainUser.ObjectId)].ClaimRole);
+        Assert.Empty(appRolesOff.Repo.Grants);
+    }
+
+    [Fact]
+    public async Task A_device_test_with_the_channel_off_reports_it_and_sends_nothing()
+    {
+        var h = new Harness();
+        var deviceId = await PairAsync(h, Admin);
+        var sentBefore = h.Http.Requests.Count;
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(Tenant)).ReturnsAsync(false);
+
+        var result = await h.Sut.TestAsync(Tenant, deviceId, Admin);
+
+        Assert.True(result.Ok);
+        Assert.False(result.Value!.Success);
+        Assert.Equal("The Push channel is off — paired devices receive nothing.", result.Value.Message);
+        Assert.Equal(sentBefore, h.Http.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Devices_stay_listable_and_removable_with_the_channel_off()
+    {
+        var h = new Harness();
+        var deviceId = await PairAsync(h, Admin);
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>())).ReturnsAsync(false);
+
+        Assert.Equal(deviceId, Assert.Single((await h.Sut.ListAsync(Tenant, Admin)).Devices).DeviceId);
+        Assert.Equal(PushOpError.None, await h.Sut.DeleteAsync(Tenant, deviceId, Admin));
+        Assert.Empty(h.Repo.Devices);
+    }
+
+    /// <summary>Create → redeem → confirm: one Active device of <paramref name="owner"/>; returns its id.</summary>
+    private static async Task<string> PairAsync(Harness h, PushCaller owner)
+    {
+        var created = await h.Sut.CreateAsync(Tenant, owner);
+        await h.Sut.RedeemAsync(h.RedeemRequest(created.Value!.Code));
+        Assert.True((await h.Sut.ConfirmAsync(Tenant, created.Value.PairingId, owner)).Ok);
+        return h.Repo.Devices.Values.Single(d => d.OwnerObjectId == owner.ObjectId).DeviceId;
+    }
+
+    /// <summary>
+    /// The pairing service over the REAL <see cref="PushEligibility"/>: no TenantAdmins row for anyone,
+    /// a tenant configuration with an enabled Push channel and the given app-role switch.
+    /// </summary>
+    private sealed class AppRoleHost
+    {
+        public InMemoryPushDeviceRepository Repo { get; } = new();
+        public PushPairingService Sut { get; }
+
+        public AppRoleHost(bool appRolesEnabled)
+        {
+            var settings = PushSettings.ForKeys(new VapidKeyRing(VapidKey.Generate()));
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            var pushChannel = new AutopilotMonitor.Shared.Models.Notifications.NotificationChannel
+            {
+                Id = "phones", Name = "Phones", ProviderType = (int)AutopilotMonitor.Shared.Models.Notifications.WebhookProviderType.Push, Enabled = true,
+            };
+            var tenantConfig = new Mock<TenantConfigurationService>(null!, NullLogger<TenantConfigurationService>.Instance, cache, null!) { CallBase = false };
+            tenantConfig.Setup(t => t.TryGetConfigurationAsync(TenantId)).ReturnsAsync((new TenantConfiguration
+            {
+                TenantId = TenantId,
+                EntraAppRolesEnabled = appRolesEnabled,
+                NotificationChannelsJson = AutopilotMonitor.Shared.Models.Notifications.NotificationChannel.SerializeList(new[] { pushChannel }),
+            }, true));
+            var adminConfig = new Mock<AdminConfigurationService>(Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache) { CallBase = false };
+            var eligibility = new PushEligibility(new Mock<IAdminRepository>().Object, Repo, tenantConfig.Object, adminConfig.Object, settings);
+            var opsEvents = new Mock<OpsEventService>(null!, null!, null!) { CallBase = false };
+            var delivery = new PushDeliveryService(Repo, eligibility, settings, new WebPushSender(new HttpClient(new RecordingHandler())),
+                new Lazy<OpsEventService>(() => opsEvents.Object), cache, NullLogger<PushDeliveryService>.Instance);
+            Sut = new PushPairingService(Repo, eligibility, settings, delivery, opsEvents.Object,
+                Mock.Of<IMaintenanceRepository>(), tenantConfig.Object, cache, NullLogger<PushPairingService>.Instance);
+        }
     }
 
     [Fact]

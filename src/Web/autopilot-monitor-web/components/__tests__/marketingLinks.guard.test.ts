@@ -46,6 +46,8 @@ afterAll(() => {
 });
 
 const internalHrefs = (html: string) => [...html.matchAll(/<a\b[^>]*?\shref="(\/[^"]*)"/g)].map(m => m[1]);
+const inPageTargets = (html: string) => [...html.matchAll(/<a\b[^>]*?\shref="#([^"]+)"/g)].map(m => m[1]);
+const elementIds = (html: string) => new Set([...html.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));
 
 /** A page path without its trailing slash; the root and files such as /llms.txt are exempt. */
 const missesSlash = (href: string) => {
@@ -59,6 +61,13 @@ describe("marketing page links", () => {
       const hrefs = internalHrefs(renderToStaticMarkup(createElement(Page)));
       expect(hrefs.length).toBeGreaterThan(0);
       expect(hrefs.filter(missesSlash)).toEqual([]);
+    });
+
+    // A renamed section id leaves its #anchor jumping nowhere, without any error.
+    it(`${name}: every in-page #anchor has its target on the page`, () => {
+      const html = renderToStaticMarkup(createElement(Page));
+      const ids = elementIds(html);
+      expect(inPageTargets(html).filter(target => !ids.has(target))).toEqual([]);
     });
   }
 

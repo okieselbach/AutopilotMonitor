@@ -46,9 +46,9 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// end-to-end encrypted per device). Not a webhook: the channel has NO destination of its
         /// own — <c>Url</c> stays empty — because the recipients are resolved at send time from
         /// the paired devices of the scope's Admin/Operator members (tenant channel) or of the
-        /// Global Admins (platform channel). Global-Admin only while the customer release is
-        /// pending (same gate as Telegram, enforced in TenantConfigValidation). Value 50 stays
-        /// reserved for this provider even if it were ever retired.
+        /// Global Admins (platform channel). Open to tenant Admins; at most one Push channel per
+        /// scope (enforced in TenantConfigValidation), since one already reaches every paired
+        /// device. Value 50 stays reserved for this provider even if it were ever retired.
         /// </summary>
         Push = 50,
 
@@ -56,7 +56,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// E-mail through the platform's own sender (the same provider path as the welcome and
         /// farewell mails, <c>noreply@autopilotmonitor.com</c>). Not a webhook: <c>Url</c> carries
         /// the recipients — one to five addresses, ';' or ',' separated — and the message is rendered
-        /// by the backend. Global-Admin only (same gate as Telegram and Push, enforced in
+        /// by the backend. Global-Admin only (same gate as Telegram, enforced in
         /// TenantConfigValidation) because it sends under the platform's identity and API key.
         /// </summary>
         Email = 60,

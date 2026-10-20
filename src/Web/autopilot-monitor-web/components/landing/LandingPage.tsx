@@ -5,6 +5,7 @@ import { StatsBand } from "./StatsBand";
 import { EvidenceLoop } from "./EvidenceLoop";
 import { JustAsk } from "./JustAsk";
 import { Story } from "./Story";
+import { PushSection } from "./PushSection";
 import { CapabilitiesStrip } from "./CapabilitiesStrip";
 import { Comparison } from "./Comparison";
 import { HowItWorks } from "./HowItWorks";
@@ -36,6 +37,7 @@ export function LandingPage({ statsSnapshot }: { statsSnapshot: PlatformStatsSna
         <EvidenceLoop />
         <JustAsk />
         <Story />
+        <PushSection />
         <CapabilitiesStrip />
         <Comparison />
         <HowItWorks />

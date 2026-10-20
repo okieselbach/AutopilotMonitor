@@ -541,6 +541,7 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Notifications.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushDeviceRevoker>(
     sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Push.PushDeliveryService>());
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushPairingService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushOwnerSignInService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushMaintenanceService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushSessionWatchService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushSessionWatchNotifier>(

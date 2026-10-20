@@ -7,7 +7,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { apiErrorText } from "@/lib/apiClient";
 import { formatRelativeTime } from "@/lib/push/pushFormat";
-import { describePortalDeviceStatus, platformLabel, statusTone, type PushScope, type StatusTone } from "@/lib/pushPortal";
+import {
+  describePortalDeviceStatus,
+  platformLabel,
+  showPushDevicesPanel,
+  statusTone,
+  type PushScope,
+  type StatusTone,
+} from "@/lib/pushPortal";
 import { listPushDevices, removePushDevice, testPushDevice } from "@/lib/pushPortalApi";
 import type { PairingDeviceDto, PushDeviceDto } from "@/lib/generated/wire-types.generated";
 
@@ -26,15 +33,18 @@ const TOAST_KEY = "push-devices";
 interface PushDevicesPanelProps {
   /** `tenant` talks to push/…, `platform` to global/push/… — and picks the host's card styling. */
   scope: PushScope;
+  /** The SAVED channel list carries an enabled Push channel (K4: the one switch for pairing and delivery). */
+  channelEnabled: boolean;
 }
 
 /**
  * The paired devices of a scope (plan push-relay): everyone sees their own, scope admins every
- * device. Hosts render it only when the SAVED channel list carries an enabled Push channel (K4)
- * and the caller may pair (Admin/Operator of the tenant, or a Global Admin on the platform card),
- * and deliberately OUTSIDE any read-only fieldset: an Operator cannot edit channels but pairs.
+ * device. Hosts render it for everyone who may pair (Admin/Operator of the tenant, or a Global
+ * Admin on the platform card), deliberately OUTSIDE any read-only fieldset: an Operator cannot
+ * edit channels but pairs. With the channel off the panel stays only while a device of this
+ * scope is left, so it can be removed; pairing and tests wait for the channel.
  */
-export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
+export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProps) {
   const { getAccessToken } = useAuth();
   const { addNotification, notifyError } = useNotifications();
   const [devices, setDevices] = useState<PushDeviceDto[] | null>(null);
@@ -82,6 +92,8 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
     setPairingOpen(false);
   }, []);
 
+  if (!showPushDevicesPanel(channelEnabled, devices, scope)) return null;
+
   const sendTest = async (device: PushDeviceDto) => {
     setTestingId(device.deviceId);
     try {
@@ -116,12 +128,13 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
     ? "bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
     : "bg-sky-600 hover:bg-sky-700";
 
+  const pairBlocked = channelRequired || !channelEnabled;
   const pairButton = (
     <button
       type="button"
       onClick={() => setPairingOpen(true)}
-      disabled={channelRequired}
-      title={channelRequired ? "Enable a Push channel above first." : undefined}
+      disabled={pairBlocked}
+      title={pairBlocked ? "Enable a Push channel above first." : undefined}
       className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${pairButtonClass}`}
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -145,8 +158,12 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
         trailing={pairButton}
       />
       <div className="p-6 space-y-3">
-        {channelRequired && (
-          <p className="text-sm text-orange-700">Enable a Push channel above first.</p>
+        {!channelEnabled ? (
+          <p className="text-sm text-orange-700">
+            The Push channel is off — paired devices receive nothing. Remove devices here or switch the channel back on.
+          </p>
+        ) : (
+          channelRequired && <p className="text-sm text-orange-700">Enable a Push channel above first.</p>
         )}
         {loadError && (
           <p className="text-sm text-red-700">
@@ -224,8 +241,14 @@ export function PushDevicesPanel({ scope }: PushDevicesPanelProps) {
                           <button
                             type="button"
                             onClick={() => void sendTest(device)}
-                            disabled={busy || !canTest}
-                            title={canTest ? "Sends a test alert to this device." : "Only an active device can receive a test."}
+                            disabled={busy || !canTest || !channelEnabled}
+                            title={
+                              !channelEnabled
+                                ? "The Push channel is off."
+                                : canTest
+                                  ? "Sends a test alert to this device."
+                                  : "Only an active device can receive a test."
+                            }
                             className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
                             {testingId === device.deviceId ? "Sending…" : "Send test"}

@@ -86,6 +86,22 @@ public class PushAlertProjectorTests
     }
 
     [Fact]
+    public void Sla_alert_shows_the_tenant_name_and_never_carries_the_tenant_id()
+    {
+        const string tenantId = "11111111-1111-1111-1111-111111111111";
+        var alert = NotificationAlertBuilder.BuildConsecutiveFailuresAlert(tenantId, "Contoso", 5, "DESKTOP-0042", null,
+            Constants.PortalBaseUrl + "/sla");
+
+        var payload = PushAlertProjector.Project(alert, Tenant, "e8", Now);
+        var json = Encoding.UTF8.GetString(PushAlertProjector.ToJsonBytes(payload));
+
+        Assert.Contains(("Tenant", "Contoso"), payload.Facts);
+        Assert.DoesNotContain(payload.Facts, f => f.Name == "Tenant ID");
+        Assert.Equal("Alert: 5 enrollments failed in a row for Contoso", payload.Body);
+        Assert.DoesNotContain(tenantId, json);
+    }
+
+    [Fact]
     public void Platform_projection_never_uses_the_ops_message()
     {
         var alert = new NotificationAlert

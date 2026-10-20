@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -7,10 +8,12 @@ namespace AutopilotMonitor.Functions.Services.Push;
 
 /// <summary>
 /// The ONE answer to "may this person pair and receive push in this scope", asked at pairing
-/// time and again at every send (Korrektur K2). Table-backed only — at send time there is no
-/// token, so a role that exists solely as an Entra app-role claim cannot be re-checked and is
-/// excluded fail-closed. Tenant scope: an enabled TenantAdmins row with role Admin or Operator
-/// (Viewer may not pair, F10). Platform scope: an enabled GlobalAdmins row with role GlobalAdmin
+/// time and again at every send (Korrektur K2). Tenant scope: the TenantAdmins row first — enabled
+/// with role Admin or Operator (Viewer may not pair, F10), a disabled row is a no. Without a row,
+/// the member role the Entra app-role claim granted at the person's last portal sign-in
+/// (<see cref="PushOwner.ClaimRole"/> — a send has no token to re-read), only in the person's home
+/// tenant and only while that tenant keeps app roles enabled; the sign-in that loses the claim
+/// role revokes the devices. Platform scope: an enabled GlobalAdmins row with role GlobalAdmin
 /// (Global Reader may not, F6) whose identity binding matches the owner's home tenant and object
 /// id — the same corroboration <c>GlobalAdminService</c> performs for a live caller. Reads the
 /// repositories, not the per-process role caches, so a revocation takes effect at the next send.
@@ -82,18 +85,48 @@ public class PushEligibility
         }
 
         var member = await _adminRepo.GetTenantMemberAsync(scope.Key, upn);
-        if (member == null || !member.IsEnabled)
-            return false;
+        if (member != null)
+            return member.IsEnabled && IsAlertingRole(string.IsNullOrEmpty(member.Role) ? Constants.TenantRoles.Admin : member.Role);
 
-        var role = string.IsNullOrEmpty(member.Role) ? Constants.TenantRoles.Admin : member.Role;
-        return role == Constants.TenantRoles.Admin || role == Constants.TenantRoles.Operator;
+        if (string.IsNullOrEmpty(objectId) || !string.Equals(scope.Key, homeTenantId, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var owner = await _pushRepo.GetOwnerAsync(homeTenantId, objectId);
+        if (owner == null || !IsAlertingRole(owner.ClaimRole))
+            return false;
+        var (config, exists) = await _tenantConfig.TryGetConfigurationAsync(scope.Key);
+        return exists && config.EntraAppRolesEnabled;
+    }
+
+    /// <summary>Admin and Operator receive push; Viewer never does (F10).</summary>
+    public static bool IsAlertingRole(string? role)
+        => role == Constants.TenantRoles.Admin || role == Constants.TenantRoles.Operator;
+
+    /// <summary>
+    /// The member role a live caller's Entra app-role claim grants in their home tenant — what a
+    /// pairing records as <see cref="PushOwner.ClaimRole"/>, the same rule a portal sign-in follows:
+    /// only without a TenantAdmins row (a row, enabled or disabled, decides alone) and only while the
+    /// tenant has app roles enabled. Null otherwise.
+    /// </summary>
+    public virtual async Task<string?> ClaimRoleAsync(string homeTenantId, string upn, IReadOnlyList<string>? appRoles)
+    {
+        if (appRoles == null || appRoles.Count == 0 || string.IsNullOrWhiteSpace(homeTenantId)
+            || string.IsNullOrWhiteSpace(upn) || Constants.PrincipalKeys.IsApplication(upn))
+            return null;
+
+        var home = NotificationScope.Tenant(homeTenantId).Key;
+        if (await _adminRepo.GetTenantMemberAsync(home, upn.ToLowerInvariant()) != null)
+            return null;
+
+        var (config, exists) = await _tenantConfig.TryGetConfigurationAsync(home);
+        return EntraAppRoleResolver.Resolve(TableMemberState.NotPresent, null, appRoles, exists && config.EntraAppRolesEnabled)?.Role;
     }
 
     /// <summary>
     /// Freshness (K3): the owner signed in to the portal within the inactivity window. The stamp
     /// is written at pairing and on every portal sign-in, so an absent row means "never" — not
     /// fresh. A device of an owner who stopped signing in pauses; roles are app-internal and a
-    /// deactivated Entra account would otherwise keep receiving alerts.
+    /// deactivated Entra account would otherwise keep receiving alerts. The window also bounds
+    /// the age of a recorded claim role.
     /// </summary>
     public virtual async Task<bool> IsOwnerFreshAsync(string homeTenantId, string objectId, DateTime nowUtc)
     {

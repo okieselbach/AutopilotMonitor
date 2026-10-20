@@ -362,7 +362,7 @@ public class PushSessionWatchServiceTests
     }
 
     [Fact]
-    public async Task Notify_without_watches_neither_writes_nor_sends()
+    public async Task Notify_without_watches_neither_reads_a_channel_nor_writes_nor_sends()
     {
         var repo = new Mock<IPushDeviceRepository>();
         repo.Setup(r => r.GetWatchesForSessionAsync(CustomerTenantId, SessionId)).ReturnsAsync(new List<PushSessionWatch>());
@@ -372,7 +372,68 @@ public class PushSessionWatchServiceTests
 
         repo.Verify(r => r.GetWatchesForSessionAsync(CustomerTenantId, SessionId), Times.Once);
         repo.VerifyNoOtherCalls();
+        h.Eligibility.Verify(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>()), Times.Never);
         Assert.Empty(h.Http.Requests);
+    }
+
+    [Fact]
+    public async Task Notify_into_a_scope_whose_channel_was_switched_off_sends_nothing_and_still_consumes_the_watch()
+    {
+        var h = new Harness();
+        h.AddDevice("d1", Admin, HomeTenantId);
+        h.AddWatch(HomeTenantId, SessionId, Admin, HomeTenantId);
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(Home)).ReturnsAsync(false);
+
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Succeeded, "DESKTOP-4711", "1234567890");
+
+        Assert.Empty(h.Http.Requests);
+        Assert.Empty(h.Repo.Watches);
+        Assert.Equal(Constants.Push.DeviceStatus.Active, h.Repo.Devices[(HomeTenantId, "d1")].Status);
+    }
+
+    [Fact]
+    public async Task Notify_pushes_only_into_the_watch_scopes_whose_channel_is_on()
+    {
+        var h = new Harness();
+        var platformDevice = h.AddDevice("p1", GlobalAdmin, Constants.Push.PlatformScope);
+        h.AddDevice("h1", GlobalAdmin, HomeTenantId);
+        h.AddWatch(CustomerTenantId, SessionId, GlobalAdmin, $"{Constants.Push.PlatformScope};{HomeTenantId}");
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(Home)).ReturnsAsync(false);
+
+        await h.Sut.NotifyAsync(CustomerTenantId, SessionId, SessionWatchOutcome.Failed, "DESKTOP-4711", null);
+
+        Assert.Equal(platformDevice.Endpoint, Assert.Single(h.Http.Requests).RequestUri!.ToString());
+        Assert.Empty(h.Repo.Watches);
+    }
+
+    [Fact]
+    public async Task Notify_with_empty_owner_scopes_asks_the_session_tenants_channel()
+    {
+        var h = new Harness();
+        h.AddDevice("d1", Admin, HomeTenantId);
+        h.AddWatch(HomeTenantId, SessionId, Admin, ownerScopes: string.Empty);   // legacy row: the session tenant
+        h.Eligibility.Setup(e => e.HasPushChannelAsync(Home)).ReturnsAsync(false);
+
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Succeeded, "DESKTOP-4711", null);
+
+        Assert.Empty(h.Http.Requests);
+        Assert.Empty(h.Repo.Watches);
+        h.Eligibility.Verify(e => e.HasPushChannelAsync(Home), Times.Once);
+    }
+
+    [Fact]
+    public async Task Notify_asks_each_scopes_channel_once_for_every_watcher()
+    {
+        var h = new Harness();
+        var d1 = h.AddDevice("d1", Admin, HomeTenantId);
+        var d2 = h.AddDevice("d2", Operator, HomeTenantId);
+        h.AddWatch(HomeTenantId, SessionId, Admin, HomeTenantId);
+        h.AddWatch(HomeTenantId, SessionId, Operator, HomeTenantId);
+
+        await h.Sut.NotifyAsync(HomeTenantId, SessionId, SessionWatchOutcome.Succeeded, "DESKTOP-4711", null);
+
+        Assert.Equal(Endpoints(d1, d2), SentTo(h));
+        h.Eligibility.Verify(e => e.HasPushChannelAsync(It.IsAny<NotificationScope>()), Times.Once);
     }
 
     [Theory]

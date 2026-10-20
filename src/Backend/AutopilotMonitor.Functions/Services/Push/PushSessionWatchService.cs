@@ -28,10 +28,11 @@ public interface IPushSessionWatchNotifier
 /// SESSION's tenant (tenant isolation of the session), the devices it fires on are the watcher's
 /// OWN: their home-tenant scope and, for a Global Admin, the platform scope — so an operator can
 /// watch a customer's session from their own paired phone. Admin and Operator only (F14), only in
-/// a scope with an enabled Push channel (K4), and the fan-out runs through the same role and
-/// freshness filter as any alert. Watches expire after 48 hours (the agent's emergency break), a
-/// watch on a sealed session after 30 days (the user phase starts whenever the device is handed
-/// out), and die with the session's tenant.
+/// a scope with an enabled Push channel (K4) — checked when the watch is set and again when it
+/// fires, so switching the channel off silences a pending watch (it is consumed all the same) —
+/// and the fan-out runs through the same role and freshness filter as any alert. Watches expire
+/// after 48 hours (the agent's emergency break), a watch on a sealed session after 30 days (the
+/// user phase starts whenever the device is handed out), and die with the session's tenant.
 /// </summary>
 public class PushSessionWatchService : IPushSessionWatchNotifier
 {
@@ -161,6 +162,7 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
 
             var now = DateTime.UtcNow;
             var (title, body, severity) = WatchMessage(outcome, deviceName, serialNumber);
+            var channelOn = new Dictionary<string, bool>(StringComparer.Ordinal);
 
             foreach (var watch in watches)
             {
@@ -172,6 +174,11 @@ public class PushSessionWatchService : IPushSessionWatchNotifier
 
                 foreach (var scope in ScopesOf(watch, tenantId))
                 {
+                    if (!channelOn.TryGetValue(scope.Key, out var on))
+                        channelOn[scope.Key] = on = await _eligibility.HasPushChannelAsync(scope).ConfigureAwait(false);
+                    if (!on)
+                        continue;
+
                     var payload = PushAlertProjector.SystemMessage("session_watch", title, body, severity, scope, now,
                         Constants.PortalSessionUrl(sessionId, tenantId));
                     await _delivery.SendSystemToOwnerAsync(scope, watch.OwnerObjectId, payload, WatchPushTtl).ConfigureAwait(false);

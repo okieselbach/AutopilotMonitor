@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Tests.Offboarding;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Offboarding;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Push;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
@@ -41,6 +42,8 @@ public class AuthFunctionSideEffectTests
     private readonly FakeSignalRNotificationService _signalR;
     private readonly FakeOffboardingAuditRepository _offboardingRepo = new();
     private readonly StoredTenantConfig _store;
+    private readonly Mock<GlobalAdminService> _globalAdminMock;
+    private readonly Func<PushOwnerSignInService?, AuthFunction> _buildSut;
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -56,9 +59,10 @@ public class AuthFunctionSideEffectTests
         { CallBase = false };
 
         var bindings = new StubAdminIdentityBindingService(bound: true);
-        var globalAdminMock = new Mock<GlobalAdminService>(
+        _globalAdminMock = new Mock<GlobalAdminService>(
             adminRepo, bindings, cache, Mock.Of<ILogger<GlobalAdminService>>())
         { CallBase = false };
+        var globalAdminMock = _globalAdminMock;
 
         var delegatedAdminMock = new Mock<DelegatedAdminService>(
             adminRepo,
@@ -102,7 +106,7 @@ public class AuthFunctionSideEffectTests
         _opsEventsMock = new Mock<OpsEventService>(null!, null!, null!) { CallBase = false };
         _opsEventsMock.Setup(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
 
-        _sut = new AuthFunction(
+        _buildSut = pushSignIn => new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
             globalAdminMock.Object,
             delegatedAdminMock.Object,
@@ -122,7 +126,9 @@ public class AuthFunctionSideEffectTests
             _signalR,
             adminConfigService.Object,
             _offboardingRepo,
+            pushSignIn: pushSignIn,
             opsEvents: _opsEventsMock.Object);
+        _sut = _buildSut(null);
 
         // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
         // a brand-new tenant). Default: all fire-and-forget calls succeed.
@@ -860,7 +866,7 @@ public class AuthFunctionSideEffectTests
     /// A validated token as the middleware hands it on: tid, oid and idp only under their mapped names. The
     /// member's idp names its own tenant, the guest's another one — the same principal shape otherwise.
     /// </summary>
-    private static ClaimsPrincipal SignedIn(bool external) => new(new ClaimsIdentity(new[]
+    private static ClaimsPrincipal SignedIn(bool external, params string[] appRoles) => new(new ClaimsIdentity(new[]
     {
         new Claim("http://schemas.microsoft.com/identity/claims/tenantid", TenantId),
         new Claim("http://schemas.microsoft.com/identity/claims/objectidentifier", ObjectId),
@@ -868,7 +874,7 @@ public class AuthFunctionSideEffectTests
         new Claim("http://schemas.microsoft.com/identity/claims/identityprovider", external
             ? "https://sts.windows.net/bbbbbbbb-1111-2222-3333-444444444444/"
             : $"https://sts.windows.net/{TenantId}/"),
-    }, "test"));
+    }.Concat(appRoles.Select(role => new Claim("roles", role))), "test"));
 
     private void ArrangeAuthMe(TenantConfiguration config, bool exists, bool approved)
     {
@@ -932,5 +938,70 @@ public class AuthFunctionSideEffectTests
             x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
             external ? Times.Never() : Times.Once());
         Assert.Contains(external ? "\"isTenantAdmin\":false" : "\"isTenantAdmin\":true", await ReadBodyAsync(response));
+    }
+
+    // -------------------------------------------------------------------------
+    // GetCurrentUser: the push sign-in (stamp with the app-role claim, resume)
+    // -------------------------------------------------------------------------
+
+    /// <summary>An onboarded, activated tenant with app roles on and an admin already present (no auto-admin).</summary>
+    private void ArrangeActivatedTenantWithAppRoles(TableMemberState memberRow)
+    {
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        config.EntraAppRolesEnabled = true;
+        ArrangeAuthMe(config, exists: true, approved: true);
+        _tenantAdminsMock.Setup(x => x.GetTenantAdminsAsync(TenantId))
+            .ReturnsAsync(new List<TenantAdminRow> { new() { TenantId = TenantId, Upn = "first@contoso.com" } });
+        _tenantAdminsMock.Setup(x => x.GetTableMembershipAsync(TenantId, Upn)).ReturnsAsync((memberRow,
+            memberRow == TableMemberState.Enabled ? new MemberRoleInfo { Role = Constants.TenantRoles.Operator } : null));
+    }
+
+    private (AuthFunction Sut, Push.PushDeliveryServiceTests.Harness Push) BuildWithPushSignIn()
+    {
+        var push = new Push.PushDeliveryServiceTests.Harness();
+        var signIn = new PushOwnerSignInService(push.Repo, new Mock<IAdminRepository>().Object, push.Settings, push.Sut,
+            Mock.Of<ILogger<PushOwnerSignInService>>());
+        return (_buildSut(signIn), push);
+    }
+
+    [Theory]
+    [InlineData(TableMemberState.NotPresent, Constants.TenantRoles.Admin)]
+    [InlineData(TableMemberState.Enabled, null)]
+    [InlineData(TableMemberState.Disabled, null)]
+    public async Task GetCurrentUser_PushStamp_CarriesTheAppRoleClaimOnlyWithoutAMemberRow(TableMemberState memberRow, string? expected)
+    {
+        ArrangeActivatedTenantWithAppRoles(memberRow);
+        var (sut, push) = BuildWithPushSignIn();
+        var (req, ctx) = BuildRequest(SignedIn(external: false, Constants.TenantRoles.Admin));
+
+        var response = await sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var owner = push.Repo.Owners[(TenantId, ObjectId)];
+        Assert.Equal(expected, owner.ClaimRole);
+        Assert.Equal(Upn, owner.Upn);
+    }
+
+    [Fact]
+    public async Task GetCurrentUser_GlobalAdminBackFromInactivity_ResumesTheirPlatformPause()
+    {
+        ArrangeActivatedTenantWithAppRoles(TableMemberState.Enabled);
+        _globalAdminMock.Setup(x => x.GetGlobalRoleAsync(It.IsAny<AdminIdentity?>())).ReturnsAsync(Constants.GlobalRoles.GlobalAdmin);
+        var (sut, push) = BuildWithPushSignIn();
+        push.Repo.Owners[(TenantId, ObjectId)] = new PushOwner
+        {
+            HomeTenantId = TenantId, ObjectId = ObjectId, Upn = Upn, LastSignInUtc = DateTime.UtcNow.AddDays(-45),
+        };
+        var device = push.AddDevice("ga-phone", Constants.Push.DeviceStatus.Paused, upn: Upn,
+            scope: Constants.Push.PlatformScope, statusReason: "owner_inactive");
+        device.OwnerObjectId = ObjectId;
+        device.OwnerHomeTenantId = TenantId;
+        var (req, ctx) = BuildRequest(SignedIn(external: false));
+
+        var response = await sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(Constants.Push.DeviceStatus.Active, push.Repo.Devices[(Constants.Push.PlatformScope, "ga-phone")].Status);
     }
 }

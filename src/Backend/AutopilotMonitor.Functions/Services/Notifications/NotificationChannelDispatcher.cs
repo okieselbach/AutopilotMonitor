@@ -81,6 +81,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         public virtual async Task SendToChannelsAsync(
             IEnumerable<NotificationChannel> channels, NotificationAlert alert, NotificationScope scope)
         {
+            // One Push channel already reaches every paired device of the scope: a second one in the
+            // same send (a pair stored before validation allowed only one) would deliver it twice.
+            var pushSent = false;
             foreach (var channel in channels)
             {
                 if (channel == null || !channel.HasDestination())
@@ -88,7 +91,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
                 if (channel.ProviderType == (int)WebhookProviderType.Push)
                 {
-                    await _push.SendAsync(scope, alert);
+                    if (!pushSent)
+                    {
+                        pushSent = true;
+                        await _push.SendAsync(scope, alert);
+                    }
                     continue;
                 }
 

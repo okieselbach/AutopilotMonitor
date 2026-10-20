@@ -11,27 +11,23 @@ const SCENARIOS = [
   "Entra ID & Hybrid join",
 ];
 
-const DEVICE_ASSOCIATION_DOCS_URL = `${DOCS_URL}/getting-started/autopilot-device-preparation#device-association`;
-
 export function Hero() {
   return (
     <header data-track-section="hero" className="pt-16 sm:pt-20 pb-0 px-6">
       <div className="max-w-7xl mx-auto">
-        {/* Release-day banner: Microsoft shipped Autopilot device association on 2026-08-25;
-            the validator is live in the same week — the pill exists to make that visible. */}
+        {/* Release banner: push notifications opened to every tenant on 2026-10-20; the pill
+            jumps to the push section further down this page. */}
         <a
-          href={DEVICE_ASSOCIATION_DOCS_URL}
-          data-track="hero_announcement"
-          target="_blank"
-          rel="noopener noreferrer"
+          href="#push"
+          data-track="hero_announcement:push"
           className="group inline-flex items-center gap-2.5 mb-6 pl-1.5 pr-3.5 py-1.5 rounded-full border border-[var(--lp-accent-line)] bg-[var(--lp-accent-soft)] text-[13px] text-[var(--lp-ink)] hover:border-[var(--lp-accent)] transition-colors"
         >
           <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[var(--lp-accent)] text-white text-[10px] font-bold uppercase tracking-[0.14em]">
             New
           </span>
           <span>
-            <span className="font-semibold">Windows Autopilot device association</span> is generally available
-            <span className="hidden sm:inline"> — Autopilot Monitor validates associated devices from day one.</span>
+            <span className="font-semibold">Encrypted push notifications</span>
+            <span className="hidden sm:inline">{" — get pinged when an enrollment finishes"}</span>
           </span>
           <svg className="w-3.5 h-3.5 text-[var(--lp-accent-ink)] shrink-0 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />

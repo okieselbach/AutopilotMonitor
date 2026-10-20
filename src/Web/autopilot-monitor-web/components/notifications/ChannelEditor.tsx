@@ -26,13 +26,13 @@ const EMAIL_PROVIDER = 60;
 
 /** Default destination sentence of a Push channel (tenant scope); the ops card passes its own. */
 export const PUSH_DESTINATION_HINT_TENANT =
-  "Delivers to the devices that Admins and Operators of this tenant pair under Notifications › Push devices. Preview: Global Administrators only.";
+  "Delivers to the devices that Admins and Operators of this tenant pair under Notifications › Push devices.";
 
 export const PROVIDERS: {
   value: number;
   label: string;
   placeholder: string;
-  /** Offered only to Global Admins (platform-owned transport: Telegram, Push). */
+  /** Offered only to Global Admins (platform-owned transport: Telegram, e-mail). */
   gaOnly?: boolean;
 }[] = [
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/..." },
@@ -45,11 +45,10 @@ export const PROVIDERS: {
   // way, so saving unrelated changes cannot silently drop it.
   { value: TELEGRAM_PROVIDER, label: "Telegram (mobile push)", placeholder: "-1003785642894", gaOnly: true },
   // Web Push to the devices paired in this scope (plan push-relay). No destination: the
-  // recipients are the scope's paired devices, so the URL field gives way to one sentence.
-  // GA-only like Telegram until the customer release (K4: one gate until then).
-  { value: PUSH_PROVIDER, label: "Push to paired devices", placeholder: "", gaOnly: true },
+  // recipients are the scope's paired devices, so the URL field gives way to a short description.
+  { value: PUSH_PROVIDER, label: "Push to paired devices", placeholder: "" },
   // E-mail through the platform's own sender (noreply@autopilotmonitor.com) and provider key —
-  // GA-only like Telegram and Push; the destination is one to five recipient addresses.
+  // GA-only like Telegram; the destination is one to five recipient addresses.
   { value: EMAIL_PROVIDER, label: "E-mail (from noreply@autopilotmonitor.com)", placeholder: "ops@example.com; second@example.com", gaOnly: true },
 ];
 
@@ -172,6 +171,7 @@ export function ChannelEditor({
   showEventToggles = true,
   pushDestinationHint = PUSH_DESTINATION_HINT_TENANT,
   health = null,
+  pushTaken = false,
 }: {
   channel: NotificationChannel;
   onChange: (next: NotificationChannel) => void;
@@ -179,7 +179,7 @@ export function ChannelEditor({
   onTest: () => void;
   testing: boolean;
   testResult: { success: boolean; message: string } | null;
-  /** Global Admin: may pick the platform-owned providers (Telegram bot, Web Push, e-mail). */
+  /** Global Admin: may pick the platform-owned providers (Telegram bot, e-mail). */
   showTelegramProvider?: boolean;
   /** Tenant channels subscribe to event kinds here; ops channels are targeted by rules instead. */
   showEventToggles?: boolean;
@@ -187,6 +187,8 @@ export function ChannelEditor({
   pushDestinationHint?: string;
   /** Delivery status of the SAVED channel; null for an unsaved channel, a Push channel or a reader without access. */
   health?: ChannelHealthView | null;
+  /** Another channel of the host's list already is Push, so Push is not offered here. */
+  pushTaken?: boolean;
 }) {
   const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
   const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
@@ -197,7 +199,9 @@ export function ChannelEditor({
   // Keep the channel's own provider listed even when gated, so a GA-created Telegram channel
   // does not silently render as a different provider for a tenant admin.
   const providerOptions = PROVIDERS.filter(
-    (p) => !p.gaOnly || showTelegramProvider || p.value === channel.providerType,
+    (p) =>
+      p.value === channel.providerType ||
+      ((!p.gaOnly || showTelegramProvider) && !(p.value === PUSH_PROVIDER && pushTaken)),
   );
   // A disabled channel sends nothing, so its last status would only be history.
   const status = channel.enabled ? health : null;
@@ -281,10 +285,13 @@ export function ChannelEditor({
         </select>
       </div>
 
-      {/* Destination: a Push channel has none — one sentence says where it delivers. */}
+      {/* Destination: a Push channel has none — it says where it delivers and what a push carries. */}
       {isPush && (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-gray-500 flex-1 min-w-0">{pushDestinationHint}</p>
+          <div className="flex-1 min-w-0 space-y-1 text-xs text-gray-500">
+            <p>{pushDestinationHint}</p>
+            <p>Paired devices never sign in, so Conditional Access does not apply to them. Pushes carry only lock-screen details; the portal holds the rest.</p>
+          </div>
           {isActive && (
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
               Active

@@ -4,12 +4,14 @@ import {
   formatCountdown,
   formatPairingCode,
   hasEnabledPushChannel,
+  hasOtherPushChannel,
   isPushProvider,
   PAIRING_GRANT_SECONDS,
   pairPageUrl,
   pairingSecondsLeft,
   platformLabel,
   PUSH_PROVIDER,
+  showPushDevicesPanel,
   statusTone,
 } from "../pushPortal";
 
@@ -96,6 +98,59 @@ describe("hasEnabledPushChannel", () => {
 
   it("ignores null entries and entries whose enabled flag is not strictly true", () => {
     expect(hasEnabledPushChannel("[null,{\"providerType\":50,\"enabled\":\"true\"}]")).toBe(false);
+  });
+});
+
+describe("hasOtherPushChannel", () => {
+  it("is true only when ANOTHER channel of the list is Push", () => {
+    const list = [
+      { id: "a", providerType: 2 },
+      { id: "b", providerType: PUSH_PROVIDER },
+    ];
+    expect(hasOtherPushChannel(list, "a")).toBe(true);
+    expect(hasOtherPushChannel(list, "b")).toBe(false);
+    expect(hasOtherPushChannel([{ id: "a", providerType: 2 }, { id: "c", providerType: 40 }], "a")).toBe(false);
+    expect(hasOtherPushChannel([], "a")).toBe(false);
+  });
+
+  it("counts a disabled Push channel as taken (the saved list may carry it switched off)", () => {
+    const channels = [
+      { id: "a", name: "Slack", providerType: 10, enabled: true },
+      { id: "b", name: "Phones", providerType: 50, enabled: false },
+    ];
+    expect(hasOtherPushChannel(channels, "a")).toBe(true);
+  });
+
+  it("counts every Push channel when the id is not in the list", () => {
+    expect(hasOtherPushChannel([{ id: "b", providerType: 50 }], "new")).toBe(true);
+  });
+});
+
+describe("showPushDevicesPanel", () => {
+  const tenantDevice = { scope: "tenant" };
+  const platformDevice = { scope: "platform" };
+
+  it("always renders while the channel is enabled, even before the devices are known", () => {
+    expect(showPushDevicesPanel(true, null, "tenant")).toBe(true);
+    expect(showPushDevicesPanel(true, undefined, "platform")).toBe(true);
+    expect(showPushDevicesPanel(true, [], "tenant")).toBe(true);
+  });
+
+  it("with the channel off renders only while a device of the panel's own scope is left", () => {
+    expect(showPushDevicesPanel(false, [tenantDevice], "tenant")).toBe(true);
+    expect(showPushDevicesPanel(false, [platformDevice, tenantDevice], "tenant")).toBe(true);
+    expect(showPushDevicesPanel(false, [platformDevice], "platform")).toBe(true);
+    expect(showPushDevicesPanel(false, [], "tenant")).toBe(false);
+    expect(showPushDevicesPanel(false, [], "platform")).toBe(false);
+  });
+
+  it("does not count a Global Administrator's platform device listed in the home tenant", () => {
+    expect(showPushDevicesPanel(false, [platformDevice], "tenant")).toBe(false);
+  });
+
+  it("renders nothing with the channel off while the devices are unknown (loading or failed)", () => {
+    expect(showPushDevicesPanel(false, null, "tenant")).toBe(false);
+    expect(showPushDevicesPanel(false, undefined, "platform")).toBe(false);
   });
 });
 

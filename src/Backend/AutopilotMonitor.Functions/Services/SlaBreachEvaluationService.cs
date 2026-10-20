@@ -541,7 +541,7 @@ namespace AutopilotMonitor.Functions.Services
             string? extraContext = null)
         {
             var alert = NotificationAlertBuilder.BuildSlaBreachAlert(
-                config.TenantId, currentValue, targetValue,
+                config.TenantId, TenantDisplayName.Of(config, config.TenantId), currentValue, targetValue,
                 totalSessions, failedSessions, breachType, DashboardUrl, extraContext);
 
             var slaChannels = GetSlaChannels(config);
@@ -584,7 +584,7 @@ namespace AutopilotMonitor.Functions.Services
             double? currentValue, double? targetValue, DateTime? firstBreachAt, DateTime resolvedAt)
         {
             var alert = NotificationAlertBuilder.BuildSlaResolvedAlert(
-                config.TenantId, breachType, currentValue, targetValue,
+                config.TenantId, TenantDisplayName.Of(config, config.TenantId), breachType, currentValue, targetValue,
                 firstBreachAt, resolvedAt, DashboardUrl);
 
             var slaChannels = GetSlaChannels(config);
@@ -673,7 +673,7 @@ namespace AutopilotMonitor.Functions.Services
                     var lastReason = failedSession.FailureReason;
 
                     var alert = NotificationAlertBuilder.BuildConsecutiveFailuresAlert(
-                        tenantId, threshold, lastDevice, lastReason, DashboardUrl);
+                        tenantId, TenantDisplayName.Of(config, tenantId), threshold, lastDevice, lastReason, DashboardUrl);
 
                     var slaChannels = GetSlaChannels(config);
                     if (slaChannels.Count > 0)

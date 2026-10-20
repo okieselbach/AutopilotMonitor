@@ -155,14 +155,14 @@ const jsonLd = {
       softwareHelp: { "@type": "CreativeWork", url: DOCS_URL },
       sameAs: [GITHUB_REPO],
       featureList: [
-        "Real-time enrollment monitoring with live push updates",
+        "Real-time enrollment monitoring with live updates",
         "Analyze rules that detect enrollment failure patterns automatically",
         "Per-session event timeline with ESP phases, app installs, errors, and performance snapshots",
         "Diagnostics collection (agent, IME, and device information bundle) without touching the device",
         "Fleet health dashboard with success rates, failure trends, and enrollment duration",
         "Delegated read-only administration across customer tenants for MSPs",
         "Model Context Protocol (MCP) server for AI assistants",
-        "Notifications to Microsoft Teams, Slack, Discord, and generic JSON webhooks",
+        "Notifications to Microsoft Teams, Slack, Discord, generic JSON webhooks and end-to-end encrypted push notifications on paired phones and browsers",
       ],
       keywords:
         "Windows Autopilot, Microsoft Intune, enrollment monitoring, Autopilot troubleshooting, Enrollment Status Page, Windows deployment",

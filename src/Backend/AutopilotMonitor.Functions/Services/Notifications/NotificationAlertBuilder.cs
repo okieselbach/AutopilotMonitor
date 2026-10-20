@@ -351,7 +351,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// Unknown types fall back to a neutral template rather than silently rendering as Duration.
         /// </summary>
         public static NotificationAlert BuildSlaBreachAlert(
-            string tenantId, double currentRate, double targetRate,
+            string tenantId, string tenantName, double currentRate, double targetRate,
             int totalSessions, int failedSessions, string breachType, string? dashboardUrl = null,
             string? extraContext = null)
         {
@@ -360,10 +360,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             string summary;
             string period;
             string label;
-            var facts = new List<NotificationFact>
-            {
-                new() { Name = "Tenant", Value = tenantId },
-            };
+            var facts = TenantFacts(tenantId, tenantName);
 
             switch (breachType)
             {
@@ -435,7 +432,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// Emitted once when a previously-active breach is no longer detected on the next evaluation.
         /// </summary>
         public static NotificationAlert BuildSlaResolvedAlert(
-            string tenantId, string breachType, double? currentValue, double? targetValue,
+            string tenantId, string tenantName, string breachType, double? currentValue, double? targetValue,
             DateTime? firstBreachAt, DateTime resolvedAt, string? dashboardUrl = null)
         {
             var label = breachType switch
@@ -451,12 +448,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 ? FormatDuration(resolvedAt - firstBreachAt.Value)
                 : "–";
 
-            var facts = new List<NotificationFact>
-            {
-                new() { Name = "Tenant", Value = tenantId },
-                new() { Name = "Breach Type", Value = label },
-                new() { Name = "Active For", Value = durationText },
-            };
+            var facts = TenantFacts(tenantId, tenantName);
+            facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
+            facts.Add(new NotificationFact { Name = "Active For", Value = durationText });
 
             if (currentValue.HasValue)
                 facts.Add(new NotificationFact { Name = "Current", Value = $"{currentValue.Value:F1}" });
@@ -467,7 +461,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             {
                 EventType = "sla_resolved",
                 Title = $"🟢 SLA Breach Resolved: {label}",
-                Summary = $"SLA breach resolved for tenant {tenantId}: {label} is back within target.",
+                Summary = $"SLA breach resolved for {tenantName}: {label} is back within target.",
                 Severity = NotificationSeverity.Success,
                 ThemeColor = "00B050",
                 Facts = facts,
@@ -490,23 +484,22 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// Builds a notification alert for consecutive enrollment failures.
         /// </summary>
         public static NotificationAlert BuildConsecutiveFailuresAlert(
-            string tenantId, int consecutiveFailures,
+            string tenantId, string tenantName, int consecutiveFailures,
             string? lastDeviceName, string? lastFailureReason, string? dashboardUrl = null)
         {
+            var facts = TenantFacts(tenantId, tenantName);
+            facts.Add(new NotificationFact { Name = "Consecutive Failures", Value = consecutiveFailures.ToString() });
+            facts.Add(new NotificationFact { Name = "Last Device", Value = lastDeviceName ?? "\u2013" });
+            facts.Add(new NotificationFact { Name = "Last Failure", Value = lastFailureReason ?? "\u2013" });
+
             var alert = new NotificationAlert
             {
                 EventType = "consecutive_failures",
                 Title = $"\ud83d\udd34 {consecutiveFailures} Consecutive Enrollment Failures",
-                Summary = $"Alert: {consecutiveFailures} enrollments failed in a row for tenant {tenantId}",
+                Summary = $"Alert: {consecutiveFailures} enrollments failed in a row for {tenantName}",
                 Severity = NotificationSeverity.Error,
                 ThemeColor = "FF0000",
-                Facts = new List<NotificationFact>
-                {
-                    new() { Name = "Tenant", Value = tenantId },
-                    new() { Name = "Consecutive Failures", Value = consecutiveFailures.ToString() },
-                    new() { Name = "Last Device", Value = lastDeviceName ?? "\u2013" },
-                    new() { Name = "Last Failure", Value = lastFailureReason ?? "\u2013" },
-                },
+                Facts = facts,
             };
 
             if (!string.IsNullOrEmpty(dashboardUrl))
@@ -514,6 +507,16 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             return alert;
         }
+
+        /// <summary>
+        /// How an SLA alert names its tenant: "Tenant" carries the display name people read,
+        /// "Tenant ID" the id an integration keys on. The push projection allow-lists only the first.
+        /// </summary>
+        private static List<NotificationFact> TenantFacts(string tenantId, string tenantName) => new()
+        {
+            new() { Name = "Tenant", Value = tenantName },
+            new() { Name = "Tenant ID", Value = tenantId },
+        };
 
         private static string BuildHardwareText(string? manufacturer, string? model)
         {

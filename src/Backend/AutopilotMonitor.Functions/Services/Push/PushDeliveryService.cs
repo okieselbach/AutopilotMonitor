@@ -216,7 +216,7 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
     /// <summary>
     /// A system push to every Active device ONE person owns in a scope, through the same role and
     /// freshness filter as an alert (D-327: resolved at every send) — the session-watch fan-out.
-    /// Returns the number of deliveries.
+    /// The caller checks the scope's Push channel (K4). Returns the number of deliveries.
     /// </summary>
     public async Task<int> SendSystemToOwnerAsync(NotificationScope scope, string ownerObjectId, PushPayload payload, TimeSpan? ttl = null)
     {
@@ -337,7 +337,7 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         Track("PushPairing", new Dictionary<string, string> { ["action"] = "paused", ["reason"] = reason, ["scope"] = scope.IsPlatform ? "platform" : "tenant", ["platform"] = device.Platform });
     }
 
-    /// <summary>An owner-inactivity pause lifts itself once the owner signs in again (maintenance) — no re-pairing.</summary>
+    /// <summary>An owner-inactivity pause lifts itself once the owner signs in again (at the sign-in, the maintenance run as fallback) — no re-pairing.</summary>
     public async Task ResumeAsync(PushDevice device, DateTime now)
     {
         var scope = NotificationScope.FromKey(device.Scope);

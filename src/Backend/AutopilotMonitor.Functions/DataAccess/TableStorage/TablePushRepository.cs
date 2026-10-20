@@ -199,13 +199,7 @@ public class TablePushRepository : IPushDeviceRepository
         try
         {
             var entity = await _owners.GetEntityAsync<TableEntity>(homeTenantId.ToLowerInvariant(), objectId.ToLowerInvariant()).ConfigureAwait(false);
-            return new PushOwner
-            {
-                HomeTenantId = entity.Value.PartitionKey,
-                ObjectId = entity.Value.RowKey,
-                Upn = entity.Value.GetString("Upn") ?? string.Empty,
-                LastSignInUtc = entity.Value.GetDateTime("LastSignInUtc") ?? DateTime.MinValue,
-            };
+            return MapOwner(entity.Value);
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
@@ -213,12 +207,17 @@ public class TablePushRepository : IPushDeviceRepository
         }
     }
 
-    public Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc)
-        => _owners.UpsertEntityAsync(new TableEntity(homeTenantId.ToLowerInvariant(), objectId.ToLowerInvariant())
+    // Replace, not Merge: the stamp is the whole row, and a claim role the person no longer holds
+    // must disappear — a Merge cannot clear a column.
+    public Task StampOwnerSignInAsync(string homeTenantId, string objectId, string upn, DateTime signInUtc, string? claimRole)
+        => _owners.UpsertEntityAsync(StoreOwner(new PushOwner
         {
-            ["Upn"] = upn.ToLowerInvariant(),
-            ["LastSignInUtc"] = DateTime.SpecifyKind(signInUtc, DateTimeKind.Utc),
-        }, TableUpdateMode.Merge);
+            HomeTenantId = homeTenantId,
+            ObjectId = objectId,
+            Upn = upn,
+            LastSignInUtc = signInUtc,
+            ClaimRole = claimRole,
+        }), TableUpdateMode.Replace);
 
     // ── Watches ─────────────────────────────────────────────────────────────
 
@@ -364,6 +363,23 @@ public class TablePushRepository : IPushDeviceRepository
         DeviceId = e.GetString("DeviceId"),
         FailedAttempts = e.GetInt32("FailedAttempts") ?? 0,
         ETag = e.ETag.ToString(),
+    };
+
+    internal static TableEntity StoreOwner(PushOwner o) =>
+        new(o.HomeTenantId.ToLowerInvariant(), o.ObjectId.ToLowerInvariant())
+        {
+            ["Upn"] = o.Upn.ToLowerInvariant(),
+            ["LastSignInUtc"] = DateTime.SpecifyKind(o.LastSignInUtc, DateTimeKind.Utc),
+            ["ClaimRole"] = o.ClaimRole,
+        };
+
+    internal static PushOwner MapOwner(TableEntity e) => new()
+    {
+        HomeTenantId = e.PartitionKey,
+        ObjectId = e.RowKey,
+        Upn = e.GetString("Upn") ?? string.Empty,
+        LastSignInUtc = e.GetDateTime("LastSignInUtc") ?? DateTime.MinValue,
+        ClaimRole = string.IsNullOrEmpty(e.GetString("ClaimRole")) ? null : e.GetString("ClaimRole"),
     };
 
     internal static TableEntity StoreWatch(PushSessionWatch w) =>

@@ -112,8 +112,8 @@ export function Story() {
       text: (
         <>
           <p>
-            The moment the rule fired, it pinged your team — Teams or webhook, your choice. No
-            dashboard-watching required.
+            The moment the rule fired, it pinged your team — Teams, webhook or your phone, your choice.
+            No dashboard-watching required.
           </p>
           <p>
             And instead of asking the user to hunt for logs, one click pulls the complete

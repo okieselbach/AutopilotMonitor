@@ -3,7 +3,7 @@ import { Reveal } from "./Reveal";
 const CAPABILITIES = [
   {
     title: "Real-time event stream",
-    detail: "Live phase tracking with push updates, from first boot to desktop.",
+    detail: "Phase tracking with live updates, from first boot to desktop.",
   },
   {
     title: "Analyze rules",
@@ -27,7 +27,7 @@ const CAPABILITIES = [
   },
   {
     title: "Notifications",
-    detail: "Teams and webhook alerts the moment an enrollment fails or stalls.",
+    detail: "Teams, Slack, webhooks, or encrypted push to your phone — the moment an enrollment fails or stalls.",
   },
   {
     title: "MCP server for AI",

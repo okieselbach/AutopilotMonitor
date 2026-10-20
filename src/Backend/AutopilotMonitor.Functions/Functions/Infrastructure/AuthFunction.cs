@@ -40,7 +40,7 @@ public class AuthFunction
     private readonly ISignalRNotificationService _signalRService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly IOffboardingAuditRepository _offboardingRepo;
-    private readonly IPushDeviceRepository? _pushRepo;
+    private readonly Services.Push.PushOwnerSignInService? _pushSignIn;
     private readonly OpsEventService? _opsEvents;
 
     public AuthFunction(
@@ -60,11 +60,11 @@ public class AuthFunction
         ISignalRNotificationService signalRService,
         AdminConfigurationService adminConfigService,
         IOffboardingAuditRepository offboardingRepo,
-        IPushDeviceRepository? pushRepo = null,
+        Services.Push.PushOwnerSignInService? pushSignIn = null,
         OpsEventService? opsEvents = null)
     {
         _logger = logger;
-        _pushRepo = pushRepo;
+        _pushSignIn = pushSignIn;
         _opsEvents = opsEvents;
         _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
@@ -224,7 +224,10 @@ public class AuthFunction
         }
 
         // --- Post-decision side-effects ---
-        await HandlePostDecisionSideEffectsAsync(decision, tenantId, upn, displayName, objectId);
+        // The push stamp records the app-role claim's role only where no TenantAdmins row decides.
+        await HandlePostDecisionSideEffectsAsync(decision, tenantId, upn, displayName, objectId,
+            pushClaimRole: tableState == TableMemberState.NotPresent ? memberRole?.Role : null,
+            isGlobalAdmin: isGlobalAdmin);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(decision.Body);
@@ -688,12 +691,13 @@ public class AuthFunction
     }
 
     /// <summary>
-    /// Executes post-decision side-effects: auto-admin assignment (awaited)
-    /// and metrics recording (fire-and-forget).
+    /// Executes post-decision side-effects: auto-admin assignment (awaited), metrics recording
+    /// (fire-and-forget) and the push sign-in (awaited, fail-soft).
     /// </summary>
     internal async Task HandlePostDecisionSideEffectsAsync(
         AuthDecisionResult decision, string tenantId, string upn,
-        string? displayName, string? objectId)
+        string? displayName, string? objectId,
+        string? pushClaimRole = null, bool isGlobalAdmin = false)
     {
         if (decision.NeedsAutoAdmin)
         {
@@ -706,20 +710,12 @@ public class AuthFunction
                 "Fire-and-forget RecordUserLoginAsync failed"),
                 TaskContinuationOptions.OnlyOnFaulted);
 
-        // Push freshness stamp (K3): one upsert per portal sign-in, keyed by the person (home
-        // tenant + oid), so paired devices of someone who stopped signing in pause after the
-        // inactivity window. Awaited — a lost stamp is an early pause; fail-soft — never a 500.
-        if (_pushRepo != null && !string.IsNullOrEmpty(objectId))
-        {
-            try
-            {
-                await _pushRepo.StampOwnerSignInAsync(tenantId, objectId, upn, DateTime.UtcNow);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Push owner sign-in stamp failed for tenant {TenantId}", tenantId);
-            }
-        }
+        // Push sign-in (K3): one stamp per portal sign-in, keyed by the person (home tenant + oid),
+        // so paired devices of someone who stopped signing in pause after the inactivity window; it
+        // also carries the app-role claim's role, revokes when that role is gone and lifts an
+        // inactivity pause. Awaited — a lost stamp is an early pause; the service never throws.
+        if (_pushSignIn != null && !string.IsNullOrEmpty(objectId))
+            await _pushSignIn.OnPortalSignInAsync(tenantId, objectId, upn, pushClaimRole, isGlobalAdmin, DateTime.UtcNow);
     }
 
     /// <summary>

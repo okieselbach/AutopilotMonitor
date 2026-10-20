@@ -6,6 +6,7 @@ import { MAX_NOTIFICATION_CHANNELS, NotificationChannel } from "../types";
 import { ChannelEditor } from "@/components/notifications/ChannelEditor";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { hasOtherPushChannel } from "@/lib/pushPortal";
 import type { ChannelHealthView } from "@/lib/channelHealth";
 
 interface NotificationsSectionProps {
@@ -61,7 +62,7 @@ export default function NotificationsSection({
         tone="sky"
         iconPath="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
         title="Notifications"
-        subtitle="Send notifications to one or more channels — Teams, Slack, Discord, or any JSON webhook (ticketing, automation, bots). Each channel picks which events it receives, including What's new product updates."
+        subtitle="Send notifications to one or more channels — Teams, Slack, Discord, push to paired devices, or any JSON webhook (ticketing, automation, bots). Each channel picks which events it receives, including What's new product updates."
         docsPath={DOCS_PATHS.notifications}
       />
       <div className="p-6 space-y-4">
@@ -84,6 +85,7 @@ export default function NotificationsSection({
             testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
             showTelegramProvider={showTelegramProvider}
             health={health?.get(channel.id) ?? null}
+            pushTaken={hasOtherPushChannel(channels, channel.id)}
           />
         ))}
 

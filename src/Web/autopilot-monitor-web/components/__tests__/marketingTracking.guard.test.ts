@@ -40,7 +40,7 @@ const PAGES: { name: string; Page: ComponentType; sections: string[] }[] = [
   {
     name: "landing",
     Page: Landing,
-    sections: ["hero", "stats", "evidence_loop", "just_ask", "story", "capabilities", "comparison", "how_it_works", "testimonials", "final_cta"],
+    sections: ["hero", "stats", "evidence_loop", "just_ask", "story", "push", "capabilities", "comparison", "how_it_works", "testimonials", "final_cta"],
   },
   { name: "get-started", Page: GetStartedPage, sections: ["steps", "signup"] },
   { name: "ai", Page: AiPage, sections: ["hero", "structured", "questions", "rules", "architecture", "connect", "closing"] },
@@ -64,6 +64,13 @@ describe("marketing page tracking", () => {
   it("the landing links to the AI page from the navbar, the evidence loop, Then just ask and the footer", () => {
     const ids = trackIds(render(Landing));
     expect(ids).toEqual(expect.arrayContaining(["nav_ai", "evidence_loop_ai", "just_ask_ai", "footer_ai"]));
+  });
+
+  it("the landing announces push in the hero pill, which jumps to the push section, and links its docs", () => {
+    const html = render(Landing);
+    expect(trackIds(html)).toEqual(expect.arrayContaining(["hero_announcement:push", "push_docs"]));
+    expect(html).toMatch(/<a\b[^>]*\shref="#push"[^>]*\sdata-track="hero_announcement:push"/);
+    expect(html).toMatch(/<section\b[^>]*\sid="push"[^>]*\sdata-track-section="push"/);
   });
 
   it("the AI page carries every question text in its static HTML", () => {

@@ -1,4 +1,5 @@
 using System.Net;
+using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Push;
@@ -16,15 +17,16 @@ internal static class PushFunctionSupport
 {
     /// <summary>
     /// The tenant scope of a <c>push/…</c> route: the caller's own tenant. A Global Admin passes
-    /// the TenantAdminOrOperator tier by bypass, so the service re-checks the table-backed tenant
-    /// role (K2/K5) — a GA without a member row is told to use the platform routes.
+    /// the TenantAdminOrOperator tier by bypass, so pairing re-checks the member role (K2/K5) and
+    /// refuses a Global Admin without one in this tenant like any other caller.
     /// </summary>
     public static (NotificationScope Scope, PushCaller Caller) TenantContext(HttpRequestData req)
     {
         var ctx = req.GetRequestContext();
         var scope = NotificationScope.Tenant(ctx.TargetTenantId);
         var caller = new PushCaller(ctx.UserPrincipalName, ctx.ObjectId, ctx.TenantId,
-            IsScopeAdmin: ctx.IsTenantAdmin || ctx.IsGlobalAdmin, IsGlobalAdmin: ctx.IsGlobalAdmin);
+            IsScopeAdmin: ctx.IsTenantAdmin || ctx.IsGlobalAdmin, IsGlobalAdmin: ctx.IsGlobalAdmin,
+            AppRoles: req.FunctionContext.GetUser()?.GetAppRoles());
         return (scope, caller);
     }
 
@@ -33,7 +35,8 @@ internal static class PushFunctionSupport
     {
         var ctx = req.GetRequestContext();
         var caller = new PushCaller(ctx.UserPrincipalName, ctx.ObjectId, ctx.TenantId,
-            IsScopeAdmin: ctx.IsGlobalAdmin, IsGlobalAdmin: ctx.IsGlobalAdmin);
+            IsScopeAdmin: ctx.IsGlobalAdmin, IsGlobalAdmin: ctx.IsGlobalAdmin,
+            AppRoles: req.FunctionContext.GetUser()?.GetAppRoles());
         return (NotificationScope.Platform, caller);
     }
 
@@ -43,7 +46,7 @@ internal static class PushFunctionSupport
             PushOpError.ChannelRequired => req.ErrorAsync(HttpStatusCode.Conflict, Constants.ApiErrorCodes.PushChannelRequired,
                 message ?? "A Push notification channel must be enabled in this scope first."),
             PushOpError.NotEligible => req.ErrorAsync(HttpStatusCode.Forbidden, Constants.ApiErrorCodes.PushNotEligible,
-                message ?? "Pairing needs a table-backed Admin or Operator role in this scope."),
+                message ?? "Push notifications need an Admin or Operator role in this tenant's member list."),
             PushOpError.NotFound => req.NotFoundAsync(message ?? "Not found."),
             PushOpError.CodeInvalid => req.ErrorAsync(HttpStatusCode.NotFound, Constants.ApiErrorCodes.PairingCodeInvalid,
                 "This pairing code is unknown, expired or already used."),
