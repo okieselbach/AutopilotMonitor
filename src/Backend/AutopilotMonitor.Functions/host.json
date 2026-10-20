@@ -29,7 +29,10 @@
     },
     "extensions": {
         "http": {
-            "routePrefix": "api"
+            "routePrefix": "api",
+            "customHeaders": {
+                "Access-Control-Max-Age": "7200"
+            }
         },
         "queues": {
             "messageEncoding": "base64",

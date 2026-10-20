@@ -567,17 +567,7 @@ if (string.IsNullOrEmpty(entraLegacyClientId) != string.IsNullOrEmpty(entraLegac
     startupLogger.LogWarning(
         "EntraId:LegacyClientId and EntraId:LegacyClientSecret must be configured together — only one is set, legacy-homed tenants will fail Graph token acquisition");
 
-// Log CORS configuration at startup so misconfigured origins are immediately visible
-// in the log stream. CORS is enforced by Azure infrastructure, not by function code,
-// so a blocked preflight never reaches the function worker and leaves no trace.
-var corsOrigins = builder.Configuration["Host:CORS"]                   // local.settings.json
-    ?? builder.Configuration["WEBSITE_CORS_ALLOWED_ORIGINS"]           // Azure App Settings
-    ?? "(not configured - all cross-origin requests will be blocked!)";
-var corsCredentials = builder.Configuration["Host:CORSCredentials"]
-    ?? builder.Configuration["WEBSITE_CORS_SUPPORT_CREDENTIALS"]
-    ?? "unknown";
-startupLogger.LogInformation(
-    "=== CORS CONFIG: AllowedOrigins={CorsOrigins} | SupportCredentials={CorsCredentials} ===",
-    corsOrigins, corsCredentials);
+// CORS belongs to the Functions host, not this worker: the host answers every preflight itself (origins
+// from the site's CORS settings) and host.json's http customHeaders add the preflight max-age.
 
 app.Run();

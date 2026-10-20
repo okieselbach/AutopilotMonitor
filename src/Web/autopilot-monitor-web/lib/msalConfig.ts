@@ -51,9 +51,9 @@ export const buildMsalConfig = (clientId: string): Configuration => ({
   },
   cache: {
     cacheLocation: "sessionStorage", // Using sessionStorage for better XSS protection
-    // Deprecated in msal-browser v4 (console warning expected) but still functional;
-    // removed only in v5 — keep until the msal v5 / redirect-bridge migration.
-    storeAuthStateInCookie: true, // Required for Safari ITP compatibility during auth redirects
+    // No storeAuthStateInCookie: it mirrors the in-flight redirect state (interaction status, request,
+    // PKCE verifier) into origin-wide cookies that MSAL reads first, so two tabs signing in at once
+    // overwrite each other and the earlier one fails with state_mismatch. The state stays per tab.
   },
   system: {
     loggerOptions: {

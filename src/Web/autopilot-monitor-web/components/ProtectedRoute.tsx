@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 import { isOnPublicHost } from "../lib/hostRouting";
 import { consumeLoginDeclined, legacyConfigured, switchAuthApp } from "../lib/authApp";
+import { consumeLoginFailed, purgeMsalRedirectState } from "../lib/redirectRecovery";
+import { trackEvent } from "../lib/appInsights";
 import { activeAuthApp } from "../lib/msalConfig";
 import { DOCS_PATHS } from "../lib/docsPaths";
 import { DOCS_URL } from "../lib/config";
@@ -70,10 +72,16 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // Start in the failed state when the user actively DECLINED a consent prompt on the last
   // redirect (dual app-reg safety net, AADSTS65004): re-firing the auto login would bounce
   // them straight back to the same consent screen — show the manual retry UI (with the
-  // previous-app link) instead. One-shot marker, consumed here; a later manual retry runs
-  // the normal flow again. Lazy initializer: consumed once per mount, never during SSR
-  // (consumeLoginDeclined is try/catch-guarded against a missing window).
-  const [loginFailed, setLoginFailed] = useState(() => consumeLoginDeclined());
+  // previous-app link) instead. The same holds when a sign-in return failed although this tab
+  // already retried it once (lib/redirectRecovery.ts). One-shot markers, consumed here; a later
+  // manual retry runs the normal flow again. Lazy initializers: consumed once per mount, never
+  // during SSR (both consumers are try/catch-guarded against a missing window).
+  const [recoveryFailedReason] = useState(() => consumeLoginFailed());
+  const [loginFailed, setLoginFailed] = useState(() => consumeLoginDeclined() || recoveryFailedReason !== null);
+  useEffect(() => {
+    // Durable here: unlike the "/" that handed over, this page stays.
+    if (recoveryFailedReason !== null) trackEvent("auth_redirect_recovery_exhausted", { reason: recoveryFailedReason });
+  }, [recoveryFailedReason]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -136,6 +144,9 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
           <p className="text-gray-600 mb-6">We couldn&apos;t sign you in automatically.</p>
           <button
             onClick={() => {
+              // A redirect state left behind would make this login throw interaction_in_progress,
+              // which login() swallows — the click would do nothing.
+              purgeMsalRedirectState();
               setLoginFailed(false);
               login().catch(() => setLoginFailed(true));
             }}

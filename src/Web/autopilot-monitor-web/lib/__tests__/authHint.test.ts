@@ -5,6 +5,7 @@ import {
   AUTH_PENDING_CLASS,
   PORTAL_HOSTNAME,
   evaluateAuthHint,
+  holdsAuthOverlay,
 } from "../authHint";
 
 interface Case {
@@ -93,5 +94,23 @@ describe("auth hint", () => {
     const fn = new Function("location", "sessionStorage", "document", AUTH_HINT_INLINE_SCRIPT_BODY);
     expect(() => fn({ pathname: "/", hash: "", hostname: "www.autopilotmonitor.com" }, throwingStorage, document)).not.toThrow();
     expect(classes.size).toBe(0);
+  });
+});
+
+describe("holdsAuthOverlay", () => {
+  // The landing must never show between "auth settled" and "target route committed": a signed-in
+  // browser always leaves "/", and the client navigation still needs the target's route payload.
+  it.each([
+    { isLoading: true, isAuthenticated: false, hinted: true, holds: true },
+    { isLoading: true, isAuthenticated: true, hinted: true, holds: true },
+    // Settled and signed in: AuthGate is navigating away; the unmount cleanup lifts the class.
+    { isLoading: false, isAuthenticated: true, hinted: true, holds: true },
+    // Settled and anonymous: the page stays, show it.
+    { isLoading: false, isAuthenticated: false, hinted: true, holds: false },
+    // No hint: never an overlay, whatever the auth state.
+    { isLoading: true, isAuthenticated: true, hinted: false, holds: false },
+    { isLoading: false, isAuthenticated: true, hinted: false, holds: false },
+  ])("loading=$isLoading authenticated=$isAuthenticated hinted=$hinted → $holds", ({ holds, ...state }) => {
+    expect(holdsAuthOverlay(state)).toBe(holds);
   });
 });

@@ -55,6 +55,16 @@ export function evaluateAuthHint(input: AuthHintInput): boolean {
   return false;
 }
 
+/**
+ * Whether a hinted page stays under the overlay: while auth settles, and for as long as the browser
+ * is signed in — a signed-in browser always leaves "/" (target, activation, www handover, re-home),
+ * so AuthGate's unmount cleanup lifts the class once the target route has committed. Lifting it when
+ * loading ends exposed the landing for the whole client navigation (one route-payload round trip).
+ */
+export function holdsAuthOverlay(state: { isLoading: boolean; isAuthenticated: boolean; hinted: boolean }): boolean {
+  return state.hinted && (state.isLoading || state.isAuthenticated);
+}
+
 /** Browser-side evaluation (client components only). */
 export function hasAuthHint(): boolean {
   if (typeof window === "undefined") return false;

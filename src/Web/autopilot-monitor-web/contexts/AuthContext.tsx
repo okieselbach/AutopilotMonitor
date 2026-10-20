@@ -26,11 +26,26 @@ import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
 import { captureSignupConsentFromUrl, hasSignupConsent, stripSignupConsentParam } from '@/lib/signupConsent';
+import { peekPostLoginReturnUrl } from '@/lib/postLoginReturn';
+import { DEFAULT_PORTAL_LANDING } from '@/lib/hostRouting';
+import {
+  authErrorCode,
+  consumeRedirectRecovery,
+  decideRedirectOutcome,
+  markLoginFailed,
+  purgeMsalRedirectState,
+  readBootAuthResponse,
+  redirectRetried,
+  tryBeginRedirectRetry,
+} from '@/lib/redirectRecovery';
 import type { AuthMeResponse } from '@/types/auth';
 
 // Before the auth/me prefetch below can fire: a get-started sign-in carries its Terms + DPA tick
 // into portal as ?signupConsent=1 (lib/signupConsent.ts). The address bar is cleaned on mount.
 captureSignupConsentFromUrl();
+
+// Before MSAL touches the URL: whether this page load is a sign-in return (lib/redirectRecovery.ts).
+const bootAuthResponse = readBootAuthResponse(typeof window !== 'undefined' ? window.location.hash : '');
 
 // Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
 // selection was decided at module boot in lib/msalConfig.ts; app switches always reload).
@@ -38,6 +53,30 @@ const msalInstance = new PublicClientApplication(msalConfig);
 
 // Track MSAL initialization state so components can wait for it.
 let msalReady = false;
+
+// A sign-in redirect started below is leaving the page: loading must not end (the landing would
+// show for the rest of the navigation). A back-forward-cache restore of that page reloads instead
+// of resuming a frozen, never-settling init.
+let navigatingAway = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted && navigatingAway) window.location.reload();
+  });
+}
+
+/**
+ * Runs a redirect that leaves the page. With MSAL's default navigation the redirect promise does not
+ * settle before the unload, so this only returns when the redirect could not leave the page.
+ */
+async function leaveWithRedirect(redirect: () => Promise<void>): Promise<void> {
+  navigatingAway = true;
+  try {
+    await redirect();
+  } catch (error) {
+    console.error('[Auth] Sign-in redirect could not start:', error);
+  }
+  navigatingAway = false;
+}
 
 // Prefetch: store the in-flight auth/me Promise (not the resolved value) so
 // fetchUserInfo can await it instead of racing a duplicate fetch when the
@@ -59,9 +98,9 @@ let redirectLoginViaFallback = false;
  * — silently, because the user just authenticated so an Entra session exists. An explicit
  * consent DECLINE (AADSTS65004) never falls back: for a brand-new tenant that would
  * mis-consent the legacy app; ProtectedRoute shows the failed screen instead.
- * Returns true when a fallback redirect was started (page is navigating away).
+ * Never settles while the fallback redirect leaves the page.
  */
-async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
+async function tryHandleRedirectAuthError(error: unknown): Promise<void> {
   const err = error as { errorMessage?: string; message?: string } | null;
   const classification = classifyEntraAuthError(String(err?.errorMessage ?? err?.message ?? ''));
   clearLoginAttemptApp();
@@ -70,10 +109,10 @@ async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
     // new app was rejected, which support needs to see (events are buffered until AI init).
     trackEvent('auth_app_login_declined', { app: activeAuthApp });
     markLoginDeclined();
-    return false;
+    return;
   }
   if (classification !== 'admin-approval-required' || !legacyConfigured() || !tryBeginLoginFallback()) {
-    return false;
+    return;
   }
   const target = otherApp(activeAuthApp);
   console.warn(`[Auth] App registration not consented in this tenant — retrying via the ${target} app`);
@@ -86,19 +125,71 @@ async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
     await fallbackInstance.initialize();
     // No prompt: the user just entered credentials, so the Entra session completes silently.
     // The login scopes follow the app: each registration exposes its own API scope.
-    await fallbackInstance.loginRedirect({ ...buildLoginRequest(target), prompt: undefined });
-    return true;
+    await leaveWithRedirect(() => fallbackInstance.loginRedirect({ ...buildLoginRequest(target), prompt: undefined }));
   } catch (fallbackError) {
     console.error('[Auth] Cross-app fallback login failed:', fallbackError);
-    clearLoginAttemptApp();
+  }
+  // Still here: the fallback could not leave the page.
+  clearLoginAttemptApp();
+}
+
+/** An account in the cache once the redirect handling settled (false if MSAL never initialized). */
+function hasCachedAccount(): boolean {
+  try {
+    return msalInstance.getAllAccounts().length > 0;
+  } catch {
     return false;
   }
 }
 
+/**
+ * What the page load does once the redirect handling settled (lib/redirectRecovery.ts): proceed,
+ * stay on the landing (an Entra error on the first attempt), retry the sign-in once, or hand over to
+ * ProtectedRoute's sign-in card on the deep link. Never settles while the page navigates away, so
+ * loading does not end and the landing stays covered. Runs in the module promise, not in an effect:
+ * HostRoutingGuard would bounce an anonymous portal root to www as soon as loading ended.
+ */
+async function settleSignInReturn(redirectError: unknown, failed: boolean): Promise<void> {
+  const outcome = decideRedirectOutcome({
+    boot: bootAuthResponse,
+    hasAccount: hasCachedAccount(),
+    retried: redirectRetried(),
+  });
+  if (outcome === 'proceed') return;
+  const reason = (failed ? authErrorCode(redirectError) : null)
+    ?? (bootAuthResponse.error ? 'entra_error_response' : 'no_redirect_state');
+  if (outcome === 'landing') {
+    trackEvent('auth_redirect_failed', { errorCode: reason, kind: failed ? 'error' : 'none' });
+    return;
+  }
+  if (outcome === 'retry' && tryBeginRedirectRetry(reason)) {
+    // A redirect state left behind (the other app registration, an interrupted flow) would make
+    // this loginRedirect throw interaction_in_progress.
+    purgeMsalRedirectState();
+    setLoginAttemptApp(activeAuthApp);
+    await leaveWithRedirect(() => msalInstance.loginRedirect({ ...loginRequest, prompt: undefined }));
+  }
+  // Retried before, or the retry could not leave the page: the sign-in card, which waits for a click.
+  markLoginFailed(reason);
+  navigatingAway = true;
+  window.location.replace(peekPostLoginReturnUrl() ?? DEFAULT_PORTAL_LANDING);
+  return new Promise<void>(() => {});
+}
+
+// Never rejects: a redirect error is handled here (consent decline, cross-app fallback, one retry or
+// the sign-in card), and while a redirect leaves the page it never settles at all.
 const msalInitPromise = msalInstance
   .initialize()
   .then(() => msalInstance.handleRedirectPromise())
-  .then((redirectResult) => {
+  .then(
+    (redirectResult) => ({ redirectResult, failed: false, redirectError: undefined as unknown }),
+    (redirectError: unknown) => ({ redirectResult: null, failed: true, redirectError }),
+  )
+  .then(async ({ redirectResult, failed, redirectError }) => {
+    if (failed) {
+      console.error('[Auth] MSAL initialization/redirect error:', redirectError);
+      await tryHandleRedirectAuthError(redirectError);
+    }
     if (redirectResult?.account) {
       // Successful redirect sign-in on the active app: remember it as this browser's app
       // (the "learn" half of the model — future boots go straight to the right one).
@@ -111,9 +202,15 @@ const msalInitPromise = msalInstance
       }
       setSelectedAuthApp(activeAuthApp);
       clearLoginFallback();
+      // Durable signal of a recovered sign-in return: this page stays, so the event survives.
+      const recovery = consumeRedirectRecovery();
+      if (recovery) {
+        trackEvent('auth_redirect_recovered', recovery);
+      }
     }
     // Redirect settled (or none was in flight) — the attempt marker has served its purpose.
     clearLoginAttemptApp();
+    await settleSignInReturn(redirectError, failed);
     msalReady = true;
 
     // Kick off prefetch while React is still mounting. fetchUserInfo will
@@ -135,12 +232,10 @@ const msalInitPromise = msalInstance
       }).catch(() => null);
     }
   })
-  .catch(async (error) => {
-    console.error('[Auth] MSAL initialization/redirect error:', error);
-    await tryHandleRedirectAuthError(error);
-    // Mark as ready even on error so the app doesn't hang forever (if the fallback
-    // started a redirect the page is navigating away anyway).
+  .catch((error) => {
+    // Safety net for an unexpected throw above: mark as ready so the app doesn't hang forever.
     // Auth operations will fail individually and trigger appropriate recovery.
+    console.error('[Auth] MSAL initialization error:', error);
     msalReady = true;
   });
 
@@ -482,9 +577,10 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     loadUserInfo();
 
     // Fallback: if MSAL doesn't settle within 5 seconds, set loading to false
-    // anyway so the user isn't stuck on a spinner forever.
+    // anyway so the user isn't stuck on a spinner forever — unless a sign-in redirect
+    // is leaving the page (ending loading would show the landing until it unloads).
     const timeout = setTimeout(() => {
-      if (isLoadingRef.current) {
+      if (isLoadingRef.current && !navigatingAway) {
         console.warn('[Auth] MSAL initialization timeout - setting isLoading to false');
         isLoadingRef.current = false;
         setIsLoading(false);

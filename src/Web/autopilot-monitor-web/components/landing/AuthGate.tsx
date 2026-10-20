@@ -2,7 +2,7 @@
 
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Route } from "next";
 import { landingTarget } from "../../lib/landingTarget";
 import { consumePostLoginReturnUrl, peekPostLoginReturnUrl } from "../../lib/postLoginReturn";
@@ -10,17 +10,28 @@ import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRout
 import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
 import { activeAuthApp } from "../../lib/msalConfig";
 import { trackEvent } from "../../lib/appInsights";
-import { AUTH_PENDING_CLASS, hasAuthHint } from "../../lib/authHint";
+import { trustedRoute } from "../../lib/routes";
+import { AUTH_PENDING_CLASS, hasAuthHint, holdsAuthOverlay } from "../../lib/authHint";
 
 /**
  * Invisible client component that handles auth redirect logic.
  * Renders nothing visible — just redirects authenticated users.
- * While auth is still loading for a browser that carries an auth hint, the page sits under
- * the CSS `auth-pending` overlay (see below); anonymous visitors see the page immediately.
+ * While auth settles, and while a signed-in browser is on its way out, a page with an auth hint
+ * sits under the CSS `auth-pending` overlay (see below); anonymous visitors see the page immediately.
  */
 export function AuthGate() {
   const { isAuthenticated, isLoading, user, isActivationPending } = useAuth();
   const router = useRouter();
+
+  // Load the target's route payload while auth/me is still in flight, so the replace below commits
+  // without a further round trip. Same-origin only: on the public host the target lives on portal.
+  const targetPrefetched = useRef(false);
+  useEffect(() => {
+    if (!isAuthenticated || targetPrefetched.current || shouldCrossOriginToPortal()) return;
+    targetPrefetched.current = true;
+    const returnUrl = peekPostLoginReturnUrl();
+    router.prefetch(returnUrl ? trustedRoute(returnUrl) : "/dashboard");
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && user) {
@@ -59,15 +70,18 @@ export function AuthGate() {
   // Overlay contract (lib/authHint.ts): the inline <head> script marks the document
   // `auth-pending` before first paint when an auth hint exists, and globals.css draws the
   // loading overlay from that class — the prerendered HTML carries no overlay, so an
-  // anonymous visitor sees the page at first paint. This effect keeps the class only while
-  // auth is still settling for a hinted browser and drops it as soon as the page either
-  // stays (anonymous) or navigates away (unmount cleanup).
+  // anonymous visitor sees the page at first paint. The class stays while auth settles and
+  // while the browser is signed in (it is about to leave); it drops when the page stays
+  // (anonymous) or with the unmount cleanup once the target route has committed.
   useEffect(() => {
-    document.documentElement.classList.toggle(AUTH_PENDING_CLASS, isLoading && hasAuthHint());
+    document.documentElement.classList.toggle(
+      AUTH_PENDING_CLASS,
+      holdsAuthOverlay({ isLoading, isAuthenticated, hinted: hasAuthHint() }),
+    );
     return () => {
       document.documentElement.classList.remove(AUTH_PENDING_CLASS);
     };
-  }, [isLoading]);
+  }, [isLoading, isAuthenticated]);
 
   // Renders nothing — the static page shows through (or sits under the CSS overlay).
   return null;
