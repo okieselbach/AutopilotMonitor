@@ -4,15 +4,16 @@
 
 .DESCRIPTION
     CI's member of the URL registry (Shared Constants.cs, web lib/config.ts, MCP src/config.ts):
-    every own host the workflows, the .github/scripts helpers and the local release build talk to,
-    plus the Authenticode timestamp server, is defined here once. Assert-HostsFromRegistry.ps1
-    (Workflow gates) fails on any of these hosts spelled out elsewhere under .github/.
+    every own host the workflows and the .github/scripts helpers talk to, plus the Authenticode
+    timestamp server, is defined here once. Assert-HostsFromRegistry.ps1 (Workflow gates) fails
+    on any of these hosts spelled out elsewhere under .github/.
 
     The storage URLs derive from the account name, so blob and table can never point at two
     different accounts.
 
-    A file in the repository rather than a GitHub variable: the local release build reads it too,
-    and bearer tokens are sent to these URLs -- where a token goes stays a reviewed line in git.
+    A file in the repository rather than a GitHub variable: the helpers read it themselves, so
+    they behave the same in every job and in a local run, and bearer tokens are sent to these
+    URLs -- where a token goes stays a reviewed line in git.
 
 .PARAMETER ExportToGitHubEnv
     Write every entry to $GITHUB_ENV instead of returning it, so the following steps of the job

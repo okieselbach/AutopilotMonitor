@@ -39,11 +39,11 @@ jobs:
   # need the embedded loader to carry a signature of its own.
   #
   # Trust zone: only this repository's scripts, pinned actions and the pinned signing tool run
-  # here. No `environment:` yet: the code-signing credential is still bound to the ref, and a
-  # job carries exactly one OIDC subject.
+  # here. The `release` environment is the only subject the code-signing identity trusts.
   sign-loader:
     name: Sign bootstrap loader
     runs-on: windows-latest
+    environment: release
     permissions:
       contents: read
       id-token: write   # code-signing login
@@ -198,12 +198,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Trust zone: signs, verifies and publishes the MSI as data; never builds. No
-  # `environment:` yet, for the same reason as sign-loader.
+  # Trust zone: signs, verifies and publishes the MSI as data; never builds. Environment
+  # `release`, like sign-loader.
   release:
     name: Sign and publish MSI
     needs: build
     runs-on: windows-latest
+    environment: release
     permissions:
       contents: read
       id-token: write      # code-signing and storage logins, keyless Sigstore signing

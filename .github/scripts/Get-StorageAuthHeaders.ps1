@@ -9,8 +9,8 @@
     live here so they cannot drift between call sites.
 
     Identity comes from whatever `az login` established: the federated GitHub OIDC principal
-    in CI (azure/login, subject repo:okieselbach/AutopilotMonitor:ref:refs/heads/main), the
-    operator's own account for the local build. No secret is read, stored or passed around.
+    in CI (azure/login in a job of the `production` or `release` environment), the operator's
+    own account when a helper runs locally. No secret is read, stored or passed around.
     Under GitHub Actions the token is masked in the run log before it is returned.
 
     x-ms-version is MANDATORY here, not decoration: Entra-authorized requests are rejected

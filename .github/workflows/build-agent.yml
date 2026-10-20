@@ -258,12 +258,14 @@ jobs:
   # run here -- never a restore or build. The build output arrives as data. The runner
   # image's Windows SDK signtool is used read-only, to verify third-party signatures.
   #
-  # No `environment:` yet: the code-signing credential is still bound to the ref, and a job
-  # carries exactly one OIDC subject, so an environment here would break the signing login.
+  # Runs in the `release` environment: both identities trust its subject, and it admits main
+  # only. No federated credential trusts the ref, so a job without an environment can neither
+  # sign nor write storage, whatever its permissions say.
   release:
     name: Sign and publish
     needs: [reserve, build]
     runs-on: windows-latest
+    environment: release
     permissions:
       contents: write      # tag + GitHub Release
       id-token: write      # code-signing and storage logins, keyless Sigstore signing
