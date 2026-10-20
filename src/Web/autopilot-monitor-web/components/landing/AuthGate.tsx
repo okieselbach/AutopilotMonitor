@@ -2,7 +2,7 @@
 
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import type { Route } from "next";
 import { landingTarget } from "../../lib/landingTarget";
 import { consumePostLoginReturnUrl, peekPostLoginReturnUrl } from "../../lib/postLoginReturn";
@@ -10,7 +10,6 @@ import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRout
 import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
 import { activeAuthApp } from "../../lib/msalConfig";
 import { trackEvent } from "../../lib/appInsights";
-import { trustedRoute } from "../../lib/routes";
 import { AUTH_PENDING_CLASS, hasAuthHint, holdsAuthOverlay } from "../../lib/authHint";
 
 /**
@@ -22,16 +21,6 @@ import { AUTH_PENDING_CLASS, hasAuthHint, holdsAuthOverlay } from "../../lib/aut
 export function AuthGate() {
   const { isAuthenticated, isLoading, user, isActivationPending } = useAuth();
   const router = useRouter();
-
-  // Load the target's route payload while auth/me is still in flight, so the replace below commits
-  // without a further round trip. Same-origin only: on the public host the target lives on portal.
-  const targetPrefetched = useRef(false);
-  useEffect(() => {
-    if (!isAuthenticated || targetPrefetched.current || shouldCrossOriginToPortal()) return;
-    targetPrefetched.current = true;
-    const returnUrl = peekPostLoginReturnUrl();
-    router.prefetch(returnUrl ? trustedRoute(returnUrl) : "/dashboard");
-  }, [isAuthenticated, router]);
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && user) {
