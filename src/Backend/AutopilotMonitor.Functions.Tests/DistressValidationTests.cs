@@ -509,12 +509,95 @@ public class DistressValidationTests
     // =========================================================================
 
     [Fact]
-    public void Constants_MaxContentLength_Is1536()
+    public void Constants_MaxContentLength_IsTheSharedCapOf2048()
     {
-        // Bumped from 1024 to 1536 to accommodate V2 cert-context fields (Thumbprint, Subject,
-        // Issuer, NotBefore/After, SourceState). Rate-limit + sanitize + truncate + enum-validation
-        // remain the primary DoS defenses; the size cap is a payload-shape gate, not the throttle.
-        Assert.Equal(1536, ReportDistressFunction.MaxContentLength);
+        // 1024 → 1536 for the V2 cert-context fields, → 2048 (shared with the agent, which trims
+        // its message to fit) for the device-context fields. Rate-limit + sanitize + truncate +
+        // enum-validation remain the primary DoS defenses; the size cap is a payload-shape gate.
+        Assert.Equal(AutopilotMonitor.Shared.Constants.DistressReportMaxBytes, ReportDistressFunction.MaxContentLength);
+        Assert.Equal(2048, ReportDistressFunction.MaxContentLength);
+    }
+
+    // =========================================================================
+    // Device-context tokens — dropped when off format, never truncated
+    // =========================================================================
+
+    [Theory]
+    [InlineData("26200.6899", "26200.6899")]
+    [InlineData("26100", "26100")]
+    [InlineData(" 26300.1234 ", "26300.1234")]
+    [InlineData("26200.6899\n", "26200.6899")]
+    [InlineData("26200.", null)]
+    [InlineData(".6899", null)]
+    [InlineData("26200..6899", null)]
+    [InlineData("26200.6899 (beta)", null)]
+    [InlineData("26200\n.6899", null)]
+    [InlineData("1234567890.1234567890.12345678901", null)] // 33 chars, one over the cap
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void SanitizeToken_OsBuild(string? input, string? expected)
+    {
+        Assert.Equal(expected, ReportDistressFunction.SanitizeToken(
+            input, ReportDistressFunction.MaxOsBuildLength, ReportDistressFunction.OsBuildPattern));
+    }
+
+    [Theory]
+    [InlineData("in_progress", "in_progress")]
+    [InlineData("completed", "completed")]
+    [InlineData("unknown_7", "unknown_7")]
+    [InlineData("unavailable", "unavailable")]
+    [InlineData("Completed", null)]
+    [InlineData("in progress", null)]
+    [InlineData("in-progress", null)]
+    [InlineData("a_very_long_state_x", null)] // 19 chars > 16
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void SanitizeToken_OobeState(string? input, string? expected)
+    {
+        Assert.Equal(expected, ReportDistressFunction.SanitizeToken(
+            input, ReportDistressFunction.MaxOobeStateLength, ReportDistressFunction.OobeStatePattern));
+    }
+
+    [Fact]
+    public void SanitizeToken_OsBuildExactlyAtCap_Kept()
+    {
+        var atCap = new string('9', ReportDistressFunction.MaxOsBuildLength);
+        Assert.Equal(atCap, ReportDistressFunction.SanitizeToken(
+            atCap, ReportDistressFunction.MaxOsBuildLength, ReportDistressFunction.OsBuildPattern));
+    }
+
+    [Fact]
+    public void Sanitize_TpmVersion_StrippedAndCapped()
+    {
+        var value = "IFX\u0001 7.63.3353.0" + new string('x', 60);
+        var clean = ReportDistressFunction.Sanitize(value, ReportDistressFunction.MaxTpmVersionLength);
+        Assert.NotNull(clean);
+        Assert.StartsWith("IFX 7.63.3353.0", clean);
+        Assert.Equal(ReportDistressFunction.MaxTpmVersionLength, clean!.Length);
+    }
+
+    // =========================================================================
+    // TPM-PSS bell text
+    // =========================================================================
+
+    [Fact]
+    public void TpmPssBellMessage_NamesDeviceAndTheWayOut()
+    {
+        var message = ReportDistressFunction.BuildTpmPssBellMessage("SN-TEST-1", "HP", "EliteBook 840 G5");
+
+        Assert.Equal(
+            "Device SN-TEST-1 (HP EliteBook 840 G5) could not connect because its TPM cannot sign with RSA-PSS. " +
+            "It may connect after setup and a restart; Hardware settings show whether it did. " +
+            "Otherwise update the TPM firmware or replace the device.",
+            message);
+    }
+
+    [Fact]
+    public void TpmPssBellMessage_WithoutManufacturerAndModel_NamesSerialOnly()
+    {
+        var message = ReportDistressFunction.BuildTpmPssBellMessage("SN-TEST-2", null, "");
+
+        Assert.StartsWith("Device SN-TEST-2 could not connect because", message);
     }
 
     [Fact]

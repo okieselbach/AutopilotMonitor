@@ -3,24 +3,24 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
     /// <summary>
     /// Diagnostic probe that asks the local key-storage provider to produce three RSA signatures
     /// over a fixed payload — PKCS#1 v1.5 SHA-256 (legacy, what every TPM 2.0 supports),
-    /// PSS SHA-256, and PSS SHA-384 (what modern Schannel prefers for TLS 1.2/1.3 client-auth
-    /// on Windows 11 25H2+).
+    /// PSS SHA-256, and PSS SHA-384 (what Schannel prefers for TLS client authentication, and the
+    /// only RSA signature TLS 1.3 allows).
     /// <para>
     /// The probe exists for one reason: to distinguish a generic <c>SecureChannelFailure</c>
-    /// from the specific case where a TPM-backed cert is silently filtered out of TLS client-auth
-    /// because its firmware can't do PSS. On 2015-era Infineon TPM 2.0 chips (Surface Book 1
-    /// SLB 9665 is the canonical example) PKCS#1 succeeds but PSS reports
-    /// <c>"The requested salt size for signing with RSAPSS does not match what the TPM uses"</c>
-    /// or <c>"The requested operation is not supported"</c>. Schannel observes this during cert
-    /// pre-filtering, drops the cert, and the handshake then completes with an empty client
-    /// Certificate message — which the backend rejects, surfacing in .NET as the generic
-    /// <c>WebException.Status = SecureChannelFailure</c>.
+    /// from the case where a TPM-backed cert can be filtered out of TLS client-auth because its
+    /// firmware can't do PSS. On older TPM 2.0 firmware (Surface Book 1's Infineon SLB 9665,
+    /// Infineon 7.63 and STMicro 73.4 in 2017/18 business devices) PKCS#1 succeeds but PSS
+    /// reports <c>"The requested salt size for signing with RSAPSS does not match what the TPM
+    /// uses"</c> or <c>"The requested operation is not supported"</c>. Such a device can still
+    /// connect at another time (failed during setup, connected after it), so the result
+    /// classifies the failed start, not the device.
     /// </para>
     /// <para>
     /// <b>Hot-path discipline:</b> this probe is intentionally NOT called at agent startup.
@@ -71,20 +71,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 providerName: providerName,
                 keySizeBits: keySizeBits,
                 pssSha256Error: pssSha256.ErrorMessage,
-                pssSha384Error: pssSha384.ErrorMessage);
+                pssSha384Error: pssSha384.ErrorMessage,
+                pssSha256ErrorCode: pssSha256.ErrorCode,
+                pssSha384ErrorCode: pssSha384.ErrorCode);
         }
 
-        private static (bool Success, string ErrorMessage) TrySignData(
+        private static (bool Success, string ErrorMessage, int? ErrorCode) TrySignData(
             RSA rsa, byte[] data, HashAlgorithmName hash, RSASignaturePadding padding)
         {
             try
             {
                 var sig = rsa.SignData(data, hash, padding);
-                return (sig != null && sig.Length > 0, null);
+                return (sig != null && sig.Length > 0, null, null);
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                // CryptographicException carries the NCrypt status as HResult
+                // (0x80290423 = the TPM's PSS salt size does not match, 0x80090029 = not supported).
+                return (false, ex.Message, ex.HResult);
             }
         }
 
@@ -122,6 +126,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     /// </summary>
     public sealed class TpmPssProbeResult
     {
+        /// <summary>Longest <see cref="ToDistressMessage"/> — the distress message cap.</summary>
+        internal const int MaxDistressMessageLength = 256;
+
         public bool Pkcs1Sha256Works { get; }
         public bool PssSha256Works { get; }
         public bool PssSha384Works { get; }
@@ -129,12 +136,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public int KeySizeBits { get; }
         public string PssSha256Error { get; }
         public string PssSha384Error { get; }
+        public int? PssSha256ErrorCode { get; }
+        public int? PssSha384ErrorCode { get; }
         public bool IsProbable { get; }
 
         /// <summary>
         /// True iff PKCS#1 succeeded but PSS did not — the canonical "TPM firmware is too old
-        /// for modern Schannel" footprint. Distinguishes the TPM-PSS regression from generic
-        /// crypto failures (which would also fail PKCS#1).
+        /// for PSS" footprint. Distinguishes the TPM-PSS case from generic crypto failures
+        /// (which would also fail PKCS#1).
         /// </summary>
         public bool IsTpmPssBroken => IsProbable && Pkcs1Sha256Works && !PssSha256Works;
 
@@ -154,7 +163,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             string providerName,
             int keySizeBits,
             string pssSha256Error,
-            string pssSha384Error)
+            string pssSha384Error,
+            int? pssSha256ErrorCode = null,
+            int? pssSha384ErrorCode = null)
         {
             Pkcs1Sha256Works = pkcs1Sha256Works;
             PssSha256Works = pssSha256Works;
@@ -163,6 +174,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             KeySizeBits = keySizeBits;
             PssSha256Error = pssSha256Error;
             PssSha384Error = pssSha384Error;
+            PssSha256ErrorCode = pssSha256ErrorCode;
+            PssSha384ErrorCode = pssSha384ErrorCode;
             IsProbable = true;
         }
 
@@ -176,23 +189,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public static TpmPssProbeResult Unprobable(string reason) => new TpmPssProbeResult(reason);
 
         /// <summary>
-        /// Compact, distress-message-friendly summary (under 256 chars). Caller passes this to
-        /// <c>DistressReporter.TrySendAsync</c>.
+        /// Language-neutral summary for the distress message, codes instead of the localized
+        /// error texts: <c>pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029)
+        /// tls=0x80090326 sch=36888:40/1205 prov=PCP key=2048</c>. <paramref name="tlsCode"/>
+        /// is the native code of the failed handshake (<see cref="TransportErrorCodes"/>),
+        /// <paramref name="schannelEvents"/> the System-log tokens (<see cref="SchannelEventReader"/>);
+        /// both are left out when null. At most <see cref="MaxDistressMessageLength"/> chars.
         /// </summary>
-        public string ToDistressMessage()
+        public string ToDistressMessage(string tlsCode = null, string schannelEvents = null)
         {
             var sb = new StringBuilder();
-            sb.Append("provider=").Append(ProviderName);
-            if (KeySizeBits > 0) sb.Append(" keySize=").Append(KeySizeBits);
-            sb.Append(" pkcs1=").Append(Pkcs1Sha256Works ? "ok" : "fail");
-            sb.Append(" pssSha256=").Append(PssSha256Works ? "ok" : "fail");
-            sb.Append(" pssSha384=").Append(PssSha384Works ? "ok" : "fail");
-            if (!PssSha256Works && !string.IsNullOrEmpty(PssSha256Error))
-            {
-                sb.Append(" err256=").Append(PssSha256Error);
-            }
-            const int maxLen = 240;
-            return sb.Length <= maxLen ? sb.ToString() : sb.ToString(0, maxLen);
+            sb.Append("pkcs1=").Append(Pkcs1Sha256Works ? "ok" : "fail");
+            AppendSignOutcome(sb, " pss256=", PssSha256Works, PssSha256ErrorCode);
+            AppendSignOutcome(sb, " pss384=", PssSha384Works, PssSha384ErrorCode);
+            if (!string.IsNullOrEmpty(tlsCode)) sb.Append(" tls=").Append(tlsCode);
+            if (!string.IsNullOrEmpty(schannelEvents)) sb.Append(" sch=").Append(schannelEvents);
+            sb.Append(" prov=").Append(ShortProviderName(ProviderName));
+            if (KeySizeBits > 0) sb.Append(" key=").Append(KeySizeBits);
+            return sb.Length <= MaxDistressMessageLength ? sb.ToString() : sb.ToString(0, MaxDistressMessageLength);
+        }
+
+        private static void AppendSignOutcome(StringBuilder sb, string key, bool works, int? errorCode)
+        {
+            sb.Append(key);
+            if (works) sb.Append("ok");
+            else if (errorCode.HasValue) sb.Append("fail(").Append(TransportErrorCodes.Hex(errorCode.Value)).Append(')');
+            else sb.Append("fail");
+        }
+
+        internal static string ShortProviderName(string providerName)
+        {
+            if (string.Equals(providerName, "Microsoft Platform Crypto Provider", StringComparison.OrdinalIgnoreCase)) return "PCP";
+            if (string.Equals(providerName, "Microsoft Software Key Storage Provider", StringComparison.OrdinalIgnoreCase)) return "KSP";
+            if (string.IsNullOrEmpty(providerName)) return "(unknown)";
+            return providerName.Length <= 32 ? providerName : providerName.Substring(0, 32);
         }
     }
 }

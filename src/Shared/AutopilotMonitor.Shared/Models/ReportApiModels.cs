@@ -219,6 +219,22 @@ namespace AutopilotMonitor.Shared.Models
         public int AttemptCount { get; set; }
         public DateTime FirstSeen { get; set; }
         public DateTime LastSeen { get; set; }
+
+        /// <summary>TPM manufacturer id and firmware version of the most recent report (e.g. <c>IFX 7.63.3353.0</c>); null from agents that predate it.</summary>
+        public string? TpmVersion { get; set; }
+
+        /// <summary>OS build of the most recent report; null from agents that predate it.</summary>
+        public string? OsBuild { get; set; }
+
+        /// <summary>Windows setup state of the most recent report (<c>in_progress</c>, <c>completed</c>, …); null from agents that predate it.</summary>
+        public string? OobeState { get; set; }
+
+        /// <summary>
+        /// Last upload of the newest certificate-authenticated session of this serial when that
+        /// upload came after <see cref="LastSeen"/>: the device connected after its last report.
+        /// Null while it has not, and when the lookup failed.
+        /// </summary>
+        public DateTime? ConnectedAt { get; set; }
     }
 
     /// <summary>

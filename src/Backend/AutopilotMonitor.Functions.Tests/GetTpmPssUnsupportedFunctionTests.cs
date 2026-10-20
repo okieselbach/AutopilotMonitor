@@ -51,9 +51,9 @@ public class GetTpmPssUnsupportedFunctionTests
     {
         var reports = new List<DistressReportEntry>
         {
-            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", "S4SQ8685", T0),
-            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", "s4sq8685", T0.AddMinutes(1)),
-            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", " S4SQ8685 ", T0.AddMinutes(2)),
+            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", "TPMCASE01", T0),
+            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", "tpmcase01", T0.AddMinutes(1)),
+            MakeEntry("TpmPssUnsupported", "Lenovo", "ThinkCentre M720q", " TPMCASE01 ", T0.AddMinutes(2)),
         };
 
         var (aggregated, totalRawReports) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports);
@@ -162,6 +162,137 @@ public class GetTpmPssUnsupportedFunctionTests
         Assert.Single(aggregated);
         var item = aggregated[0];
         Assert.Equal(3, (int)item.AttemptCount);
+    }
+
+    // =========================================================================
+    // Device context from the reports
+    // =========================================================================
+
+    [Fact]
+    public void BuildAggregatedResult_DeviceContext_FromNewestReportCarryingIt()
+    {
+        var older = MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0);
+        older.TpmVersion = "IFX 7.63.3353.0";
+        older.OsBuild = "26100.1000";
+        older.OobeState = "in_progress";
+        var newer = MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0.AddHours(1));
+        newer.OsBuild = "26200.2000";
+        newer.OobeState = "completed";
+        // Newest report from an agent that predates the fields: carries none of them.
+        var newestLegacy = MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0.AddHours(2));
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult([older, newestLegacy, newer]);
+
+        var item = Assert.Single(aggregated);
+        Assert.Equal("IFX 7.63.3353.0", item.TpmVersion);
+        Assert.Equal("26200.2000", item.OsBuild);
+        Assert.Equal("completed", item.OobeState);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_LegacyReportsOnly_LeaveDeviceContextNull()
+    {
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(
+            [MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0)]);
+
+        var item = Assert.Single(aggregated);
+        Assert.Null(item.TpmVersion);
+        Assert.Null(item.OsBuild);
+        Assert.Null(item.OobeState);
+    }
+
+    // =========================================================================
+    // ConnectedAt — a certificate-authenticated upload after the last report
+    // =========================================================================
+
+    [Fact]
+    public void BuildAggregatedResult_UploadAfterLastReport_SetsConnectedAt()
+    {
+        var reports = new List<DistressReportEntry>
+        {
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0),
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0.AddHours(1)),
+        };
+        var lastIngest = new Dictionary<string, DateTime> { ["sn1"] = T0.AddHours(2) };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Equal(T0.AddHours(2), Assert.Single(aggregated).ConnectedAt);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_UploadBeforeLastReport_LeavesDeviceUnresolved()
+    {
+        // The device connected once, then failed again: the newer report wins.
+        var reports = new List<DistressReportEntry>
+        {
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0),
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0.AddHours(3)),
+        };
+        var lastIngest = new Dictionary<string, DateTime> { ["sn1"] = T0.AddHours(2) };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Null(Assert.Single(aggregated).ConnectedAt);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_UploadAtLastReportTime_LeavesDeviceUnresolved()
+    {
+        var reports = new List<DistressReportEntry> { MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0) };
+        var lastIngest = new Dictionary<string, DateTime> { ["sn1"] = T0 };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Null(Assert.Single(aggregated).ConnectedAt);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_SerialCaseAndWhitespace_StillMatchesLookupKey()
+    {
+        var reports = new List<DistressReportEntry> { MakeEntry("TpmPssUnsupported", "HP", "EliteBook", " SnMixed1 ", T0) };
+        var lastIngest = new Dictionary<string, DateTime> { ["snmixed1"] = T0.AddMinutes(30) };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Equal(T0.AddMinutes(30), Assert.Single(aggregated).ConnectedAt);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_NoLookup_LeavesEveryDeviceUnresolved()
+    {
+        var reports = new List<DistressReportEntry>
+        {
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0),
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN2", T0),
+        };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastCertificateIngestBySerial: null);
+
+        Assert.All(aggregated, item => Assert.Null(item.ConnectedAt));
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_OtherSerialConnected_DoesNotResolveThisOne()
+    {
+        var reports = new List<DistressReportEntry> { MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0) };
+        var lastIngest = new Dictionary<string, DateTime> { ["sn2"] = T0.AddHours(1) };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Null(Assert.Single(aggregated).ConnectedAt);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_UnknownSerialBucket_NeverConnected()
+    {
+        // A lookup key "" must never resolve the bucket of reports without a serial.
+        var reports = new List<DistressReportEntry> { MakeEntry("TpmPssUnsupported", "HP", "EliteBook", null, T0) };
+        var lastIngest = new Dictionary<string, DateTime> { [""] = T0.AddHours(1) };
+
+        var (aggregated, _) = GetTpmPssUnsupportedFunction.BuildAggregatedResult(reports, lastIngest);
+
+        Assert.Null(Assert.Single(aggregated).ConnectedAt);
     }
 
     // =========================================================================

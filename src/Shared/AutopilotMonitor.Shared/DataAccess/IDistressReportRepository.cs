@@ -44,5 +44,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string? CertIssuer { get; set; }
         public DateTime? CertNotBefore { get; set; }
         public DateTime? CertNotAfter { get; set; }
+
+        // Device context at report time (agents from 2026-10 on). Format-validated at ingest;
+        // UNVERIFIED like every distress field, null for older rows.
+        public string? OsBuild { get; set; }
+        public string? OobeState { get; set; }
+        public string? TpmVersion { get; set; }
     }
 }

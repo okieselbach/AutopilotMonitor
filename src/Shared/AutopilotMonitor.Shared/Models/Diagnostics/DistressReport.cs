@@ -33,13 +33,13 @@ namespace AutopilotMonitor.Shared.Models
         SessionRegistrationDenied = 7,
 
         /// <summary>
-        /// The device's TPM-backed client certificate cannot perform RSA-PSS signing — Schannel
-        /// silently filters the cert out of TLS client-auth on Windows 11 25H2+ (which prefers
-        /// PSS), so every mTLS handshake completes with no client cert and the backend rejects
-        /// it. Surfaced after a terminal <c>SecureChannelFailure</c> when the PSS capability
-        /// probe (<c>TpmPssCapabilityProbe</c>) confirms PKCS#1 works but PSS fails. Common on
-        /// 2015-era Infineon TPM 2.0 firmware (e.g. Surface Book 1 SLB 9665); the fix is a TPM
-        /// firmware update or device replacement, not an agent change.
+        /// Session registration ended in a TLS <c>SecureChannelFailure</c> and the device's
+        /// TPM-backed client key signs PKCS#1 but not RSA-PSS (<c>TpmPssCapabilityProbe</c>), so
+        /// Schannel can withhold the certificate from the handshake. It classifies that start, not
+        /// the device: some devices fail during setup (OOBE) and connect after it.
+        /// <see cref="DistressReport.OobeState"/>, <see cref="DistressReport.OsBuild"/> and
+        /// <see cref="DistressReport.TpmVersion"/> say when and where. Common on older TPM
+        /// firmware; the remedy is a TPM firmware update or device replacement.
         /// </summary>
         TpmPssUnsupported = 8,
 
@@ -86,7 +86,7 @@ namespace AutopilotMonitor.Shared.Models
     /// when authentication-related failures prevent use of the normal error channel.
     ///
     /// All fields are treated as UNVERIFIED claims — the distress endpoint has no auth.
-    /// Never stored on disk; fire-and-forget from the agent.
+    /// Never stored on disk by the agent.
     /// </summary>
     public class DistressReport
     {
@@ -182,5 +182,24 @@ namespace AutopilotMonitor.Shared.Models
         /// <see cref="CertNotBefore"/>; out-of-range values are dropped.
         /// </summary>
         public DateTime? CertNotAfter { get; set; }
+
+        /// <summary>
+        /// OS build with update revision when the report was sent (e.g. <c>26200.6899</c>).
+        /// Kept server-side only as digits and dots, at most 32 chars. Null from older agents.
+        /// </summary>
+        public string? OsBuild { get; set; }
+
+        /// <summary>
+        /// Windows setup (OOBE) state when the report was sent: <c>not_started</c>,
+        /// <c>in_progress</c>, <c>completed</c>, <c>unknown_&lt;n&gt;</c> or <c>unavailable</c>.
+        /// Kept server-side only as <c>[a-z0-9_]</c>, at most 16 chars. Null from older agents.
+        /// </summary>
+        public string? OobeState { get; set; }
+
+        /// <summary>
+        /// TPM manufacturer id and firmware version (e.g. <c>IFX 7.63.3353.0</c>), sent with
+        /// <see cref="DistressErrorType.TpmPssUnsupported"/> only. Sanitized, at most 48 chars.
+        /// </summary>
+        public string? TpmVersion { get; set; }
     }
 }

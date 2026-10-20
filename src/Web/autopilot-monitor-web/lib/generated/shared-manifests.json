@@ -9011,6 +9011,30 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "osBuild",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "oobeState",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "tpmVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
         }
       ]
     },
@@ -26181,6 +26205,42 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "tpmVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "TPM manufacturer id and firmware version of the most recent report (e.g. IFX 7.63.3353.0); null from agents that predate it."
+        },
+        {
+          "name": "osBuild",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "OS build of the most recent report; null from agents that predate it."
+        },
+        {
+          "name": "oobeState",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Windows setup state of the most recent report (in_progress, completed, …); null from agents that predate it."
+        },
+        {
+          "name": "connectedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Last upload of the newest certificate-authenticated session of this serial when that upload came after LastSeen: the device connected after its last report. Null while it has not, and when the lookup failed."
         }
       ]
     },

@@ -29,10 +29,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public async Task SaveDistressReportAsync(string tenantId, DistressReportEntry entry)
         {
-            var pk = tenantId.ToLowerInvariant();
-            var rk = RowKeyCodec.InvertedTicks(DateTime.UtcNow);
+            var entity = MapToEntity(tenantId, RowKeyCodec.InvertedTicks(DateTime.UtcNow), entry);
+            await _table.UpsertEntityAsync(entity);
+        }
 
-            var entity = new TableEntity(pk, rk)
+        /// <summary>The stored row of a report; <see cref="MapToEntry"/> reads it back.</summary>
+        internal static TableEntity MapToEntity(string tenantId, string rowKey, DistressReportEntry entry)
+        {
+            return new TableEntity(tenantId.ToLowerInvariant(), rowKey)
             {
                 ["ErrorType"]       = Truncate(entry.ErrorType, 64),
                 ["Manufacturer"]    = Truncate(entry.Manufacturer, 64),
@@ -51,9 +55,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["CertIssuer"]      = Truncate(entry.CertIssuer, 96),
                 ["CertNotBefore"]   = entry.CertNotBefore,
                 ["CertNotAfter"]    = entry.CertNotAfter,
+                ["OsBuild"]         = Truncate(entry.OsBuild, 32),
+                ["OobeState"]       = Truncate(entry.OobeState, 16),
+                ["TpmVersion"]      = Truncate(entry.TpmVersion, 48),
             };
-
-            await _table.UpsertEntityAsync(entity);
         }
 
         public async Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, int maxResults = 100)
@@ -112,7 +117,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return deleted;
         }
 
-        private static DistressReportEntry MapToEntry(TableEntity entity)
+        internal static DistressReportEntry MapToEntry(TableEntity entity)
         {
             return new DistressReportEntry
             {
@@ -134,6 +139,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 CertIssuer      = entity.GetString("CertIssuer"),
                 CertNotBefore   = entity.GetDateTimeOffset("CertNotBefore")?.UtcDateTime,
                 CertNotAfter    = entity.GetDateTimeOffset("CertNotAfter")?.UtcDateTime,
+                OsBuild         = entity.GetString("OsBuild"),
+                OobeState       = entity.GetString("OobeState"),
+                TpmVersion      = entity.GetString("TpmVersion"),
             };
         }
 

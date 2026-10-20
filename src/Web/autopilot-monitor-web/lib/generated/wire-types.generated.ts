@@ -1822,6 +1822,9 @@ export interface DistressReportEntry {
   certIssuer?: string;
   certNotBefore?: string;
   certNotAfter?: string;
+  osBuild?: string;
+  oobeState?: string;
+  tpmVersion?: string;
 }
 
 /** Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin). */
@@ -5722,6 +5725,14 @@ export interface TpmPssUnsupportedItem {
   attemptCount: number;
   firstSeen: string;
   lastSeen: string;
+  /** TPM manufacturer id and firmware version of the most recent report (e.g. IFX 7.63.3353.0); null from agents that predate it. */
+  tpmVersion?: string;
+  /** OS build of the most recent report; null from agents that predate it. */
+  osBuild?: string;
+  /** Windows setup state of the most recent report (in_progress, completed, …); null from agents that predate it. */
+  oobeState?: string;
+  /** Last upload of the newest certificate-authenticated session of this serial when that upload came after LastSeen: the device connected after its last report. Null while it has not, and when the lookup failed. */
+  connectedAt?: string;
 }
 
 /** Success body of GET audit/tpm-pss-unsupported: devices whose TPM cannot perform RSA-PSS signing, aggregated by serial number over the distress-report retention window. */

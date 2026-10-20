@@ -1,6 +1,8 @@
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -118,6 +120,75 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex, "Owner-device-id lookup failed for a serial in tenant {TenantId} (fail-soft: no alias)", tenantId);
                 return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>
+        /// Serials per SessionsIndex query: Table Storage allows 15 comparisons per filter, and
+        /// each serial takes up to two (<see cref="ExactOrUpperClause"/>) beside the partition and
+        /// window bounds.
+        /// </summary>
+        internal const int SerialsPerCertificateIngestQuery = 6;
+
+        /// <summary>
+        /// The SessionsIndex filters for <see cref="GetLastCertificateIngestBySerialAsync"/>: one
+        /// tenant partition, sessions started on or after <paramref name="startedSince"/> (inverted-tick
+        /// RowKey prefix), at most <see cref="SerialsPerCertificateIngestQuery"/> serials each.
+        /// </summary>
+        internal static IReadOnlyList<string> BuildCertificateIngestFilters(
+            string tenantId, IEnumerable<string> serialNumbers, DateTime startedSince)
+        {
+            var wanted = serialNumbers
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            var windowBound = $"RowKey lt '{RowKeyCodec.InvertedTicks(startedSince)}'";
+            return wanted
+                .Chunk(SerialsPerCertificateIngestQuery)
+                .Select(chunk =>
+                {
+                    var serialClause = string.Join(" or ", chunk.Select(s => ExactOrUpperClause("SerialNumber", s)));
+                    return $"PartitionKey eq '{tenantId}' and {windowBound} and ({serialClause})";
+                })
+                .ToList();
+        }
+
+        public async Task<IReadOnlyDictionary<string, DateTime>?> GetLastCertificateIngestBySerialAsync(
+            string tenantId, IReadOnlyCollection<string> serialNumbers, DateTime startedSince)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            var result = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+            var filters = BuildCertificateIngestFilters(tenantId, serialNumbers, startedSince);
+            if (filters.Count == 0)
+                return result;
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
+                var select = new[] { "PartitionKey", "RowKey", "SerialNumber", "LastIngestAt", "ValidatedBy" };
+
+                foreach (var filter in filters)
+                {
+                    await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter, select: select))
+                    {
+                        // A bootstrap-token session proves no client certificate.
+                        if (string.Equals(entity.GetString("ValidatedBy"), nameof(ValidatorType.Bootstrap), StringComparison.Ordinal))
+                            continue;
+                        var serial = entity.GetString("SerialNumber");
+                        var lastIngestAt = entity.GetDateTimeOffset("LastIngestAt")?.UtcDateTime;
+                        if (string.IsNullOrWhiteSpace(serial) || lastIngestAt == null)
+                            continue;
+                        var key = serial.Trim().ToLowerInvariant();
+                        if (!result.TryGetValue(key, out var known) || lastIngestAt.Value > known)
+                            result[key] = lastIngestAt.Value;
+                    }
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Certificate-ingest lookup by serial failed in tenant {TenantId} (fail-soft: unknown)", tenantId);
+                return null;
             }
         }
     }

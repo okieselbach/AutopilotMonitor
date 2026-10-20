@@ -51,6 +51,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<string?> FindNewestSessionIdByDeviceNameAsync(string tenantId, string deviceName)
             => _storage.FindNewestSessionIdByDeviceNameAsync(tenantId, deviceName);
 
+        public Task<IReadOnlyDictionary<string, DateTime>?> GetLastCertificateIngestBySerialAsync(
+            string tenantId, IReadOnlyCollection<string> serialNumbers, DateTime startedSince)
+            => _storage.GetLastCertificateIngestBySerialAsync(tenantId, serialNumbers, startedSince);
+
         public Task<List<SessionSummary>> GetSessionsAsync(string tenantId, int? days = null)
             => _storage.GetSessionsAsync(tenantId, days);
 

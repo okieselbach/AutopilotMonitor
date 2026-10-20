@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
     /// Security: NO authentication. Protected by:
     ///   1. Tenant existence check (cheap, cached)
     ///   2. Three-layer rate limiting (per-IP, per-tenant, global circuit breaker)
-    ///   3. Strict payload validation (1 KB max, fixed enum, field length limits)
+    ///   3. Strict payload validation (2 KB max, fixed enum, field length and format limits)
     ///   4. Always returns 200 OK (zero information leakage)
     ///
     /// Storage: Application Insights custom event + Azure Table Storage (14-day retention).
@@ -42,19 +42,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly IHardwareRejectionNotificationTracker _hardwareBellTracker;
         private readonly TenantNotificationService _tenantNotificationService;
 
-        // Strict limits for the unauthenticated endpoint.
-        // MaxContentLength bumped from 1024 -> 1536 to accommodate the V2 cert-context fields
-        // (Thumbprint + Subject + Issuer + NotBefore/After + SourceState ~430 bytes worst-case).
-        // The IsCloudPc bool (2026-08) adds ≤ 18 bytes ("\"IsCloudPc\":false,") — well within
-        // the existing headroom, no bump needed.
-        // Rate-limiting (per-IP + per-tenant + global circuit breaker) remains the primary
-        // DoS defense — the size cap is a payload-shape gate, not the throttle.
-        internal const int MaxContentLength = 1536;
+        // Strict limits for the unauthenticated endpoint. The body cap is shared with the agent,
+        // which shortens its message to stay within it. Rate-limiting (per-IP + per-tenant +
+        // global circuit breaker) remains the primary DoS defense — the size cap is a
+        // payload-shape gate, not the throttle.
+        internal const int MaxContentLength = Constants.DistressReportMaxBytes;
         internal const int MaxStringField64 = 64;
         internal const int MaxStringField32 = 32;
         internal const int MaxMessageLength = 256;
         internal const int MaxCertDnLength = 96;
         internal const int CertThumbprintLength = 40;
+        internal const int MaxOsBuildLength = 32;
+        internal const int MaxOobeStateLength = 16;
+        internal const int MaxTpmVersionLength = 48;
         internal static readonly TimeSpan MaxTimestampAge = TimeSpan.FromHours(24);
         internal static readonly TimeSpan MaxTimestampFuture = TimeSpan.FromMinutes(5);
 
@@ -69,6 +69,16 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         // SHA-1 thumbprint: exactly 40 hex chars
         internal static readonly Regex ThumbprintPattern = new Regex(
             @"^[0-9A-Fa-f]{40}$",
+            RegexOptions.Compiled);
+
+        // OS build with update revision, e.g. "26200.6899"
+        internal static readonly Regex OsBuildPattern = new Regex(
+            @"^[0-9]+(\.[0-9]+)*\z",
+            RegexOptions.Compiled);
+
+        // OobeStateReader tokens: not_started, in_progress, completed, unknown_<n>, unavailable
+        internal static readonly Regex OobeStatePattern = new Regex(
+            @"^[a-z0-9_]+\z",
             RegexOptions.Compiled);
 
         public ReportDistressFunction(
@@ -193,6 +203,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var certNotBefore = SanitizeCertDate(report.CertNotBefore, DateTime.UtcNow);
                 var certNotAfter = SanitizeCertDate(report.CertNotAfter, DateTime.UtcNow);
 
+                // Device context: a value off its format is dropped, never truncated — a cut-off
+                // build number would be a wrong one.
+                var osBuild = SanitizeToken(report.OsBuild, MaxOsBuildLength, OsBuildPattern);
+                var oobeState = SanitizeToken(report.OobeState, MaxOobeStateLength, OobeStatePattern);
+                var tpmVersion = Sanitize(report.TpmVersion, MaxTpmVersionLength);
+
                 // Persist to Table Storage
                 var entry = new DistressReportEntry
                 {
@@ -214,6 +230,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     CertIssuer      = certIssuer,
                     CertNotBefore   = certNotBefore,
                     CertNotAfter    = certNotAfter,
+                    OsBuild         = osBuild,
+                    OobeState       = oobeState,
+                    TpmVersion      = tpmVersion,
                 };
 
                 await _repository.SaveDistressReportAsync(tenantId, entry);
@@ -277,11 +296,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     }
                 }
 
-                // In-app bell notification on first-ever TPM-PSS incompatibility per (tenant, serial).
-                // Same lifetime-dedup pattern as the hardware-rejection bell above. No webhook —
-                // volume is tiny and the remediation (TPM firmware update / device replacement)
-                // is not time-critical. Reports without a serial number cannot be deduped and
-                // fire no bell; they still appear in the tenant insights panel.
+                // In-app bell notification on the first TPM-PSS report per (tenant, serial), right
+                // away: a device that never connects needs it, and whether one connected later is
+                // shown in the tenant insights panel (the bell row has no serial to resolve by).
+                // No webhook — volume is tiny and the remediation is not time-critical. Reports
+                // without a serial number cannot be deduped and fire no bell; they still appear
+                // in the panel.
                 if (report.ErrorType == DistressErrorType.TpmPssUnsupported
                     && !string.IsNullOrEmpty(serialNumber))
                 {
@@ -291,13 +311,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                             .TryRegisterFirstTpmPssNotificationAsync(tenantId, serialNumber);
                         if (isFirst)
                         {
-                            var deviceLabel = string.Join(" ",
-                                new[] { manufacturer, model }.Where(s => !string.IsNullOrEmpty(s)));
                             await _tenantNotificationService.CreateNotificationAsync(
                                 tenantId,
                                 type: "tpm_pss_unsupported",
                                 title: "Device with incompatible TPM detected",
-                                message: $"Device {serialNumber}{(deviceLabel.Length > 0 ? $" ({deviceLabel})" : "")} reported a TPM that cannot perform RSA-PSS signing — the agent on this device cannot authenticate. A TPM firmware update or device replacement is required.",
+                                message: BuildTpmPssBellMessage(serialNumber, manufacturer, model),
                                 href: Constants.PortalHardwareWhitelistPath);
                         }
                     }
@@ -309,9 +327,10 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 // Structured log (Warning, not Critical — data is unverified)
                 _logger.LogWarning(
-                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
+                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} os={OsBuild} oobe={OobeState} tpm={TpmVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
                     report.ErrorType, tenantId, manufacturer, model, serialNumber, report.IsCloudPc,
-                    report.HttpStatusCode, agentVersion, certSourceState ?? "n/a", certThumbprint ?? "n/a", message);
+                    report.HttpStatusCode, agentVersion, osBuild ?? "n/a", oobeState ?? "n/a", tpmVersion ?? "n/a",
+                    certSourceState ?? "n/a", certThumbprint ?? "n/a", message);
 
                 // Custom event for KQL queries:
                 //   customEvents | where name == "AgentDistressReport" | order by timestamp desc
@@ -334,6 +353,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     ["CertIssuer"]      = certIssuer ?? string.Empty,
                     ["CertNotBefore"]   = certNotBefore?.ToString("O") ?? string.Empty,
                     ["CertNotAfter"]    = certNotAfter?.ToString("O") ?? string.Empty,
+                    ["OsBuild"]         = osBuild ?? string.Empty,
+                    ["OobeState"]       = oobeState ?? string.Empty,
+                    ["TpmVersion"]      = tpmVersion ?? string.Empty,
                 });
 
                 return req.CreateResponse(HttpStatusCode.OK);
@@ -363,6 +385,28 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             var clean = ControlChars.Replace(value, string.Empty).Trim();
             // Truncate
             return clean.Length <= maxLength ? clean : clean.Substring(0, maxLength);
+        }
+
+        /// <summary>
+        /// A fixed-format token: kept when it matches <paramref name="pattern"/> within
+        /// <paramref name="maxLength"/> after trimming, otherwise null.
+        /// </summary>
+        internal static string? SanitizeToken(string? value, int maxLength, Regex pattern)
+        {
+            var trimmed = value?.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.Length > maxLength) return null;
+            return pattern.IsMatch(trimmed) ? trimmed : null;
+        }
+
+        /// <summary>The tenant bell for the first TPM-PSS report of a device.</summary>
+        internal static string BuildTpmPssBellMessage(string serialNumber, string? manufacturer, string? model)
+        {
+            var deviceLabel = string.Join(" ",
+                new[] { manufacturer, model }.Where(s => !string.IsNullOrEmpty(s)));
+            var device = deviceLabel.Length > 0 ? $"{serialNumber} ({deviceLabel})" : serialNumber;
+            return $"Device {device} could not connect because its TPM cannot sign with RSA-PSS. " +
+                   "It may connect after setup and a restart; Hardware settings show whether it did. " +
+                   "Otherwise update the TPM firmware or replace the device.";
         }
 
         /// <summary>

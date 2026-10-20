@@ -333,6 +333,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
+        public async Task Terminal_callback_gets_the_last_attempts_exception()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            Exception? seen = null;
+
+            var apiClient = new FakeApiClient(attempt =>
+                throw new InvalidOperationException($"transient attempt {attempt}"));
+
+            await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask,
+                onTerminalTransportFailure: ex => { seen = ex; return Task.CompletedTask; });
+
+            Assert.Equal("transient attempt 6", seen?.Message);
+        }
+
+        [Fact]
+        public async Task Terminal_callback_skipped_when_the_last_attempt_answered()
+        {
+            // Five transport failures, then the backend answers without success: the run did not
+            // end in a transport failure, so nothing may classify the old exception.
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var callbackRan = false;
+
+            var apiClient = new FakeApiClient(attempt =>
+            {
+                if (attempt < 6) throw new InvalidOperationException($"transient attempt {attempt}");
+                return new RegisterSessionResponse { Success = false, Message = "backend 500" };
+            });
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask,
+                onTerminalTransportFailure: _ => { callbackRan = true; return Task.CompletedTask; });
+
+            Assert.Equal(SessionRegistrationOutcome.Failed, result.Outcome);
+            Assert.Equal("backend 500", result.ErrorMessage);
+            Assert.False(callbackRan);
+        }
+
+        [Fact]
+        public async Task Failure_message_carries_the_native_code_of_the_tls_failure()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ =>
+                throw new System.Net.Http.HttpRequestException(
+                    "An error occurred while sending the request.",
+                    new System.Net.WebException(
+                        "Could not create SSL/TLS secure channel.",
+                        new System.ComponentModel.Win32Exception(unchecked((int)0x80090326)),
+                        System.Net.WebExceptionStatus.SecureChannelFailure,
+                        null)));
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask);
+
+            Assert.Equal("An error occurred while sending the request. (win32 0x80090326)", result.ErrorMessage);
+        }
+
+        [Fact]
         public async Task Waits_for_network_link_before_first_attempt()
         {
             using var tmp = new TempDirectory();

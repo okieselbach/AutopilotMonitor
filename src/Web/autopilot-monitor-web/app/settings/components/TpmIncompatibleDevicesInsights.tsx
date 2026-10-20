@@ -3,22 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { fetchJson } from "@/lib/apiClient";
-
-interface AggregatedTpmPssUnsupported {
-  serialNumber: string;
-  manufacturer: string;
-  model: string;
-  attemptCount: number;
-  firstSeen: string;
-  lastSeen: string;
-}
-
-interface TpmPssUnsupportedResponse {
-  success: boolean;
-  aggregated: AggregatedTpmPssUnsupported[];
-  totalRawReports: number;
-  dataQualityNotice: string;
-}
+import type { TpmPssUnsupportedResponse } from "@/lib/generated/wire-types.generated";
 
 interface TpmIncompatibleDevicesInsightsProps {
   getAccessToken: () => Promise<string | null>;
@@ -37,10 +22,20 @@ function formatDate(iso: string): string {
   }
 }
 
+const SUBTITLE =
+  "These devices have a TPM that cannot sign with RSA-PSS. The agent could not connect from them, so the enrollment was not monitored live.";
+
+const EXPLANATION =
+  "On these devices the TPM-backed Intune certificate cannot sign with RSA-PSS, which is common on older TPM firmware. " +
+  "Windows then withholds the certificate and the connection fails. " +
+  "Some devices connect after setup and a restart; the Status column shows which ones did. " +
+  "Remediation: update the TPM firmware with the vendor's tooling, or replace the device. " +
+  "Values are self-reported before authentication and unverified.";
+
 /**
- * Devices whose TPM cannot perform RSA-PSS signing — Schannel silently drops their client
- * certificate from TLS client-auth (Windows 11 25H2+ prefers PSS), so the agent can never
- * authenticate. Remediation is a TPM firmware update or device replacement.
+ * Devices whose TPM cannot sign with RSA-PSS and whose agent could not connect when it reported
+ * it. A device that uploaded with its certificate afterwards shows as connected (connectedAt).
+ * Remediation is a TPM firmware update or device replacement.
  *
  * Unlike the sibling insights panels this one renders nothing while loading, on error, and
  * when no device is affected: it is a rare condition and a third permanent card in the
@@ -70,6 +65,11 @@ export default function TpmIncompatibleDevicesInsights({
     return null;
   }
 
+  return <TpmIncompatibleDevicesPanel data={data} />;
+}
+
+/** The panel for a non-empty response — rendering only, no fetching. */
+export function TpmIncompatibleDevicesPanel({ data }: { data: TpmPssUnsupportedResponse }) {
   return (
     <div className="bg-white rounded-lg shadow mt-6">
       {/* Header */}
@@ -84,10 +84,7 @@ export default function TpmIncompatibleDevicesInsights({
                 Devices with Incompatible TPM
                 <span className="ml-2 text-xs font-normal text-gray-500">Last 14 days</span>
               </h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                These devices have a TPM that cannot perform RSA-PSS signing, so the agent cannot
-                authenticate and no enrollment data is reported
-              </p>
+              <p className="text-sm text-gray-500 mt-0.5">{SUBTITLE}</p>
             </div>
           </div>
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
@@ -99,14 +96,7 @@ export default function TpmIncompatibleDevicesInsights({
       {/* Explanation + remediation */}
       <div className="px-6 pt-4 space-y-3">
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <p className="text-xs text-amber-800">
-            Windows 11 25H2 and later prefer RSA-PSS for TLS client authentication. On these devices
-            the TPM-backed Intune certificate cannot sign with RSA-PSS (common on older TPM firmware),
-            so Windows silently withholds the certificate and every connection attempt is rejected.
-            Remediation: update the TPM firmware via the vendor&apos;s tooling, or replace the device.
-            This data comes from pre-authentication distress signals; serial number, manufacturer,
-            and model values are self-reported and unverified.
-          </p>
+          <p className="text-xs text-amber-800">{EXPLANATION}</p>
         </div>
       </div>
 
@@ -118,9 +108,11 @@ export default function TpmIncompatibleDevicesInsights({
                 <th className="pb-2 pr-4">Serial Number</th>
                 <th className="pb-2 pr-4">Manufacturer</th>
                 <th className="pb-2 pr-4">Model</th>
+                <th className="pb-2 pr-4">TPM</th>
                 <th className="pb-2 pr-4 text-right">Attempts</th>
                 <th className="pb-2 pr-4">First Seen</th>
-                <th className="pb-2">Last Seen</th>
+                <th className="pb-2 pr-4">Last Seen</th>
+                <th className="pb-2">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -129,9 +121,21 @@ export default function TpmIncompatibleDevicesInsights({
                   <td className="py-3 pr-4 font-mono text-gray-900">{row.serialNumber || "–"}</td>
                   <td className="py-3 pr-4 text-gray-700">{row.manufacturer || "–"}</td>
                   <td className="py-3 pr-4 text-gray-700">{row.model || "–"}</td>
+                  <td className="py-3 pr-4 font-mono text-gray-700 whitespace-nowrap">{row.tpmVersion || "–"}</td>
                   <td className="py-3 pr-4 text-right font-mono text-gray-900">{row.attemptCount}</td>
                   <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">{formatDate(row.firstSeen)}</td>
-                  <td className="py-3 text-gray-500 whitespace-nowrap">{formatDate(row.lastSeen)}</td>
+                  <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">{formatDate(row.lastSeen)}</td>
+                  <td className="py-3 whitespace-nowrap">
+                    {row.connectedAt ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        {`Connected ${formatDate(row.connectedAt)}`}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                        Not connected
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

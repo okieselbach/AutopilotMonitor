@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
@@ -120,16 +122,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         }
 
         /// <summary>
-        /// Attempts to send a distress report. Returns immediately without awaiting
-        /// (intended to be called as fire-and-forget via <c>_ = reporter.TrySendAsync(...)</c>).
+        /// Attempts to send a distress report. Callers usually fire and forget
+        /// (<c>_ = reporter.TrySendAsync(...)</c>); one that exits right after awaits it — the send
+        /// is bounded by the 5-second HTTP timeout.
         ///
         /// All anti-flood checks are applied synchronously before the async HTTP call,
-        /// so repeated calls are cheap when suppressed.
+        /// so repeated calls are cheap when suppressed. Every report carries the OS build and the
+        /// Windows setup state at send time; <paramref name="tpmVersion"/> only the TPM-PSS one.
         /// </summary>
         public virtual async Task TrySendAsync(
             DistressErrorType errorType,
             string message,
-            int? httpStatusCode = null)
+            int? httpStatusCode = null,
+            string tpmVersion = null)
         {
             var key = $"{errorType}:{httpStatusCode}";
             int currentReportCount;
@@ -164,29 +169,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             var statusText = httpStatusCode.HasValue ? $" HTTP {httpStatusCode}" : string.Empty;
             _logger?.Warning($"[DistressChannel] Sending report {currentReportCount}/{MaxReportsPerSession}: {errorType}{statusText}");
 
-            var report = new DistressReport
-            {
-                TenantId = _tenantId,
-                ErrorType = errorType,
-                Manufacturer = _manufacturer,
-                Model = _model,
-                SerialNumber = _serialNumber,
-                AgentVersion = _agentVersion,
-                HttpStatusCode = httpStatusCode,
-                Message = Truncate(message, 256),
-                Timestamp = DateTime.UtcNow,
-                IsCloudPc = _isCloudPc,
-                CertSourceState = _capturedCertState,
-                CertThumbprint = _capturedCertThumbprint,
-                CertSubject = Truncate(_capturedCertSubject, 96),
-                CertIssuer = Truncate(_capturedCertIssuer, 96),
-                CertNotBefore = _capturedCertNotBefore,
-                CertNotAfter = _capturedCertNotAfter,
-            };
+            var report = BuildReport(errorType, message, httpStatusCode, tpmVersion);
 
             try
             {
-                var json = JsonConvert.SerializeObject(report);
+                var json = SerializeWithinCap(report);
 
                 using (var httpRequest = new HttpRequestMessage(HttpMethod.Post, _distressUrl)
                 {
@@ -214,6 +201,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         {
             if (string.IsNullOrEmpty(value)) return value;
             return value.Length <= maxLength ? value : value.Substring(0, maxLength);
+        }
+
+        /// <summary>The report as sent: construction-time device and cert context plus the send-time OS build and setup state.</summary>
+        internal DistressReport BuildReport(DistressErrorType errorType, string message, int? httpStatusCode, string tpmVersion)
+        {
+            return new DistressReport
+            {
+                TenantId = _tenantId,
+                ErrorType = errorType,
+                Manufacturer = _manufacturer,
+                Model = _model,
+                SerialNumber = _serialNumber,
+                AgentVersion = _agentVersion,
+                HttpStatusCode = httpStatusCode,
+                Message = Truncate(message, 256),
+                Timestamp = DateTime.UtcNow,
+                IsCloudPc = _isCloudPc,
+                CertSourceState = _capturedCertState,
+                CertThumbprint = _capturedCertThumbprint,
+                CertSubject = Truncate(_capturedCertSubject, 96),
+                CertIssuer = Truncate(_capturedCertIssuer, 96),
+                CertNotBefore = _capturedCertNotBefore,
+                CertNotAfter = _capturedCertNotAfter,
+                OsBuild = NullIfEmpty(DeviceInfoProvider.GetOsBuild()),
+                OobeState = OobeStateReader.Read(),
+                TpmVersion = Truncate(tpmVersion, 48),
+            };
+        }
+
+        private static string NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+
+        /// <summary>
+        /// The report as JSON within <see cref="Constants.DistressReportMaxBytes"/>: the backend drops
+        /// a larger body without a word, so an oversized report gives up message characters
+        /// (each removed character removes at least one byte).
+        /// </summary>
+        internal static string SerializeWithinCap(DistressReport report)
+        {
+            var json = JsonConvert.SerializeObject(report);
+            var overflow = Encoding.UTF8.GetByteCount(json) - Constants.DistressReportMaxBytes;
+            if (overflow <= 0 || string.IsNullOrEmpty(report.Message))
+                return json;
+
+            report.Message = report.Message.Substring(0, Math.Max(0, report.Message.Length - overflow));
+            return JsonConvert.SerializeObject(report);
         }
 
         public void Dispose()

@@ -242,6 +242,15 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Same as <see cref="FindNewestSessionIdBySerialAsync"/> keyed on DeviceName.</summary>
         Task<string?> FindNewestSessionIdByDeviceNameAsync(string tenantId, string deviceName);
 
+        /// <summary>
+        /// Per serial, the latest <c>LastIngestAt</c> (server time) of its certificate-authenticated
+        /// sessions started on or after <paramref name="startedSince"/>, keyed by the serial trimmed
+        /// and lower-cased. Bootstrap-validated sessions prove no client certificate and do not
+        /// count. Serial matched as stored or upper-cased. Fail-soft: null when a query failed.
+        /// </summary>
+        Task<IReadOnlyDictionary<string, DateTime>?> GetLastCertificateIngestBySerialAsync(
+            string tenantId, IReadOnlyCollection<string> serialNumbers, DateTime startedSince);
+
         // --- IME Version History ---
 
         /// <summary>

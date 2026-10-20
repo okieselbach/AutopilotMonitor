@@ -346,6 +346,42 @@ export function DistressReportsSection({
                       <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.agentVersion}</dd>
                     </div>
                   )}
+                  {(selectedReport.osBuild || selectedReport.oobeState || selectedReport.tpmVersion) && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">OS Build</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.osBuild ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">Setup State</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.oobeState ?? "-"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-gray-500 dark:text-gray-400">TPM</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.tpmVersion ?? "-"}</dd>
+                      </div>
+                    </div>
+                  )}
+                  {selectedReport.isCloudPc && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Cloud PC</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5">Yes (agent-reported)</dd>
+                    </div>
+                  )}
+                  {(selectedReport.certSourceState || selectedReport.certThumbprint) && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Client Certificate</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs bg-gray-50 dark:bg-gray-700 rounded p-2 font-mono break-all space-y-0.5">
+                        {selectedReport.certSourceState && <div>{`State: ${selectedReport.certSourceState}`}</div>}
+                        {selectedReport.certThumbprint && <div>{`Thumbprint: ${selectedReport.certThumbprint}`}</div>}
+                        {selectedReport.certSubject && <div>{`Subject: ${selectedReport.certSubject}`}</div>}
+                        {selectedReport.certIssuer && <div>{`Issuer: ${selectedReport.certIssuer}`}</div>}
+                        {selectedReport.certNotBefore && selectedReport.certNotAfter && (
+                          <div>{`Valid: ${new Date(selectedReport.certNotBefore).toLocaleDateString()} – ${new Date(selectedReport.certNotAfter).toLocaleDateString()}`}</div>
+                        )}
+                      </dd>
+                    </div>
+                  )}
                   {selectedReport.message && (
                     <div>
                       <dt className="font-medium text-gray-500 dark:text-gray-400">Message</dt>

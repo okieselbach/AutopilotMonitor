@@ -291,6 +291,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     {
                         sb.AppendLine($"       WebException.Status = {we.Status}");
                     }
+                    if (current is System.ComponentModel.Win32Exception win32)
+                    {
+                        sb.AppendLine($"       NativeErrorCode = {TransportErrorCodes.Hex(win32.NativeErrorCode)}");
+                    }
                     current = current.InnerException;
                     depth++;
                 }

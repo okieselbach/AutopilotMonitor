@@ -363,6 +363,13 @@ namespace AutopilotMonitor.Shared
         /// </summary>
         public const int DefaultUploadIntervalSeconds = 10;
 
+        /// <summary>
+        /// Largest distress report body (UTF-8 bytes) the unauthenticated distress endpoint
+        /// accepts. A larger body is dropped with 200, so the agent shortens its message to stay
+        /// within it.
+        /// </summary>
+        public const int DistressReportMaxBytes = 2048;
+
         // -----------------------------------------------------------------------
         // API endpoint paths (relative to ApiBaseUrl)
         // -----------------------------------------------------------------------

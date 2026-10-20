@@ -7,6 +7,8 @@ using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared.Models;
 
@@ -66,7 +68,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger: logger,
                 authFailureTracker: auth.AuthFailureTracker,
                 emergencyReporter: auth.EmergencyReporter,
-                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, logger),
+                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, startedUtc, logger),
                 // Reuse the single hardened hardware read from the auth bundle so the session row
                 // matches the security headers the backend validated against (no second WMI query).
                 deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
@@ -280,6 +282,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
         }
 
+        /// <summary>How long the TPM and System-log reads for the TPM-PSS report may take together.</summary>
+        internal static readonly TimeSpan DiagnosticContextBound = TimeSpan.FromSeconds(5);
+
         /// <summary>
         /// Off-hot-path diagnostic invoked once after all session-registration retries fail.
         /// Detects whether the terminal exception was a TLS-layer <c>SecureChannelFailure</c>
@@ -287,7 +292,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// failure" from "TPM firmware can't do RSA-PSS so Schannel filters the cert out".
         /// On confirmation, emits a <see cref="DistressErrorType.TpmPssUnsupported"/> distress
         /// signal so tenant admins see this device's specific blocker rather than a generic
-        /// network failure.
+        /// network failure (<see cref="ReportProbeResultAsync"/>).
         /// <para>
         /// Never throws — diagnostic-only side effects.
         /// </para>
@@ -295,6 +300,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         private static Task DiagnoseTerminalTransportFailure(
             Exception ex,
             BackendAuthBundle auth,
+            DateTime registrationStartedUtc,
             AgentLogger logger)
         {
             try
@@ -314,35 +320,106 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 var cert = new DefaultCertificateResolver().FindClientCertificate(logger);
                 var probe = TpmPssCapabilityProbe.Probe(cert, logger);
 
-                logger.Info(
-                    $"TpmPssCapabilityProbe: provider={probe.ProviderName} keySize={probe.KeySizeBits} " +
-                    $"pkcs1Sha256={probe.Pkcs1Sha256Works} pssSha256={probe.PssSha256Works} pssSha384={probe.PssSha384Works}");
-
-                if (probe.IsTpmPssBroken && probe.IsTpmBacked)
-                {
-                    logger.Error(
-                        "TpmPssCapabilityProbe: device's TPM-backed key cannot perform RSA-PSS — " +
-                        "modern Schannel filters the cert out of TLS client-auth, blocking mTLS to the backend. " +
-                        "Likely fix: update TPM firmware (common on 2015-era Infineon TPM 2.0).");
-
-                    _ = auth.DistressReporter.TrySendAsync(
-                        DistressErrorType.TpmPssUnsupported,
-                        probe.ToDistressMessage());
-                }
-                else if (probe.IsTpmPssBroken)
-                {
-                    // PSS broken but key isn't TPM-backed — different bug, don't mis-classify.
-                    logger.Warning(
-                        $"TpmPssCapabilityProbe: PSS signing failed on a non-TPM provider ({probe.ProviderName}). " +
-                        "Not emitting TpmPssUnsupported distress. Investigate as a separate crypto issue.");
-                }
+                return ReportProbeResultAsync(
+                    probe, ex, auth.DistressReporter, logger,
+                    () => ReadDiagnosticContextAsync(
+                        () => TpmInfoReader.Read()?.Label,
+                        () => SchannelEventReader.ReadSince(registrationStartedUtc, logger),
+                        Task.Delay(DiagnosticContextBound), logger));
             }
             catch (Exception probeEx)
             {
                 logger?.Warning($"DiagnoseTerminalTransportFailure: unexpected error: {probeEx.Message}");
+                return Task.CompletedTask;
             }
+        }
 
-            return Task.CompletedTask;
+        /// <summary>
+        /// Sends <see cref="DistressErrorType.TpmPssUnsupported"/> when the probe shows a TPM-backed
+        /// key that signs PKCS#1 but not PSS, with the native code of the failed handshake, the
+        /// Schannel events and the TPM firmware from <paramref name="readContext"/>. The returned
+        /// task completes only after the send: the run exits right after this callback, and
+        /// nothing else waits for it. Never throws.
+        /// </summary>
+        internal static async Task ReportProbeResultAsync(
+            TpmPssProbeResult probe,
+            Exception transportFailure,
+            DistressReporter reporter,
+            AgentLogger logger,
+            Func<Task<(string TpmVersion, string SchannelEvents)>> readContext)
+        {
+            try
+            {
+                var tlsCode = TransportErrorCodes.InnermostNativeCode(transportFailure);
+                logger?.Info(
+                    $"TpmPssCapabilityProbe: provider={probe.ProviderName} keySize={probe.KeySizeBits} " +
+                    $"pkcs1Sha256={probe.Pkcs1Sha256Works} pssSha256={probe.PssSha256Works} pssSha384={probe.PssSha384Works} " +
+                    $"tls={tlsCode ?? "n/a"} pssSha256Error={probe.PssSha256Error ?? "n/a"}");
+
+                if (probe.IsTpmPssBroken && probe.IsTpmBacked)
+                {
+                    logger?.Error(
+                        "TpmPssCapabilityProbe: device's TPM-backed key cannot perform RSA-PSS — " +
+                        "Schannel can withhold the cert from TLS client-auth, blocking mTLS to the backend. " +
+                        "Likely fix: update TPM firmware (common on older TPM 2.0 firmware).");
+
+                    string tpmVersion = null, schannelEvents = null;
+                    try
+                    {
+                        (tpmVersion, schannelEvents) = await readContext().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The context only enriches the report; it never holds it back.
+                        logger?.Debug($"TPM-PSS report: context read failed ({ex.Message}) — sending without it.");
+                    }
+                    await reporter.TrySendAsync(
+                        DistressErrorType.TpmPssUnsupported,
+                        probe.ToDistressMessage(tlsCode, schannelEvents),
+                        tpmVersion: tpmVersion).ConfigureAwait(false);
+                }
+                else if (probe.IsTpmPssBroken)
+                {
+                    // PSS broken but key isn't TPM-backed — different bug, don't mis-classify.
+                    logger?.Warning(
+                        $"TpmPssCapabilityProbe: PSS signing failed on a non-TPM provider ({probe.ProviderName}). " +
+                        "Not emitting TpmPssUnsupported distress. Investigate as a separate crypto issue.");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warning($"TPM-PSS report failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Runs both reads in parallel until both finished or <paramref name="bound"/> completed
+        /// (production: <see cref="DiagnosticContextBound"/>); a read that threw or had not
+        /// finished by then counts as missing (null). Never throws.
+        /// </summary>
+        internal static async Task<(string TpmVersion, string SchannelEvents)> ReadDiagnosticContextAsync(
+            Func<string> readTpmVersion,
+            Func<string> readSchannelEvents,
+            Task bound,
+            AgentLogger logger)
+        {
+            var tpm = Task.Run(readTpmVersion);
+            var schannel = Task.Run(readSchannelEvents);
+            await Task.WhenAny(Task.WhenAll(tpm, schannel), bound).ConfigureAwait(false);
+            return (ResultOrNull(tpm, "TPM", logger), ResultOrNull(schannel, "Schannel event", logger));
+        }
+
+        private static string ResultOrNull(Task<string> read, string what, AgentLogger logger)
+        {
+            if (read.Status == TaskStatus.RanToCompletion)
+                return read.Result;
+
+            // Observe a later fault so it never surfaces as an unobserved task exception.
+            read.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            logger?.Debug(read.IsFaulted
+                ? $"TPM-PSS report: {what} read failed ({read.Exception?.GetBaseException().Message})."
+                : $"TPM-PSS report: {what} read still running — sending without it.");
+            return null;
         }
 
         /// <summary>

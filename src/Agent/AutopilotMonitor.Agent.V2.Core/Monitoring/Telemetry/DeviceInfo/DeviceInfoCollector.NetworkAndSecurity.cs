@@ -633,26 +633,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             {
                 var data = new Dictionary<string, object>();
 
-                using (var searcher = new ManagementObjectSearcher(
-                    new ManagementScope(@"\\.\root\CIMV2\Security\MicrosoftTpm"),
-                    new ObjectQuery("SELECT IsActivated_InitialValue, IsEnabled_InitialValue, IsOwned_InitialValue, ManufacturerIdTxt, ManufacturerVersion, SpecVersion FROM Win32_Tpm")))
+                var tpm = TpmInfoReader.Read();
+                if (tpm != null)
                 {
-                    foreach (ManagementObject obj in searcher.Get())
-                    {
-                        data["isActivated"] = obj["IsActivated_InitialValue"]?.ToString() == "True";
-                        data["isEnabled"] = obj["IsEnabled_InitialValue"]?.ToString() == "True";
-                        data["isOwned"] = obj["IsOwned_InitialValue"]?.ToString() == "True";
-                        data["manufacturerName"] = obj["ManufacturerIdTxt"]?.ToString();
-                        data["manufacturerVersion"] = obj["ManufacturerVersion"]?.ToString();
-
-                        // SpecVersion is comma-separated: "2.0, 0, 1.59" → first element is the spec version
-                        var specVersion = obj["SpecVersion"]?.ToString();
-                        if (!string.IsNullOrEmpty(specVersion))
-                        {
-                            var parts = specVersion.Split(',');
-                            data["specVersion"] = parts[0].Trim();
-                        }
-                    }
+                    data["isActivated"] = tpm.IsActivated;
+                    data["isEnabled"] = tpm.IsEnabled;
+                    data["isOwned"] = tpm.IsOwned;
+                    data["manufacturerName"] = tpm.ManufacturerName;
+                    data["manufacturerVersion"] = tpm.ManufacturerVersion;
+                    if (tpm.SpecVersion != null)
+                        data["specVersion"] = tpm.SpecVersion;
                 }
 
                 if (data.Count > 0)

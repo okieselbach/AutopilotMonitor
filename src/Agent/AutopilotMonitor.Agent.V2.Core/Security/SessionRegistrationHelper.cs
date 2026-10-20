@@ -116,6 +116,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     }
 
                     lastError = response?.Message ?? "(null response)";
+                    // The newest attempt answered: an earlier attempt's exception no longer
+                    // describes how this run ended (onTerminalTransportFailure).
+                    lastException = null;
                     logger.Warning($"Session registration failed: {lastError}");
                 }
                 catch (Exception ex) when (
@@ -170,7 +173,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 }
                 catch (Exception ex)
                 {
-                    lastError = ex.Message;
+                    // The native code (e.g. the Schannel status) is the only specific part of a
+                    // transport failure; it travels on with the run record.
+                    lastError = TransportErrorCodes.MessageWithNativeCode(ex);
                     lastException = ex;
                     logger.Error($"Failed to register session (attempt {attempt}/{MaxAttempts}): {ex.Message}", ex);
 
@@ -181,7 +186,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                             if (emergencyReporter != null)
                                 _ = emergencyReporter.TrySendAsync(
                                     AgentErrorType.RegisterSessionFailed,
-                                    ex.Message);
+                                    lastError);
                         }
                         catch { /* emergency channel is best-effort */ }
                     }
