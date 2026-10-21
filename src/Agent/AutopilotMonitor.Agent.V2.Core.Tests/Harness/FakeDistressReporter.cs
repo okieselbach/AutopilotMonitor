@@ -18,6 +18,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
             public string Message { get; set; } = default!;
             public int? HttpStatusCode { get; set; }
             public string? TpmVersion { get; set; }
+            public DistressDeviceContext? Context { get; set; }
         }
 
         public List<Call> Calls { get; } = new List<Call>();
@@ -33,9 +34,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
         {
         }
 
-        public override Task TrySendAsync(DistressErrorType errorType, string message, int? httpStatusCode = null, string? tpmVersion = null)
+        public override Task TrySendAsync(DistressErrorType errorType, string message, int? httpStatusCode = null, DistressDetail? detail = null)
         {
-            Calls.Add(new Call { ErrorType = errorType, Message = message, HttpStatusCode = httpStatusCode, TpmVersion = tpmVersion });
+            Calls.Add(new Call { ErrorType = errorType, Message = message, HttpStatusCode = httpStatusCode, TpmVersion = detail?.TpmVersion, Context = detail?.Context });
             return Send?.Invoke() ?? Task.CompletedTask;
         }
     }

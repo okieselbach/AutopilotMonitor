@@ -60,6 +60,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             // the device slept or was suspended while this run tried to register.
             var startedUtc = DateTime.UtcNow;
             var linkUpAtStart = TryIsNetworkLinkUp();
+            // Where the device stands before the first attempt: the retries take minutes, and a
+            // failure is reported (and recorded) with this, not with where it stands at the end.
+            var startContext = DistressDeviceContext.Capture();
 
             var registrationResult = SessionRegistrationHelper.RegisterWithRetryAsync(
                 apiClient: auth.BackendApiClient,
@@ -68,7 +71,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger: logger,
                 authFailureTracker: auth.AuthFailureTracker,
                 emergencyReporter: auth.EmergencyReporter,
-                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, startedUtc, logger),
+                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, startedUtc, startContext, logger),
                 // Reuse the single hardened hardware read from the auth bundle so the session row
                 // matches the security headers the backend validated against (no second WMI query).
                 deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
@@ -78,12 +81,15 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             if (registrationResult.Outcome == SessionRegistrationOutcome.Succeeded)
             {
                 return SessionRegistrationOutcomeResult.Continue(
-                    registrationResult, ClearAfterSuccess(sessionPersistence, NetworkFingerprint.TryCapture, logger));
+                    registrationResult,
+                    ClearAfterSuccess(sessionPersistence, NetworkFingerprint.TryCapture, logger,
+                        startContext.DeviceBootUtc, auth.ClientCertificateThumbprint));
             }
 
             var record = RecordFailedRun(
                 sessionPersistence, registrationResult, startedUtc, DateTime.UtcNow,
-                linkUpAtStart, TryIsNetworkLinkUp(), configFetchOutcome, NetworkFingerprint.TryCapture(), logger);
+                linkUpAtStart, TryIsNetworkLinkUp(), configFetchOutcome, NetworkFingerprint.TryCapture(), logger,
+                startContext, auth.ClientCertificateThumbprint);
 
             logger.Error(
                 $"=== SESSION REGISTRATION FAILED ({registrationResult.Outcome}: {registrationResult.ErrorMessage}) — " +
@@ -106,8 +112,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// it — for a session that never registered, the only account of why) and returns the record
         /// including this run; null without persistence or when it could not be written. An
         /// intercepted run also counts toward <see cref="RegistrationFailureSummary.InterceptedRuns"/>,
-        /// which only a successful registration resets. <paramref name="networkFingerprint"/> is this
-        /// run's network; it is kept beside the record and never leaves the device. Never throws.
+        /// which only a successful registration resets. <paramref name="startContext"/> supplies the
+        /// ESP phase and OOBE flag the run started in. <paramref name="networkFingerprint"/>, the
+        /// boot time and <paramref name="certThumbprint"/> are kept beside the record and never leave
+        /// the device. Never throws.
         /// </summary>
         internal static RegistrationFailureSummary RecordFailedRun(
             SessionIdPersistence sessionPersistence,
@@ -118,7 +126,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             bool? linkUpAtEnd,
             string configFetchOutcome,
             string networkFingerprint,
-            AgentLogger logger)
+            AgentLogger logger,
+            DistressDeviceContext startContext = null,
+            string certThumbprint = null)
         {
             if (sessionPersistence == null || registrationResult == null) return null;
             try
@@ -139,7 +149,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     NetworkLinkUpAtEnd = linkUpAtEnd,
                     AttemptWindowSeconds = Math.Round(Math.Max(0, (endedUtc - startedUtc).TotalSeconds), 1),
                     ConfigFetchOutcome = configFetchOutcome,
-                }, logger, networkFingerprint);
+                    EspPhase = startContext?.EspPhase,
+                    OobeState = startContext?.OobeState,
+                }, logger, networkFingerprint, startContext?.DeviceBootUtc, certThumbprint);
             }
             catch (Exception ex)
             {
@@ -152,14 +164,17 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// A successful registration clears <c>registration-failure.json</c>. When earlier starts of
         /// this session had failed, the cleared record comes back for this run's <c>agent_started</c>
         /// — until now the success erased it silently and late successes were uncountable. The
-        /// network fingerprints are compared here (<paramref name="captureNetworkFingerprint"/> runs
-        /// only when there is a record) and never leave the device. Null when there was no record.
-        /// Never throws.
+        /// network fingerprints, boot times (<paramref name="currentBootUtc"/>) and client-certificate
+        /// thumbprints (<paramref name="currentCertThumbprint"/>) are compared here and never leave
+        /// the device (<paramref name="captureNetworkFingerprint"/> runs only when there is a record).
+        /// Null when there was no record. Never throws.
         /// </summary>
         internal static PriorRegistrationFailures ClearAfterSuccess(
             SessionIdPersistence sessionPersistence,
             Func<string> captureNetworkFingerprint,
-            AgentLogger logger)
+            AgentLogger logger,
+            DateTime? currentBootUtc = null,
+            string currentCertThumbprint = null)
         {
             if (sessionPersistence == null) return null;
             try
@@ -172,10 +187,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     cleared.Summary.FailedRuns,
                     cleared.Summary.InterceptedRuns,
                     cleared.Summary.Outcome,
-                    NetworkFingerprint.Differs(cleared.NetworkFingerprint, captureNetworkFingerprint?.Invoke()));
+                    NetworkFingerprint.Differs(cleared.NetworkFingerprint, captureNetworkFingerprint?.Invoke()),
+                    cleared.Summary.EspPhase,
+                    cleared.Summary.OobeState,
+                    RebootedSince(cleared.DeviceBootUtc, currentBootUtc),
+                    CertificateChanged(cleared.CertThumbprint, currentCertThumbprint));
                 logger?.Info(
                     $"Session registered after {prior.FailedRuns} failed start(s) ({prior.InterceptedRuns} intercepted, " +
-                    $"last: {prior.LastOutcome}, network changed: {prior.NetworkChanged?.ToString() ?? "unknown"}).");
+                    $"last: {prior.LastOutcome}, network changed: {prior.NetworkChanged?.ToString() ?? "unknown"}, " +
+                    $"last ESP phase: {prior.LastEspPhase ?? "unknown"}, rebooted since: {prior.RebootedSince?.ToString() ?? "unknown"}, " +
+                    $"certificate changed: {prior.CertChanged?.ToString() ?? "unknown"}).");
                 return prior;
             }
             catch (Exception ex)
@@ -230,6 +251,27 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             // Exit code differs so the diag skill can distinguish Auth vs Network in Scheduled-Task history.
             return registrationResult.Outcome == SessionRegistrationOutcome.AuthFailed ? 6 : 7;
+        }
+
+        /// <summary>
+        /// Boot times derived from the uptime counter jitter by milliseconds to seconds between two
+        /// reads of the same boot (NTP corrections shift them further), so only a gap above this
+        /// counts as a reboot.
+        /// </summary>
+        internal static readonly TimeSpan RebootDetectionTolerance = TimeSpan.FromMinutes(2);
+
+        /// <summary>True when the two boot times are further apart than <see cref="RebootDetectionTolerance"/>; null when either is unknown.</summary>
+        internal static bool? RebootedSince(DateTime? failedRunBootUtc, DateTime? currentBootUtc)
+        {
+            if (!failedRunBootUtc.HasValue || !currentBootUtc.HasValue) return null;
+            return (currentBootUtc.Value - failedRunBootUtc.Value).Duration() > RebootDetectionTolerance;
+        }
+
+        /// <summary>True when the thumbprints differ (case-insensitive); null when either is unknown.</summary>
+        internal static bool? CertificateChanged(string failedRunThumbprint, string currentThumbprint)
+        {
+            if (string.IsNullOrEmpty(failedRunThumbprint) || string.IsNullOrEmpty(currentThumbprint)) return null;
+            return !string.Equals(failedRunThumbprint, currentThumbprint, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool? TryIsNetworkLinkUp()
@@ -301,6 +343,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             Exception ex,
             BackendAuthBundle auth,
             DateTime registrationStartedUtc,
+            DistressDeviceContext startContext,
             AgentLogger logger)
         {
             try
@@ -325,7 +368,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     () => ReadDiagnosticContextAsync(
                         () => TpmInfoReader.Read()?.Label,
                         () => SchannelEventReader.ReadSince(registrationStartedUtc, logger),
-                        Task.Delay(DiagnosticContextBound), logger));
+                        Task.Delay(DiagnosticContextBound), logger),
+                    startContext);
             }
             catch (Exception probeEx)
             {
@@ -337,16 +381,17 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// <summary>
         /// Sends <see cref="DistressErrorType.TpmPssUnsupported"/> when the probe shows a TPM-backed
         /// key that signs PKCS#1 but not PSS, with the native code of the failed handshake, the
-        /// Schannel events and the TPM firmware from <paramref name="readContext"/>. The returned
-        /// task completes only after the send: the run exits right after this callback, and
-        /// nothing else waits for it. Never throws.
+        /// Schannel finding and the TPM firmware from <paramref name="readContext"/>, and the
+        /// <paramref name="startContext"/> the run began in. The returned task completes only after
+        /// the send: the run exits right after this callback, and nothing else waits for it. Never throws.
         /// </summary>
         internal static async Task ReportProbeResultAsync(
             TpmPssProbeResult probe,
             Exception transportFailure,
             DistressReporter reporter,
             AgentLogger logger,
-            Func<Task<(string TpmVersion, string SchannelEvents)>> readContext)
+            Func<Task<(string TpmVersion, string SchannelEvents)>> readContext,
+            DistressDeviceContext startContext = null)
         {
             try
             {
@@ -363,7 +408,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         "Schannel can withhold the cert from TLS client-auth, blocking mTLS to the backend. " +
                         "Likely fix: update TPM firmware (common on older TPM 2.0 firmware).");
 
-                    string tpmVersion = null, schannelEvents = null;
+                    string tpmVersion = null, schannelEvents = SchannelEventReader.Unreadable;
                     try
                     {
                         (tpmVersion, schannelEvents) = await readContext().ConfigureAwait(false);
@@ -376,7 +421,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     await reporter.TrySendAsync(
                         DistressErrorType.TpmPssUnsupported,
                         probe.ToDistressMessage(tlsCode, schannelEvents),
-                        tpmVersion: tpmVersion).ConfigureAwait(false);
+                        detail: new DistressDetail { TpmVersion = tpmVersion, Context = startContext }).ConfigureAwait(false);
                 }
                 else if (probe.IsTpmPssBroken)
                 {
@@ -392,10 +437,15 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
         }
 
+        /// <summary>Schannel finding when the System-log read did not finish within the bound.</summary>
+        internal const string SchannelReadTimeout = "timeout";
+
         /// <summary>
         /// Runs both reads in parallel until both finished or <paramref name="bound"/> completed
-        /// (production: <see cref="DiagnosticContextBound"/>); a read that threw or had not
-        /// finished by then counts as missing (null). Never throws.
+        /// (production: <see cref="DiagnosticContextBound"/>). A TPM read that threw or had not
+        /// finished counts as missing (null); the Schannel finding then says
+        /// <see cref="SchannelEventReader.Unreadable"/> or <see cref="SchannelReadTimeout"/>, so an
+        /// empty finding is never mistaken for "no events". Never throws.
         /// </summary>
         internal static async Task<(string TpmVersion, string SchannelEvents)> ReadDiagnosticContextAsync(
             Func<string> readTpmVersion,
@@ -406,10 +456,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             var tpm = Task.Run(readTpmVersion);
             var schannel = Task.Run(readSchannelEvents);
             await Task.WhenAny(Task.WhenAll(tpm, schannel), bound).ConfigureAwait(false);
-            return (ResultOrNull(tpm, "TPM", logger), ResultOrNull(schannel, "Schannel event", logger));
+            return (
+                ResultOr(tpm, "TPM", logger, faulted: null, unfinished: null),
+                ResultOr(schannel, "Schannel event", logger, faulted: SchannelEventReader.Unreadable, unfinished: SchannelReadTimeout));
         }
 
-        private static string ResultOrNull(Task<string> read, string what, AgentLogger logger)
+        private static string ResultOr(Task<string> read, string what, AgentLogger logger, string faulted, string unfinished)
         {
             if (read.Status == TaskStatus.RanToCompletion)
                 return read.Result;
@@ -419,7 +471,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             logger?.Debug(read.IsFaulted
                 ? $"TPM-PSS report: {what} read failed ({read.Exception?.GetBaseException().Message})."
                 : $"TPM-PSS report: {what} read still running — sending without it.");
-            return null;
+            return read.IsFaulted ? faulted : unfinished;
         }
 
         /// <summary>
@@ -477,18 +529,36 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     /// <summary>
     /// What the failed starts before a successful registration left in the record it cleared,
     /// reported once on that run's <c>agent_started</c> (<c>priorRegistration*</c> keys): whether a
-    /// further boot rescues intercepted or failed starts becomes countable. Only the fingerprint
-    /// comparison is carried, never a fingerprint.
+    /// further boot rescues intercepted or failed starts becomes countable. Only the comparisons of
+    /// network, boot and client certificate are carried, never a fingerprint, boot time or thumbprint.
     /// </summary>
     internal sealed class PriorRegistrationFailures
     {
-        public PriorRegistrationFailures(int failedRuns, int interceptedRuns, string lastOutcome, bool? networkChanged)
+        public PriorRegistrationFailures(
+            int failedRuns, int interceptedRuns, string lastOutcome, bool? networkChanged,
+            string lastEspPhase = null, string lastOobeState = null, bool? rebootedSince = null, bool? certChanged = null)
         {
             FailedRuns = failedRuns;
             InterceptedRuns = interceptedRuns;
             LastOutcome = lastOutcome;
             NetworkChanged = networkChanged;
+            LastEspPhase = lastEspPhase;
+            LastOobeState = lastOobeState;
+            RebootedSince = rebootedSince;
+            CertChanged = certChanged;
         }
+
+        /// <summary>ESP phase the latest failed start began in; null for records that predate it.</summary>
+        public string LastEspPhase { get; }
+
+        /// <summary>Windows' OOBE flag when the latest failed start began; null for records that predate it.</summary>
+        public string LastOobeState { get; }
+
+        /// <summary>The device booted between the latest failed start and this one; null when either boot time is unknown.</summary>
+        public bool? RebootedSince { get; }
+
+        /// <summary>This start uses a different client certificate than the latest failed one; null when either side is unknown.</summary>
+        public bool? CertChanged { get; }
 
         public int FailedRuns { get; }
 

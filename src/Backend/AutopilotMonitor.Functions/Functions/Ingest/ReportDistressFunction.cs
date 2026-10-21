@@ -55,6 +55,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         internal const int MaxOsBuildLength = 32;
         internal const int MaxOobeStateLength = 16;
         internal const int MaxTpmVersionLength = 48;
+        internal const int MaxEspPhaseLength = 32;
+        internal static readonly TimeSpan MaxDeviceBootAge = TimeSpan.FromDays(30);
         internal static readonly TimeSpan MaxTimestampAge = TimeSpan.FromHours(24);
         internal static readonly TimeSpan MaxTimestampFuture = TimeSpan.FromMinutes(5);
 
@@ -79,6 +81,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         // OobeStateReader tokens: not_started, in_progress, completed, unknown_<n>, unavailable
         internal static readonly Regex OobeStatePattern = new Regex(
             @"^[a-z0-9_]+\z",
+            RegexOptions.Compiled);
+
+        // EspPhaseSnapshot tokens: device_setup, account_setup_failed, esp_done, none, ...
+        internal static readonly Regex EspPhasePattern = new Regex(
+            @"^[a-z_]+\z",
             RegexOptions.Compiled);
 
         public ReportDistressFunction(
@@ -208,6 +215,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var osBuild = SanitizeToken(report.OsBuild, MaxOsBuildLength, OsBuildPattern);
                 var oobeState = SanitizeToken(report.OobeState, MaxOobeStateLength, OobeStatePattern);
                 var tpmVersion = Sanitize(report.TpmVersion, MaxTpmVersionLength);
+                var espPhase = SanitizeToken(report.EspPhase, MaxEspPhaseLength, EspPhasePattern);
+                var deviceBootUtc = SanitizeDeviceBoot(report.DeviceBootUtc, report.Timestamp);
 
                 // Persist to Table Storage
                 var entry = new DistressReportEntry
@@ -233,6 +242,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     OsBuild         = osBuild,
                     OobeState       = oobeState,
                     TpmVersion      = tpmVersion,
+                    EspPhase        = espPhase,
+                    DeviceBootUtc   = deviceBootUtc,
                 };
 
                 await _repository.SaveDistressReportAsync(tenantId, entry);
@@ -327,9 +338,10 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 // Structured log (Warning, not Critical — data is unverified)
                 _logger.LogWarning(
-                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} os={OsBuild} oobe={OobeState} tpm={TpmVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
+                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} os={OsBuild} esp={EspPhase} oobe={OobeState} boot={DeviceBootUtc} tpm={TpmVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
                     report.ErrorType, tenantId, manufacturer, model, serialNumber, report.IsCloudPc,
-                    report.HttpStatusCode, agentVersion, osBuild ?? "n/a", oobeState ?? "n/a", tpmVersion ?? "n/a",
+                    report.HttpStatusCode, agentVersion, osBuild ?? "n/a", espPhase ?? "n/a", oobeState ?? "n/a",
+                    deviceBootUtc?.ToString("O") ?? "n/a", tpmVersion ?? "n/a",
                     certSourceState ?? "n/a", certThumbprint ?? "n/a", message);
 
                 // Custom event for KQL queries:
@@ -356,6 +368,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     ["OsBuild"]         = osBuild ?? string.Empty,
                     ["OobeState"]       = oobeState ?? string.Empty,
                     ["TpmVersion"]      = tpmVersion ?? string.Empty,
+                    ["EspPhase"]        = espPhase ?? string.Empty,
+                    ["DeviceBootUtc"]   = deviceBootUtc?.ToString("O") ?? string.Empty,
                 });
 
                 return req.CreateResponse(HttpStatusCode.OK);
@@ -396,6 +410,18 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             var trimmed = value?.Trim();
             if (string.IsNullOrEmpty(trimmed) || trimmed.Length > maxLength) return null;
             return pattern.IsMatch(trimmed) ? trimmed : null;
+        }
+
+        /// <summary>
+        /// The device boot time as UTC when it lies within <see cref="MaxDeviceBootAge"/> before and
+        /// <see cref="MaxTimestampFuture"/> after the report time, otherwise null.
+        /// </summary>
+        internal static DateTime? SanitizeDeviceBoot(DateTime? value, DateTime reportTimestamp)
+        {
+            if (!value.HasValue) return null;
+            var boot = value.Value.Kind == DateTimeKind.Utc ? value.Value : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
+            var age = reportTimestamp - boot;
+            return age >= -MaxTimestampFuture && age <= MaxDeviceBootAge ? boot : null;
         }
 
         /// <summary>The tenant bell for the first TPM-PSS report of a device.</summary>

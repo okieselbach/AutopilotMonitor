@@ -190,11 +190,28 @@ namespace AutopilotMonitor.Shared.Models
         public string? OsBuild { get; set; }
 
         /// <summary>
-        /// Windows setup (OOBE) state when the report was sent: <c>not_started</c>,
-        /// <c>in_progress</c>, <c>completed</c>, <c>unknown_&lt;n&gt;</c> or <c>unavailable</c>.
-        /// Kept server-side only as <c>[a-z0-9_]</c>, at most 16 chars. Null from older agents.
+        /// Windows' own OOBE flag (<c>SystemSetupInfo.OutOfBoxExperienceState</c>: <c>not_started</c>,
+        /// <c>in_progress</c>, <c>completed</c>, <c>unknown_&lt;n&gt;</c>, <c>unavailable</c>) — it
+        /// flips to <c>completed</c> at the desktop and says nothing about ESP progress (see
+        /// <see cref="EspPhase"/>). Sampled with <see cref="EspPhase"/>. Kept server-side only as
+        /// <c>[a-z0-9_]</c>, at most 16 chars. Null from older agents.
         /// </summary>
         public string? OobeState { get; set; }
+
+        /// <summary>
+        /// Autopilot ESP phase from the ESP registry: <c>device_preparation</c>,
+        /// <c>device_setup</c>, <c>account_setup</c> (running), <c>&lt;phase&gt;_failed</c>,
+        /// <c>device_setup_done</c>, <c>esp_done</c>, <c>none</c> or <c>unavailable</c>. A failed
+        /// registration samples it before its first attempt, other reports when sent. Kept
+        /// server-side only as <c>[a-z_]</c>, at most 32 chars. Null from older agents.
+        /// </summary>
+        public string? EspPhase { get; set; }
+
+        /// <summary>
+        /// When the device last booted (UTC), sampled with <see cref="EspPhase"/>. Kept server-side
+        /// only within 30 days before and 5 minutes after <see cref="Timestamp"/>. Null from older agents.
+        /// </summary>
+        public DateTime? DeviceBootUtc { get; set; }
 
         /// <summary>
         /// TPM manufacturer id and firmware version (e.g. <c>IFX 7.63.3353.0</c>), sent with

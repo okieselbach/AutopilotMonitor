@@ -29,8 +29,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private readonly string _registrationFailurePath;
         private readonly object _lockObject = new object();
 
-        // Agent-local key in registration-failure.json; RegistrationFailureSummary has no such member.
+        // Agent-local keys in registration-failure.json; RegistrationFailureSummary has no such members.
         private const string LocalNetworkFingerprintKey = "NetworkFingerprint";
+        private const string LocalDeviceBootKey = "DeviceBootUtc";
+        private const string LocalCertThumbprintKey = "CertThumbprint";
 
         public SessionIdPersistence(string dataDirectory)
         {
@@ -180,13 +182,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <see cref="RegistrationFailureSummary.InterceptedRuns"/>), the first failure time is kept,
         /// everything else describes the latest run. A run that never registers exits and leaves
         /// nothing else behind — the emergency break reads this file so the backend learns why the
-        /// session never appeared. <paramref name="networkFingerprint"/> (the latest run's network)
-        /// is stored beside the summary, never in it, so it cannot reach the wire. Written through to
-        /// disk (L.12): the process exits right after and the next boot decides on the record.
+        /// session never appeared. <paramref name="networkFingerprint"/>, <paramref name="deviceBootUtc"/>
+        /// and <paramref name="certThumbprint"/> (the latest run's network, boot and client
+        /// certificate) are stored beside the summary, never in it, so they cannot reach the wire —
+        /// the next successful start reports only whether they changed. Written through to disk
+        /// (L.12): the process exits right after and the next boot decides on the record.
         /// Returns the merged summary, null when it could not be written. Never throws.
         /// </summary>
         public RegistrationFailureSummary RecordRegistrationFailure(
-            RegistrationFailureSummary latestRun, AgentLogger logger = null, string networkFingerprint = null)
+            RegistrationFailureSummary latestRun, AgentLogger logger = null, string networkFingerprint = null,
+            DateTime? deviceBootUtc = null, string certThumbprint = null)
         {
             if (latestRun == null) return null;
             lock (_lockObject)
@@ -206,8 +211,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         NetworkLinkUpAtEnd = latestRun.NetworkLinkUpAtEnd,
                         AttemptWindowSeconds = latestRun.AttemptWindowSeconds,
                         ConfigFetchOutcome = latestRun.ConfigFetchOutcome,
+                        EspPhase = latestRun.EspPhase,
+                        OobeState = latestRun.OobeState,
                     };
-                    WriteRegistrationFailure(merged, networkFingerprint);
+                    WriteRegistrationFailure(merged, networkFingerprint, deviceBootUtc, certThumbprint);
                     logger?.Info($"SessionIdPersistence: recorded failed registration run #{merged.FailedRuns} ({merged.InterceptedRuns} intercepted).");
                     return merged;
                 }
@@ -286,7 +293,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 var json = JObject.Parse(File.ReadAllText(_registrationFailurePath));
                 var summary = json.ToObject<RegistrationFailureSummary>();
                 return summary != null && summary.FailedRuns > 0
-                    ? new RegistrationFailureRecord(summary, (string)json[LocalNetworkFingerprintKey])
+                    ? new RegistrationFailureRecord(
+                        summary,
+                        (string)json[LocalNetworkFingerprintKey],
+                        json[LocalDeviceBootKey]?.Type == JTokenType.Date ? json[LocalDeviceBootKey].ToObject<DateTime>().ToUniversalTime() : (DateTime?)null,
+                        (string)json[LocalCertThumbprintKey])
                     : null;
             }
             catch
@@ -297,14 +308,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         }
 
         /// <summary>
-        /// The summary's own properties plus one agent-local key: the fingerprint sits next to the
-        /// wire type, never inside it (the summary deserializes without it).
+        /// The summary's own properties plus the agent-local keys: they sit next to the wire type,
+        /// never inside it (the summary deserializes without them).
         /// </summary>
-        private void WriteRegistrationFailure(RegistrationFailureSummary summary, string networkFingerprint)
+        private void WriteRegistrationFailure(
+            RegistrationFailureSummary summary, string networkFingerprint, DateTime? deviceBootUtc, string certThumbprint)
         {
             var json = JObject.FromObject(summary);
             if (!string.IsNullOrEmpty(networkFingerprint))
                 json[LocalNetworkFingerprintKey] = networkFingerprint;
+            if (deviceBootUtc.HasValue)
+                json[LocalDeviceBootKey] = deviceBootUtc.Value.ToUniversalTime();
+            if (!string.IsNullOrEmpty(certThumbprint))
+                json[LocalCertThumbprintKey] = certThumbprint;
 
             var bytes = Encoding.UTF8.GetBytes(json.ToString(Formatting.None));
             using (var stream = new FileStream(
@@ -357,20 +373,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
     /// <summary>
     /// <c>registration-failure.json</c> as the agent keeps it: the <see cref="RegistrationFailureSummary"/>
-    /// the emergency break may send, plus the network fingerprint of the latest failed run, which
-    /// stays on the device — only the next successful start's comparison (changed or not) is reported.
+    /// the emergency break may send, plus the network fingerprint, boot time and client-certificate
+    /// thumbprint of the latest failed run, which stay on the device — only the next successful
+    /// start's comparisons (changed or not) are reported.
     /// </summary>
     public sealed class RegistrationFailureRecord
     {
-        public RegistrationFailureRecord(RegistrationFailureSummary summary, string networkFingerprint)
+        public RegistrationFailureRecord(
+            RegistrationFailureSummary summary, string networkFingerprint,
+            DateTime? deviceBootUtc = null, string certThumbprint = null)
         {
             Summary = summary ?? throw new ArgumentNullException(nameof(summary));
             NetworkFingerprint = networkFingerprint;
+            DeviceBootUtc = deviceBootUtc;
+            CertThumbprint = certThumbprint;
         }
 
         public RegistrationFailureSummary Summary { get; }
 
         /// <summary>Fingerprint of the latest failed run's network; null when it was unknown.</summary>
         public string NetworkFingerprint { get; }
+
+        /// <summary>Boot time (UTC) of the latest failed run; null when it was unknown or the record predates it.</summary>
+        public DateTime? DeviceBootUtc { get; }
+
+        /// <summary>Thumbprint of the client certificate the latest failed run used; null when none or unknown.</summary>
+        public string CertThumbprint { get; }
     }
 }

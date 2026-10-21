@@ -34,6 +34,8 @@ public class TableDistressReportRepositoryMappingTests
         OsBuild = "26200.6899",
         OobeState = "in_progress",
         TpmVersion = "IFX 7.63.3353.0",
+        EspPhase = "account_setup",
+        DeviceBootUtc = T0.AddMinutes(-20),
     };
 
     [Fact]

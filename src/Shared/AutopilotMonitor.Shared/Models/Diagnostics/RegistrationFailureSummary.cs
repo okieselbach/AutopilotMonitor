@@ -47,5 +47,9 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Outcome of the remote-config fetch in the latest failed run (e.g. <c>Succeeded</c>, <c>UsedDefaults</c>).</summary>
         public string? ConfigFetchOutcome { get; set; }
+        /// <summary>Autopilot ESP phase when the latest failed run started registering (see <c>DistressReport.EspPhase</c>).</summary>
+        public string? EspPhase { get; set; }
+        /// <summary>Windows' OOBE flag when the latest failed run started registering (see <c>DistressReport.OobeState</c>).</summary>
+        public string? OobeState { get; set; }
     }
 }

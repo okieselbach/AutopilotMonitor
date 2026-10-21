@@ -73,7 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     Success = true,
                     Aggregated = aggregated,
                     TotalRawReports = totalRawReports,
-                    DataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here have a TPM that cannot sign with RSA-PSS, and their agent could not connect when it sent the report; connectedAt marks a device that uploaded with its certificate afterwards. Serial number, manufacturer, model, OS build, setup state and TPM version are self-reported by devices."
+                    DataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here have a TPM that cannot sign with RSA-PSS, and their agent could not connect when it sent the report; connectedAt marks a device that uploaded with its certificate afterwards. Serial number, manufacturer, model, OS build, ESP phase, Windows OOBE flag and TPM version are self-reported by devices."
                 });
             }
             catch (Exception ex)
@@ -129,6 +129,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         TpmVersion = newestFirst.Select(r => r.TpmVersion).FirstOrDefault(v => !string.IsNullOrEmpty(v)),
                         OsBuild = newestFirst.Select(r => r.OsBuild).FirstOrDefault(v => !string.IsNullOrEmpty(v)),
                         OobeState = newestFirst.Select(r => r.OobeState).FirstOrDefault(v => !string.IsNullOrEmpty(v)),
+                        EspPhase = newestFirst.Select(r => r.EspPhase).FirstOrDefault(v => !string.IsNullOrEmpty(v)),
                         ConnectedAt = connectedAt,
                     };
                 })

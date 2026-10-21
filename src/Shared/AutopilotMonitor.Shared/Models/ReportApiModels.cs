@@ -226,8 +226,11 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>OS build of the most recent report; null from agents that predate it.</summary>
         public string? OsBuild { get; set; }
 
-        /// <summary>Windows setup state of the most recent report (<c>in_progress</c>, <c>completed</c>, …); null from agents that predate it.</summary>
+        /// <summary>Windows' OOBE flag of the most recent report (<c>in_progress</c>, <c>completed</c>, …; not ESP progress); null from agents that predate it.</summary>
         public string? OobeState { get; set; }
+
+        /// <summary>Autopilot ESP phase of the most recent report that carries one (<c>device_setup</c>, <c>account_setup</c>, <c>esp_done</c>, …); null from agents that predate it.</summary>
+        public string? EspPhase { get; set; }
 
         /// <summary>
         /// Last upload of the newest certificate-authenticated session of this serial when that

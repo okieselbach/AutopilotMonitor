@@ -346,20 +346,35 @@ export function DistressReportsSection({
                       <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.agentVersion}</dd>
                     </div>
                   )}
-                  {(selectedReport.osBuild || selectedReport.oobeState || selectedReport.tpmVersion) && (
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <dt className="font-medium text-gray-500 dark:text-gray-400">OS Build</dt>
-                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.osBuild ?? "-"}</dd>
+                  {(selectedReport.osBuild || selectedReport.oobeState || selectedReport.tpmVersion || selectedReport.espPhase) && (
+                    <div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <dt className="font-medium text-gray-500 dark:text-gray-400">OS Build</dt>
+                          <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.osBuild ?? "-"}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-500 dark:text-gray-400">TPM</dt>
+                          <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.tpmVersion ?? "-"}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-500 dark:text-gray-400">Device Boot</dt>
+                          <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs">
+                            {selectedReport.deviceBootUtc ? new Date(selectedReport.deviceBootUtc).toLocaleString() : "-"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-500 dark:text-gray-400">ESP Phase</dt>
+                          <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.espPhase ?? "-"}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-gray-500 dark:text-gray-400">Windows OOBE Flag</dt>
+                          <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.oobeState ?? "-"}</dd>
+                        </div>
                       </div>
-                      <div>
-                        <dt className="font-medium text-gray-500 dark:text-gray-400">Setup State</dt>
-                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.oobeState ?? "-"}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium text-gray-500 dark:text-gray-400">TPM</dt>
-                        <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.tpmVersion ?? "-"}</dd>
-                      </div>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                        ESP phase, OOBE flag and boot are taken when the failure began (a failed registration: before its first attempt). The OOBE flag turns &quot;completed&quot; at the desktop; it does not track ESP progress.
+                      </p>
                     </div>
                   )}
                   {selectedReport.isCloudPc && (

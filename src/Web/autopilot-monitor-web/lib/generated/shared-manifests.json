@@ -9035,6 +9035,22 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "espPhase",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "deviceBootUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
         }
       ]
     },
@@ -26231,7 +26247,16 @@
             "name": "string"
           },
           "optional": true,
-          "doc": "Windows setup state of the most recent report (in_progress, completed, …); null from agents that predate it."
+          "doc": "Windows' OOBE flag of the most recent report (in_progress, completed, …; not ESP progress); null from agents that predate it."
+        },
+        {
+          "name": "espPhase",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Autopilot ESP phase of the most recent report that carries one (device_setup, account_setup, esp_done, …); null from agents that predate it."
         },
         {
           "name": "connectedAt",

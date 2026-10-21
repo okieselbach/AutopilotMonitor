@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
-using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -127,14 +126,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// is bounded by the 5-second HTTP timeout.
         ///
         /// All anti-flood checks are applied synchronously before the async HTTP call,
-        /// so repeated calls are cheap when suppressed. Every report carries the OS build and the
-        /// Windows setup state at send time; <paramref name="tpmVersion"/> only the TPM-PSS one.
+        /// so repeated calls are cheap when suppressed. Every report carries the OS build and a
+        /// <see cref="DistressDeviceContext"/> — <paramref name="detail"/>'s, sampled when the
+        /// failure was observed, or one sampled at send time; the TPM version comes only with the
+        /// TPM-PSS report.
         /// </summary>
         public virtual async Task TrySendAsync(
             DistressErrorType errorType,
             string message,
             int? httpStatusCode = null,
-            string tpmVersion = null)
+            DistressDetail detail = null)
         {
             var key = $"{errorType}:{httpStatusCode}";
             int currentReportCount;
@@ -169,7 +170,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             var statusText = httpStatusCode.HasValue ? $" HTTP {httpStatusCode}" : string.Empty;
             _logger?.Warning($"[DistressChannel] Sending report {currentReportCount}/{MaxReportsPerSession}: {errorType}{statusText}");
 
-            var report = BuildReport(errorType, message, httpStatusCode, tpmVersion);
+            var report = BuildReport(errorType, message, httpStatusCode, detail);
 
             try
             {
@@ -203,9 +204,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             return value.Length <= maxLength ? value : value.Substring(0, maxLength);
         }
 
-        /// <summary>The report as sent: construction-time device and cert context plus the send-time OS build and setup state.</summary>
-        internal DistressReport BuildReport(DistressErrorType errorType, string message, int? httpStatusCode, string tpmVersion)
+        /// <summary>
+        /// The report as sent: construction-time device and cert context, the send-time OS build,
+        /// and the device context of <paramref name="detail"/> (sampled now when it has none).
+        /// </summary>
+        internal DistressReport BuildReport(DistressErrorType errorType, string message, int? httpStatusCode, DistressDetail detail)
         {
+            var context = detail?.Context ?? DistressDeviceContext.Capture();
             return new DistressReport
             {
                 TenantId = _tenantId,
@@ -225,8 +230,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 CertNotBefore = _capturedCertNotBefore,
                 CertNotAfter = _capturedCertNotAfter,
                 OsBuild = NullIfEmpty(DeviceInfoProvider.GetOsBuild()),
-                OobeState = OobeStateReader.Read(),
-                TpmVersion = Truncate(tpmVersion, 48),
+                OobeState = context.OobeState,
+                EspPhase = context.EspPhase,
+                DeviceBootUtc = context.DeviceBootUtc,
+                TpmVersion = Truncate(detail?.TpmVersion, 48),
             };
         }
 

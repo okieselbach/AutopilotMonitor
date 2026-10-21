@@ -558,6 +558,35 @@ public class DistressValidationTests
             input, ReportDistressFunction.MaxOobeStateLength, ReportDistressFunction.OobeStatePattern));
     }
 
+    [Theory]
+    [InlineData("device_setup", "device_setup")]
+    [InlineData("account_setup_failed", "account_setup_failed")]
+    [InlineData("esp_done", "esp_done")]
+    [InlineData("device_preparation_failed", "device_preparation_failed")]
+    [InlineData("Device_Setup", null)]
+    [InlineData("device-setup", null)]
+    [InlineData("device_setup2", null)]
+    [InlineData("an_esp_phase_token_far_beyond_the_cap", null)]
+    [InlineData(null, null)]
+    public void SanitizeToken_EspPhase(string? input, string? expected)
+    {
+        Assert.Equal(expected, ReportDistressFunction.SanitizeToken(
+            input, ReportDistressFunction.MaxEspPhaseLength, ReportDistressFunction.EspPhasePattern));
+    }
+
+    [Fact]
+    public void SanitizeDeviceBoot_KeepsBootsWithinThirtyDaysBeforeTheReport()
+    {
+        var report = FixedUtcNow;
+        Assert.Equal(report.AddMinutes(-20), ReportDistressFunction.SanitizeDeviceBoot(report.AddMinutes(-20), report));
+        Assert.Equal(report.AddDays(-30), ReportDistressFunction.SanitizeDeviceBoot(report.AddDays(-30), report));
+        Assert.Equal(report.AddMinutes(4), ReportDistressFunction.SanitizeDeviceBoot(report.AddMinutes(4), report));
+        Assert.Null(ReportDistressFunction.SanitizeDeviceBoot(report.AddDays(-31), report));
+        Assert.Null(ReportDistressFunction.SanitizeDeviceBoot(report.AddMinutes(6), report));
+        Assert.Null(ReportDistressFunction.SanitizeDeviceBoot(DateTime.MinValue, report));
+        Assert.Null(ReportDistressFunction.SanitizeDeviceBoot(null, report));
+    }
+
     [Fact]
     public void SanitizeToken_OsBuildExactlyAtCap_Kept()
     {

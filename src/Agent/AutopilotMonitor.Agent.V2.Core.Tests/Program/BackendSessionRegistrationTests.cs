@@ -165,6 +165,70 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Fact]
+        public void Success_after_a_failed_start_tells_reboot_certificate_and_where_the_failure_began()
+        {
+            using var tmp = new TempDirectory();
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var at = new DateTime(2026, 10, 21, 7, 0, 0, DateTimeKind.Utc);
+            var failedBoot = at.AddMinutes(-16);
+
+            BackendSessionRegistration.RecordFailedRun(
+                persistence, SessionRegistrationResult.Failed("An error occurred while sending the request."),
+                at, at.AddSeconds(90), true, true, "Succeeded", "fp-a", NewLogger(tmp.Path),
+                new AutopilotMonitor.Agent.V2.Core.Monitoring.Transport.DistressDeviceContext("completed", "account_setup", failedBoot),
+                certThumbprint: "6B98620E8BE952FEA7CD9200B899A9A8CCADD1E5");
+
+            // The record carries phase and OOBE flag; boot and thumbprint stay beside it.
+            var summary = persistence.LoadRegistrationFailure()!;
+            Assert.Equal("account_setup", summary.EspPhase);
+            Assert.Equal("completed", summary.OobeState);
+
+            var prior = BackendSessionRegistration.ClearAfterSuccess(
+                persistence, () => "fp-a", NewLogger(tmp.Path),
+                currentBootUtc: at.AddHours(1), currentCertThumbprint: "6b98620e8be952fea7cd9200b899a9a8ccadd1e5");
+
+            Assert.NotNull(prior);
+            Assert.Equal("account_setup", prior!.LastEspPhase);
+            Assert.Equal("completed", prior.LastOobeState);
+            Assert.True(prior.RebootedSince);
+            Assert.False(prior.CertChanged);
+            Assert.False(prior.NetworkChanged);
+        }
+
+        [Fact]
+        public void Same_boot_and_unknown_sides_are_reported_as_such()
+        {
+            var boot = new DateTime(2026, 10, 21, 6, 40, 0, DateTimeKind.Utc);
+            Assert.False(BackendSessionRegistration.RebootedSince(boot, boot.AddSeconds(30)));
+            Assert.True(BackendSessionRegistration.RebootedSince(boot, boot.AddMinutes(5)));
+            Assert.Null(BackendSessionRegistration.RebootedSince(null, boot));
+            Assert.Null(BackendSessionRegistration.RebootedSince(boot, null));
+            Assert.True(BackendSessionRegistration.CertificateChanged("AA", "BB"));
+            Assert.Null(BackendSessionRegistration.CertificateChanged(null, "BB"));
+            Assert.Null(BackendSessionRegistration.CertificateChanged("AA", ""));
+        }
+
+        [Fact]
+        public void Record_from_an_older_agent_leaves_the_new_comparisons_unknown()
+        {
+            using var tmp = new TempDirectory();
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var at = new DateTime(2026, 10, 21, 7, 0, 0, DateTimeKind.Utc);
+
+            // Written without context, boot or thumbprint — the shape agents up to 2.0.1487 leave.
+            BackendSessionRegistration.RecordFailedRun(
+                persistence, SessionRegistrationResult.Failed("x"), at, at.AddSeconds(5), true, true, null, null, NewLogger(tmp.Path));
+
+            var prior = BackendSessionRegistration.ClearAfterSuccess(
+                persistence, () => null, NewLogger(tmp.Path), at.AddHours(1), "AA");
+
+            Assert.NotNull(prior);
+            Assert.Null(prior!.LastEspPhase);
+            Assert.Null(prior.RebootedSince);
+            Assert.Null(prior.CertChanged);
+        }
+
+        [Fact]
         public void Recording_without_persistence_is_a_no_op()
         {
             using var tmp = new TempDirectory();

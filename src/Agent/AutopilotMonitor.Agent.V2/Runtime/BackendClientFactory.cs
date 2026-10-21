@@ -149,7 +149,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 distressReporter: distressReporter,
                 emergencyReporter: emergencyReporter,
                 authFailureTracker: authFailureTracker,
-                serverCertificates: serverCertificates);
+                serverCertificates: serverCertificates,
+                clientCertificateThumbprint: clientCertificate?.Thumbprint);
         }
 
         /// <summary>
@@ -290,6 +291,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// </summary>
         public ServerCertificateObserver ServerCertificates { get; }
 
+        /// <summary>
+        /// Thumbprint of the client certificate this run uses; null without one. Kept beside a
+        /// failed run's record so the next successful start can tell whether the certificate changed.
+        /// </summary>
+        public string ClientCertificateThumbprint { get; }
+
         public BackendAuthBundle(
             BackendApiClient backendApiClient,
             NetworkMetrics networkMetrics,
@@ -300,7 +307,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             DistressReporter distressReporter,
             EmergencyReporter emergencyReporter,
             AuthFailureTracker authFailureTracker,
-            ServerCertificateObserver serverCertificates)
+            ServerCertificateObserver serverCertificates,
+            string clientCertificateThumbprint = null)
         {
             BackendApiClient = backendApiClient;
             NetworkMetrics = networkMetrics;
@@ -312,6 +320,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             EmergencyReporter = emergencyReporter;
             AuthFailureTracker = authFailureTracker;
             ServerCertificates = serverCertificates;
+            ClientCertificateThumbprint = clientCertificateThumbprint;
         }
     }
 

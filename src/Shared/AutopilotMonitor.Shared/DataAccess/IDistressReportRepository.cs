@@ -50,5 +50,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string? OsBuild { get; set; }
         public string? OobeState { get; set; }
         public string? TpmVersion { get; set; }
+        public string? EspPhase { get; set; }
+        public DateTime? DeviceBootUtc { get; set; }
     }
 }

@@ -58,6 +58,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["OsBuild"]         = Truncate(entry.OsBuild, 32),
                 ["OobeState"]       = Truncate(entry.OobeState, 16),
                 ["TpmVersion"]      = Truncate(entry.TpmVersion, 48),
+                ["EspPhase"]        = Truncate(entry.EspPhase, 32),
+                ["DeviceBootUtc"]   = entry.DeviceBootUtc,
             };
         }
 
@@ -142,6 +144,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 OsBuild         = entity.GetString("OsBuild"),
                 OobeState       = entity.GetString("OobeState"),
                 TpmVersion      = entity.GetString("TpmVersion"),
+                EspPhase        = entity.GetString("EspPhase"),
+                DeviceBootUtc   = entity.GetDateTimeOffset("DeviceBootUtc")?.UtcDateTime,
             };
         }
 

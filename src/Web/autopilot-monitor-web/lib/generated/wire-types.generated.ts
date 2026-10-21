@@ -1825,6 +1825,8 @@ export interface DistressReportEntry {
   osBuild?: string;
   oobeState?: string;
   tpmVersion?: string;
+  espPhase?: string;
+  deviceBootUtc?: string;
 }
 
 /** Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin). */
@@ -5729,8 +5731,10 @@ export interface TpmPssUnsupportedItem {
   tpmVersion?: string;
   /** OS build of the most recent report; null from agents that predate it. */
   osBuild?: string;
-  /** Windows setup state of the most recent report (in_progress, completed, …); null from agents that predate it. */
+  /** Windows' OOBE flag of the most recent report (in_progress, completed, …; not ESP progress); null from agents that predate it. */
   oobeState?: string;
+  /** Autopilot ESP phase of the most recent report that carries one (device_setup, account_setup, esp_done, …); null from agents that predate it. */
+  espPhase?: string;
   /** Last upload of the newest certificate-authenticated session of this serial when that upload came after LastSeen: the device connected after its last report. Null while it has not, and when the lookup failed. */
   connectedAt?: string;
 }

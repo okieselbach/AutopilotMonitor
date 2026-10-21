@@ -55,7 +55,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         [Fact]
         public void No_events_after_now()
         {
-            Assert.Null(SchannelEventReader.ReadSince(DateTime.UtcNow.AddHours(1)));
+            Assert.Equal(SchannelEventReader.NoEvents, SchannelEventReader.ReadSince(DateTime.UtcNow.AddHours(1)));
         }
     }
 }

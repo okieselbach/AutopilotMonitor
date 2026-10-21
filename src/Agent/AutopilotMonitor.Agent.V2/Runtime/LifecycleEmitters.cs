@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
@@ -87,6 +88,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     // this makes late starts provable: "completed" on a first_run means OOBE
                     // was already over when the agent arrived (e.g. IME queue blocked).
                     { "oobeStateAtAgentStart", OobeStateReader.Read() },
+                    // The ESP phase from the ESP registry — unlike the OOBE flag, which flips only
+                    // at the desktop, it tells device setup from account setup from done.
+                    { "espPhaseAtAgentStart", EspPhaseSnapshot.Read() },
                 };
 
                 if (recovered)
@@ -116,6 +120,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         data["priorRegistrationLastOutcome"] = priorRegistrationFailures.LastOutcome;
                     if (priorRegistrationFailures.NetworkChanged.HasValue)
                         data["priorRegistrationNetworkChanged"] = priorRegistrationFailures.NetworkChanged.Value;
+                    // Where the latest failed start began, and what differs now: a reboot in
+                    // between, another client certificate. Comparisons only, no boot time or thumbprint.
+                    if (!string.IsNullOrEmpty(priorRegistrationFailures.LastEspPhase))
+                        data["priorRegistrationLastEspPhase"] = priorRegistrationFailures.LastEspPhase;
+                    if (!string.IsNullOrEmpty(priorRegistrationFailures.LastOobeState))
+                        data["priorRegistrationLastOobeState"] = priorRegistrationFailures.LastOobeState;
+                    if (priorRegistrationFailures.RebootedSince.HasValue)
+                        data["priorRegistrationRebootedSince"] = priorRegistrationFailures.RebootedSince.Value;
+                    if (priorRegistrationFailures.CertChanged.HasValue)
+                        data["priorRegistrationCertChanged"] = priorRegistrationFailures.CertChanged.Value;
                 }
 
                 post.Emit(new EnrollmentEvent

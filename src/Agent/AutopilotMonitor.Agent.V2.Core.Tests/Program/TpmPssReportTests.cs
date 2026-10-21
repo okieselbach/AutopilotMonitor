@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Agent.V2.Runtime;
@@ -72,7 +73,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
 
             var call = Assert.Single(reporter.Calls);
             Assert.Null(call.TpmVersion);
-            Assert.DoesNotContain("sch=", call.Message);
+            Assert.Contains("sch=unreadable", call.Message);
         }
 
         [Fact]
@@ -122,7 +123,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
                     NewLogger(tmp));
 
                 Assert.Equal("IFX 7.63.3353.0", tpm);
-                Assert.Null(schannel);
+                Assert.Equal(BackendSessionRegistration.SchannelReadTimeout, schannel);
             }
             finally
             {
@@ -143,6 +144,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
 
             Assert.Null(tpm);
             Assert.Equal("36887:116", schannel);
+        }
+
+        [Fact]
+        public async Task Schannel_read_that_throws_is_reported_as_unreadable_not_as_empty()
+        {
+            using var tmp = new TempDirectory();
+
+            var (_, schannel) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
+                () => "IFX 7.63.3353.0",
+                () => throw new UnauthorizedAccessException("System log"),
+                Task.Delay(TimeSpan.FromSeconds(30)),
+                NewLogger(tmp));
+
+            Assert.Equal(SchannelEventReader.Unreadable, schannel);
+        }
+
+        [Fact]
+        public async Task Report_carries_the_context_the_run_started_in()
+        {
+            using var tmp = new TempDirectory();
+            var reporter = new FakeDistressReporter();
+            var startContext = new DistressDeviceContext("in_progress", "device_setup",
+                new DateTime(2026, 10, 21, 6, 40, 0, DateTimeKind.Utc));
+
+            await BackendSessionRegistration.ReportProbeResultAsync(
+                Probe(), TlsFailure(), reporter, NewLogger(tmp), Context("IFX 7.63.3353.0", "none"), startContext);
+
+            var call = Assert.Single(reporter.Calls);
+            Assert.Same(startContext, call.Context);
+            Assert.Contains("sch=none", call.Message);
         }
     }
 }

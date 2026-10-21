@@ -17,10 +17,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     {
         internal const int MaxEvents = 2;
 
+        /// <summary>The log was read and holds no matching event — a finding, unlike <see cref="Unreadable"/>.</summary>
+        internal const string NoEvents = "none";
+
+        /// <summary>The System log could not be queried; nothing is known about Schannel.</summary>
+        internal const string Unreadable = "unreadable";
+
         /// <summary>
         /// Newest first, at most <see cref="MaxEvents"/> events as <see cref="FormatToken"/> tokens
-        /// joined by commas (<c>36888:40/1205,36887:116</c>); null when there is none or the log
-        /// cannot be read. Never throws.
+        /// joined by commas (<c>36888:40/1205,36887:116</c>); <see cref="NoEvents"/> when there is
+        /// none, <see cref="Unreadable"/> when the log cannot be read. Never throws.
         /// </summary>
         public static string ReadSince(DateTime sinceUtc, AgentLogger logger = null)
         {
@@ -43,9 +49,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             catch (Exception ex)
             {
                 logger?.Debug($"SchannelEventReader: System log not readable ({ex.Message}).");
-                return null;
+                return Unreadable;
             }
-            return tokens.Count == 0 ? null : string.Join(",", tokens);
+            return tokens.Count == 0 ? NoEvents : string.Join(",", tokens);
         }
 
         internal static string BuildXPath(DateTime sinceUtc)

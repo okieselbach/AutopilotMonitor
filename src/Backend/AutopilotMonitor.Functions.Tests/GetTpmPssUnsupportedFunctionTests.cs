@@ -175,6 +175,7 @@ public class GetTpmPssUnsupportedFunctionTests
         older.TpmVersion = "IFX 7.63.3353.0";
         older.OsBuild = "26100.1000";
         older.OobeState = "in_progress";
+        older.EspPhase = "device_setup";
         var newer = MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN1", T0.AddHours(1));
         newer.OsBuild = "26200.2000";
         newer.OobeState = "completed";
@@ -187,6 +188,7 @@ public class GetTpmPssUnsupportedFunctionTests
         Assert.Equal("IFX 7.63.3353.0", item.TpmVersion);
         Assert.Equal("26200.2000", item.OsBuild);
         Assert.Equal("completed", item.OobeState);
+        Assert.Equal("device_setup", item.EspPhase);
     }
 
     [Fact]
@@ -199,6 +201,7 @@ public class GetTpmPssUnsupportedFunctionTests
         Assert.Null(item.TpmVersion);
         Assert.Null(item.OsBuild);
         Assert.Null(item.OobeState);
+        Assert.Null(item.EspPhase);
     }
 
     // =========================================================================
