@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function FinalCta() {
   return (
     <section data-track-section="final_cta" className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)]">
@@ -6,24 +8,26 @@ export function FinalCta() {
           Your next enrollment doesn&apos;t have to be a black box.
         </h2>
         <div className="shrink-0 lg:text-right">
-          <a
-            href="/get-started/"
+          <Link
+            href="/get-started"
+            prefetch={false}
             data-track="final_get_started"
             className="inline-block px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
           >
             Start monitoring now
-          </a>
+          </Link>
           <p className="mt-3 text-sm text-[var(--lp-ink-faint)] lg:text-right">
             Free, open source, deployed in minutes.
             <span className="block mt-0.5">
               Need SLAs, support, or MSP delegation?{" "}
-              <a
-                href="/plans/"
+              <Link
+                href="/plans"
+                prefetch={false}
                 data-track="final_pro_plan"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >
                 There&apos;s a Pro plan
-              </a>
+              </Link>
               .
             </span>
           </p>

@@ -6,6 +6,8 @@ import {
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from "web-vitals";
 import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/lib/config";
 import type { TelemetryContext } from "./appInsights";
+import { readEntryAttribution, stampEntryAttribution } from "./entryAttribution";
+import { isOnPublicHost } from "./hostRouting";
 import { normalizeRoute, toWebVitalTelemetry } from "./webVitals";
 import { buildOwnOriginNonApiPatterns, shouldDropDependency, stripPageViewFragments } from "./webTelemetryExclusions";
 
@@ -78,6 +80,13 @@ export function createAppInsights(connectionString: string, context: TelemetryCo
   appInsights.addTelemetryInitializer((envelope) => {
     stripPageViewFragments(envelope);
   });
+  // Public host: page views and custom events carry the channel this page load came in through.
+  const entry = isOnPublicHost() ? readEntryAttribution() : null;
+  if (entry) {
+    appInsights.addTelemetryInitializer((envelope) => {
+      stampEntryAttribution(envelope, entry);
+    });
+  }
 
   appInsights.loadAppInsights();
   // Returning false drops the item (D-277); undefined keeps it.

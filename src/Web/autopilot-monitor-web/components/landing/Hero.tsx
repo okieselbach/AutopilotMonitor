@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { HeroShots } from "./HeroShots";
 import { DOCS_URL } from "@/lib/config";
 
@@ -50,13 +51,14 @@ export function Hero() {
           </p>
           <div className="shrink-0">
             <div className="flex items-center gap-3">
-              <a
-                href="/get-started/"
+              <Link
+                href="/get-started"
+                prefetch={false}
                 data-track="hero_get_started"
                 className="px-6 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
               >
                 Get started
-              </a>
+              </Link>
               <a
                 href={DOCS_URL}
                 data-track="hero_docs"

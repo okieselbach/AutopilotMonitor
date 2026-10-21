@@ -20,9 +20,9 @@ export function ClosingCta() {
             Free, open source, deployed in minutes.
             <br />
             {"Need SLAs, support, or MSP delegation? "}
-            <a href="/plans/" data-track="closing_pro_plan" className="text-[var(--lp-accent-ink)] underline hover:opacity-80">
+            <Link href="/plans" prefetch={false} data-track="closing_pro_plan" className="text-[var(--lp-accent-ink)] underline hover:opacity-80">
               There&apos;s a Pro plan
-            </a>
+            </Link>
             .
           </p>
         </div>

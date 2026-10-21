@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -71,6 +71,18 @@ describe("marketing page tracking", () => {
     expect(trackIds(html)).toEqual(expect.arrayContaining(["hero_announcement:push", "push_docs"]));
     expect(html).toMatch(/<a\b[^>]*\shref="#push"[^>]*\sdata-track="hero_announcement:push"/);
     expect(html).toMatch(/<section\b[^>]*\sid="push"[^>]*\sdata-track-section="push"/);
+  });
+
+  // A plain <a> loads a new document: the click's entry channel (lib/entryAttribution.ts) would
+  // turn into the own host. The static markup cannot tell a <Link> from an <a>, so the source is read.
+  it("links to get-started and plans are client-side Links, so the page load and its entry channel carry over", () => {
+    const root = join(__dirname, "..", "..");
+    const plain = ["components", "app"].flatMap(dir =>
+      readdirSync(join(root, dir), { encoding: "utf-8", recursive: true })
+        .filter(file => file.endsWith(".tsx") && !file.includes("__tests__"))
+        .filter(file => /<a\b[^>]*\shref="\/(?:get-started|plans)\b/.test(readFileSync(join(root, dir, file), "utf-8")))
+    );
+    expect(plain).toEqual([]);
   });
 
   it("the AI page carries every question text in its static HTML", () => {

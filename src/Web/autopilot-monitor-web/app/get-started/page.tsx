@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SignupConsentCta } from "../../components/landing/SignupConsentCta";
 import { SiteFooter } from "../../components/SiteFooter";
@@ -102,13 +103,14 @@ export default function GetStartedPage() {
 
             <p className="mt-6 text-sm text-[var(--lp-ink-faint)] leading-relaxed max-w-xl">
               When you need more later: the{" "}
-              <a
-                href="/plans/"
+              <Link
+                href="/plans"
+                prefetch={false}
                 data-track="get_started_pro_plan"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >
                 Pro plan
-              </a>{" "}
+              </Link>{" "}
               adds SLAs, support commitments, MSP delegation, higher operating limits and more —
               same service, nothing to migrate.
             </p>
