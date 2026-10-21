@@ -8,7 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
     /// <summary>
-    /// One-shot read of the Schannel errors the System log recorded since a point in time:
+    /// One-shot read of the Schannel errors the System log recorded in a time window:
     /// 36871 (creating the client credential failed), 36887 (fatal TLS alert received) and
     /// 36888 (fatal TLS alert sent). Only the terminal registration-failure path calls it.
     /// Another process's TLS failure in the same window shows up too, so the result is a hint.
@@ -26,14 +26,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>
         /// Newest first, at most <see cref="MaxEvents"/> events as <see cref="FormatToken"/> tokens
         /// joined by commas (<c>36888:40/1205,36887:116</c>); <see cref="NoEvents"/> when there is
-        /// none, <see cref="Unreadable"/> when the log cannot be read. Never throws.
+        /// none, <see cref="Unreadable"/> when the log cannot be read. <paramref name="untilUtc"/>
+        /// keeps out what the diagnostics after the failure log themselves (the TLS probe's own
+        /// handshake). Never throws.
         /// </summary>
-        public static string ReadSince(DateTime sinceUtc, AgentLogger logger = null)
+        public static string ReadBetween(DateTime sinceUtc, DateTime untilUtc, AgentLogger logger = null)
         {
             var tokens = new List<string>();
             try
             {
-                var query = new EventLogQuery("System", PathType.LogName, BuildXPath(sinceUtc)) { ReverseDirection = true };
+                var query = new EventLogQuery("System", PathType.LogName, BuildXPath(sinceUtc, untilUtc)) { ReverseDirection = true };
                 using (var reader = new EventLogReader(query))
                 {
                     EventRecord record;
@@ -54,12 +56,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             return tokens.Count == 0 ? NoEvents : string.Join(",", tokens);
         }
 
-        internal static string BuildXPath(DateTime sinceUtc)
+        internal static string BuildXPath(DateTime sinceUtc, DateTime untilUtc)
         {
-            var since = sinceUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
             return "*[System[Provider[@Name='Schannel'] and (EventID=36871 or EventID=36887 or EventID=36888)" +
-                   $" and TimeCreated[@SystemTime >= '{since}']]]";
+                   $" and TimeCreated[@SystemTime >= '{XPathTime(sinceUtc)}' and @SystemTime <= '{XPathTime(untilUtc)}']]]";
         }
+
+        private static string XPathTime(DateTime utc) =>
+            utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
 
         /// <summary>
         /// <c>36888:40/1205</c>: the event id and its numeric properties (TLS alert code, Schannel

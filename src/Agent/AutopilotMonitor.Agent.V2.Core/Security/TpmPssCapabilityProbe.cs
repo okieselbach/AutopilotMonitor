@@ -190,19 +190,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
         /// <summary>
         /// Language-neutral summary for the distress message, codes instead of the localized
-        /// error texts: <c>pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029)
-        /// tls=0x80090326 sch=36888:40/1205 prov=PCP key=2048</c>. <paramref name="tlsCode"/>
-        /// is the native code of the failed handshake (<see cref="TransportErrorCodes"/>),
-        /// <paramref name="schannelEvents"/> the System-log tokens (<see cref="SchannelEventReader"/>);
-        /// both are left out when null. At most <see cref="MaxDistressMessageLength"/> chars.
+        /// error texts: <c>pkcs1=ok pss256=fail(0x80070423) pss384=fail(0x80090029)
+        /// tlsp=tls12,-,cc403 sch=none prov=PCP key=2048</c>. <paramref name="tlsCode"/> is the
+        /// native code of the failed HTTP-stack handshake (<see cref="TransportErrorCodes"/>),
+        /// <paramref name="tlsProbe"/> the <see cref="TlsHandshakeProbe"/> token,
+        /// <paramref name="schannelEvents"/> the System-log finding (<see cref="SchannelEventReader"/>);
+        /// each is left out when null. At most <see cref="MaxDistressMessageLength"/> chars.
         /// </summary>
-        public string ToDistressMessage(string tlsCode = null, string schannelEvents = null)
+        public string ToDistressMessage(string tlsCode = null, string schannelEvents = null, string tlsProbe = null)
         {
             var sb = new StringBuilder();
             sb.Append("pkcs1=").Append(Pkcs1Sha256Works ? "ok" : "fail");
             AppendSignOutcome(sb, " pss256=", PssSha256Works, PssSha256ErrorCode);
             AppendSignOutcome(sb, " pss384=", PssSha384Works, PssSha384ErrorCode);
             if (!string.IsNullOrEmpty(tlsCode)) sb.Append(" tls=").Append(tlsCode);
+            if (!string.IsNullOrEmpty(tlsProbe)) sb.Append(" tlsp=").Append(tlsProbe);
             if (!string.IsNullOrEmpty(schannelEvents)) sb.Append(" sch=").Append(schannelEvents);
             sb.Append(" prov=").Append(ShortProviderName(ProviderName));
             if (KeySizeBits > 0) sb.Append(" key=").Append(KeySizeBits);

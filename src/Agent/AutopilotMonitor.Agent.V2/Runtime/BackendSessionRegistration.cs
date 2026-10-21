@@ -71,7 +71,18 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger: logger,
                 authFailureTracker: auth.AuthFailureTracker,
                 emergencyReporter: auth.EmergencyReporter,
-                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, startedUtc, startContext, logger),
+                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(
+                    ex, auth, startedUtc, startContext,
+                    new TlsProbeTarget
+                    {
+                        BaseUrl = agentConfig.ApiBaseUrl,
+                        TenantId = agentConfig.TenantId,
+                        Manufacturer = auth.Manufacturer,
+                        Model = auth.Model,
+                        SerialNumber = auth.SerialNumber,
+                        AgentVersion = agentVersion,
+                    },
+                    logger),
                 // Reuse the single hardened hardware read from the auth bundle so the session row
                 // matches the security headers the backend validated against (no second WMI query).
                 deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
@@ -324,8 +335,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
         }
 
-        /// <summary>How long the TPM and System-log reads for the TPM-PSS report may take together.</summary>
-        internal static readonly TimeSpan DiagnosticContextBound = TimeSpan.FromSeconds(5);
+        /// <summary>How long the TPM read, the System-log read and the TLS probe for the TPM-PSS report may take together.</summary>
+        internal static readonly TimeSpan DiagnosticContextBound = TimeSpan.FromSeconds(10);
+
+        /// <summary>Per network step of the TLS probe (connect, handshake, request, response).</summary>
+        internal static readonly TimeSpan TlsProbeStepTimeout = TimeSpan.FromSeconds(4);
 
         /// <summary>
         /// Off-hot-path diagnostic invoked once after all session-registration retries fail.
@@ -344,8 +358,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             BackendAuthBundle auth,
             DateTime registrationStartedUtc,
             DistressDeviceContext startContext,
+            TlsProbeTarget probeTarget,
             AgentLogger logger)
         {
+            // The Schannel window closes here: the TLS probe below logs its own handshake.
+            var failureDetectedUtc = DateTime.UtcNow;
             try
             {
                 if (!IsSecureChannelFailure(ex))
@@ -367,7 +384,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     probe, ex, auth.DistressReporter, logger,
                     () => ReadDiagnosticContextAsync(
                         () => TpmInfoReader.Read()?.Label,
-                        () => SchannelEventReader.ReadSince(registrationStartedUtc, logger),
+                        () => SchannelEventReader.ReadBetween(registrationStartedUtc, failureDetectedUtc, logger),
+                        () => TlsHandshakeProbe.Run(probeTarget, cert, TlsProbeStepTimeout, logger),
                         Task.Delay(DiagnosticContextBound), logger),
                     startContext);
             }
@@ -381,7 +399,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// <summary>
         /// Sends <see cref="DistressErrorType.TpmPssUnsupported"/> when the probe shows a TPM-backed
         /// key that signs PKCS#1 but not PSS, with the native code of the failed handshake, the
-        /// Schannel finding and the TPM firmware from <paramref name="readContext"/>, and the
+        /// Schannel finding, the TLS probe and the TPM firmware from <paramref name="readContext"/>, and the
         /// <paramref name="startContext"/> the run began in. The returned task completes only after
         /// the send: the run exits right after this callback, and nothing else waits for it. Never throws.
         /// </summary>
@@ -390,7 +408,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             Exception transportFailure,
             DistressReporter reporter,
             AgentLogger logger,
-            Func<Task<(string TpmVersion, string SchannelEvents)>> readContext,
+            Func<Task<(string TpmVersion, string SchannelEvents, string TlsProbe)>> readContext,
             DistressDeviceContext startContext = null)
         {
             try
@@ -408,19 +426,20 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         "Schannel can withhold the cert from TLS client-auth, blocking mTLS to the backend. " +
                         "Likely fix: update TPM firmware (common on older TPM 2.0 firmware).");
 
-                    string tpmVersion = null, schannelEvents = SchannelEventReader.Unreadable;
+                    string tpmVersion = null, schannelEvents = SchannelEventReader.Unreadable, tlsProbe = null;
                     try
                     {
-                        (tpmVersion, schannelEvents) = await readContext().ConfigureAwait(false);
+                        (tpmVersion, schannelEvents, tlsProbe) = await readContext().ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
                         // The context only enriches the report; it never holds it back.
                         logger?.Debug($"TPM-PSS report: context read failed ({ex.Message}) — sending without it.");
                     }
+                    logger?.Info($"TPM-PSS report: tlsProbe={tlsProbe ?? "n/a"} schannel={schannelEvents ?? "n/a"} tpm={tpmVersion ?? "n/a"}");
                     await reporter.TrySendAsync(
                         DistressErrorType.TpmPssUnsupported,
-                        probe.ToDistressMessage(tlsCode, schannelEvents),
+                        probe.ToDistressMessage(tlsCode, schannelEvents, tlsProbe),
                         detail: new DistressDetail { TpmVersion = tpmVersion, Context = startContext }).ConfigureAwait(false);
                 }
                 else if (probe.IsTpmPssBroken)
@@ -437,28 +456,32 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
         }
 
-        /// <summary>Schannel finding when the System-log read did not finish within the bound.</summary>
+        /// <summary>Schannel finding or TLS-probe token when that read did not finish within the bound.</summary>
         internal const string SchannelReadTimeout = "timeout";
 
         /// <summary>
-        /// Runs both reads in parallel until both finished or <paramref name="bound"/> completed
+        /// Runs the three reads in parallel until all finished or <paramref name="bound"/> completed
         /// (production: <see cref="DiagnosticContextBound"/>). A TPM read that threw or had not
         /// finished counts as missing (null); the Schannel finding then says
         /// <see cref="SchannelEventReader.Unreadable"/> or <see cref="SchannelReadTimeout"/>, so an
-        /// empty finding is never mistaken for "no events". Never throws.
+        /// empty finding is never mistaken for "no events"; the TLS probe says <c>error</c> or
+        /// <see cref="SchannelReadTimeout"/>. Never throws.
         /// </summary>
-        internal static async Task<(string TpmVersion, string SchannelEvents)> ReadDiagnosticContextAsync(
+        internal static async Task<(string TpmVersion, string SchannelEvents, string TlsProbe)> ReadDiagnosticContextAsync(
             Func<string> readTpmVersion,
             Func<string> readSchannelEvents,
+            Func<string> runTlsProbe,
             Task bound,
             AgentLogger logger)
         {
             var tpm = Task.Run(readTpmVersion);
             var schannel = Task.Run(readSchannelEvents);
-            await Task.WhenAny(Task.WhenAll(tpm, schannel), bound).ConfigureAwait(false);
+            var tlsProbe = Task.Run(runTlsProbe);
+            await Task.WhenAny(Task.WhenAll(tpm, schannel, tlsProbe), bound).ConfigureAwait(false);
             return (
                 ResultOr(tpm, "TPM", logger, faulted: null, unfinished: null),
-                ResultOr(schannel, "Schannel event", logger, faulted: SchannelEventReader.Unreadable, unfinished: SchannelReadTimeout));
+                ResultOr(schannel, "Schannel event", logger, faulted: SchannelEventReader.Unreadable, unfinished: SchannelReadTimeout),
+                ResultOr(tlsProbe, "TLS probe", logger, faulted: "error", unfinished: SchannelReadTimeout));
         }
 
         private static string ResultOr(Task<string> read, string what, AgentLogger logger, string faulted, string unfinished)

@@ -36,8 +36,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             new WebException("Could not create SSL/TLS secure channel.",
                 new Win32Exception(unchecked((int)0x80090326)), WebExceptionStatus.SecureChannelFailure, null);
 
-        private static Func<Task<(string TpmVersion, string SchannelEvents)>> Context(string tpm, string schannel) =>
-            () => Task.FromResult((tpm, schannel));
+        private static Func<Task<(string TpmVersion, string SchannelEvents, string TlsProbe)>> Context(
+            string tpm, string schannel, string tlsProbe = null!) =>
+            () => Task.FromResult((tpm, schannel, tlsProbe));
 
         [Fact]
         public async Task Broken_tpm_report_completes_only_after_the_send()
@@ -47,14 +48,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             var reporter = new FakeDistressReporter { Send = () => sendGate.Task };
 
             var report = BackendSessionRegistration.ReportProbeResultAsync(
-                Probe(), TlsFailure(), reporter, NewLogger(tmp), Context("IFX 7.63.3353.0", "36888:40/1205"));
+                Probe(), TlsFailure(), reporter, NewLogger(tmp), Context("IFX 7.63.3353.0", "36888:40/1205", "tls12,-,cc403"));
 
             var call = Assert.Single(reporter.Calls);
             Assert.False(report.IsCompleted);
             Assert.Equal(DistressErrorType.TpmPssUnsupported, call.ErrorType);
             Assert.Equal("IFX 7.63.3353.0", call.TpmVersion);
             Assert.Equal(
-                "pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029) tls=0x80090326 sch=36888:40/1205 prov=PCP key=2048",
+                "pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029) tls=0x80090326 tlsp=tls12,-,cc403 sch=36888:40/1205 prov=PCP key=2048",
                 call.Message);
 
             sendGate.SetResult(true);
@@ -116,14 +117,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
                     await Task.Delay(500);
                 });
 
-                var (tpm, schannel) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
+                var (tpm, schannel, tlsProbe) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
                     () => { fastReturned.Set(); return "IFX 7.63.3353.0"; },
                     () => { slowRelease.Wait(TimeSpan.FromSeconds(30)); return "late"; },
+                    () => { slowRelease.Wait(TimeSpan.FromSeconds(30)); return "tls12,-,cc403"; },
                     bound,
                     NewLogger(tmp));
 
                 Assert.Equal("IFX 7.63.3353.0", tpm);
                 Assert.Equal(BackendSessionRegistration.SchannelReadTimeout, schannel);
+                Assert.Equal(BackendSessionRegistration.SchannelReadTimeout, tlsProbe);
             }
             finally
             {
@@ -136,14 +139,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         {
             using var tmp = new TempDirectory();
 
-            var (tpm, schannel) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
+            var (tpm, schannel, tlsProbe) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
                 () => throw new InvalidOperationException("no WMI"),
                 () => "36887:116",
+                () => "tls13,-,cc403",
                 Task.Delay(TimeSpan.FromSeconds(30)),
                 NewLogger(tmp));
 
             Assert.Null(tpm);
             Assert.Equal("36887:116", schannel);
+            Assert.Equal("tls13,-,cc403", tlsProbe);
         }
 
         [Fact]
@@ -151,13 +156,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         {
             using var tmp = new TempDirectory();
 
-            var (_, schannel) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
+            var (_, schannel, _) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
                 () => "IFX 7.63.3353.0",
                 () => throw new UnauthorizedAccessException("System log"),
+                () => "tls12,-,cc403",
                 Task.Delay(TimeSpan.FromSeconds(30)),
                 NewLogger(tmp));
 
             Assert.Equal(SchannelEventReader.Unreadable, schannel);
+        }
+
+        [Fact]
+        public async Task Tls_probe_that_throws_is_reported_as_error_not_left_out()
+        {
+            using var tmp = new TempDirectory();
+
+            var (_, _, tlsProbe) = await BackendSessionRegistration.ReadDiagnosticContextAsync(
+                () => "IFX 7.63.3353.0",
+                () => "none",
+                () => throw new InvalidOperationException("socket"),
+                Task.Delay(TimeSpan.FromSeconds(30)),
+                NewLogger(tmp));
+
+            Assert.Equal("error", tlsProbe);
         }
 
         [Fact]

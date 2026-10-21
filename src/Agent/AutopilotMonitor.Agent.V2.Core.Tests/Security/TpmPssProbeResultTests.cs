@@ -28,10 +28,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         [Fact]
         public void Message_carries_codes_handshake_and_schannel_events()
         {
-            var message = BrokenPcp().ToDistressMessage("0x80090326", "36888:40/1205,36887:116");
+            var message = BrokenPcp().ToDistressMessage("0x80090326", "36888:40/1205,36887:116", "tls12,-,cc403");
 
             Assert.Equal(
-                "pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029) tls=0x80090326 sch=36888:40/1205,36887:116 prov=PCP key=2048",
+                "pkcs1=ok pss256=fail(0x80290423) pss384=fail(0x80090029) tls=0x80090326 tlsp=tls12,-,cc403 sch=36888:40/1205,36887:116 prov=PCP key=2048",
                 message);
         }
 

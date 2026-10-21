@@ -43,10 +43,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         [Fact]
         public void Query_is_accepted_by_the_event_log_service()
         {
-            // A malformed XPath would only surface as "no events" through ReadSince (it never
+            // A malformed XPath would only surface as "unreadable" through ReadBetween (it never
             // throws), so the query itself is run here.
             using (var reader = new EventLogReader(new EventLogQuery(
-                "System", PathType.LogName, SchannelEventReader.BuildXPath(DateTime.UtcNow.AddDays(-1))) { ReverseDirection = true }))
+                "System", PathType.LogName, SchannelEventReader.BuildXPath(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow)) { ReverseDirection = true }))
             {
                 using (reader.ReadEvent()) { }
             }
@@ -55,7 +55,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         [Fact]
         public void No_events_after_now()
         {
-            Assert.Equal(SchannelEventReader.NoEvents, SchannelEventReader.ReadSince(DateTime.UtcNow.AddHours(1)));
+            Assert.Equal(SchannelEventReader.NoEvents,
+                SchannelEventReader.ReadBetween(DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(2)));
+        }
+
+        [Fact]
+        public void Window_ends_where_the_diagnostics_begin()
+        {
+            var xpath = SchannelEventReader.BuildXPath(
+                new DateTime(2026, 10, 21, 6, 40, 0, DateTimeKind.Utc),
+                new DateTime(2026, 10, 21, 6, 55, 30, 250, DateTimeKind.Utc));
+
+            Assert.Contains(
+                "TimeCreated[@SystemTime >= '2026-10-21T06:40:00.000Z' and @SystemTime <= '2026-10-21T06:55:30.250Z']",
+                xpath);
         }
     }
 }
