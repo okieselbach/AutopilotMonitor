@@ -666,8 +666,27 @@ Describe 'publish pipeline and dev channel' {
         $script:rendered = Join-Path $TestDrive 'rendered'
         $script:pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
         $script:publish = Join-Path $script:repoRoot '.github\scripts\Publish-BootstrapScripts.ps1'
-        $script:publishOutput = @(& $script:pwsh -NoProfile -File $script:publish -DryRun -SignedOutputDir $script:rendered 2>&1 | ForEach-Object { "$_" })
-        if ($LASTEXITCODE -ne 0) { throw "Publish dry run failed: $($script:publishOutput -join [Environment]::NewLine)" }
+
+        # Output read as text from a process of its own: a stderr line must not become an error
+        # record, which ends the test under the 'Stop' preference CI runs with.
+        function Invoke-Publish {
+            param([string[]]$Arguments)
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $script:pwsh
+            $psi.Arguments = ('-NoProfile -File "{0}" {1}' -f $script:publish, ($Arguments -join ' ')).Trim()
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $process = [System.Diagnostics.Process]::Start($psi)
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+            $process.WaitForExit()
+            return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = @(($stdout.Result + "`n" + $stderr.Result) -split "`r?`n") }
+        }
+
+        $dryRun = Invoke-Publish @('-DryRun', '-SignedOutputDir', ('"' + $script:rendered + '"'))
+        if ($dryRun.ExitCode -ne 0) { throw "Publish dry run failed: $($dryRun.Output -join [Environment]::NewLine)" }
+        $script:publishOutput = $dryRun.Output
     }
 
     # A loader that went live first would refuse the installer still being served.
@@ -689,11 +708,11 @@ Describe 'publish pipeline and dev channel' {
         $text.Contains($Old) | Should -BeTrue
         [System.IO.File]::WriteAllText((Join-Path $root 'scripts\Bootstrap\Install-AutopilotMonitor.ps1'), $text.Replace($Old, $New))
 
-        $output = @(& $script:pwsh -NoProfile -File $script:publish -DryRun -Channel dev -RepoRoot $root 2>&1 | ForEach-Object { "$_" })
+        $refused = Invoke-Publish @('-DryRun', '-Channel', 'dev', '-RepoRoot', ('"' + $root + '"'))
 
-        $LASTEXITCODE | Should -Not -Be 0
-        ($output -join "`n") | Should -Match 'The loader would refuse Install-AutopilotMonitor-Dev\.ps1'
-        ($output -join "`n") | Should -Not -Match '\[dry-run\]'
+        $refused.ExitCode | Should -Not -Be 0
+        ($refused.Output -join "`n") | Should -Match 'The loader would refuse Install-AutopilotMonitor-Dev\.ps1'
+        ($refused.Output -join "`n") | Should -Not -Match '\[dry-run\]'
     }
 
     It 'the dev loader fetches the dev installer, which installs the dev agent' {
