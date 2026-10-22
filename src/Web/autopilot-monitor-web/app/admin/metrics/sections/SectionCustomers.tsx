@@ -2,9 +2,11 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
+import { tenantManagementUrl } from "@/lib/routes";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { chartColors } from "@/components/charts/chartTheme";
@@ -259,7 +261,13 @@ function BucketSignups({
           return (
             <li key={row.tenantId} className="flex items-center gap-3 py-1.5 text-sm">
               <span className={`${weekly ? "w-32" : "w-20"} shrink-0 text-xs text-gray-500 tabular-nums`}>{signupTime(atMs, weekly)}</span>
-              <span className="min-w-0 truncate text-gray-900">{row.domainName}</span>
+              <Link
+                href={tenantManagementUrl(row.tenantId)}
+                title="Open in Tenant Management"
+                className="min-w-0 truncate text-gray-900 hover:text-blue-700 hover:underline"
+              >
+                {row.domainName}
+              </Link>
               {row.companyName && <span className="hidden min-w-0 truncate text-gray-500 sm:inline">{row.companyName}</span>}
               <span
                 className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium ${facetOption("plan", edition)?.badgeClass ?? ""}`}
