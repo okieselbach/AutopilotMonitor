@@ -20,6 +20,8 @@ interface AgentSettingsSectionProps {
   setHelloWaitTimeoutSeconds: (value: number) => void;
   enableRealmJoinWatcher: boolean;
   setEnableRealmJoinWatcher: (value: boolean) => void;
+  enableConfigMgrWatcher: boolean;
+  setEnableConfigMgrWatcher: (value: boolean) => void;
   selfDestructOnComplete: boolean;
   setSelfDestructOnComplete: (value: boolean) => void;
   keepLogFile: boolean;
@@ -68,6 +70,8 @@ export default function AgentSettingsSection({
   setHelloWaitTimeoutSeconds,
   enableRealmJoinWatcher,
   setEnableRealmJoinWatcher,
+  enableConfigMgrWatcher,
+  setEnableConfigMgrWatcher,
   selfDestructOnComplete,
   setSelfDestructOnComplete,
   keepLogFile,
@@ -420,6 +424,20 @@ export default function AgentSettingsSection({
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableRealmJoinWatcher ? 'bg-emerald-500' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableRealmJoinWatcher ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {/* ConfigMgr Watcher */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-emerald-200 transition-colors">
+            <div className="flex-1">
+              <p className="font-medium text-gray-900">ConfigMgr Watcher</p>
+              <p className="text-sm text-gray-500 mt-1">Shows in Session Info whether the Configuration Manager client is installed, with its service state, version and site code. Off by default; enable for tenants that co-manage devices with Configuration Manager.</p>
+            </div>
+            <button
+              onClick={() => setEnableConfigMgrWatcher(!enableConfigMgrWatcher)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableConfigMgrWatcher ? 'bg-emerald-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableConfigMgrWatcher ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
 

@@ -517,14 +517,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     startupGate: _startupEventGate));
             }
 
-            // ConfigMgr client presence (the V1 check) — always-on, no config gate, on every flow.
-            hosts.Add(new ConfigMgrClientHost(
-                sessionId: sessionId,
-                tenantId: tenantId,
-                logger: logger,
-                ingress: ingress,
-                clock: clock,
-                startupGate: _startupEventGate));
+            // ConfigMgr client presence (the V1 check) — opt-in per tenant (portal toggle →
+            // AnalyzerConfiguration.EnableConfigMgrWatcher, default off). When off, the host is
+            // never created, so devices of other tenants run no check at all.
+            if (analyzers.EnableConfigMgrWatcher)
+            {
+                hosts.Add(new ConfigMgrClientHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    logger: logger,
+                    ingress: ingress,
+                    clock: clock,
+                    startupGate: _startupEventGate));
+            }
+            else
+            {
+                logger.Info("DefaultComponentFactory: ConfigMgrClientHost not created (EnableConfigMgrWatcher=false)");
+            }
 
             // Registry second pillar (audit 2026-08-17): IME's authoritative per-app state from
             // HKLM\...\IntuneManagementExtension (Win32Apps EnforcementStateMessage,

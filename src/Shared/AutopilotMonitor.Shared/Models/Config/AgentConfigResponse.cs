@@ -660,6 +660,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool EnableRealmJoinWatcher { get; set; } = false;
 
         /// <summary>
+        /// Whether to enable the ConfigMgr watcher, which reports whether the Configuration
+        /// Manager client is installed (service state, version, site code). This is not an
+        /// IAgentAnalyzer; the flag gates creation of the ConfigMgr client host in the agent runtime.
+        /// Default: false (opt-in; most tenants do not co-manage with ConfigMgr).
+        /// </summary>
+        public bool EnableConfigMgrWatcher { get; set; } = false;
+
+        /// <summary>
         /// Whether to keep the device awake (system + display) during the User-ESP (AccountSetup)
         /// phase so idle standby/sleep cannot stall app installs or account provisioning. This is
         /// not an IAgentAnalyzer; the flag gates creation of the UserEspKeepAwake host in the agent

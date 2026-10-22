@@ -222,6 +222,8 @@ interface TenantConfigContextValue {
   setEnrollmentSummaryLaunchRetrySeconds: (v: number) => void;
   enableRealmJoinWatcher: boolean;
   setEnableRealmJoinWatcher: (v: boolean) => void;
+  enableConfigMgrWatcher: boolean;
+  setEnableConfigMgrWatcher: (v: boolean) => void;
   handleSaveAgentSettings: () => void;
   handleResetAgentSettings: () => void;
 
@@ -432,6 +434,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl] = useState("");
   const [enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds] = useState(120);
   const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
+  const [enableConfigMgrWatcher, setEnableConfigMgrWatcher] = useState(false);
   const [keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp] = useState(false);
 
   // Notification channels
@@ -592,6 +595,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setEnrollmentSummaryBrandingImageUrl(data.enrollmentSummaryBrandingImageUrl ?? "");
         setEnrollmentSummaryLaunchRetrySeconds(data.enrollmentSummaryLaunchRetrySeconds ?? 120);
         setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
+        setEnableConfigMgrWatcher(data.enableConfigMgrWatcher ?? false);
         setKeepAwakeDuringUserEsp(data.keepAwakeDuringUserEsp ?? false);
         // Notification channels (auto-migrates from the legacy single-webhook fields)
         setNotificationChannels(channelsFromConfig(data));
@@ -785,6 +789,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         enrollmentSummaryBrandingImageUrl: enrollmentSummaryBrandingImageUrl || undefined,
         enrollmentSummaryLaunchRetrySeconds,
         enableRealmJoinWatcher,
+        enableConfigMgrWatcher,
         keepAwakeDuringUserEsp,
         // Notification channels are the authoritative config; the legacy single-webhook
         // fields are cleared on save so deleting the last channel can't resurrect a zombie
@@ -853,7 +858,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, companyName, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    enableRealmJoinWatcher, keepAwakeDuringUserEsp,
+    enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
     notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
@@ -1226,6 +1231,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnrollmentSummaryBrandingImageUrl(config.enrollmentSummaryBrandingImageUrl ?? "");
     setEnrollmentSummaryLaunchRetrySeconds(config.enrollmentSummaryLaunchRetrySeconds ?? 120);
     setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
+    setEnableConfigMgrWatcher(config.enableConfigMgrWatcher ?? false);
     setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
   }, [config]);
 
@@ -1607,6 +1613,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl,
       enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds,
       enableRealmJoinWatcher, setEnableRealmJoinWatcher,
+      enableConfigMgrWatcher, setEnableConfigMgrWatcher,
       keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
       handleSaveAgentSettings, handleResetAgentSettings,
 
@@ -1690,7 +1697,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    enableRealmJoinWatcher, keepAwakeDuringUserEsp,
+    enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
     handleSaveAgentSettings, handleResetAgentSettings,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
     enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableConsoleBypassDetection,

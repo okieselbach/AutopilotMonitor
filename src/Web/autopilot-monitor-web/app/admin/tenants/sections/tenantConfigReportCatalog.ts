@@ -190,6 +190,7 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   enableIntegrityBypassAnalyzer: { section: "Analyzers", label: "Integrity Bypass Analyzer" },
   enableConsoleBypassDetection: { section: "Analyzers", label: "Console Bypass Detection" },
   enableRealmJoinWatcher: { section: "Analyzers", label: "Realm Join Watcher" },
+  enableConfigMgrWatcher: { section: "Analyzers", label: "ConfigMgr Watcher" },
 
   // Webhooks — channel list plus the legacy single-webhook fields it falls back to
   notificationChannelsJson: CHANNEL_BLOCK,
@@ -341,6 +342,7 @@ export const ANALYZER_FIELDS: Record<keyof AnalyzerConfiguration, RuntimeRow | E
   enableSoftwareInventoryAnalyzer: { section: "Analyzers", label: "Software Inventory Analyzer", source: "tenant" },
   enableIntegrityBypassAnalyzer: { section: "Analyzers", label: "Integrity Bypass Analyzer", source: "tenant" },
   enableRealmJoinWatcher: { section: "Analyzers", label: "Realm Join Watcher", source: "tenant" },
+  enableConfigMgrWatcher: { section: "Analyzers", label: "ConfigMgr Watcher", source: "tenant" },
   keepAwakeDuringUserEsp: { section: "Analyzers", label: "Keep Awake During User ESP", source: "tenant" },
   enableConsoleBypassDetection: { section: "Analyzers", label: "Console Bypass Detection", source: "tenant" },
 };

@@ -72,8 +72,17 @@ public class AgentConfigResolverTests
         Assert.False(r.Analyzers.EnableSoftwareInventoryAnalyzer);
         Assert.True(r.Analyzers.EnableIntegrityBypassAnalyzer);
         Assert.False(r.Analyzers.EnableRealmJoinWatcher);
+        Assert.False(r.Analyzers.EnableConfigMgrWatcher);
         Assert.False(r.Analyzers.KeepAwakeDuringUserEsp);
         Assert.True(r.Analyzers.EnableConsoleBypassDetection);
+    }
+
+    [Fact]
+    public void The_tenant_switches_the_ConfigMgr_watcher_on()
+    {
+        var r = Build(Tenant(t => t.EnableConfigMgrWatcher = true));
+
+        Assert.True(r.Analyzers.EnableConfigMgrWatcher);
     }
 
     [Theory]

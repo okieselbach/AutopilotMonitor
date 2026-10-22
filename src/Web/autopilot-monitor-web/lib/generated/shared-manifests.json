@@ -195,6 +195,7 @@
       "enableSoftwareInventoryAnalyzer",
       "enableIntegrityBypassAnalyzer",
       "enableRealmJoinWatcher",
+      "enableConfigMgrWatcher",
       "keepAwakeDuringUserEsp",
       "enableConsoleBypassDetection",
       "localAdminAllowedAccountsJson",
@@ -300,6 +301,7 @@
       "enableSoftwareInventoryAnalyzer": null,
       "enableIntegrityBypassAnalyzer": null,
       "enableRealmJoinWatcher": null,
+      "enableConfigMgrWatcher": null,
       "keepAwakeDuringUserEsp": null,
       "enableConsoleBypassDetection": null,
       "localAdminAllowedAccountsJson": null,
@@ -442,6 +444,7 @@
       "enableSoftwareInventoryAnalyzer": false,
       "enableIntegrityBypassAnalyzer": true,
       "enableRealmJoinWatcher": false,
+      "enableConfigMgrWatcher": false,
       "keepAwakeDuringUserEsp": false,
       "enableConsoleBypassDetection": true
     }
@@ -2944,6 +2947,14 @@
             "name": "boolean"
           },
           "doc": "Whether to enable the RealmJoin watcher, which tracks RealmJoin deployment state and enrollment packages during provisioning. This is not an IAgentAnalyzer; the flag gates creation of the RealmJoin collector host in the agent runtime. Default: false (opt-in; most tenants do not deploy via RealmJoin)."
+        },
+        {
+          "name": "enableConfigMgrWatcher",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to enable the ConfigMgr watcher, which reports whether the Configuration Manager client is installed (service state, version, site code). This is not an IAgentAnalyzer; the flag gates creation of the ConfigMgr client host in the agent runtime. Default: false (opt-in; most tenants do not co-manage with ConfigMgr)."
         },
         {
           "name": "keepAwakeDuringUserEsp",
@@ -24647,6 +24658,16 @@
           },
           "optional": true,
           "doc": "Whether the RealmJoin watcher is enabled for this tenant's devices. RealmJoin enrollment-package tracking is off by default; enable only for tenants that deploy via RealmJoin. null = use agent default (false)."
+        },
+        {
+          "name": "enableConfigMgrWatcher",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Whether the ConfigMgr watcher is enabled for this tenant's devices: the agent reports whether the Configuration Manager client is installed (service state, version, site code). Off by default; enable for tenants that co-manage with ConfigMgr. null = use agent default (false)."
         },
         {
           "name": "keepAwakeDuringUserEsp",

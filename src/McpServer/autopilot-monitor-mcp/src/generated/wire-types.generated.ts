@@ -421,6 +421,8 @@ export interface AnalyzerConfiguration {
   enableIntegrityBypassAnalyzer: boolean;
   /** Whether to enable the RealmJoin watcher, which tracks RealmJoin deployment state and enrollment packages during provisioning. This is not an IAgentAnalyzer; the flag gates creation of the RealmJoin collector host in the agent runtime. Default: false (opt-in; most tenants do not deploy via RealmJoin). */
   enableRealmJoinWatcher: boolean;
+  /** Whether to enable the ConfigMgr watcher, which reports whether the Configuration Manager client is installed (service state, version, site code). This is not an IAgentAnalyzer; the flag gates creation of the ConfigMgr client host in the agent runtime. Default: false (opt-in; most tenants do not co-manage with ConfigMgr). */
+  enableConfigMgrWatcher: boolean;
   /** Whether to keep the device awake (system + display) during the User-ESP (AccountSetup) phase so idle standby/sleep cannot stall app installs or account provisioning. This is not an IAgentAnalyzer; the flag gates creation of the UserEspKeepAwake host in the agent runtime. Reboots are unaffected (the hold only resets idle timers). Default: false (opt-in per tenant). */
   keepAwakeDuringUserEsp: boolean;
   /** Whether to detect an interactive console opened during enrollment — the classic Shift+F10 OOBE bypass. Gates BOTH the live ConsoleBypass host (an interactive-session cmd.exe with a bare, non-scripted command line; stopped on real-user desktop arrival) and the startup ConsolePrefetchScanner (CMD.EXE-*.pf ran after boot). Detection is best-effort, not gapless — a press before the agent installs is only coarsely covered by the prefetch artifact. Security-sensitive; not an IAgentAnalyzer toggle in the usual sense (it also gates a collector host). Default: true (opt-out per tenant — a Shift+F10 console during enrollment is a finding worth surfacing by default; tenants that knowingly use Shift+F10 for support can disable it). */
@@ -5359,6 +5361,8 @@ export interface TenantConfiguration {
   enableIntegrityBypassAnalyzer?: boolean | null;
   /** Whether the RealmJoin watcher is enabled for this tenant's devices. RealmJoin enrollment-package tracking is off by default; enable only for tenants that deploy via RealmJoin. null = use agent default (false). */
   enableRealmJoinWatcher?: boolean | null;
+  /** Whether the ConfigMgr watcher is enabled for this tenant's devices: the agent reports whether the Configuration Manager client is installed (service state, version, site code). Off by default; enable for tenants that co-manage with ConfigMgr. null = use agent default (false). */
+  enableConfigMgrWatcher?: boolean | null;
   /** Whether to keep the device awake during the User-ESP (AccountSetup) phase for this tenant's devices. Prevents idle standby/sleep from stalling app installs / account provisioning; reboots are unaffected. Off by default. null = use agent default (false). */
   keepAwakeDuringUserEsp?: boolean | null;
   /** Whether to detect a SYSTEM console opened during enrollment (Shift+F10 OOBE bypass) for this tenant's devices. Gates the live ConsoleBypass watcher + the startup prefetch scanner. On by default (opt-out); tenants that knowingly use Shift+F10 for support can disable it. null = use agent default (true). */

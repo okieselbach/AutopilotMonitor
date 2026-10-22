@@ -67,6 +67,7 @@ export const SECTION_FIELD_MAP = {
       "performanceCollectorIntervalSeconds",
       "helloWaitTimeoutSeconds",
       "enableRealmJoinWatcher",
+      "enableConfigMgrWatcher",
       "selfDestructOnComplete",
       "keepLogFile",
       "rebootOnComplete",

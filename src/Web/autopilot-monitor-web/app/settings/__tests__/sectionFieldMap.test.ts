@@ -34,7 +34,7 @@ const EXPECTED_OWNED_FIELDS = [
   "contactEmail", "companyName",
   // agentSettings
   "enablePerformanceCollector", "performanceCollectorIntervalSeconds", "helloWaitTimeoutSeconds",
-  "enableRealmJoinWatcher",
+  "enableRealmJoinWatcher", "enableConfigMgrWatcher",
   "selfDestructOnComplete", "keepLogFile", "rebootOnComplete", "rebootDelaySeconds",
   "enableGeoLocation", "enableTimezoneAutoSet", "enableDoGroupIdAutoSet", "keepAwakeDuringUserEsp",
   "enableImeMatchLog", "enableGatherRuleDebugLog",

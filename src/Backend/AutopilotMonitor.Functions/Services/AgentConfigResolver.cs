@@ -36,7 +36,7 @@ namespace AutopilotMonitor.Functions.Services
     public class AgentConfigResolver
     {
         /// <summary>Bumped when the wire shape gains a field the agent must understand.</summary>
-        public const int ConfigVersion = 41; // InterceptedRegistrationRetryBoots (boots after an intercepted registration)
+        public const int ConfigVersion = 42; // Analyzers.EnableConfigMgrWatcher (ConfigMgr client check, opt-in)
 
         /// <summary>
         /// Served as <see cref="AgentConfigResponse.InterceptedRegistrationRetryBoots"/>. A code
@@ -154,6 +154,7 @@ namespace AutopilotMonitor.Functions.Services
                     EnableSoftwareInventoryAnalyzer = tenantConfig.EnableSoftwareInventoryAnalyzer ?? false,
                     EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true,
                     EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false,
+                    EnableConfigMgrWatcher = tenantConfig.EnableConfigMgrWatcher ?? false,
                     KeepAwakeDuringUserEsp = tenantConfig.KeepAwakeDuringUserEsp ?? false,
                     EnableConsoleBypassDetection = tenantConfig.EnableConsoleBypassDetection ?? true
                 },

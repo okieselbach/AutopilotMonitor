@@ -130,6 +130,7 @@ export interface TenantConfiguration {
   enableSoftwareInventoryAnalyzer?: boolean;
   enableIntegrityBypassAnalyzer?: boolean;
   enableRealmJoinWatcher?: boolean;
+  enableConfigMgrWatcher?: boolean;
   keepAwakeDuringUserEsp?: boolean;
   enableConsoleBypassDetection?: boolean;
   // Bootstrap token

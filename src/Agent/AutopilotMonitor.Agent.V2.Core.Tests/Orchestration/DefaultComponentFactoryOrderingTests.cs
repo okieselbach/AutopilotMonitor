@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         /// enabled by default) and system-boundary fakes only: temp state dir, fake ingress,
         /// virtual clock, no network metrics, no telemetry spool.
         /// </summary>
-        private CollectorSurfaces CreateSurfaces()
+        private CollectorSurfaces CreateSurfaces(AnalyzerConfiguration? analyzers = null)
         {
             var factory = new DefaultComponentFactory(
                 agentConfig: new AgentConfiguration
@@ -52,6 +52,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 remoteConfig: new AgentConfigResponse
                 {
                     Collectors = CollectorConfiguration.CreateDefault(),
+                    Analyzers = analyzers ?? new AnalyzerConfiguration(),
                 },
                 networkMetrics: null,
                 agentVersion: "test",
@@ -132,6 +133,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 // over the ImeLogHost reference, which is assigned during the same factory call —
                 // the host must therefore exist in the returned list.
                 Assert.Equal(1, hosts.Count(h => h is ImeLogHost));
+            }
+            finally
+            {
+                foreach (var host in hosts)
+                {
+                    try { host.Dispose(); } catch { /* construction-only test — best-effort cleanup */ }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(false, 0)]
+        [InlineData(true, 1)]
+        public void ConfigMgr_client_host_exists_only_when_the_tenant_enables_the_watcher(bool enabled, int expected)
+        {
+            // Opt-in (D-382): with the watcher off the check must not run at all, not merely stay quiet.
+            var hosts = CreateSurfaces(new AnalyzerConfiguration { EnableConfigMgrWatcher = enabled }).Hosts;
+            try
+            {
+                Assert.Equal(expected, hosts.Count(h => h is ConfigMgrClientHost));
             }
             finally
             {

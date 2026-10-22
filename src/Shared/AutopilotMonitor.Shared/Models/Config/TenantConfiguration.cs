@@ -604,6 +604,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableRealmJoinWatcher { get; set; } = null;
 
         /// <summary>
+        /// Whether the ConfigMgr watcher is enabled for this tenant's devices: the agent reports
+        /// whether the Configuration Manager client is installed (service state, version, site
+        /// code). Off by default; enable for tenants that co-manage with ConfigMgr.
+        /// null = use agent default (false).
+        /// </summary>
+        public bool? EnableConfigMgrWatcher { get; set; } = null;
+
+        /// <summary>
         /// Whether to keep the device awake during the User-ESP (AccountSetup) phase for this
         /// tenant's devices. Prevents idle standby/sleep from stalling app installs / account
         /// provisioning; reboots are unaffected. Off by default. null = use agent default (false).

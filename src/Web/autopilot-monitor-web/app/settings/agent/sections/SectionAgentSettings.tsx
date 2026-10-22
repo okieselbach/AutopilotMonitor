@@ -11,6 +11,7 @@ export function SectionAgentSettings() {
     performanceCollectorInterval, setPerformanceCollectorInterval,
     helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds,
     enableRealmJoinWatcher, setEnableRealmJoinWatcher,
+    enableConfigMgrWatcher, setEnableConfigMgrWatcher,
     selfDestructOnComplete, setSelfDestructOnComplete,
     keepLogFile, setKeepLogFile,
     rebootOnComplete, setRebootOnComplete,
@@ -43,6 +44,8 @@ export function SectionAgentSettings() {
         setHelloWaitTimeoutSeconds={setHelloWaitTimeoutSeconds}
         enableRealmJoinWatcher={enableRealmJoinWatcher}
         setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
+        enableConfigMgrWatcher={enableConfigMgrWatcher}
+        setEnableConfigMgrWatcher={setEnableConfigMgrWatcher}
         selfDestructOnComplete={selfDestructOnComplete}
         setSelfDestructOnComplete={setSelfDestructOnComplete}
         keepLogFile={keepLogFile}

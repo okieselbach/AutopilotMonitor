@@ -199,6 +199,7 @@ export const SHARED_MANIFEST = {
       "enableSoftwareInventoryAnalyzer",
       "enableIntegrityBypassAnalyzer",
       "enableRealmJoinWatcher",
+      "enableConfigMgrWatcher",
       "keepAwakeDuringUserEsp",
       "enableConsoleBypassDetection",
       "localAdminAllowedAccountsJson",
@@ -304,6 +305,7 @@ export const SHARED_MANIFEST = {
       "enableSoftwareInventoryAnalyzer": null,
       "enableIntegrityBypassAnalyzer": null,
       "enableRealmJoinWatcher": null,
+      "enableConfigMgrWatcher": null,
       "keepAwakeDuringUserEsp": null,
       "enableConsoleBypassDetection": null,
       "localAdminAllowedAccountsJson": null,
@@ -446,6 +448,7 @@ export const SHARED_MANIFEST = {
       "enableSoftwareInventoryAnalyzer": false,
       "enableIntegrityBypassAnalyzer": true,
       "enableRealmJoinWatcher": false,
+      "enableConfigMgrWatcher": false,
       "keepAwakeDuringUserEsp": false,
       "enableConsoleBypassDetection": true
     }

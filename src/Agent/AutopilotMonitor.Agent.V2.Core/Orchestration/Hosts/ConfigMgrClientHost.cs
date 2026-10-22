@@ -12,7 +12,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// <summary>
     /// Drives the <see cref="ConfigMgrClientDetector"/>: a first check shortly after start (the
     /// client may already be installed) and one per minute after that (it may arrive later, e.g.
-    /// as a Win32 app). Always-on, no config gate — like the V1 check it replaces.
+    /// as a Win32 app). Created only when the tenant enables the ConfigMgr watcher
+    /// (<c>AnalyzerConfiguration.EnableConfigMgrWatcher</c>).
     /// </summary>
     internal sealed class ConfigMgrClientHost : ICollectorHost
     {

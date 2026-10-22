@@ -145,6 +145,7 @@ describe("runtime catalogs parity with the agent-config defaults manifest", () =
     expect(agentDefaults.collectorDefaults.collectorIdleTimeoutMinutes).toBe(15);
     expect(agentDefaults.analyzerDefaults.enableIntegrityBypassAnalyzer).toBe(true);
     expect(agentDefaults.analyzerDefaults.enableRealmJoinWatcher).toBe(false);
+    expect(agentDefaults.analyzerDefaults.enableConfigMgrWatcher).toBe(false);
   });
 });
 
