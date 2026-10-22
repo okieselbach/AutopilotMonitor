@@ -92,14 +92,14 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         ///     <c>terminate_session</c> <see cref="ServerAction"/> with
         ///     <c>forceSelfDestruct=true</c> and routes it through the dispatcher, overriding
         ///     local <c>SelfDestructOnComplete=false</c>.</item>
-        ///   <item><b>AdminAction=Succeeded</b> — informational. Admin clicked Mark-Succeeded in
-        ///     the portal. Emits a single <c>admin_marked_session</c> timeline entry and lets
-        ///     the agent finish its own path.</item>
-        ///   <item><b>AdminAction=Failed</b> — soft admin-driven shutdown. Calls the agent's own
-        ///     <see cref="EnrollmentTerminationHandler.Handle"/> with <c>outcome=Failed</c>,
-        ///     which runs the same analyzers / diagnostics / summary / self-destruct sequence
-        ///     as a locally-detected failure. Self-destruct is governed by local
-        ///     <c>SelfDestructOnComplete</c> — no forced override.</item>
+        ///   <item><b>AdminAction=Succeeded|Failed</b> — soft admin-driven shutdown. Admin clicked
+        ///     Mark-Succeeded / Mark-Failed in the portal. Calls the agent's own
+        ///     <see cref="EnrollmentTerminationHandler.Handle"/> with that outcome, which runs the
+        ///     same analyzers / diagnostics / summary / self-destruct sequence as a locally-detected
+        ///     completion or failure. Self-destruct is governed by local
+        ///     <c>SelfDestructOnComplete</c> — no forced override. The backend repeats AdminAction
+        ///     on every response, so only the first one per process is acted on
+        ///     (<see cref="HandleAdminAction"/>).</item>
         ///   <item><b>upload.Actions[]</b> — genuinely backend-queued <see cref="ServerAction"/>s
         ///     (<c>rotate_config</c>, <c>request_diagnostics</c>). Still routed through the
         ///     dispatcher because these are real actions, not admin-button echoes.</item>
@@ -129,6 +129,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         {
             orchestrator.Transport.SessionGone += (sender, reason) =>
                 HandleSessionGone(reason, emergencyReporter, dispatcher, shutdown, shutdownComplete, logger);
+
+            var adminActionLatch = new AdminActionLatch();
 
             orchestrator.Transport.ServerResponseReceived += (sender, upload) =>
             {
@@ -163,17 +165,17 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         try { return orchestrator.CurrentState?.Stage.ToString(); }
                         catch (InvalidOperationException) { return null; }
                     };
-                    Action<EnrollmentTerminatedEventArgs> onAdminFailed = args =>
+                    Action<EnrollmentTerminatedEventArgs> onAdminTerminal = args =>
                     {
                         var handler = terminationHandlerAccessor();
                         if (handler == null)
                         {
-                            logger.Warning("AdminAction=Failed received but terminationHandler not constructed yet — ignoring.");
+                            logger.Warning($"AdminAction={args.Outcome} received but terminationHandler not constructed yet — ignoring.");
                             return;
                         }
                         handler.Handle(sender: null, args: args);
                     };
-                    HandleAdminAction(upload.AdminAction, stageNameAccessor, post, onAdminFailed, agentConfig, logger);
+                    HandleAdminAction(upload.AdminAction, adminActionLatch, stageNameAccessor, post, onAdminTerminal, agentConfig, logger);
                 }
 
                 if (upload.Actions != null && upload.Actions.Count > 0)
@@ -265,16 +267,30 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// Soft admin-override handling. Portal Mark-Succeeded / Mark-Failed is an echo of an
         /// admin button click, not a ServerAction: it bypasses the dispatcher (no
         /// <c>server_action_received / _executed</c> noise) and flows straight into the agent's
-        /// own timeline / termination pipeline.
+        /// own timeline / termination pipeline — one <c>admin_marked_session</c> entry, then
+        /// <paramref name="onAdminTerminal"/> with the admin's outcome.
+        /// <para>
+        /// The backend repeats AdminAction on every telemetry response while the session row
+        /// carries it, so <paramref name="latch"/> admits only the first one per process. Acting
+        /// on every echo looped: each entry is uploaded immediately, and its response carried
+        /// the next echo.
+        /// </para>
         /// </summary>
         internal static void HandleAdminAction(
             string adminAction,
+            AdminActionLatch latch,
             Func<string> stageNameAccessor,
             InformationalEventPost post,
-            Action<EnrollmentTerminatedEventArgs> onAdminFailed,
+            Action<EnrollmentTerminatedEventArgs> onAdminTerminal,
             AgentConfiguration agentConfig,
             AgentLogger logger)
         {
+            if (!latch.TryEnter())
+            {
+                logger.Debug($"Backend repeated AdminAction={adminAction} — already handled in this process, ignoring.");
+                return;
+            }
+
             var outcome = string.Equals(adminAction, "Succeeded", StringComparison.OrdinalIgnoreCase)
                 ? EnrollmentTerminationOutcome.Succeeded
                 : EnrollmentTerminationOutcome.Failed;
@@ -311,8 +327,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger.Warning($"admin_marked_session emit failed: {ex.Message}");
             }
 
-            if (outcome != EnrollmentTerminationOutcome.Failed) return;
-            if (onAdminFailed == null) return;
+            if (onAdminTerminal == null) return;
 
             string stageName = null;
             try { stageName = stageNameAccessor?.Invoke(); }
@@ -320,17 +335,29 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             try
             {
-                onAdminFailed(new EnrollmentTerminatedEventArgs(
+                onAdminTerminal(new EnrollmentTerminatedEventArgs(
                     reason: EnrollmentTerminationReason.DecisionTerminalStage,
-                    outcome: EnrollmentTerminationOutcome.Failed,
+                    outcome: outcome,
                     stageName: stageName,
                     terminatedAtUtc: DateTime.UtcNow,
-                    details: "Admin marked session as Failed via portal."));
+                    details: $"Admin marked session as {outcome} via portal."));
             }
             catch (Exception ex)
             {
-                logger.Error("onAdminFailed (AdminAction=Failed) threw.", ex);
+                logger.Error($"onAdminTerminal (AdminAction={adminAction}) threw.", ex);
             }
+        }
+
+        /// <summary>
+        /// Admits the first <see cref="HandleAdminAction"/> call of the process. Atomic: responses
+        /// are raised on whichever thread ran the drain — the drain loop or the terminal drain —
+        /// so two can arrive at once.
+        /// </summary>
+        internal sealed class AdminActionLatch
+        {
+            private int _entered;
+
+            public bool TryEnter() => Interlocked.Exchange(ref _entered, 1) == 0;
         }
 
         /// <summary>
