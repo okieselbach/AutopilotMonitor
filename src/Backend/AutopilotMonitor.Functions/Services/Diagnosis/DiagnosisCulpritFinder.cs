@@ -18,6 +18,10 @@ internal static class DiagnosisCulpritFinder
 
     private static readonly IReadOnlyList<string> EvidenceRank = DiagnosisCulpritEvidence.All;
 
+    // The agent's provider kinds (EspPolicyProviderProbe.KindDevicePreparation / KindSetupApps).
+    private const string DevicePreparationProviderKind = "devicePreparation";
+    private const string SetupAppsProviderKind = "setupApps";
+
     internal static List<DiagnosisCulprit> Find(
         IReadOnlyList<EnrollmentEvent> events, FailureEvidence failure, EspBlockingSets? blocking)
     {
@@ -89,7 +93,7 @@ internal static class DiagnosisCulpritFinder
             }
         }
 
-        foreach (var provider in StalledProviders(events))
+        foreach (var provider in StalledProviders(events, failure.Step.Category))
             Add(provider);
 
         return culprits
@@ -125,14 +129,21 @@ internal static class DiagnosisCulpritFinder
         }
     }
 
-    /// <summary>Stuck ESP policy providers from the latest <c>esp_policy_provider_stalled</c>.</summary>
-    internal static IEnumerable<DiagnosisCulprit> StalledProviders(IReadOnlyList<EnrollmentEvent> events)
+    /// <summary>
+    /// Stuck ESP policy providers from the latest <c>esp_policy_provider_stalled</c>. Given the
+    /// failed ESP category, only providers that can hold it count: device-preparation providers
+    /// for a device-preparation failure, Setup/Apps providers for device or account setup. A
+    /// ConfigMgr client installed as a Win32 app registers its device-preparation provider after
+    /// device preparation ended, so that provider explains no later failure.
+    /// </summary>
+    internal static IEnumerable<DiagnosisCulprit> StalledProviders(IReadOnlyList<EnrollmentEvent> events, string? failedCategory = null)
     {
         var stalled = DiagnosisEspEvidence.LastOf(events, e => e.EventType == Constants.EventTypes.EspPolicyProviderStalled);
         foreach (var item in EventDataReader.Maps(stalled?.Data, "stalledProviders"))
         {
             var name = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(item, "name"));
             if (name == null) continue;
+            if (!CanHoldCategory(EventDataReader.String(item, "kind"), failedCategory)) continue;
             yield return new DiagnosisCulprit
             {
                 Kind = DiagnosisCulpritKinds.PolicyProvider,
@@ -144,6 +155,15 @@ internal static class DiagnosisCulpritFinder
                 EventId = stalled!.EventId,
             };
         }
+    }
+
+    private static bool CanHoldCategory(string? kind, string? failedCategory)
+    {
+        if (string.IsNullOrEmpty(failedCategory) || string.IsNullOrEmpty(kind)) return true;
+        var devicePreparationFailed = string.Equals(failedCategory, "DevicePreparation", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(kind, DevicePreparationProviderKind, StringComparison.OrdinalIgnoreCase)) return devicePreparationFailed;
+        if (string.Equals(kind, SetupAppsProviderKind, StringComparison.OrdinalIgnoreCase)) return !devicePreparationFailed;
+        return true;
     }
 
     private static DiagnosisCulprit AppCulprit(AppTrack app, string evidence, EspBlockingSets? blocking, string? eventId) => new()

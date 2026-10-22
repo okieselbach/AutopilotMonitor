@@ -185,6 +185,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.False(EspPolicyProviderSnapshot.Empty.SidecarRegistered);
         }
 
+        // ------------------------------------------------- phase gate for DevicePreparation providers
+
+        [Theory]
+        [InlineData("device_preparation", true)]
+        [InlineData("device_preparation_failed", true)]  // a failed device preparation keeps its culprit
+        [InlineData("none", true)]                       // unknown phase → keep observing
+        [InlineData("unavailable", true)]
+        [InlineData("", true)]
+        [InlineData("device_preparation_done", false)]
+        [InlineData("device_setup", false)]
+        [InlineData("device_setup_failed", false)]
+        [InlineData("account_setup", false)]
+        [InlineData("esp_done", false)]
+        public void Device_preparation_counts_until_it_is_done(string phase, bool expected)
+            => Assert.Equal(expected, EspPhaseSnapshot.DevicePreparationOpen(phase));
+
+        [Fact]
+        public void DevicePreparation_provider_past_its_phase_drops_out_while_setupApps_still_counts()
+        {
+            // Field shape (client installed as a Win32 app): the client registers its
+            // DevicePreparation provider after its own install with InstallationState=1, long
+            // after device preparation ended. Nothing ever completes it.
+            var snapshot = Snapshot(
+                DevicePrep("ConfigMgr", installState: 1),
+                SetupApps("Contoso", tracking: 0));
+            var seen = new Dictionary<string, DateTime>
+            {
+                ["devicePreparation|device|ConfigMgr"] = T0,
+                ["setupApps|device|Contoso"] = T0,
+            };
+
+            var eval = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                snapshot, seen, new HashSet<string>(), null, false, T0.AddMinutes(30), Dwell,
+                devicePreparationOpen: false);
+
+            Assert.False(eval.UpdatedFirstSeenUtc.ContainsKey("devicePreparation|device|ConfigMgr")); // reset
+            var stalled = Assert.Single(eval.NewlyStalled);
+            Assert.Equal("Contoso", stalled.Provider.Name);
+        }
+
         // ------------------------------------------------- arm 2: sidecar-missing transition
 
         [Fact]
@@ -265,16 +305,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
         public void Dispose() => _tmp.Dispose();
 
+        // The phase defaults to "none" so the tests never read the test machine's own ESP state.
         private (EspPolicyProviderStallDetector sut, FakeSignalIngressSink sink, VirtualClock clock)
-            BuildDetector(StartupEventGate? gate = null)
+            BuildDetector(StartupEventGate? gate = null, Func<string>? phase = null)
         {
             var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
             var sink = new FakeSignalIngressSink();
             var clock = new VirtualClock(At);
             var post = new InformationalEventPost(sink, clock);
-            var sut = new EspPolicyProviderStallDetector("S1", "T1", post, logger, clock, gate);
+            var sut = new EspPolicyProviderStallDetector("S1", "T1", post, logger, clock, gate,
+                espPhaseReader: phase ?? (() => EspPhaseSnapshot.None));
             return (sut, sink, clock);
         }
+
+        private static readonly TimeSpan DwellSpan = TimeSpan.FromMinutes(EspPolicyProviderStallDetector.DwellMinutes);
+
+        private static PolicyProviderState SidecarDone() =>
+            new PolicyProviderState("Sidecar", "device", EspPolicyProviderProbe.KindSetupApps, 1, null);
+
+        private static PolicyProviderState ConfigMgrDevicePrep(int? installationState) =>
+            new PolicyProviderState("ConfigMgr", "device", EspPolicyProviderProbe.KindDevicePreparation, null, installationState);
 
         private static EspPolicyProviderSnapshot ConfigMgrOnly() => new EspPolicyProviderSnapshot(new[]
         {
@@ -432,6 +482,104 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 clock.Advance(TimeSpan.FromMinutes(EspPolicyProviderStallDetector.DwellMinutes));
                 sut.Tick();
                 Assert.Single(StalledEvents(sink));
+            }
+        }
+
+        [Fact]
+        public void Provider_registered_after_device_preparation_never_emits()
+        {
+            // The ConfigMgr client as a Win32 app: its DevicePreparation provider shows up during
+            // device setup with InstallationState=1 and stays there.
+            var snapshot = new EspPolicyProviderSnapshot(new[] { SidecarDone(), ConfigMgrDevicePrep(1) });
+            using var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => snapshot);
+            var (sut, sink, clock) = BuildDetector(phase: () => "device_setup");
+
+            sut.Tick();
+            clock.Advance(TimeSpan.FromHours(2));
+            sut.Tick();
+
+            Assert.Empty(StalledEvents(sink));
+        }
+
+        [Fact]
+        public void A_real_device_preparation_hang_still_emits()
+        {
+            // Field shape: only ConfigMgr providers registered, the ESP never left device
+            // preparation and failed with 0x800705b4.
+            var snapshot = new EspPolicyProviderSnapshot(new[]
+            {
+                new PolicyProviderState("ConfigMgr", "device", EspPolicyProviderProbe.KindSetupApps, null, null),
+                ConfigMgrDevicePrep(1),
+            });
+            using var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => snapshot);
+            var (sut, sink, clock) = BuildDetector(phase: () => EspPhaseSnapshot.DevicePreparation);
+
+            sut.Tick();
+            clock.Advance(DwellSpan);
+            sut.Tick();
+
+            var evt = Assert.Single(StalledEvents(sink));
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(evt.TypedPayload);
+            var stalled = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(data["stalledProviders"]);
+            Assert.Contains(stalled, s => (string)s["kind"] == EspPolicyProviderProbe.KindDevicePreparation);
+        }
+
+        [Fact]
+        public void Device_preparation_stall_message_names_the_provider_timeout()
+        {
+            var snapshot = new EspPolicyProviderSnapshot(new[] { SidecarDone(), ConfigMgrDevicePrep(1) });
+            using var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => snapshot);
+            var (sut, sink, clock) = BuildDetector(phase: () => EspPhaseSnapshot.DevicePreparation);
+
+            sut.Tick();
+            clock.Advance(DwellSpan);
+            sut.Tick();
+
+            var message = Assert.Single(StalledEvents(sink)).Payload![SignalPayloadKeys.Message];
+            Assert.Contains("until their timeout", message);
+            Assert.DoesNotContain("without any timeout", message);
+        }
+
+        [Fact]
+        public void Fingerprint_skips_device_preparation_providers_past_their_phase()
+        {
+            var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
+            var phase = EspPhaseSnapshot.DevicePreparation;
+            var devicePrepOnly = new EspPolicyProviderSnapshot(new[] { SidecarDone(), ConfigMgrDevicePrep(1) });
+            var withContoso = new EspPolicyProviderSnapshot(new[]
+            {
+                SidecarDone(),
+                ConfigMgrDevicePrep(1),
+                new PolicyProviderState("Contoso", "device", EspPolicyProviderProbe.KindSetupApps, 0, null),
+            });
+            var current = devicePrepOnly;
+
+            // Run 1: the DevicePreparation provider stalls during device preparation; later, in
+            // device setup, a Setup/Apps provider stalls as well.
+            using (var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => current))
+            {
+                var (sut, sink, clock) = BuildDetector(new StartupEventGate(_tmp.Path, logger), () => phase);
+                sut.Tick();
+                clock.Advance(DwellSpan);
+                sut.Tick();
+
+                phase = "device_setup";
+                current = withContoso;
+                sut.Tick();
+                clock.Advance(DwellSpan);
+                sut.Tick();
+                Assert.Equal(2, StalledEvents(sink).Count);
+            }
+
+            // Run 2 (restart in device setup): the same Contoso stall lands on the same
+            // fingerprint only if the stale DevicePreparation provider stayed out of it.
+            using (var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => withContoso))
+            {
+                var (sut, sink, clock) = BuildDetector(new StartupEventGate(_tmp.Path, logger), () => "device_setup");
+                sut.Tick();
+                clock.Advance(DwellSpan);
+                sut.Tick();
+                Assert.Empty(StalledEvents(sink));
             }
         }
 

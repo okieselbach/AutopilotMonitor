@@ -366,6 +366,51 @@ public class DiagnosisHeadlineBuilderTests
     }
 
     [Fact]
+    public void A_device_preparation_provider_is_no_culprit_for_a_later_apps_failure()
+    {
+        // A ConfigMgr client installed as a Win32 app registers its device-preparation provider
+        // after device preparation ended; its stall explains no device-setup failure.
+        var events = new Timeline()
+            .Add("esp_policy_provider_stalled", new()
+            {
+                ["reason"] = "provider_incomplete",
+                ["stalledProviders"] = new List<object>
+                {
+                    new Dictionary<string, object> { ["name"] = "ConfigMgr", ["scope"] = "device", ["kind"] = "devicePreparation", ["stalledForMinutes"] = 15.0 },
+                },
+            })
+            .Add("enrollment_failed", Failed("DeviceSetup", "Apps"));
+
+        var h = DiagnosisHeadlineBuilder.Build(Session(SessionStatus.Failed, VerdictPaths.AgentFailed), events.Events);
+
+        Assert.Null(h.Culprits);
+    }
+
+    [Fact]
+    public void Only_device_preparation_providers_explain_a_device_preparation_failure()
+    {
+        // Field shape: the ESP never left device preparation (0x800705b4).
+        var events = new Timeline()
+            .Add("esp_policy_provider_stalled", new()
+            {
+                ["reason"] = "sidecar_provider_missing",
+                ["stalledProviders"] = new List<object>
+                {
+                    new Dictionary<string, object> { ["name"] = "ConfigMgr", ["scope"] = "device", ["kind"] = "devicePreparation", ["stalledForMinutes"] = 40.0 },
+                    new Dictionary<string, object> { ["name"] = "Contoso", ["scope"] = "device", ["kind"] = "setupApps", ["stalledForMinutes"] = 40.0 },
+                },
+            })
+            .Add("enrollment_failed", Failed("DevicePreparation", "EspProviderInstallation", "0x800705b4"));
+
+        var h = DiagnosisHeadlineBuilder.Build(Session(SessionStatus.Failed, VerdictPaths.AgentFailed), events.Events);
+
+        var provider = Assert.Single(h.Culprits!);
+        Assert.Equal(DiagnosisCulpritKinds.PolicyProvider, provider.Kind);
+        Assert.Equal("ConfigMgr", provider.Name);
+        Assert.Equal(40.0, provider.StalledForMinutes);
+    }
+
+    [Fact]
     public void The_appx_log_candidate_joins_the_culprits()
     {
         var events = new Timeline()

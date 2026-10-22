@@ -20,13 +20,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     {
         internal const string None = "none";
         internal const string Unavailable = "unavailable";
+        internal const string DevicePreparation = "device_preparation";
+        private const string FailedSuffix = "_failed";
 
         internal enum CategoryState { Absent, Running, Done, Failed }
 
         // ESP order: device preparation, device setup, account setup.
         private static readonly (string ValueName, string Phase)[] Categories =
         {
-            ("DevicePreparationCategory.Status", "device_preparation"),
+            ("DevicePreparationCategory.Status", DevicePreparation),
             ("DeviceSetupCategory.Status", "device_setup"),
             ("AccountSetupCategory.Status", "account_setup"),
         };
@@ -60,7 +62,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             var states = Categories.Select((_, i) => Classify(i < statusJson.Count ? statusJson[i] : null)).ToList();
 
             for (var i = 0; i < Categories.Length; i++)
-                if (states[i] == CategoryState.Failed) return Categories[i].Phase + "_failed";
+                if (states[i] == CategoryState.Failed) return Categories[i].Phase + FailedSuffix;
             for (var i = 0; i < Categories.Length; i++)
                 if (states[i] == CategoryState.Running) return Categories[i].Phase;
 
@@ -68,6 +70,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (lastDone < 0) return None;
             return lastDone == Categories.Length - 1 ? "esp_done" : Categories[lastDone].Phase + "_done";
         }
+
+        /// <summary>
+        /// Whether device preparation can still hold the ESP in a <see cref="Read"/> result: it
+        /// runs or failed, or the phase is unknown (<see cref="None"/>, <see cref="Unavailable"/>).
+        /// False once device preparation is done, whichever later phase the ESP is in.
+        /// </summary>
+        internal static bool DevicePreparationOpen(string phase) =>
+            string.IsNullOrEmpty(phase)
+            || phase == None
+            || phase == Unavailable
+            || phase == DevicePreparation
+            || phase == DevicePreparation + FailedSuffix;
 
         /// <summary>
         /// One category value: done (<c>categorySucceeded=true</c>, or every subcategory succeeded

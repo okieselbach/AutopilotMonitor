@@ -39,6 +39,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// dispatch-guard exempt), never into decision state.
     /// </para>
     /// <para>
+    /// Phase gate: <c>DevicePreparation</c> providers count only while
+    /// <see cref="EspPhaseSnapshot.DevicePreparationOpen"/> holds. Once device preparation is done
+    /// their values hold nothing: a ConfigMgr client installed as a Win32 app registers its
+    /// provider after its own install with <c>InstallationState=1</c>, and nothing completes it.
+    /// </para>
+    /// <para>
     /// Duplicate suppression: in-process one-shot per provider key, plus a
     /// <see cref="StartupEventGate"/> fingerprint over the sorted set of currently-stalled keys so
     /// an agent restart into the same stall does not re-report it — while a NEW provider joining
@@ -75,6 +81,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly IClock _clock;
         private readonly StartupEventGate? _startupGate;
         private readonly TimeSpan _dwell;
+        private readonly Func<string> _espPhaseReader;
 
         private readonly Dictionary<string, DateTime> _firstSeenIncompleteUtc =
             new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
@@ -94,7 +101,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             AgentLogger logger,
             IClock clock,
             StartupEventGate? startupGate = null,
-            TimeSpan? dwell = null)
+            TimeSpan? dwell = null,
+            Func<string>? espPhaseReader = null)
         {
             _sessionId = sessionId;
             _tenantId = tenantId;
@@ -103,6 +111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _startupGate = startupGate;
             _dwell = dwell ?? TimeSpan.FromMinutes(DwellMinutes);
+            _espPhaseReader = espPhaseReader ?? EspPhaseSnapshot.Read;
         }
 
         /// <summary>Host timer callback and test seam — one probe + evaluation round.</summary>
@@ -111,7 +120,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             var snapshot = EspPolicyProviderProbe.Read(_logger);
             var eval = EvaluateStallTransition(
                 snapshot, _firstSeenIncompleteUtc, _firedKeys,
-                _sidecarMissingSinceUtc, _sidecarMissingFired, _clock.UtcNow, _dwell);
+                _sidecarMissingSinceUtc, _sidecarMissingFired, _clock.UtcNow, _dwell,
+                EspPhaseSnapshot.DevicePreparationOpen(_espPhaseReader()));
 
             _firstSeenIncompleteUtc.Clear();
             foreach (var kv in eval.UpdatedFirstSeenUtc)
@@ -133,6 +143,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <param name="sidecarMissingAlreadyFired">Arm-2 one-shot latch (never re-report).</param>
         /// <param name="nowUtc">Evaluation timestamp.</param>
         /// <param name="dwell">Continuous-condition threshold (shared by both arms).</param>
+        /// <param name="devicePreparationOpen">Whether device preparation can still hold the ESP (<see cref="EspPhaseSnapshot.DevicePreparationOpen"/>); false drops <c>DevicePreparation</c> providers from arm 1.</param>
         internal static StallEvaluation EvaluateStallTransition(
             EspPolicyProviderSnapshot snapshot,
             IReadOnlyDictionary<string, DateTime> firstSeenIncompleteUtc,
@@ -140,9 +151,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             DateTime? sidecarMissingSinceUtc,
             bool sidecarMissingAlreadyFired,
             DateTime nowUtc,
-            TimeSpan dwell)
+            TimeSpan dwell,
+            bool devicePreparationOpen = true)
         {
-            var result = new StallEvaluation();
+            var result = new StallEvaluation { DevicePreparationOpen = devicePreparationOpen };
 
             // Missing root key or no registered providers = normal early enrollment: clear all
             // dwell state (a condition must be continuously OBSERVED to accrue dwell).
@@ -152,8 +164,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // Arm 1 — a registered provider continuously incomplete.
             foreach (var provider in snapshot.Providers)
             {
-                if (provider.IsComplete)
-                    continue; // completed → falls out of the dwell map (reset)
+                if (provider.IsComplete || !result.Counts(provider))
+                    continue; // completed or past its phase → falls out of the dwell map (reset)
 
                 var firstSeen = firstSeenIncompleteUtc.TryGetValue(provider.Key, out var seen)
                     ? seen
@@ -197,7 +209,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // the same stall re-accrues dwell and lands on the same fingerprint → suppressed; a
             // new condition joining the stall changes it → re-emitted.
             var currentlyStalledKeys = snapshot.Providers
-                .Where(p => !p.IsComplete && _firedKeys.Contains(p.Key))
+                .Where(p => !p.IsComplete && eval.Counts(p) && _firedKeys.Contains(p.Key))
                 .Select(p => p.Key)
                 .ToList();
             if (_sidecarMissingFired && HasSetupAppsProvider(snapshot) && !snapshot.SidecarRegistered)
@@ -259,9 +271,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (eval.SidecarMissingStalledForMinutes != null)
                 data["sidecarMissingForMinutes"] = Math.Round(eval.SidecarMissingStalledForMinutes.Value, 1);
 
+            // The Setup/Apps wait has no timeout; device preparation gives up after the provider's
+            // Timeout node (CSP default 15 min).
+            var setupAppsWait = eval.SidecarMissingStalledForMinutes != null
+                || eval.NewlyStalled.Any(s => s.Provider.Kind == EspPolicyProviderProbe.KindSetupApps);
             var message =
-                "ESP Setup/Apps tracking stalled: " + string.Join("; ", messageParts) +
-                " — the ESP waits on its app-tracking providers without any timeout";
+                "ESP policy provider stalled: " + string.Join("; ", messageParts) +
+                (setupAppsWait
+                    ? " — the ESP waits on its Setup/Apps providers without any timeout"
+                    : " — device preparation waits on its providers until their timeout");
 
             _post.Emit(new EnrollmentEvent
             {
@@ -298,6 +316,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             /// <summary>Non-null when the sidecar-missing condition crossed the dwell threshold this round and was not yet reported (arm 2).</summary>
             public double? SidecarMissingStalledForMinutes { get; set; }
+
+            /// <summary>The phase gate of this round; the cross-restart fingerprint applies the same filter.</summary>
+            public bool DevicePreparationOpen { get; set; }
+
+            /// <summary>Whether arm 1 considers <paramref name="provider"/> in this round.</summary>
+            public bool Counts(PolicyProviderState provider)
+                => DevicePreparationOpen || provider.Kind != EspPolicyProviderProbe.KindDevicePreparation;
         }
 
         internal readonly struct StalledProvider
