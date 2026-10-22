@@ -701,8 +701,15 @@ public class AuthFunction
     {
         if (decision.NeedsAutoAdmin)
         {
-            _logger.LogInformation("First user login for tenant {TenantId}: {Upn} - Auto-assigning as admin", tenantId, upn);
-            await _tenantAdminsService.AddTenantAdminAsync(tenantId, upn, "System");
+            // Warning on purpose: activation seats the onboarding member before it activates the tenant, so
+            // this path is the exception (a tenant from before OnboardedBy existed, or a seat that went
+            // missing), and Information never reaches Application Insights. A lost conditional insert means
+            // a row for this caller appeared meanwhile (activation seating the same person, or a Global
+            // Admin); it is left as written and the next request reads it.
+            if (await _tenantAdminsService.TryAddTenantAdminAsync(tenantId, upn, "System"))
+                _logger.LogWarning("First-user auto-admin: {Upn} seated as Admin of tenant {TenantId}", upn, tenantId);
+            else
+                _logger.LogInformation("First-user auto-admin for {Upn} in tenant {TenantId}: a member row appeared meanwhile — left untouched", upn, tenantId);
         }
 
         _ = _metricsRepo.RecordUserLoginAsync(tenantId, upn, displayName, objectId)
@@ -788,8 +795,16 @@ public class AuthFunction
         // it. A delegated user who legitimately administers their own tenant has a TenantAdmins row (memberRole
         // != null), so this only suppresses the silent grant, never an existing right. The same holds for an
         // external identity (a guest), which is not a member of this tenant at all.
+        // Once the tenant has a designated onboarding member (a promotable OnboardedBy), the first-user
+        // seat is theirs alone: activation seats them before it activates the tenant, and should that
+        // seat ever be missing (removed, or the write failed) only they may take it on sign-in. Any other
+        // roleless caller is answered roleless, never the first caller to see an activated tenant with
+        // no rows. Without a designated member (rows from before OnboardedBy existed) the first sign-in
+        // still becomes the admin.
+        var onboardingMember = TenantApprovalService.IsPromotableUpn(tenantConfig.OnboardedBy) ? tenantConfig.OnboardedBy : null;
         bool isTenantAdmin = memberRole?.Role == Constants.TenantRoles.Admin;
-        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated && !isExternalIdentity;
+        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated && !isExternalIdentity
+            && (onboardingMember == null || string.Equals(onboardingMember, upn, StringComparison.OrdinalIgnoreCase));
         if (needsAutoAdmin)
         {
             isTenantAdmin = true;

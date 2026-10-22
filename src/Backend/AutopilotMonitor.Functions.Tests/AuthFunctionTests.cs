@@ -545,6 +545,65 @@ public class AuthFunctionTests
         Assert.True((bool)body.isTenantAdmin);
     }
 
+    private static TenantConfiguration ConfigOnboardedBy(string? onboardedBy)
+    {
+        var config = DefaultConfig();
+        config.OnboardedBy = onboardedBy;
+        return config;
+    }
+
+    [Fact]
+    public void AutoAdmin_DesignatedOnboardingMember_AnyOtherRolelessCallerStaysRoleless()
+    {
+        // The activation race: the tenant is activated, its partition is empty for a moment, and a colleague
+        // polls auth/me. The first-user seat belongs to the onboarding member alone.
+        var result = AuthFunction.BuildAuthResult(
+            ConfigOnboardedBy("first.member@contoso.com"), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Null((string?)body.role);
+        Assert.False((bool)body.canManageBootstrapTokens);
+    }
+
+    [Fact]
+    public void AutoAdmin_DesignatedOnboardingMember_TakesTheSeatWhateverTheCasing()
+    {
+        var result = AuthFunction.BuildAuthResult(
+            ConfigOnboardedBy(Upn.ToUpperInvariant()), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.True((bool)body.isTenantAdmin);
+        Assert.Equal(Constants.TenantRoles.Admin, (string)body.role);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("System (Global Rate Limit Sync)")]
+    [InlineData("alice_fabrikam.example#EXT#@contoso.example")]
+    public void AutoAdmin_WithoutADesignatedOnboardingMember_TheFirstSignInStillBecomesAdmin(string? onboardedBy)
+    {
+        // Rows from before OnboardedBy existed, and stored values the activation would never promote either.
+        var result = AuthFunction.BuildAuthResult(
+            ConfigOnboardedBy(onboardedBy), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.NeedsAutoAdmin);
+        Assert.True((bool)ToDynamic(result.Body).isTenantAdmin);
+    }
+
     // -------------------------------------------------------------------------
     // MCP Access
     // -------------------------------------------------------------------------

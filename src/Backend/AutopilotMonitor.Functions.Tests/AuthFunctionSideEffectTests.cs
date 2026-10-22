@@ -780,14 +780,14 @@ public class AuthFunctionSideEffectTests
     public async Task PostDecision_NeedsAutoAdmin_CallsAddTenantAdmin()
     {
         _tenantAdminsMock
-            .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
-            .ReturnsAsync(new TenantAdminRow());
+            .Setup(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"))
+            .ReturnsAsync(true);
 
         var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
 
         await _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId);
 
-        _tenantAdminsMock.Verify(x => x.AddTenantAdminAsync(TenantId, Upn, "System"), Times.Once);
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"), Times.Once);
     }
 
     [Fact]
@@ -798,7 +798,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId);
 
         _tenantAdminsMock.Verify(
-            x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 
@@ -818,14 +818,14 @@ public class AuthFunctionSideEffectTests
     public async Task PostDecision_AutoAdminAndMetrics_BothExecute()
     {
         _tenantAdminsMock
-            .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
-            .ReturnsAsync(new TenantAdminRow());
+            .Setup(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"))
+            .ReturnsAsync(true);
 
         var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
 
         await _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId);
 
-        _tenantAdminsMock.Verify(x => x.AddTenantAdminAsync(TenantId, Upn, "System"), Times.Once);
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"), Times.Once);
         _metricsRepoMock.Verify(
             x => x.RecordUserLoginAsync(TenantId, Upn, DisplayName, ObjectId),
             Times.Once);
@@ -849,7 +849,7 @@ public class AuthFunctionSideEffectTests
     public async Task PostDecision_AutoAdminFailure_Throws()
     {
         _tenantAdminsMock
-            .Setup(x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ThrowsAsync(new InvalidOperationException("Table Storage down"));
 
         var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
@@ -857,6 +857,21 @@ public class AuthFunctionSideEffectTests
         // Auto-admin is NOT fire-and-forget — exception must propagate
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId));
+    }
+
+    [Fact]
+    public async Task PostDecision_AutoAdminSeatAlreadyTaken_DoesNotThrow()
+    {
+        // The activation seated the same person a moment earlier (conditional insert lost): nothing to overwrite.
+        _tenantAdminsMock
+            .Setup(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"))
+            .ReturnsAsync(false);
+
+        var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
+
+        await _sut.HandlePostDecisionSideEffectsAsync(decision, TenantId, Upn, DisplayName, ObjectId);
+
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"), Times.Once);
     }
 
     // -------------------------------------------------------------------------
@@ -929,17 +944,44 @@ public class AuthFunctionSideEffectTests
         config.DomainName = "contoso.com";
         ArrangeAuthMe(config, exists: true, approved: true);
         _tenantAdminsMock
-            .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
-            .ReturnsAsync(new TenantAdminRow());
+            .Setup(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System"))
+            .ReturnsAsync(true);
         var (req, ctx) = BuildRequest(SignedIn(external));
 
         var response = await _sut.GetCurrentUser(req, ctx);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         _tenantAdminsMock.Verify(
-            x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
             external ? Times.Never() : Times.Once());
         Assert.Contains(external ? "\"isTenantAdmin\":false" : "\"isTenantAdmin\":true", await ReadBodyAsync(response));
+    }
+
+    /// <summary>
+    /// The activation race: the tenant is activated and its partition is empty for a moment while an
+    /// ordinary member polls auth/me. The first-user seat belongs to the designated onboarding member
+    /// alone; everybody else is answered roleless and nothing is written.
+    /// </summary>
+    [Theory]
+    [InlineData("first.member@contoso.com", false)]
+    [InlineData("USER@CONTOSO.COM", true)]
+    public async Task GetCurrentUser_ActivatedTenantWithoutAdmins_OnlyTheDesignatedOnboardingMemberTakesTheSeat(
+        string onboardedBy, bool callerIsTheOnboardingMember)
+    {
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        config.OnboardedBy = onboardedBy;
+        ArrangeAuthMe(config, exists: true, approved: true);
+        _tenantAdminsMock.Setup(x => x.TryAddTenantAdminAsync(TenantId, Upn, "System")).ReturnsAsync(true);
+        var (req, ctx) = BuildRequest(SignedIn(external: false));
+
+        var response = await _sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(callerIsTheOnboardingMember ? "\"isTenantAdmin\":true" : "\"isTenantAdmin\":false", await ReadBodyAsync(response));
+        _tenantAdminsMock.Verify(
+            x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            callerIsTheOnboardingMember ? Times.Once() : Times.Never());
     }
 
     /// <summary>
@@ -987,6 +1029,8 @@ public class AuthFunctionSideEffectTests
         // The promotion already wrote the row: no first-user auto-admin on top of it.
         adminRepo.Verify(r => r.AddTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        adminRepo.Verify(r => r.TryAddTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------

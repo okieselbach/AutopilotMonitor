@@ -98,11 +98,17 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Tenant Members ---
         Task<List<TenantMember>> GetTenantMembersAsync(string tenantId);
         Task<bool> AddTenantMemberAsync(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens = false);
+        /// <summary>
+        /// Conditional insert of a member row: true when this call created it, false when a row for the
+        /// UPN already exists (left untouched, whatever it says). The first-admin writers (activation
+        /// seating the onboarding member, the first-user auto-admin) use this so a row the tenant already
+        /// holds is never overwritten. Storage errors throw.
+        /// </summary>
+        Task<bool> TryAddTenantMemberAsync(string tenantId, string upn, string addedBy, string role);
         Task<bool> RemoveTenantMemberAsync(string tenantId, string upn);
         Task<bool> UpdateMemberPermissionsAsync(string tenantId, string upn, string role, bool canManageBootstrapTokens);
         Task<bool> SetTenantMemberEnabledAsync(string tenantId, string upn, bool isEnabled);
         Task<TenantMember?> GetTenantMemberAsync(string tenantId, string upn);
-        Task<bool> IsTenantAdminAsync(string tenantId, string upn);
     }
 
     public class GlobalAdminEntry

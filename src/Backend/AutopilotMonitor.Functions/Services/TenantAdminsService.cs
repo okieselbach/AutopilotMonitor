@@ -65,41 +65,24 @@ public class TenantAdminsService
         => _pushRevoker?.RevokeOwnerAsync(Notifications.NotificationScope.Tenant(tenantId), upn, reason) ?? Task.CompletedTask;
 
     /// <summary>
-    /// True if the UPN holds an enabled Admin row in the tenant (a row without a role is an Admin).
-    /// Reads through <see cref="GetTableMembershipAsync"/>, so it shares that cache and its rules.
+    /// Seats a user as Tenant Admin unless the tenant already holds a row for them: true when the row was
+    /// created, false when one exists (left untouched, whatever it says). The two first-admin writers,
+    /// activation seating the onboarding member and auth/me's first-user auto-admin, go through here, so
+    /// neither can overwrite a row the tenant set (disabled, demoted) nor race the other for the same UPN.
     /// </summary>
-    public async Task<bool> IsTenantAdminAsync(string tenantId, string? upn)
-    {
-        var (state, role) = await GetTableMembershipAsync(tenantId, upn);
-        return state == TableMemberState.Enabled && role?.Role == Constants.TenantRoles.Admin;
-    }
-
-    /// <summary>
-    /// Adds a user as a Tenant Admin
-    /// </summary>
-    /// <param name="tenantId">Tenant ID</param>
-    /// <param name="upn">User Principal Name</param>
-    /// <param name="addedBy">UPN of the admin who is adding this user</param>
-    public virtual async Task<TenantAdminRow> AddTenantAdminAsync(string tenantId, string upn, string addedBy)
+    public virtual async Task<bool> TryAddTenantAdminAsync(string tenantId, string upn, string addedBy)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
         addedBy = addedBy.ToLowerInvariant();
 
-        await _adminRepo.AddTenantMemberAsync(tenantId, upn, addedBy, Constants.TenantRoles.Admin);
+        if (!await _adminRepo.TryAddTenantMemberAsync(tenantId, upn, addedBy, Constants.TenantRoles.Admin))
+            return false;
 
         InvalidateMemberCache(tenantId, upn);
 
-        _logger.LogInformation($"Added Tenant Admin: {upn} to tenant {tenantId} by {addedBy}");
-
-        return new TenantAdminRow
-        {
-            TenantId = tenantId,
-            Upn = upn,
-            IsEnabled = true,
-            AddedDate = DateTime.UtcNow,
-            AddedBy = addedBy
-        };
+        _logger.LogInformation("Added Tenant Admin: {Upn} to tenant {TenantId} by {AddedBy}", upn, tenantId, addedBy);
+        return true;
     }
 
     /// <summary>

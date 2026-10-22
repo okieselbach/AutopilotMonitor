@@ -36,77 +36,90 @@ public class TenantApprovalService
     }
 
     /// <summary>
-    /// Activates a tenant: adds it to the whitelist, then runs the best-effort side
-    /// effects. The whitelist add is the activation itself and fails loud; everything
-    /// after it is non-fatal. Returns false when the tenant was ALREADY activated
-    /// (concurrent duplicate or repeat approve) — the conditional whitelist insert makes
-    /// this idempotent, so a lost race never re-sends the welcome mail or re-promotes.
+    /// Activates a tenant. The order of the writes is the invariant: the onboarding member's Admin row
+    /// is seated BEFORE the activation row, so no observable state has the tenant activated while the
+    /// designated admin's row is still missing (auth/me would otherwise seat the first roleless caller
+    /// of that moment). The two rows live in different tables, which rules out one atomic batch, hence
+    /// "before". The conditional activation insert stays the arbiter and fails loud; false means the
+    /// tenant was activated concurrently (double signup), and the seat written just before is the same
+    /// row the winner seats, so the loser only skips the mail. A tenant that is already activated
+    /// returns false before anything is written. Everything after the activation row is best-effort.
     /// </summary>
     public virtual async Task<bool> ApproveWithSideEffectsAsync(string tenantId, string approvedBy)
     {
+        if (await _previewWhitelistService.IsApprovedFreshAsync(tenantId))
+        {
+            _logger.LogInformation(
+                "Tenant {TenantId} already activated — nothing to do (approve by {ApprovedBy})",
+                tenantId, approvedBy);
+            return false;
+        }
+
+        await TrySeatOnboardingMemberAsync(tenantId, approvedBy);
+
         if (!await _previewWhitelistService.ApproveAsync(tenantId, approvedBy))
         {
             _logger.LogInformation(
-                "Tenant {TenantId} already activated — skipping activation side effects (approve by {ApprovedBy})",
+                "Tenant {TenantId} was activated concurrently — skipping activation side effects (approve by {ApprovedBy})",
                 tenantId, approvedBy);
             return false;
         }
 
         _logger.LogInformation("Tenant activated: {TenantId} by {ApprovedBy}", tenantId, approvedBy);
 
-        // Auto-promote the onboarding member (OnboardedBy, written once by the first member login and
-        // never by an external identity) as TenantAdmin if they are not already one.
-        // This ensures whoever signed up doesn't need manual admin assignment after activation.
-        // Never UpdatedBy: that is the last writer, not the requester, and any signed-in user sets it.
+        await TrySendWelcomeEmailAsync(tenantId);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Seats the onboarding member (OnboardedBy, written once by the first member login and never by an
+    /// external identity; never UpdatedBy, the last writer) as Tenant Admin, so whoever signed up needs
+    /// no manual assignment after activation. A row the tenant already holds for them stays untouched.
+    /// Best-effort: a storage failure here must not block the activation. With the seat missing, auth/me
+    /// seats the designated member on their next sign-in and nobody else.
+    /// </summary>
+    private async Task TrySeatOnboardingMemberAsync(string tenantId, string approvedBy)
+    {
         try
         {
-            var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            var requesterUpn = tenantConfig.OnboardedBy;
+            // Fresh read: a cached view can be the default row an earlier request on this instance
+            // created before the first sign-in seeded OnboardedBy.
+            var tenantConfig = await _tenantConfigurationService.GetConfigurationFreshAsync(tenantId);
+            var requesterUpn = tenantConfig?.OnboardedBy;
 
             // Positive UPN-shape validation: real Azure AD UPNs always contain '@', while
             // every system-written sentinel ("System", "System (auto-re-enable)",
             // "System (Global Rate Limit Sync)", …) does not. An equality list against
             // known sentinels previously missed a third sentinel and corrupted 10 tenants'
             // TenantAdmins rows — keep this check shape-based, not enumeration-based.
-            if (IsPromotableUpn(requesterUpn))
+            if (!IsPromotableUpn(requesterUpn))
             {
-                // IsPromotableUpn returned true → requesterUpn is non-null, non-empty, contains '@'
-                var validUpn = requesterUpn!;
-                var isAlreadyAdmin = await _tenantAdminsService.IsTenantAdminAsync(tenantId, validUpn);
-                if (!isAlreadyAdmin)
-                {
-                    await _tenantAdminsService.AddTenantAdminAsync(tenantId, validUpn, approvedBy);
-                    _logger.LogInformation(
-                        "Auto-promoted tenant requester {RequesterUpn} as TenantAdmin for tenant {TenantId} on activation by {ApprovedBy}",
-                        validUpn, tenantId, approvedBy);
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "Tenant requester {RequesterUpn} is already a TenantAdmin for tenant {TenantId} — skipping auto-promote",
-                        validUpn, tenantId);
-                }
+                _logger.LogInformation(
+                    "No promotable onboarding UPN in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}') — skipping auto-promote",
+                    tenantId, requesterUpn ?? "<null>");
+                return;
+            }
+
+            if (await _tenantAdminsService.TryAddTenantAdminAsync(tenantId, requesterUpn!, approvedBy))
+            {
+                _logger.LogInformation(
+                    "Auto-promoted tenant requester {RequesterUpn} as TenantAdmin for tenant {TenantId} on activation by {ApprovedBy}",
+                    requesterUpn, tenantId, approvedBy);
             }
             else
             {
                 _logger.LogInformation(
-                    "No promotable onboarding UPN in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}') — skipping auto-promote",
-                    tenantId, tenantConfig.OnboardedBy ?? "<null>");
+                    "Tenant requester {RequesterUpn} already has a member row in tenant {TenantId} — left untouched",
+                    requesterUpn, tenantId);
             }
-
         }
         catch (Exception ex)
         {
-            // Non-fatal: activation already succeeded, admin promotion is best-effort
             _logger.LogWarning(ex,
-                "Failed to auto-promote tenant requester as TenantAdmin for tenant {TenantId} — activation still succeeded",
+                "Failed to auto-promote tenant requester as TenantAdmin for tenant {TenantId} — activation continues",
                 tenantId);
         }
-
-        // Outside the promote try/catch: a promote failure must not swallow the mail.
-        await TrySendWelcomeEmailAsync(tenantId);
-
-        return true;
     }
 
     /// <summary>

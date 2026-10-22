@@ -71,17 +71,6 @@ public class TenantAdminsServiceMembershipTests
         _repo.Verify(r => r.GetTenantMemberAsync(TenantId, Upn), Times.Once);
     }
 
-    [Theory]
-    [InlineData(Constants.TenantRoles.Admin, true, true)]
-    [InlineData(Constants.TenantRoles.Operator, true, false)]
-    [InlineData(Constants.TenantRoles.Admin, false, false)]
-    public async Task IsTenantAdmin_MeansAnEnabledAdminRow(string role, bool enabled, bool expected)
-    {
-        PointReadsReturn(Row(Upn, role, enabled));
-
-        Assert.Equal(expected, await _sut.IsTenantAdminAsync(TenantId, Upn));
-    }
-
     [Fact]
     public async Task Snapshot_TheCallersOwnRowDecides_WhateverTheTokenCasing()
     {
@@ -147,5 +136,29 @@ public class TenantAdminsServiceMembershipTests
         // The repository builds its partition filter from the tenant id.
         await Assert.ThrowsAsync<ArgumentException>(() => _sut.GetMembershipSnapshotAsync("x' or PartitionKey ne '", Upn));
         _repo.Verify(r => r.GetTenantMembersAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TryAddTenantAdmin_CreatesTheRowLowercased_AndDropsTheCachedMembership()
+    {
+        _repo.Setup(r => r.TryAddTenantMemberAsync(TenantId, Upn, "system (auto-approve)", Constants.TenantRoles.Admin)).ReturnsAsync(true);
+        // A cached enabled row first, so the re-read after the seat is visible as a role change.
+        PointReadsReturn(Row(Upn, role: Constants.TenantRoles.Viewer), Row(Upn));
+        Assert.Equal(Constants.TenantRoles.Viewer, (await _sut.GetTableMembershipAsync(TenantId, Upn)).Role!.Role);
+
+        Assert.True(await _sut.TryAddTenantAdminAsync(TenantId, Upn.ToUpperInvariant(), "System (auto-approve)"));
+
+        Assert.Equal(Constants.TenantRoles.Admin, (await _sut.GetTableMembershipAsync(TenantId, Upn)).Role!.Role);
+    }
+
+    [Fact]
+    public async Task TryAddTenantAdmin_RowExists_AnswersFalseAndNeverUpserts()
+    {
+        _repo.Setup(r => r.TryAddTenantMemberAsync(TenantId, Upn, "system", Constants.TenantRoles.Admin)).ReturnsAsync(false);
+
+        Assert.False(await _sut.TryAddTenantAdminAsync(TenantId, Upn, "System"));
+
+        _repo.Verify(r => r.AddTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
 }

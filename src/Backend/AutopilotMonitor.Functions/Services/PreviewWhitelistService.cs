@@ -65,6 +65,14 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
+    /// Uncached read of the activation, for the activation path's own pre-check: a cached activation can
+    /// outlive a revoke on another instance by up to 5 minutes, and a re-activation must not be answered
+    /// as "already activated" from that cache. Storage errors throw.
+    /// </summary>
+    public virtual Task<bool> IsApprovedFreshAsync(string tenantId)
+        => _configRepo.IsInPreviewWhitelistAsync(tenantId);
+
+    /// <summary>
     /// Activates a tenant (adds it to the whitelist). Returns true when this call created
     /// the entry, false when the tenant was already activated — the conditional insert at
     /// the storage layer arbitrates concurrent activations, so exactly one caller ever

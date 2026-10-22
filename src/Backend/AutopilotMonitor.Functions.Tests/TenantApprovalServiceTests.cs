@@ -56,8 +56,8 @@ public class TenantApprovalServiceTests
             configRepo, NullLogger<AdminConfigurationService>.Instance, cache);
         var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
-        // IsTenantAdminAsync runs for real and reads through the virtual GetTableMembershipAsync,
-        // which ArrangeNewlyApproved sets up per test.
+        // TryAddTenantAdminAsync is virtual: ArrangeNewlyApproved answers it per test (true = seated,
+        // false = the row exists). The unset IsApprovedFreshAsync answers false: not activated yet.
         _tenantAdminsMock = new Mock<TenantAdminsService>(
             Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance);
 
@@ -84,16 +84,18 @@ public class TenantApprovalServiceTests
     }
 
     [Fact]
-    public async Task AlreadyApproved_ReturnsFalse_AndRunsNoSideEffects()
+    public async Task AlreadyApproved_ReturnsFalse_AndWritesNothing()
     {
-        _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(false);
+        // The fresh pre-check decides, not the 5-minute activation cache: a re-activation right after a
+        // revoke on another instance must not be answered as "already activated" from that cache.
+        _previewMock.Setup(x => x.IsApprovedFreshAsync(TenantId)).ReturnsAsync(true);
 
         var newlyApproved = await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
 
         Assert.False(newlyApproved);
-        // The side-effect block (auto-promote + welcome mail) starts with the config read —
-        // it must never run for a lost activation race.
-        _tenantConfigMock.Verify(x => x.GetConfigurationAsync(It.IsAny<string>()), Times.Never);
+        _previewMock.Verify(x => x.ApproveAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.GetConfigurationFreshAsync(It.IsAny<string>()), Times.Never);
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         _previewMock.Verify(x => x.GetNotificationEmailAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -123,14 +125,13 @@ public class TenantApprovalServiceTests
         _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(true);
         _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync((string?)null);
         _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId)).ReturnsAsync(config);
-        _tenantAdminsMock.Setup(x => x.GetTableMembershipAsync(TenantId, It.IsAny<string?>())).ReturnsAsync(alreadyAdmin
-            ? (TableMemberState.Enabled, new MemberRoleInfo { Role = Constants.TenantRoles.Admin })
-            : (TableMemberState.NotPresent, null));
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
+        _tenantAdminsMock.Setup(x => x.TryAddTenantAdminAsync(TenantId, It.IsAny<string>(), ApprovedBy)).ReturnsAsync(!alreadyAdmin);
     }
 
     private void VerifyNoPromotion() =>
         _tenantAdminsMock.Verify(
-            x => x.AddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
 
     [Fact]
     public async Task NewlyApproved_PromotesTheOnboardingMember()
@@ -141,17 +142,19 @@ public class TenantApprovalServiceTests
         await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
 
         _tenantAdminsMock.Verify(
-            x => x.AddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
+            x => x.TryAddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
     }
 
     [Fact]
-    public async Task NewlyApproved_OnboardingMemberAlreadyAdmin_IsNotWrittenAgain()
+    public async Task NewlyApproved_OnboardingMemberAlreadySeated_IsLeftUntouchedAndActivationProceeds()
     {
         ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example", alreadyAdmin: true);
 
-        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+        Assert.True(await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy));
 
-        VerifyNoPromotion();
+        // The conditional insert is the only write: a row the tenant holds (disabled, demoted) is never overwritten.
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
+        _previewMock.Verify(x => x.ApproveAsync(TenantId, ApprovedBy), Times.Once);
     }
 
     [Fact]
@@ -173,6 +176,50 @@ public class TenantApprovalServiceTests
         await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
 
         VerifyNoPromotion();
+    }
+
+    [Fact]
+    public async Task NewlyApproved_SeatsTheOnboardingMemberBeforeTheActivationRow()
+    {
+        // The invariant behind the activation race: no observable state has the tenant activated while the
+        // designated admin's row is still missing. The seat is written first, the activation row second.
+        var writes = new List<string>();
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example");
+        _tenantAdminsMock.Setup(x => x.TryAddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy))
+            .Callback(() => writes.Add("seat")).ReturnsAsync(true);
+        _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy))
+            .Callback(() => writes.Add("activate")).ReturnsAsync(true);
+
+        Assert.True(await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy));
+
+        Assert.Equal(new[] { "seat", "activate" }, writes);
+    }
+
+    [Fact]
+    public async Task LostActivationRace_SeatIsTheWinnersRow_ButNoMailAndNoOpsEvent()
+    {
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example");
+        _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(false);
+
+        Assert.False(await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy));
+
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
+        _previewMock.Verify(x => x.GetNotificationEmailAsync(It.IsAny<string>()), Times.Never);
+        Assert.Empty(_opsEvents);
+    }
+
+    [Fact]
+    public async Task NewlyApproved_SeatWriteFails_ActivationStillProceeds()
+    {
+        // Best-effort on purpose: with the seat missing, auth/me seats the designated member on their next
+        // sign-in and nobody else.
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example");
+        _tenantAdminsMock.Setup(x => x.TryAddTenantAdminAsync(TenantId, It.IsAny<string>(), ApprovedBy))
+            .ThrowsAsync(new InvalidOperationException("Table Storage down"));
+
+        Assert.True(await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy));
+
+        _previewMock.Verify(x => x.ApproveAsync(TenantId, ApprovedBy), Times.Once);
     }
 
     // --- TrySendWelcomeEmailAsync: the once-only send shared by the approval path and the

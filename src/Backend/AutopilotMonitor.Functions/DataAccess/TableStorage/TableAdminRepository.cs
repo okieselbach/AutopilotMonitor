@@ -826,11 +826,32 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public async Task<bool> AddTenantMemberAsync(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens = false)
         {
+            await _tenantAdminsTableClient.UpsertEntityAsync(NewMemberEntity(tenantId, upn, addedBy, role, canManageBootstrapTokens));
+            return true;
+        }
+
+        public async Task<bool> TryAddTenantMemberAsync(string tenantId, string upn, string addedBy, string role)
+        {
+            try
+            {
+                // Conditional INSERT, never upsert: a row the tenant already holds for this UPN
+                // (disabled, demoted) stays as the tenant set it, and two first-admin writers for
+                // the same UPN cannot both land.
+                await _tenantAdminsTableClient.AddEntityAsync(NewMemberEntity(tenantId, upn, addedBy, role, canManageBootstrapTokens: false));
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                return false;
+            }
+        }
+
+        private static TenantAdminEntity NewMemberEntity(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens)
+        {
             tenantId = tenantId.ToLowerInvariant();
             upn = upn.ToLowerInvariant();
-            addedBy = addedBy.ToLowerInvariant();
 
-            var entity = new TenantAdminEntity
+            return new TenantAdminEntity
             {
                 PartitionKey = tenantId,
                 RowKey = upn,
@@ -838,13 +859,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 Upn = upn,
                 IsEnabled = true,
                 AddedDate = DateTime.UtcNow,
-                AddedBy = addedBy,
+                AddedBy = addedBy.ToLowerInvariant(),
                 Role = role,
                 CanManageBootstrapTokens = canManageBootstrapTokens
             };
-
-            await _tenantAdminsTableClient.UpsertEntityAsync(entity);
-            return true;
         }
 
         public async Task<bool> RemoveTenantMemberAsync(string tenantId, string upn)
@@ -919,14 +937,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 _logger.LogError(ex, "Error getting tenant member {Upn} for tenant {TenantId}", upn, tenantId);
                 return null;
             }
-        }
-
-        public async Task<bool> IsTenantAdminAsync(string tenantId, string upn)
-        {
-            var member = await GetTenantMemberAsync(tenantId, upn);
-            if (member == null || !member.IsEnabled) return false;
-            // Only true for Admin role (null Role = Admin for backward compat)
-            return member.Role == null || member.Role == Constants.TenantRoles.Admin;
         }
 
         // --- Helpers ---
