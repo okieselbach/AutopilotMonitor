@@ -277,6 +277,8 @@ public class RulesWireParityTests
             MatchCount = 1,
             ParseFailureCount = 0,
             TimeoutCount = 0,
+            // null on a complete test (key vanishes); a stopped test carries the reason string.
+            StopReason = null,
         };
         result.Lines.Add(new LogPatternLineResult
         {

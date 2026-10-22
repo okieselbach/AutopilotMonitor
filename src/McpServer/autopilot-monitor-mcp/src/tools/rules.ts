@@ -84,7 +84,8 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
         'customer\'s log file, including lines that must match AND lines that must not. format="cmtrace" (default) ' +
         'parses each line as CMTrace/IME format first and runs the regex against the parsed message; format="text" ' +
         'matches the raw line. Returns per-line outcomes with the exact capture groups that would land in the emitted ' +
-        'timeline event\'s data. Nothing is stored.',
+        'timeline event\'s data. The first line hitting the agent\'s 1 s match timeout ends the test ' +
+        '(stopReason="regex_timeout"); fix the backtracking first. Nothing is stored.',
       inputSchema: {
         pattern: z.string().min(1).max(2000).describe('The regex (named groups become event data fields), .NET syntax'),
         sampleLines: z.array(z.string().max(8192)).min(1).max(200)

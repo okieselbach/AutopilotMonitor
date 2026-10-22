@@ -203,6 +203,13 @@ namespace AutopilotMonitor.Shared.Models
         public int MatchCount { get; set; }
         public int ParseFailureCount { get; set; }
         public int TimeoutCount { get; set; }
+
+        /// <summary>Set when the test ended before the last sample line was evaluated:
+        /// regex_timeout (the first line that hit the agent's 1 s match timeout ends the test) |
+        /// time_budget (the whole test exceeded its time budget) | cancelled. Lines after the stop
+        /// have no row; a note names them. Null when every line was evaluated.</summary>
+        public string? StopReason { get; set; }
+
         public List<LogPatternLineResult> Lines { get; } = new();
         public List<string> Notes { get; } = new();
     }

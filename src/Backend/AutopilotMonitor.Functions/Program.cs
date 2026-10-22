@@ -173,6 +173,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ResiliencePolicies>();
 builder.Services.AddSingleton<TableStorageService>();
+// Per-instance cap on concurrent logparser pattern tests (caller-controlled regex work, D-379).
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Rules.TestLogPatternGate>();
 // Shared QueueClient bootstrap (code-quality audit D2): single Managed-Identity/connection-string
 // resolution consumed by every queue producer / worker / probe.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Queueing.QueueClientFactory>();

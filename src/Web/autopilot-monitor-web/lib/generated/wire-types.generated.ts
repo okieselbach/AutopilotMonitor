@@ -3079,6 +3079,8 @@ export interface LogPatternTestResult {
   matchCount: number;
   parseFailureCount: number;
   timeoutCount: number;
+  /** Set when the test ended before the last sample line was evaluated: regex_timeout (the first line that hit the agent's 1 s match timeout ends the test) | time_budget (the whole test exceeded its time budget) | cancelled. Lines after the stop have no row; a note names them. Null when every line was evaluated. */
+  stopReason?: string;
   readonly lines: LogPatternLineResult[];
   readonly notes: string[];
 }
