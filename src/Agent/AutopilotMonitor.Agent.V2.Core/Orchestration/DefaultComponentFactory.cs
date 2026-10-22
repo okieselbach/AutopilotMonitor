@@ -517,6 +517,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     startupGate: _startupEventGate));
             }
 
+            // ConfigMgr client presence (the V1 check) — always-on, no config gate, on every flow.
+            hosts.Add(new ConfigMgrClientHost(
+                sessionId: sessionId,
+                tenantId: tenantId,
+                logger: logger,
+                ingress: ingress,
+                clock: clock,
+                startupGate: _startupEventGate));
+
             // Registry second pillar (audit 2026-08-17): IME's authoritative per-app state from
             // HKLM\...\IntuneManagementExtension (Win32Apps EnforcementStateMessage,
             // EspTrackingWin32Apps, StatusServiceReports) via snapshot-and-diff. Emits

@@ -109,11 +109,12 @@ export function useSessionDerivedData(
     };
   }, [events]);
 
-  // Extract ConfigMgr co-management detection (if present)
+  // Latest ConfigMgr client detection — the agent reports again when the client's state changes.
   // Only show badge when confidence >= 50 (directory-only is too weak).
   // Default to 100 for backward compat with old agent events that lack confidenceScore.
   const configMgrDetected = useMemo(() => {
-    const evt = events.find(e => e.eventType === "configmgr_client_detected");
+    const detections = events.filter(e => e.eventType === "configmgr_client_detected");
+    const evt = detections[detections.length - 1];
     if (!evt?.data) return null;
     const confidence = (evt.data.confidenceScore as number) ?? 100;
     if (confidence < 50) return null;

@@ -146,7 +146,6 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
             {configMgrDetected.ccmServiceState && configMgrDetected.ccmServiceState !== "not_found" && <> — {configMgrDetected.ccmServiceState}</>}
             {configMgrDetected.ccmVersion && configMgrDetected.ccmVersion !== "unknown" && <>, v{configMgrDetected.ccmVersion}</>}
             {configMgrDetected.siteCode && configMgrDetected.siteCode !== "unknown" && <>, site {configMgrDetected.siteCode}</>}.
-            {" "}The SCCM agent may trigger reboots during ESP that disrupt the enrollment flow and cause unexpected event sequences (e.g., device events appearing in the account phase, AccountSetup never starting).
           </span>
         </div>
       )}
