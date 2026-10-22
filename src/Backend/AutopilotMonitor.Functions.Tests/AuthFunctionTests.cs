@@ -588,12 +588,30 @@ public class AuthFunctionTests
     }
 
     [Theory]
-    [InlineData(null)]
     [InlineData("System (Global Rate Limit Sync)")]
     [InlineData("alice_fabrikam.example#EXT#@contoso.example")]
-    public void AutoAdmin_WithoutADesignatedOnboardingMember_TheFirstSignInStillBecomesAdmin(string? onboardedBy)
+    public void AutoAdmin_RecordedOnboardingMemberActivationCannotSeat_StillBlocksEveryoneElse(string onboardedBy)
     {
-        // Rows from before OnboardedBy existed, and stored values the activation would never promote either.
+        // A recorded member counts whatever its shape: nobody else takes the seat, and the holder of such a
+        // value is an external identity (or no member at all) and excluded on its own.
+        var result = AuthFunction.BuildAuthResult(
+            ConfigOnboardedBy(onboardedBy), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        Assert.False((bool)ToDynamic(result.Body).isTenantAdmin);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AutoAdmin_WithoutARecordedOnboardingMember_TheFirstSignInStillBecomesAdmin(string? onboardedBy)
+    {
+        // Rows from before OnboardedBy existed.
         var result = AuthFunction.BuildAuthResult(
             ConfigOnboardedBy(onboardedBy), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
             memberRole: null, mcpCheck: McpDenied(),

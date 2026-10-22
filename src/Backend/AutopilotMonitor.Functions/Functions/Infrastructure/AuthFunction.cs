@@ -795,13 +795,15 @@ public class AuthFunction
         // it. A delegated user who legitimately administers their own tenant has a TenantAdmins row (memberRole
         // != null), so this only suppresses the silent grant, never an existing right. The same holds for an
         // external identity (a guest), which is not a member of this tenant at all.
-        // Once the tenant has a designated onboarding member (a promotable OnboardedBy), the first-user
-        // seat is theirs alone: activation seats them before it activates the tenant, and should that
-        // seat ever be missing (removed, or the write failed) only they may take it on sign-in. Any other
-        // roleless caller is answered roleless, never the first caller to see an activated tenant with
-        // no rows. Without a designated member (rows from before OnboardedBy existed) the first sign-in
-        // still becomes the admin.
-        var onboardingMember = TenantApprovalService.IsPromotableUpn(tenantConfig.OnboardedBy) ? tenantConfig.OnboardedBy : null;
+        // Once the tenant has a recorded onboarding member (OnboardedBy), the first-user seat is theirs
+        // alone: activation seats them before it activates the tenant, and should that seat ever be
+        // missing (removed, never written, or the write failed) only they may take it on sign-in. Any
+        // other roleless caller is answered roleless, never the first caller to see an activated tenant
+        // with no rows. The record counts whatever its shape: a value activation cannot seat (an
+        // external account's UPN) still blocks everyone else, and its own holder is excluded as an
+        // external identity. Without a recorded member (rows from before OnboardedBy existed) the
+        // first sign-in still becomes the admin.
+        var onboardingMember = string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy) ? null : tenantConfig.OnboardedBy;
         bool isTenantAdmin = memberRole?.Role == Constants.TenantRoles.Admin;
         bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated && !isExternalIdentity
             && (onboardingMember == null || string.Equals(onboardingMember, upn, StringComparison.OrdinalIgnoreCase));

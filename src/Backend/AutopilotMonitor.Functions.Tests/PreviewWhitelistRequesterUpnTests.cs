@@ -21,6 +21,8 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("first.last@example.de")]
     [InlineData("cadm_user@contoso.onmicrosoft.com")]
     [InlineData("m.muster_ext_@contoso.example")] // a member naming scheme, not the external marker
+    [InlineData("systemadmin@contoso.com")] // a common admin-account prefix, not a sentinel
+    [InlineData("system.ops@contoso.com")]
     public void IsPromotableUpn_AcceptsRealUpnShapes(string upn)
     {
         Assert.True(TenantApprovalService.IsPromotableUpn(upn));
@@ -33,11 +35,13 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("System (Global Rate Limit Sync)")]
     [InlineData("system (global rate limit sync)")]
     [InlineData("System (whatever-future-sentinel)")]
-    public void IsPromotableUpn_RejectsAnySystemPrefixSentinel(string upn)
+    [InlineData("System (auto-approve) admin@contoso.com")] // an '@' does not rescue a value with spaces
+    public void IsPromotableUpn_RejectsAnySentinelShape(string upn)
     {
-        // The shape-based prefix check is exactly the defense against the corruption
-        // pattern: any new "System (...)" sentinel introduced anywhere in the codebase
-        // is rejected without anyone needing to remember to update this method.
+        // Shape, not enumeration: a sentinel has no '@' or carries spaces, so any new "System (...)"
+        // sentinel introduced anywhere in the codebase is rejected without anyone needing to remember
+        // to update this method — while a real member whose name starts with "system" is accepted
+        // (see the shapes above); a prefix test once locked such members out of their own tenant.
         Assert.False(TenantApprovalService.IsPromotableUpn(upn));
     }
 

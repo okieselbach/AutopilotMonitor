@@ -751,6 +751,32 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task MarkRevokedAsync(string tenantId, string revokedBy)
+        {
+            var entity = new TableEntity(tenantId, "revoked")
+            {
+                { "RevokedAt", DateTime.UtcNow },
+                { "RevokedBy", revokedBy }
+            };
+
+            // Upsert (a second revoke refreshes the record); errors throw, because the revoke must
+            // not proceed without its record — the seat guard of a later re-activation reads it.
+            await _previewWhitelistTableClient.UpsertEntityAsync(entity);
+        }
+
+        public async Task<bool> WasRevokedAsync(string tenantId)
+        {
+            try
+            {
+                var entity = await _previewWhitelistTableClient.GetEntityAsync<TableEntity>(tenantId, "revoked");
+                return entity?.Value != null;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return false;
+            }
+        }
+
         // --- Tenant Configuration Entity Mapping ---
 
         // Internal static (not private): the Store↔Map pair is a serialization CONTRACT — every

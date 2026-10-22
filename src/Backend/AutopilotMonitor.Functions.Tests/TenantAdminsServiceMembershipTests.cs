@@ -161,4 +161,45 @@ public class TenantAdminsServiceMembershipTests
         _repo.Verify(r => r.AddTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
+
+    // --- The tenant's audit log shows every first-admin seat like a seat an admin wrote.
+
+    private TenantAdminsService WithAudit(Mock<IMaintenanceRepository> audit) =>
+        new(_repo.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<TenantAdminsService>.Instance,
+            Mock.Of<AutopilotMonitor.Functions.Services.Push.IPushDeviceRevoker>(), audit.Object);
+
+    [Fact]
+    public async Task TryAddTenantAdmin_Seated_WritesTheTenantsAuditEntry()
+    {
+        var audit = new Mock<IMaintenanceRepository>();
+        _repo.Setup(r => r.TryAddTenantMemberAsync(TenantId, Upn, "system (auto-approve)", Constants.TenantRoles.Admin)).ReturnsAsync(true);
+
+        Assert.True(await WithAudit(audit).TryAddTenantAdminAsync(TenantId, Upn, "System (auto-approve)"));
+
+        audit.Verify(a => a.LogAuditEntryAsync(TenantId, "CREATE", "TenantAdmin", Upn, "system (auto-approve)",
+            It.Is<Dictionary<string, string>>(d => d["Role"] == Constants.TenantRoles.Admin)), Times.Once);
+    }
+
+    [Fact]
+    public async Task TryAddTenantAdmin_RowExists_WritesNoAuditEntry()
+    {
+        var audit = new Mock<IMaintenanceRepository>();
+        _repo.Setup(r => r.TryAddTenantMemberAsync(TenantId, Upn, "system", Constants.TenantRoles.Admin)).ReturnsAsync(false);
+
+        Assert.False(await WithAudit(audit).TryAddTenantAdminAsync(TenantId, Upn, "System"));
+
+        audit.Verify(a => a.LogAuditEntryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<Dictionary<string, string>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TryAddTenantAdmin_AuditWriteFails_TheSeatStillCounts()
+    {
+        var audit = new Mock<IMaintenanceRepository>();
+        audit.Setup(a => a.LogAuditEntryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<Dictionary<string, string>>())).ThrowsAsync(new InvalidOperationException("storage"));
+        _repo.Setup(r => r.TryAddTenantMemberAsync(TenantId, Upn, "system", Constants.TenantRoles.Admin)).ReturnsAsync(true);
+
+        Assert.True(await WithAudit(audit).TryAddTenantAdminAsync(TenantId, Upn, "System"));
+    }
 }

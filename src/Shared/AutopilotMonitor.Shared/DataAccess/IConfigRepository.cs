@@ -137,5 +137,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> TryMarkWelcomeEmailSentAsync(string tenantId);
         /// <summary>Removes the welcome-email marker (no-op when absent, fail-soft).</summary>
         Task ClearWelcomeEmailSentMarkerAsync(string tenantId);
+        /// <summary>
+        /// Records that the tenant's activation was revoked (RowKey "revoked", upsert; errors throw).
+        /// Never cleared by a re-approve: after a revoke a re-activation seats no onboarding member.
+        /// </summary>
+        Task MarkRevokedAsync(string tenantId, string revokedBy);
+        /// <summary>True when the tenant's activation was revoked at least once; errors throw.</summary>
+        Task<bool> WasRevokedAsync(string tenantId);
     }
 }

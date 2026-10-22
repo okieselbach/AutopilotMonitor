@@ -108,7 +108,7 @@ public class PreviewWhitelistFunction
         var principal = context.GetUser();
         var upn = principal?.GetUserPrincipalName();
 
-        await _previewWhitelistService.RevokeAsync(tenantId);
+        await _previewWhitelistService.RevokeAsync(tenantId, upn!);
 
         _logger.LogInformation("Preview tenant revoked: {TenantId} by {Upn}", tenantId, upn);
 

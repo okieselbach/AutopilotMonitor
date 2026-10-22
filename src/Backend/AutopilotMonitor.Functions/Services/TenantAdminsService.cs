@@ -41,9 +41,8 @@ public class TenantAdminsService
     }
 
     /// <summary>
-    /// The container picks this (longest satisfiable) constructor; the three-argument one stays
-    /// for the tests that mock the service with positional arguments (Moq does not fill optional
-    /// parameters).
+    /// The shorter constructors stay for the tests that mock the service with positional arguments
+    /// (Moq does not fill optional parameters); the container picks the longest satisfiable one.
     /// </summary>
     public TenantAdminsService(
         IAdminRepository adminRepo,
@@ -55,7 +54,20 @@ public class TenantAdminsService
         _pushRevoker = pushRevoker;
     }
 
+    /// <summary>The container's pick: the audit repository records every first-admin seat in the tenant's audit log.</summary>
+    public TenantAdminsService(
+        IAdminRepository adminRepo,
+        IMemoryCache cache,
+        ILogger<TenantAdminsService> logger,
+        Push.IPushDeviceRevoker pushRevoker,
+        IMaintenanceRepository auditRepo)
+        : this(adminRepo, cache, logger, pushRevoker)
+    {
+        _auditRepo = auditRepo;
+    }
+
     private readonly Push.IPushDeviceRevoker? _pushRevoker;
+    private readonly IMaintenanceRepository? _auditRepo;
 
     /// <summary>
     /// Role-loss hook (K6): a member who is removed, disabled or demoted below Operator loses the
@@ -82,7 +94,35 @@ public class TenantAdminsService
         InvalidateMemberCache(tenantId, upn);
 
         _logger.LogInformation("Added Tenant Admin: {Upn} to tenant {TenantId} by {AddedBy}", upn, tenantId, addedBy);
+        await RecordSeatAsync(tenantId, upn, addedBy);
         return true;
+    }
+
+    /// <summary>
+    /// The tenant's audit log is where its admins review membership changes, so a seat written by
+    /// activation or by a first sign-in shows up there like one written by an admin. Fail-soft: the
+    /// row is already written, and a lost audit line must not fail a sign-in.
+    /// </summary>
+    private async Task RecordSeatAsync(string tenantId, string upn, string addedBy)
+    {
+        if (_auditRepo == null)
+            return;
+
+        try
+        {
+            await _auditRepo.LogAuditEntryAsync(tenantId, "CREATE", "TenantAdmin", upn, addedBy,
+                new Dictionary<string, string>
+                {
+                    { "Role", Constants.TenantRoles.Admin },
+                    { "CanManageBootstrapTokens", "False" },
+                    { "PrincipalType", "User" },
+                    { "Source", "first-admin seat" }
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Audit entry for the first-admin seat of {Upn} in tenant {TenantId} was not written", upn, tenantId);
+        }
     }
 
     /// <summary>

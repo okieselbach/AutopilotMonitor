@@ -42,4 +42,29 @@ public class PreviewWhitelistApprovalCacheTests
         Assert.True(await _sut.IsApprovedAsync(TenantId));
         _repo.Verify(r => r.IsInPreviewWhitelistAsync(TenantId), Times.Once);
     }
+
+    // --- RevokeAsync: the revoke record comes first and is fail-loud; it is what stops a later re-activation
+    // from re-seating an onboarding member the tenant removed.
+
+    [Fact]
+    public async Task Revoke_RecordsTheRevokeBeforeItRemovesTheActivation()
+    {
+        var writes = new List<string>();
+        _repo.Setup(r => r.MarkRevokedAsync(TenantId, "ga@contoso.com")).Callback(() => writes.Add("record")).Returns(Task.CompletedTask);
+        _repo.Setup(r => r.RemoveFromPreviewWhitelistAsync(TenantId)).Callback(() => writes.Add("remove")).ReturnsAsync(true);
+
+        await _sut.RevokeAsync(TenantId, "ga@contoso.com");
+
+        Assert.Equal(new[] { "record", "remove" }, writes);
+    }
+
+    [Fact]
+    public async Task Revoke_WhoseRecordFails_ChangesNothing()
+    {
+        _repo.Setup(r => r.MarkRevokedAsync(TenantId, "ga@contoso.com")).ThrowsAsync(new InvalidOperationException("storage"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.RevokeAsync(TenantId, "ga@contoso.com"));
+
+        _repo.Verify(r => r.RemoveFromPreviewWhitelistAsync(It.IsAny<string>()), Times.Never);
+    }
 }

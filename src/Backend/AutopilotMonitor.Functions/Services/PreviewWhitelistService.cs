@@ -91,10 +91,14 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Revokes a tenant's activation.
+    /// Revokes a tenant's activation. The revoke is recorded FIRST and fail-loud, so a failed record
+    /// changes nothing: from then on a re-activation seats no onboarding member — the membership is
+    /// the tenant's own. A re-approve never clears the record; offboarding wipes the partition, so a
+    /// re-onboarded tenant starts fresh (D-288).
     /// </summary>
-    public async Task RevokeAsync(string tenantId)
+    public async Task RevokeAsync(string tenantId, string revokedBy)
     {
+        await _configRepo.MarkRevokedAsync(tenantId, revokedBy);
         await _configRepo.RemoveFromPreviewWhitelistAsync(tenantId);
 
         // A re-approve after revoke is a fresh activation and should send a fresh
@@ -102,8 +106,12 @@ public class PreviewWhitelistService
         await _configRepo.ClearWelcomeEmailSentMarkerAsync(tenantId);
 
         _cache.Remove($"preview:{tenantId}");
-        _logger.LogInformation("Tenant {TenantId} revoked from preview", tenantId);
+        _logger.LogInformation("Tenant {TenantId} revoked from preview by {RevokedBy}", tenantId, revokedBy);
     }
+
+    /// <summary>True once the tenant's activation was revoked at least once (see <see cref="RevokeAsync"/>); errors throw.</summary>
+    public virtual Task<bool> WasRevokedAsync(string tenantId)
+        => _configRepo.WasRevokedAsync(tenantId);
 
     /// <summary>
     /// Returns all approved tenants (for Global Admin overview).

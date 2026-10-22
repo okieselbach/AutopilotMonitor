@@ -75,7 +75,9 @@ public class TenantApprovalService
     /// <summary>
     /// Seats the onboarding member (OnboardedBy, written once by the first member login and never by an
     /// external identity; never UpdatedBy, the last writer) as Tenant Admin, so whoever signed up needs
-    /// no manual assignment after activation. A row the tenant already holds for them stays untouched.
+    /// no manual assignment after activation. A row the tenant already holds for them stays untouched,
+    /// and after a revoke nobody is seated at all: from then on the membership is the tenant's own, and
+    /// a member its admins removed stays removed whatever a re-activation does.
     /// Best-effort: a storage failure here must not block the activation. With the seat missing, auth/me
     /// seats the designated member on their next sign-in and nobody else.
     /// </summary>
@@ -98,6 +100,14 @@ public class TenantApprovalService
                 _logger.LogInformation(
                     "No promotable onboarding UPN in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}') — skipping auto-promote",
                     tenantId, requesterUpn ?? "<null>");
+                return;
+            }
+
+            if (await _previewWhitelistService.WasRevokedAsync(tenantId))
+            {
+                _logger.LogInformation(
+                    "Tenant {TenantId} was revoked before — a re-activation seats nobody; the onboarding member {RequesterUpn} is not re-seated",
+                    tenantId, requesterUpn);
                 return;
             }
 
@@ -228,13 +238,16 @@ public class TenantApprovalService
 
     /// <summary>
     /// True when a stored onboarding UPN may be promoted to TenantAdmin: shaped like a real user
-    /// principal name (contains '@', no "System" sentinel prefix) and not an external account's
-    /// resource-tenant UPN (<c>#EXT#</c>), which no member login writes.
+    /// principal name (contains '@', no whitespace) and not an external account's resource-tenant
+    /// UPN (<c>#EXT#</c>), which no member login writes. Shape, never an enumeration: every
+    /// system-written sentinel ("System", "System (auto-approve)", …) has no '@' and carries
+    /// spaces. A prefix test on "System" once rejected real members such as systemadmin@…, which
+    /// left their tenant without a seat and the first-user rule open to anyone.
     /// </summary>
     internal static bool IsPromotableUpn(string? upn)
     {
         if (string.IsNullOrWhiteSpace(upn)) return false;
-        if (upn.StartsWith("System", StringComparison.OrdinalIgnoreCase)) return false;
+        if (upn.Any(char.IsWhiteSpace)) return false;
         if (ClaimsPrincipalExtensions.IsExternalUpn(upn)) return false;
         return upn.Contains('@');
     }

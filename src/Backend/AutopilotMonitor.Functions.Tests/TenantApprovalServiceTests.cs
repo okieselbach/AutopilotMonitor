@@ -222,6 +222,30 @@ public class TenantApprovalServiceTests
         _previewMock.Verify(x => x.ApproveAsync(TenantId, ApprovedBy), Times.Once);
     }
 
+    [Fact]
+    public async Task NewlyApproved_SeatsAnOnboardingMemberWhoseNameStartsWithSystem()
+    {
+        // "system" is a common prefix of real admin accounts; only the sentinel SHAPE (no '@', spaces) is unpromotable.
+        ArrangeNewlyApproved(onboardedBy: "systemadmin@contoso.example");
+
+        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(TenantId, "systemadmin@contoso.example", ApprovedBy), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReactivationAfterARevoke_SeatsNobody_ButActivates()
+    {
+        // The seat belongs to the first activation: a member the tenant removed stays removed.
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example");
+        _previewMock.Setup(x => x.WasRevokedAsync(TenantId)).ReturnsAsync(true);
+
+        Assert.True(await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy));
+
+        VerifyNoPromotion();
+        _previewMock.Verify(x => x.ApproveAsync(TenantId, ApprovedBy), Times.Once);
+    }
+
     // --- TrySendWelcomeEmailAsync: the once-only send shared by the approval path and the
     // notification-email save path. Ordering contract under test: the sent-marker must be
     // consumed strictly AFTER the address check (a marker consumed with no address would
