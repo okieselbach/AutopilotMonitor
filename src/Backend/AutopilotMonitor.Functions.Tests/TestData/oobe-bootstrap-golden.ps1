@@ -17,15 +17,9 @@ $AgentBasePath    = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath     = "$AgentBasePath\Agent"
 $AgentLogPath     = "$AgentBasePath\Logs"
 $LogFile          = "$AgentLogPath\oobe_bootstrap.log"
-$AgentStagingPath = "$AgentBasePath\Agent-Install"
 
 $ExpectedPublisher = '*O=glueckkanja AG*'
 $AgentCatalogName  = 'AutopilotMonitor.Agent.cat'
-
-# Create directories
-New-Item -Path $AgentBasePath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-New-Item -Path $AgentBinPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-New-Item -Path $AgentLogPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 
 function Write-Log {
     param([string]$Message)
@@ -35,15 +29,164 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
-### BEGIN shared payload verification -- embedded verbatim into the OOBE go-script by
-### OobeBootstrapScriptGenerator (D-354). Keep it self-contained: parameters only, no
-### script-scope variables, no Write-Log.
-# Returns the reasons why the extracted payload in $Path must not run; an empty result means
-# it matches its signed catalog exactly. Test-FileCatalog's Status covers the hashes only (an
-# unsigned catalog over matching files reports Valid), so the signature and its publisher are
-# judged on their own. Any error is a rejection: a payload that cannot be verified is an
-# unverified payload. The comma keeps a single rejection an ARRAY: PowerShell unrolls a
-# one-element result to a bare string, and the caller reads .Count.
+### BEGIN shared install helpers (the OOBE script embeds this block; keep it self-contained)
+
+function Test-IsElevated {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    return (New-Object System.Security.Principal.WindowsPrincipal($identity)).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# SYSTEM and Administrators full control, Users read, nothing inherited. Owner Administrators,
+# so a folder that any elevated account created counts as ours.
+function New-ProtectedDirectorySecurity {
+    $security = New-Object System.Security.AccessControl.DirectorySecurity
+    $security.SetAccessRuleProtection($true, $false)
+    $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    $propagation = [System.Security.AccessControl.PropagationFlags]::None
+    $system = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+    $admins = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+    $users = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::BuiltinUsersSid, $null)
+    $security.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($system, 'FullControl', $inherit, $propagation, 'Allow')))
+    $security.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($admins, 'FullControl', $inherit, $propagation, 'Allow')))
+    $security.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($users, 'ReadAndExecute', $inherit, $propagation, 'Allow')))
+    $security.SetOwner($admins)
+    return $security
+}
+
+function Test-IsReparsePoint {
+    param([string]$Path)
+    return (([System.IO.File]::GetAttributes($Path) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+# Owner SYSTEM or Administrators. Any other owner, or one that cannot be read, is another
+# account's.
+function Test-IsOwnedByUs {
+    param([string]$Path)
+    try {
+        $owner = (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).GetAccessControl([System.Security.AccessControl.AccessControlSections]::Owner).GetOwner([System.Security.Principal.SecurityIdentifier])
+        return ($owner.IsWellKnown([System.Security.Principal.WellKnownSidType]::LocalSystemSid) -or
+                $owner.IsWellKnown([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid))
+    } catch {
+        return $false
+    }
+}
+
+# Random, so nobody can create a run folder's name ahead of the run.
+function New-RunFolderName {
+    $bytes = New-Object byte[] 4
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+    return -join ($bytes | ForEach-Object { $_.ToString('x2') })
+}
+
+# CreateDirectory leaves an existing folder as it is, so only a new name is used and the new
+# folder is checked.
+function New-RunFolder {
+    param([string]$Parent, [string]$Prefix)
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $path = Join-Path $Parent ($Prefix + (New-RunFolderName))
+        if (Test-Path -LiteralPath $path) { continue }
+        [System.IO.Directory]::CreateDirectory($path, (New-ProtectedDirectorySecurity)) | Out-Null
+        if (-not (Test-IsReparsePoint $path) -and (Test-IsOwnedByUs $path)) { return $path }
+    }
+    throw "Could not create a run folder under $Parent."
+}
+
+# 'Missing', 'Ours', or why the folder is not ours: 'Link', 'File' or 'Foreign'.
+function Get-FolderState {
+    param([string]$Path)
+    try { $attributes = [System.IO.File]::GetAttributes($Path) }
+    catch [System.IO.FileNotFoundException] { return 'Missing' }
+    catch [System.IO.DirectoryNotFoundException] { return 'Missing' }
+    if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return 'Link' }
+    if (($attributes -band [System.IO.FileAttributes]::Directory) -eq 0) { return 'File' }
+    if (-not (Test-IsOwnedByUs $Path)) { return 'Foreign' }
+    return 'Ours'
+}
+
+function Remove-OwnFile {
+    param([string]$Path)
+    # A virus scanner may hold the file for a moment.
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [System.IO.File]::Delete($Path)
+            return
+        } catch {
+            if ($attempt -ge 3) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+function Remove-OwnTreeEntries {
+    param([string]$Path, $Left)
+    try { $entries = [System.IO.Directory]::GetFileSystemEntries($Path) } catch { $Left.Locked.Add($Path); return }
+    foreach ($entry in $entries) {
+        try {
+            $attributes = [System.IO.File]::GetAttributes($entry)
+            $isDirectory = ($attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+            if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                if ($isDirectory) { [System.IO.Directory]::Delete($entry, $false) } else { [System.IO.File]::Delete($entry) }
+                continue
+            }
+            if (-not (Test-IsOwnedByUs $entry)) {
+                $Left.Foreign.Add($entry)
+                continue
+            }
+            if ($isDirectory) {
+                Remove-OwnTreeEntries -Path $entry -Left $Left
+                [System.IO.Directory]::Delete($entry, $false)
+            } else {
+                if (($attributes -band [System.IO.FileAttributes]::ReadOnly) -ne 0) {
+                    [System.IO.File]::SetAttributes($entry, ($attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)))
+                }
+                Remove-OwnFile -Path $entry
+            }
+        } catch {
+            $Left.Locked.Add($entry)
+        }
+    }
+}
+
+# Deletes our own entries in a folder we own. Links are removed, never followed; other
+# accounts' entries stay. Returns what stayed; never throws.
+function Remove-OwnTree {
+    param([string]$Path, [switch]$KeepRoot)
+    $left = [pscustomobject]@{
+        Foreign = New-Object System.Collections.Generic.List[string]
+        Locked  = New-Object System.Collections.Generic.List[string]
+    }
+    Remove-OwnTreeEntries -Path $Path -Left $left
+    if (-not $KeepRoot) {
+        try { [System.IO.Directory]::Delete($Path, $false) } catch { $left.Locked.Add($Path) }
+    }
+    return $left
+}
+
+# Creates the agent folder protected, or protects and empties one of ours. Throws for a link,
+# a file, or a folder that is, or holds entries that are, another account's.
+function Initialize-AgentBase {
+    param([string]$Path)
+    $state = Get-FolderState $Path
+    if ($state -eq 'Missing') {
+        [System.IO.Directory]::CreateDirectory($Path, (New-ProtectedDirectorySecurity)) | Out-Null
+        $state = Get-FolderState $Path
+        if ($state -ne 'Ours') { throw "$Path could not be created as a protected folder ($state)." }
+        return
+    }
+    if ($state -ne 'Ours') {
+        throw "$Path is not a folder that SYSTEM or administrators created ($state); not installing into it."
+    }
+    (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).SetAccessControl((New-ProtectedDirectorySecurity))
+    $left = Remove-OwnTree -Path $Path -KeepRoot
+    if ($left.Foreign.Count -gt 0) {
+        throw ("$Path holds entries another account created ({0}); not installing into it." -f (($left.Foreign | Select-Object -First 3) -join ', '))
+    }
+}
+
+# Why the extracted payload must not run; empty when it matches its signed catalog. The
+# catalog Status covers the hashes only, so the signer is checked on its own. The comma keeps
+# a single rejection an array.
 function Get-AgentPayloadRejections {
     param(
         [string]$Path,
@@ -96,11 +239,8 @@ function Get-AgentPayloadRejections {
     return , $rejected
 }
 
-# Extracts the agent ZIP into a fresh staging folder, verifies it there and moves it into the
-# agent folder only when it matches its signed catalog. A rejected payload is deleted with the
-# staging folder: nothing unverified lands where SYSTEM runs the agent, and the next run starts
-# clean instead of finding a half-installed agent. The caller has made sure no agent is
-# installed, so anything already in the agent folder is a leftover and goes first.
+# Verifies the payload in the run folder and moves it in as the agent folder. The move fails
+# when that folder exists, so nothing is ever merged into it.
 function Install-VerifiedAgentPayload {
     param(
         [string]$ZipPath,
@@ -110,71 +250,89 @@ function Install-VerifiedAgentPayload {
         [string]$CatalogName = 'AutopilotMonitor.Agent.cat'
     )
 
-    if (Test-Path -LiteralPath $StagingPath) {
-        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction Stop
-    }
-    New-Item -Path $StagingPath -ItemType Directory -Force | Out-Null
-    try {
-        Expand-Archive -Path $ZipPath -DestinationPath $StagingPath -Force -ErrorAction Stop
+    $payload = Join-Path $StagingPath 'Agent'
+    Expand-Archive -Path $ZipPath -DestinationPath $payload -Force -ErrorAction Stop
 
-        $rejections = Get-AgentPayloadRejections -Path $StagingPath -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
-        if ($rejections.Count -gt 0) {
-            throw "Payload verification FAILED ($($rejections -join '; ')). Refusing to install an agent that is not the published one."
-        }
-
-        if (Test-Path -LiteralPath $TargetPath) {
-            Get-ChildItem -LiteralPath $TargetPath -Force | Remove-Item -Recurse -Force -ErrorAction Stop
-        }
-        else {
-            New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
-        }
-        Get-ChildItem -LiteralPath $StagingPath -Force | Move-Item -Destination $TargetPath -Force -ErrorAction Stop
+    $rejections = Get-AgentPayloadRejections -Path $payload -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
+    if ($rejections.Count -gt 0) {
+        throw "Payload verification FAILED ($($rejections -join '; ')). Refusing to install an agent that is not the published one."
     }
-    finally {
-        Remove-Item -LiteralPath $StagingPath -Recurse -Force -ErrorAction SilentlyContinue
+
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [System.IO.Directory]::Move($payload, $TargetPath)
+            return
+        } catch {
+            if ($attempt -ge 3 -or [System.IO.Directory]::Exists($TargetPath)) { throw }
+            Start-Sleep -Seconds 1
+        }
     }
 }
-### END shared payload verification
+
+# The agent writes its output to the host; only the exit code comes back.
+function Invoke-AgentInstallMode {
+    param([string]$ExePath, [string[]]$Arguments = @('--install'))
+    & $ExePath @Arguments | Out-Host
+    return $LASTEXITCODE
+}
+### END shared install helpers
 
 try {
+    # #Requires has no effect under irm | iex.
+    if (-not (Test-IsElevated)) {
+        throw "Run this script from PowerShell as SYSTEM or administrator. Nothing was changed."
+    }
+
+    # An installed agent only gets --install again. Otherwise the agent folder is prepared as
+    # the installer prepares it: protected and empty.
+    $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
+    $agentInstalled = Test-Path $agentExePath
+    if (-not $agentInstalled) {
+        Initialize-AgentBase -Path $AgentBasePath
+    }
+    [System.IO.Directory]::CreateDirectory($AgentLogPath) | Out-Null
+
     Write-Log "===== Autopilot Monitor OOBE Bootstrap ====="
     Write-Log 'Bootstrap token expires: 2026-08-01T12:00:00.000Z'
 
-    # Check if agent is already installed
-    $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
-    if (Test-Path $agentExePath) {
+    if ($agentInstalled) {
         Write-Log "Agent already installed at $agentExePath -- skipping download"
     }
     else {
-        # Download agent ZIP
-        $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
-        Write-Log "Downloading agent from $AgentDownloadUrl..."
+        # Download, verification and extraction happen in a run folder of their own.
+        $staging = New-RunFolder -Parent $AgentBasePath -Prefix 'Agent-Install-'
+        try {
+            $zipPath = Join-Path $staging "AutopilotMonitor-Agent.zip"
+            Write-Log "Downloading agent from $AgentDownloadUrl..."
 
-        $maxDownloadAttempts = 3
-        $downloadAttempt = 0
+            $maxDownloadAttempts = 3
+            $downloadAttempt = 0
 
-        do {
-            $downloadAttempt++
-            try {
-                Write-Log "Download attempt $downloadAttempt/$maxDownloadAttempts"
-                Invoke-WebRequest -Uri $AgentDownloadUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
-                Write-Log "Downloaded agent to $zipPath"
-                break
-            }
-            catch {
-                if ($downloadAttempt -ge $maxDownloadAttempts) { throw }
-                $retryDelays = @(2, 4, 8)
-                $delay = $retryDelays[$downloadAttempt - 1]
-                Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${delay}s..."
-                Start-Sleep -Seconds $delay
-            }
-        } while ($downloadAttempt -lt $maxDownloadAttempts)
+            do {
+                $downloadAttempt++
+                try {
+                    Write-Log "Download attempt $downloadAttempt/$maxDownloadAttempts"
+                    Invoke-WebRequest -Uri $AgentDownloadUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+                    Write-Log "Downloaded agent to $zipPath"
+                    break
+                }
+                catch {
+                    if ($downloadAttempt -ge $maxDownloadAttempts) { throw }
+                    $retryDelays = @(2, 4, 8)
+                    $delay = $retryDelays[$downloadAttempt - 1]
+                    Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${delay}s..."
+                    Start-Sleep -Seconds $delay
+                }
+            } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-        # Verify against the signed payload catalog before anything lands in the agent folder
-        Write-Log "Verifying the payload against its signed catalog..."
-        Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Write-Log "Payload verified and installed to $AgentBinPath"
+            # Verify against the signed payload catalog before anything lands in the agent folder
+            Write-Log "Verifying the payload against its signed catalog..."
+            Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $staging -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
+            Write-Log "Payload verified and installed to $AgentBinPath"
+        }
+        finally {
+            $null = Remove-OwnTree -Path $staging
+        }
 
         if (-not (Test-Path $agentExePath)) {
             throw "Agent executable not found after extraction at $agentExePath"
@@ -183,8 +341,7 @@ try {
 
     # Install agent with bootstrap token
     Write-Log "Installing agent with bootstrap token..."
-    & $agentExePath --install --no-auth --bootstrap-token '22222222-2222-2222-2222-222222222222' --tenant-id '11111111-1111-1111-1111-111111111111'
-    $installExitCode = $LASTEXITCODE
+    $installExitCode = Invoke-AgentInstallMode -ExePath $agentExePath -Arguments @('--install', '--no-auth', '--bootstrap-token', '22222222-2222-2222-2222-222222222222', '--tenant-id', '11111111-1111-1111-1111-111111111111')
     if ($installExitCode -ne 0) {
         throw "Agent install failed with exit code $installExitCode"
     }

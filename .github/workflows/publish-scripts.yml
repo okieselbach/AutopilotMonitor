@@ -23,6 +23,14 @@ on:
         required: true
         type: boolean
         default: false
+      channel:
+        description: 'release: every script. dev: only the two -Dev scripts, to try a change on dev devices first'
+        required: true
+        type: choice
+        options:
+          - release
+          - dev
+        default: release
 
 permissions:
   contents: read
@@ -113,13 +121,16 @@ jobs:
           DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
+      # A push publishes the release channel; only a dispatch can choose dev.
       - name: Publish bootstrap + customer scripts
         shell: pwsh
         env:
           DOTNET_ROLL_FORWARD: LatestMajor
+          PUBLISH_CHANNEL: ${{ inputs.channel || 'release' }}
         run: |
           $dryRun = '${{ inputs.dry_run }}' -eq 'true'
           ./.github/scripts/Publish-BootstrapScripts.ps1 `
+            -Channel $env:PUBLISH_CHANNEL `
             -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
             -SigningToken $env:CODE_SIGN_AKV_ACCESS_TOKEN `
             -KeyVaultUrl $env:CODE_SIGN_KEY_VAULT_URL `

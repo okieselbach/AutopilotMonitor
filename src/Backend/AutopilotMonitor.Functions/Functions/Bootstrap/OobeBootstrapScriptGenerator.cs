@@ -37,7 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
         // SECURITY INVARIANT: every template value comes either from
         // BootstrapScriptValueValidator.TryValidate (the request-derived ones) or from a
         // compile-time constant (portal URL, publisher pin, catalog name, and the installer's
-        // payload-verification block embedded at build time). The single-quoted PowerShell
+        // shared install helpers embedded at build time). The single-quoted PowerShell
         // string literals below are the second line of defense against injection
         // (single-quoted PS strings do NOT expand $(...), $var, or backticks).
         // Do NOT change to double-quoted without re-reviewing the validator's
@@ -67,20 +67,20 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 .Replace("__PORTAL_URL__", Constants.PortalBaseUrl)
                 .Replace("__EXPECTED_PUBLISHER__", Constants.CodeSigningPublisherPattern)
                 .Replace("__PAYLOAD_CATALOG__", Constants.AgentPayloadCatalogFileName)
-                .Replace("__PAYLOAD_VERIFICATION__", SharedPayloadVerification.Value);
+                .Replace("__SHARED_INSTALL_HELPERS__", SharedInstallHelpers.Value);
         }
 
         internal const string InstallerResourceName = "AutopilotMonitor.Functions.Bootstrap.Install-AutopilotMonitor.ps1";
-        internal const string SharedBlockBegin = "### BEGIN shared payload verification";
-        internal const string SharedBlockEnd = "### END shared payload verification";
+        internal const string SharedBlockBegin = "### BEGIN shared install helpers";
+        internal const string SharedBlockEnd = "### END shared install helpers";
 
-        // The payload check is the installer's own code, embedded at build time and cut out
-        // between its markers: one text for both install paths, so they can never drift
-        // (D-354). A missing marker fails the first request loudly instead of serving a
-        // script that installs without the check.
-        private static readonly Lazy<string> SharedPayloadVerification = new(LoadSharedPayloadVerification);
+        // The payload check and the folder handling are the installer's own code, embedded at
+        // build time and cut out between its markers: one text for both install paths, so they
+        // can never drift (D-354). A missing marker fails the first request loudly instead of
+        // serving a script that installs without them.
+        private static readonly Lazy<string> SharedInstallHelpers = new(LoadSharedInstallHelpers);
 
-        internal static string LoadSharedPayloadVerification()
+        internal static string LoadSharedInstallHelpers()
         {
             using var stream = typeof(OobeBootstrapScriptGenerator).Assembly.GetManifestResourceStream(InstallerResourceName)
                 ?? throw new InvalidOperationException($"Embedded resource {InstallerResourceName} is missing.");
@@ -90,7 +90,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             var begin = installer.IndexOf(SharedBlockBegin, StringComparison.Ordinal);
             var end = installer.IndexOf(SharedBlockEnd, StringComparison.Ordinal);
             if (begin < 0 || end < begin || installer.IndexOf(SharedBlockBegin, begin + 1, StringComparison.Ordinal) >= 0)
-                throw new InvalidOperationException("The installer's shared payload-verification markers are missing or ambiguous.");
+                throw new InvalidOperationException("The installer's shared install-helper markers are missing or ambiguous.");
 
             var lineEnd = installer.IndexOf('\n', end);
             return installer.Substring(begin, (lineEnd < 0 ? installer.Length : lineEnd) - begin);
@@ -116,15 +116,9 @@ $AgentBasePath    = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath     = "$AgentBasePath\Agent"
 $AgentLogPath     = "$AgentBasePath\Logs"
 $LogFile          = "$AgentLogPath\oobe_bootstrap.log"
-$AgentStagingPath = "$AgentBasePath\Agent-Install"
 
 $ExpectedPublisher = '__EXPECTED_PUBLISHER__'
 $AgentCatalogName  = '__PAYLOAD_CATALOG__'
-
-# Create directories
-New-Item -Path $AgentBasePath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-New-Item -Path $AgentBinPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-New-Item -Path $AgentLogPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 
 function Write-Log {
     param([string]$Message)
@@ -134,47 +128,64 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
-__PAYLOAD_VERIFICATION__
+__SHARED_INSTALL_HELPERS__
 
 try {
+    # #Requires has no effect under irm | iex.
+    if (-not (Test-IsElevated)) {
+        throw "Run this script from PowerShell as SYSTEM or administrator. Nothing was changed."
+    }
+
+    # An installed agent only gets --install again. Otherwise the agent folder is prepared as
+    # the installer prepares it: protected and empty.
+    $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
+    $agentInstalled = Test-Path $agentExePath
+    if (-not $agentInstalled) {
+        Initialize-AgentBase -Path $AgentBasePath
+    }
+    [System.IO.Directory]::CreateDirectory($AgentLogPath) | Out-Null
+
     Write-Log "===== Autopilot Monitor OOBE Bootstrap ====="
     Write-Log 'Bootstrap token expires: __EXPIRES_AT__'
 
-    # Check if agent is already installed
-    $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
-    if (Test-Path $agentExePath) {
+    if ($agentInstalled) {
         Write-Log "Agent already installed at $agentExePath -- skipping download"
     }
     else {
-        # Download agent ZIP
-        $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
-        Write-Log "Downloading agent from $AgentDownloadUrl..."
+        # Download, verification and extraction happen in a run folder of their own.
+        $staging = New-RunFolder -Parent $AgentBasePath -Prefix 'Agent-Install-'
+        try {
+            $zipPath = Join-Path $staging "AutopilotMonitor-Agent.zip"
+            Write-Log "Downloading agent from $AgentDownloadUrl..."
 
-        $maxDownloadAttempts = 3
-        $downloadAttempt = 0
+            $maxDownloadAttempts = 3
+            $downloadAttempt = 0
 
-        do {
-            $downloadAttempt++
-            try {
-                Write-Log "Download attempt $downloadAttempt/$maxDownloadAttempts"
-                Invoke-WebRequest -Uri $AgentDownloadUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
-                Write-Log "Downloaded agent to $zipPath"
-                break
-            }
-            catch {
-                if ($downloadAttempt -ge $maxDownloadAttempts) { throw }
-                $retryDelays = @(2, 4, 8)
-                $delay = $retryDelays[$downloadAttempt - 1]
-                Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${delay}s..."
-                Start-Sleep -Seconds $delay
-            }
-        } while ($downloadAttempt -lt $maxDownloadAttempts)
+            do {
+                $downloadAttempt++
+                try {
+                    Write-Log "Download attempt $downloadAttempt/$maxDownloadAttempts"
+                    Invoke-WebRequest -Uri $AgentDownloadUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+                    Write-Log "Downloaded agent to $zipPath"
+                    break
+                }
+                catch {
+                    if ($downloadAttempt -ge $maxDownloadAttempts) { throw }
+                    $retryDelays = @(2, 4, 8)
+                    $delay = $retryDelays[$downloadAttempt - 1]
+                    Write-Log "Download failed (attempt $downloadAttempt): $($_.Exception.Message). Retrying in ${delay}s..."
+                    Start-Sleep -Seconds $delay
+                }
+            } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-        # Verify against the signed payload catalog before anything lands in the agent folder
-        Write-Log "Verifying the payload against its signed catalog..."
-        Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Write-Log "Payload verified and installed to $AgentBinPath"
+            # Verify against the signed payload catalog before anything lands in the agent folder
+            Write-Log "Verifying the payload against its signed catalog..."
+            Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $staging -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName
+            Write-Log "Payload verified and installed to $AgentBinPath"
+        }
+        finally {
+            $null = Remove-OwnTree -Path $staging
+        }
 
         if (-not (Test-Path $agentExePath)) {
             throw "Agent executable not found after extraction at $agentExePath"
@@ -183,8 +194,7 @@ try {
 
     # Install agent with bootstrap token
     Write-Log "Installing agent with bootstrap token..."
-    & $agentExePath --install --no-auth --bootstrap-token '__BOOTSTRAP_TOKEN__' --tenant-id '__TENANT_ID__'
-    $installExitCode = $LASTEXITCODE
+    $installExitCode = Invoke-AgentInstallMode -ExePath $agentExePath -Arguments @('--install', '--no-auth', '--bootstrap-token', '__BOOTSTRAP_TOKEN__', '--tenant-id', '__TENANT_ID__')
     if ($installExitCode -ne 0) {
         throw "Agent install failed with exit code $installExitCode"
     }

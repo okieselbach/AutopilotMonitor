@@ -17,7 +17,7 @@
     cosmetics.
 
     Steps, in order:
-      1. Parse $ScriptVersion from the loader and the bootstrap source.
+      1. Parse the $ScriptVersion line from the loader and the bootstrap source.
       2. Render the -Dev variants by literal substitution of the URL/manifest
          defaults. A missing anchor is a hard failure -- a silently un-substituted
          dev script would point the dev fleet at the stable agent.
@@ -25,17 +25,21 @@
          carries the same $ScriptVersion, abort. Otherwise the docs badge,
          version.json.bootstrapVersion and the portal's "your script is outdated"
          hint would all keep asserting a version that is no longer what ships.
-      4. Build the publish set (loader, bootstrap, both dev renders, the extras).
+      4. Build the publish set: both installers, then both loaders, then the extras.
+         A loader that went live before the installer it requires would refuse the
+         installer still being served. -Channel dev keeps only the two -Dev renders.
       5. Authenticode-sign every script (see -SigningToken). Signing is the LAST
          transformation: it covers the exact CRLF/UTF-8 bytes that get uploaded,
          and nothing may touch them afterwards or the signature breaks.
-      6. Upload every script blob with Cache-Control: no-cache (they rotate in
+      6. Run the loader's own identity check on the exact bytes of both installers:
+         what fails here, every device would refuse.
+      7. Upload every script blob with Cache-Control: no-cache (they rotate in
          place), mirrored fail-soft to the legacy account.
-      7. Reconcile the version oracles: version.json.bootstrapVersion and
-         .loaderVersion (read-modify-write under If-Match, so a concurrent agent
+      8. Reconcile the version oracles (release channel only): version.json.bootstrapVersion
+         and .loaderVersion (read-modify-write under If-Match, so a concurrent agent
          release cannot lose its agent fields) and
          AdminConfiguration.LatestBootstrapV2ScriptVersion.
-      8. Verify through the alias -- re-download each blob and compare SHA-256.
+      9. Verify through the alias -- re-download each blob and compare SHA-256.
 
     Comparisons against a published script always strip its signature block first
     (Get-ComparableText). A signature carries a timestamp, so signed bytes differ on
@@ -67,6 +71,11 @@
     Optional directory that receives a copy of every published file exactly as uploaded.
     Used by CI to offer the signed scripts as a build artifact for local inspection.
 
+.PARAMETER Channel
+    release (default): every script, plus version.json and the portal's script version.
+    dev: only Start-AutopilotMonitor-Dev.ps1 and Install-AutopilotMonitor-Dev.ps1, so a
+    script change can run on dev devices, signed, before it goes to customers.
+
 .EXAMPLE
     ./Publish-BootstrapScripts.ps1 -DryRun
 
@@ -83,6 +92,8 @@ param(
     [string]$CertificateName,
     [string]$ExpectedPublisher,
     [string]$SignedOutputDir,
+    [ValidateSet('release', 'dev')]
+    [string]$Channel = 'release',
     [switch]$DryRun
 )
 
@@ -293,12 +304,27 @@ function Assert-VersionBump {
 
 function Get-BootstrapScriptVersion {
     param([string]$Content, [string]$Origin, [switch]$Optional)
-    if ($Content -match '\$ScriptVersion\s*=\s*"([\d\.\-a-zA-Z]+)"') { return $Matches[1] }
+    # The assignment line itself, as the loader reads it: a comment or help text that mentions
+    # $ScriptVersion must not count.
+    if ($Content -match '(?m)^\$ScriptVersion[ \t]*=[ \t]*"([\d\.\-a-zA-Z]+)"[ \t]*\r?$') { return $Matches[1] }
     # Unreadable SOURCE is fatal. An unreadable PUBLISHED copy must not be: that is exactly
     # the state a republish is meant to repair, and a guard that blocks the repair is worse
     # than no guard.
     if ($Optional) { return $null }
     throw "Could not parse ScriptVersion from $Origin"
+}
+
+# The loader's own check, run on the exact bytes that will be served: dot-sourced in this
+# function's scope, so none of the loader's variables reach the publisher's.
+function Assert-LoaderAcceptsInstaller {
+    param([object]$Item, [string]$WorkDir)
+    New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+    $path = Join-Path $WorkDir $Item.BlobName
+    [System.IO.File]::WriteAllBytes($path, [byte[]]$Item.Bytes)
+    . $LoaderSource
+    if (-not (Test-InstallerIdentity -Path $path)) {
+        throw "The loader would refuse $($Item.BlobName) (role or minimum version). Nothing was uploaded."
+    }
 }
 
 # What the script actually DOES, with comments and layout removed: the PowerShell token
@@ -353,8 +379,11 @@ $devLoaderContent = $loaderContent.Replace($stableLoaderLiteral, $devLoaderLiter
 Write-Host "Rendered $LoaderDevBlob (points at $DevBlob)"
 
 # ------------------------------------------------------------------ 3. bump guards
-Assert-VersionBump -BlobName $BootstrapBlob -SourceContent $sourceContent -SourceOrigin $BootstrapSource -SourceVersion $scriptVersion
-Assert-VersionBump -BlobName $LoaderBlob    -SourceContent $loaderContent -SourceOrigin $LoaderSource    -SourceVersion $loaderVersion
+# The versions are what customers act on, so the guard watches the release blobs only.
+if ($Channel -eq 'release') {
+    Assert-VersionBump -BlobName $BootstrapBlob -SourceContent $sourceContent -SourceOrigin $BootstrapSource -SourceVersion $scriptVersion
+    Assert-VersionBump -BlobName $LoaderBlob    -SourceContent $loaderContent -SourceOrigin $LoaderSource    -SourceVersion $loaderVersion
+}
 
 # ------------------------------------------------------------------ 4. publish set
 # Sources beyond the bootstrap pair, read straight from the repo.
@@ -369,10 +398,15 @@ $extraSources = @(
 # Text is the unsigned publish form and stays the reference for every comparison against a
 # published copy; Bytes is what goes on the wire and carries the signature after step 4.
 $publishSet = [System.Collections.Generic.List[object]]::new()
-$publishSet.Add([pscustomobject]@{ BlobName = $LoaderBlob;    Text = $loaderContent;    Bytes = (Get-PublishBytes $loaderContent) })
-$publishSet.Add([pscustomobject]@{ BlobName = $LoaderDevBlob; Text = $devLoaderContent; Bytes = (Get-PublishBytes $devLoaderContent) })
 $publishSet.Add([pscustomobject]@{ BlobName = $BootstrapBlob; Text = $sourceContent;    Bytes = $sourceBytes })
 $publishSet.Add([pscustomobject]@{ BlobName = $DevBlob;       Text = $devContent;       Bytes = (Get-PublishBytes $devContent) })
+$publishSet.Add([pscustomobject]@{ BlobName = $LoaderBlob;    Text = $loaderContent;    Bytes = (Get-PublishBytes $loaderContent) })
+$publishSet.Add([pscustomobject]@{ BlobName = $LoaderDevBlob; Text = $devLoaderContent; Bytes = (Get-PublishBytes $devLoaderContent) })
+if ($Channel -eq 'dev') {
+    $publishSet = [System.Collections.Generic.List[object]]@($publishSet | Where-Object { $_.BlobName -in @($DevBlob, $LoaderDevBlob) })
+    $extraSources = @()
+    Write-Host "Channel dev: publishing $DevBlob and $LoaderDevBlob only"
+}
 foreach ($extra in $extraSources) {
     $extraPath = Join-Path $RepoRoot $extra.Path
     if (-not (Test-Path $extraPath)) {
@@ -391,13 +425,18 @@ if ($SigningEnabled) {
     Write-Host '::warning::No signing token supplied -- dry run continues with unsigned scripts.'
 }
 
+# ------------------------------------------------------------------ 6. loader check
+foreach ($item in @($publishSet | Where-Object { $_.BlobName -in @($BootstrapBlob, $DevBlob) })) {
+    Assert-LoaderAcceptsInstaller -Item $item -WorkDir (Join-Path ([System.IO.Path]::GetTempPath()) "apm-publish-check-$PID")
+}
+
 $legacySas = if ($LegacySasToken) { $LegacySasToken.TrimStart('?') } else { '' }
 
 # Acquired lazily: a dry run must stay runnable without any Azure login -- the PR gate
 # (bootstrap-script-gates.yml) executes this script with -DryRun and never logs in.
 $authHeaders = if ($DryRun) { $null } else { & (Join-Path $PSScriptRoot 'Get-StorageAuthHeaders.ps1') }
 
-# ------------------------------------------------------------------ 6. upload
+# ------------------------------------------------------------------ 7. upload
 foreach ($item in $publishSet) {
     # Explicit type, not a convenience: an Object[] body is uploaded as space-separated
     # decimals rather than raw bytes, and every hash check still passes because [byte[]]
@@ -464,11 +503,12 @@ foreach ($item in $publishSet) {
     }
 }
 
-# ------------------------------------------------------------------ 7. version oracles
+# ------------------------------------------------------------------ 8. version oracles
 # version.json is the agent manifest; only bootstrapVersion belongs to us. Read from the
 # blob (not the alias) for an authoritative ETag, write back under If-Match so a concurrent
-# agent release cannot lose its version/sha256 fields.
-if (-not $DryRun) {
+# agent release cannot lose its version/sha256 fields. They describe the release scripts, so
+# a dev publish leaves them alone.
+if (-not $DryRun -and $Channel -eq 'release') {
     try {
         $manifestResp = Invoke-WebRequest -Uri "$ContainerUrl/version.json" -Method Get -UseBasicParsing
         $manifestRaw = if ($manifestResp.Content -is [byte[]]) {
@@ -512,7 +552,9 @@ if (-not $DryRun) {
     }
 }
 
-if ($DryRun) {
+if ($Channel -ne 'release') {
+    Write-Host "Channel dev: version.json and AdminConfiguration.LatestBootstrapV2ScriptVersion stay as they are"
+} elseif ($DryRun) {
     Write-Host "  [dry-run] would set AdminConfiguration.LatestBootstrapV2ScriptVersion = $scriptVersion"
 } else {
     $tableHeaders = @{
@@ -525,7 +567,7 @@ if ($DryRun) {
     Write-Host "AdminConfiguration.LatestBootstrapV2ScriptVersion = $scriptVersion"
 }
 
-# ------------------------------------------------------------------ 8. verify via alias
+# ------------------------------------------------------------------ 9. verify via alias
 if (-not $DryRun) {
     $pending = [System.Collections.ArrayList]::new()
     $publishSet | ForEach-Object { [void]$pending.Add($_) }
@@ -555,7 +597,7 @@ if (-not $DryRun) {
 if ($env:GITHUB_STEP_SUMMARY) {
     $mode = if ($DryRun) { 'DRY RUN -- nothing uploaded' } else { 'published + verified via the download alias' }
     $summary = @(
-        "### Bootstrap scripts: $mode",
+        "### Bootstrap scripts: $mode (channel $Channel)",
         '',
         "Loader script version: **$loaderVersion** | Bootstrap script version: **$scriptVersion**",
         "Signed: **$(if ($SigningEnabled) { "yes, certificate '$CertificateName'" } else { 'NO (unsigned dry run)' })**",

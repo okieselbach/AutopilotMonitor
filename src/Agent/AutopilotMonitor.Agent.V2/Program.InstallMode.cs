@@ -213,7 +213,7 @@ namespace AutopilotMonitor.Agent.V2
                 // SKIP via pre-flight (agent already installed), and the device would
                 // sit without a runtime until manual intervention. The bootstrap
                 // script's Get-Process probe is the canonical "no runtime came up"
-                // signal — see Install-AutopilotMonitor.ps1 ~line 280.
+                // signal — see "Runtime process verified" in Install-AutopilotMonitor.ps1.
                 RuntimeLaunchResult launch;
                 if (!TokenPrivilegeProbe.IsPrivilegeHeld(TokenPrivilegeProbe.TimeZonePrivilege))
                 {

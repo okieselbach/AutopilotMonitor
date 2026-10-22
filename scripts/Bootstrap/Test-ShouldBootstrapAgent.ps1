@@ -1,9 +1,9 @@
 # Autopilot Monitor Bootstrap Guard Test
 # Dry-run only: does not exit, does not install, only reports what WOULD happen.
-# Mirrors Install-AutopilotMonitor.ps1 (v2.3) incl. the relax exemption for
+# Mirrors Install-AutopilotMonitor.ps1 (v2.7) incl. the relax exemption for
 # guards 2+3, triggered by "Windows Backup for Organizations" (OOBE InProgress)
-# or a positively identified Windows 365 Cloud PC, and the guard 4 (uptime)
-# exemption while the Cloud PC relax is active.
+# or a positively identified Windows 365 Cloud PC, the guard 4 (uptime)
+# exemption while the Cloud PC relax is active, and the agent check.
 
 param(
     [string]$AgentBinPath = 'C:\ProgramData\AutopilotMonitor\Agent',
@@ -29,17 +29,44 @@ function Write-Step {
     Write-Host "$prefix $Message"
 }
 
+# HKLM through the 64-bit view, as the installer reads it: a 32-bit host would read WOW6432Node.
 function Get-RegistryValueSafe {
     param(
-        [string]$Path,
+        [string]$SubKey,
         [string]$Name
     )
 
     try {
-        return (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name
+        $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+        try {
+            $key = $hive.OpenSubKey($SubKey)
+            if ($null -eq $key) { return $null }
+            try { return $key.GetValue($Name) } finally { $key.Close() }
+        } finally {
+            $hive.Close()
+        }
     }
     catch {
         return $null
+    }
+}
+
+function Test-RegistryKeySafe {
+    param([string]$SubKey)
+
+    try {
+        $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+        try {
+            $key = $hive.OpenSubKey($SubKey)
+            if ($null -eq $key) { return $false }
+            $key.Close()
+            return $true
+        } finally {
+            $hive.Close()
+        }
+    }
+    catch {
+        return $false
     }
 }
 
@@ -58,7 +85,7 @@ function Test-OobeInProgress {
 
 # Positive Windows 365 Cloud PC detection: two local markers, BOTH required (AND),
 # because each alone has look-alikes. Mirrors Test-IsCloudPc in the bootstrapper.
-$cloudPcRegMarker = Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows365'
+$cloudPcRegMarker = Test-RegistryKeySafe -SubKey 'SOFTWARE\Microsoft\Windows365'
 $cloudPcSvcMarker = $null -ne (Get-Service -Name 'CloudManagedDesktopExtension' -ErrorAction SilentlyContinue)
 $isCloudPc = ($cloudPcRegMarker -and $cloudPcSvcMarker)
 
@@ -73,7 +100,7 @@ Write-Host '=== Autopilot Monitor Bootstrap Guard Test (Dry Run) ==='
 Write-Host ''
 
 # Guard 1: Agent was already deployed on this device (survives self-destruct)
-$deployed = Get-RegistryValueSafe -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Name 'Deployed'
+$deployed = Get-RegistryValueSafe -SubKey 'SOFTWARE\AutopilotMonitor' -Name 'Deployed'
 if ($deployed) {
     Write-Step -Status 'SKIP' -Message "Guard 1: Agent was previously deployed at '$deployed'."
     $wouldInstall = $false
@@ -146,7 +173,7 @@ if ($profilePaths.Count -gt 0 -and -not $oobeRelax) {
 }
 
 # Guard 3: LastLoggedOnUser (unless OOBE-relax holds)
-$lastLoggedOnUser = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI' -Name 'LastLoggedOnUser' -EA SilentlyContinue).LastLoggedOnUser
+$lastLoggedOnUser = Get-RegistryValueSafe -SubKey 'SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI' -Name 'LastLoggedOnUser'
 if ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*' -and -not $oobeRelax) {
     Write-Step -Status 'SKIP' -Message "Guard 3: LastLoggedOnUser found ($lastLoggedOnUser). Device appears productive."
     $wouldInstall = $false
@@ -183,13 +210,19 @@ catch {
     Write-Step -Status 'WARN' -Message 'Guard 4: Could not determine LastBootUpTime / uptime.'
 }
 
-# Guard 5: Agent binary already present
+# Agent check: an installed agent (its executable or its task; the marker is guard 1) is
+# left as it is.
+$agentTask = Get-ScheduledTask -TaskName 'AutopilotMonitor-Agent' -ErrorAction SilentlyContinue
 if (Test-Path $AgentExePath) {
-    Write-Step -Status 'SKIP' -Message "Guard 5: Agent already installed at '$AgentExePath'."
+    Write-Step -Status 'SKIP' -Message "Agent check: Agent already installed at '$AgentExePath'."
     $wouldInstall = $false
     $reasons.Add("Agent binary already present: $AgentExePath")
+} elseif ($agentTask) {
+    Write-Step -Status 'SKIP' -Message "Agent check: Agent task 'AutopilotMonitor-Agent' exists."
+    $wouldInstall = $false
+    $reasons.Add("Agent task present: AutopilotMonitor-Agent")
 } else {
-    Write-Step -Status 'PASS' -Message "Guard 5: Agent binary not present at '$AgentExePath'."
+    Write-Step -Status 'PASS' -Message "Agent check: No agent binary at '$AgentExePath' and no agent task."
 }
 
 Write-Host ''

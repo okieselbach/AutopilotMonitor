@@ -8,8 +8,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Pins the OOBE bootstrap script generator, ported from the portal's
 /// app/go/[code]/route.ts. The golden file TestData/oobe-bootstrap-golden.ps1 is the
 /// pin of the shipped template (modulo line endings): first captured from the TS
-/// template literal, since D-354 extended with the payload catalog check that the
-/// generator embeds verbatim from the installer. Ports the behavioral cases of the
+/// template literal, since D-354 extended with the installer's shared install helpers
+/// (payload catalog check, protected agent folder, run folder), which the generator
+/// embeds verbatim. Ports the behavioral cases of the
 /// vitest suite app/go/[code]/__tests__/route.test.ts that concern script generation.
 /// </summary>
 public class OobeBootstrapScriptGeneratorTests
@@ -50,8 +51,8 @@ public class OobeBootstrapScriptGeneratorTests
         var script = Generate();
 
         Assert.StartsWith("#Requires -RunAsAdministrator", script);
-        Assert.Contains($"--tenant-id '{TenantId}'", script);
-        Assert.Contains($"--bootstrap-token '{Token}'", script);
+        Assert.Contains($"'--tenant-id', '{TenantId}'", script);
+        Assert.Contains($"'--bootstrap-token', '{Token}'", script);
         Assert.Contains($"$AgentDownloadUrl = '{DownloadUrl}'", script);
         Assert.Contains("Generated: 2026-07-28T12:00:00.000Z", script);
         Assert.Contains("Expires:   2026-08-01T12:00:00.000Z", script);
@@ -73,9 +74,10 @@ public class OobeBootstrapScriptGeneratorTests
         Assert.Contains("'Bootstrap token expires: 2026-08-01T12:00:00.000Z'", script);
     }
 
-    // ── D-354: the payload is checked against its signed catalog before --install ──
+    // ── D-354: the payload is checked against its signed catalog before --install, with the
+    //    installer's own code for that and for the agent folder ──
     [Fact]
-    public void SuccessScript_embeds_the_installers_payload_verification_verbatim()
+    public void SuccessScript_embeds_the_installers_shared_install_helpers_verbatim()
     {
         var installer = File.ReadAllText(Path.Combine(FindRepoRoot(), "scripts", "Bootstrap", "Install-AutopilotMonitor.ps1"))
             .Replace("\r\n", "\n");
@@ -85,22 +87,42 @@ public class OobeBootstrapScriptGeneratorTests
 
         Assert.Contains("function Get-AgentPayloadRejections", block);
         Assert.Contains("function Install-VerifiedAgentPayload", block);
+        Assert.Contains("function Initialize-AgentBase", block);
+        Assert.Contains("function New-RunFolder", block);
+        Assert.Contains("function Remove-OwnTree", block);
+        Assert.Contains("function Invoke-AgentInstallMode", block);
         Assert.Contains(block, Generate().Replace("\r\n", "\n"));
     }
 
     [Fact]
-    public void SuccessScript_verifies_the_payload_before_installing_the_agent()
+    public void SuccessScript_prepares_the_folder_and_verifies_the_payload_before_installing_the_agent()
     {
         var script = Generate();
 
+        var prepare = script.IndexOf("Initialize-AgentBase -Path $AgentBasePath", StringComparison.Ordinal);
         var verify = script.IndexOf(
-            "Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $AgentStagingPath -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName",
+            "Install-VerifiedAgentPayload -ZipPath $zipPath -StagingPath $staging -TargetPath $AgentBinPath -ExpectedPublisher $ExpectedPublisher -CatalogName $AgentCatalogName",
             StringComparison.Ordinal);
-        var install = script.IndexOf("& $agentExePath --install", StringComparison.Ordinal);
+        var install = script.IndexOf("Invoke-AgentInstallMode -ExePath $agentExePath -Arguments @('--install'", StringComparison.Ordinal);
 
-        Assert.True(verify > 0, "the generated script never verifies the payload");
+        Assert.True(prepare > 0, "the generated script never prepares the agent folder");
+        Assert.True(verify > prepare, "the payload check must run in the prepared folder");
         Assert.True(install > verify, "--install must run after the payload check");
         Assert.DoesNotContain("Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath", script);
+        Assert.DoesNotContain("$env:TEMP", script);
+    }
+
+    // #Requires is ignored under irm | iex, so the script checks for itself before it changes anything.
+    [Fact]
+    public void SuccessScript_refuses_to_run_without_elevation_before_it_changes_anything()
+    {
+        var script = Generate();
+
+        var check = script.IndexOf("if (-not (Test-IsElevated)) {", StringComparison.Ordinal);
+        var tryStart = script.IndexOf("\ntry {", StringComparison.Ordinal);
+
+        Assert.True(check > tryStart && tryStart > 0, "the elevation check must open the main block");
+        Assert.True(check < script.IndexOf("Initialize-AgentBase -Path $AgentBasePath", StringComparison.Ordinal));
     }
 
     [Fact]

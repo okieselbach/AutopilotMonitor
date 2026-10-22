@@ -15,21 +15,28 @@ permissions:
 
 jobs:
   gates:
-    name: Bootstrap guard tests (PS 5.1)
-    runs-on: windows-latest
+    name: Bootstrap guard tests (PS 5.1, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Folder permissions and Windows PowerShell 5.1 come with the OS, so both server images.
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # For all users: the SYSTEM pass below runs Pester as SYSTEM.
       - name: Install Pester 5+
         shell: powershell
         run: |
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
+          Install-Module Pester -Scope AllUsers -Force -SkipPublisherCheck -MinimumVersion 5.5.0
 
       # Windows PowerShell 5.1 on purpose: that is the runtime IME uses to execute
       # platform scripts, so guard/relax logic is verified without resetting a device.
+      # The runner is elevated, so the integration tests use the real folder permissions.
       - name: Run Pester
         shell: powershell
         run: |
@@ -40,11 +47,20 @@ jobs:
           $c.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $c
 
+      # On a device the bootstrap runs as SYSTEM: the integration tests once more as SYSTEM.
+      - name: Integration tests as SYSTEM
+        shell: powershell
+        run: ./.github/scripts/Invoke-BootstrapSystemPass.ps1
+
+      - name: Folder permissions against a real standard user
+        shell: powershell
+        run: ./.github/scripts/Test-BootstrapAttacker.ps1
+
       - name: Guard scripts stay pure ASCII
         shell: powershell
         run: |
           $failed = $false
-          Get-ChildItem 'scripts/Bootstrap' -Filter '*.ps1' | ForEach-Object {
+          Get-ChildItem 'scripts/Bootstrap' -Filter '*.ps1' -Recurse | ForEach-Object {
             $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
             for ($i = 0; $i -lt $bytes.Length; $i++) {
               if ($bytes[$i] -gt 127) {
@@ -56,6 +72,15 @@ jobs:
           }
           if ($failed) { exit 1 }
           Write-Host 'All bootstrap scripts are pure ASCII.'
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # The names and log lines the scripts share with the agent, checked against the agent's
+      # own code.
+      - name: Script contracts with the agent
+        run: dotnet test src/Agent/AutopilotMonitor.Agent.V2.Core.Tests --configuration Release --filter "Category=BootstrapContract" --logger "console;verbosity=normal"
 
       # The publish chain renders the -Dev variant by literal substitution and refuses to
       # ship when an anchor moved. Running it dry here surfaces that (and any drift against

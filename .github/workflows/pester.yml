@@ -14,7 +14,12 @@ on:
       - 'scripts/Bootstrap/**'
       - 'scripts/CustomerSetup/**'
       - '.github/scripts/Publish-BootstrapScripts.ps1'
+      - '.github/scripts/Invoke-BootstrapSystemPass.ps1'
+      - '.github/scripts/Test-BootstrapAttacker.ps1'
       - '.github/workflows/bootstrap-script-gates.yml'
+      # The integration tests run the generated OOBE script and the MSI's command line.
+      - 'src/Backend/AutopilotMonitor.Functions.Tests/TestData/oobe-bootstrap-golden.ps1'
+      - 'src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs'
   workflow_dispatch:
 
 permissions:

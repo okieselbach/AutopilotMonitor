@@ -6,6 +6,7 @@
     This script removes all traces of the Autopilot Monitor agent:
     - Stops and removes the Scheduled Task
     - Deletes C:\ProgramData\AutopilotMonitor folder
+    - Deletes C:\ProgramData\AutopilotMonitor-Loader-* folders that a failed loader run kept
 
     Normally the agent self-destructs after enrollment completion.
     Use this script only for manual cleanup or troubleshooting.
@@ -16,7 +17,8 @@
 .NOTES
     - Requires Administrator privileges
     - Safe to run multiple times
-    - No Registry cleanup needed (agent doesn't use Registry)
+    - Keeps HKLM\SOFTWARE\AutopilotMonitor\Deployed: the bootstrap reads it and never
+      installs the agent on this device again
 #>
 
 [CmdletBinding()]
@@ -65,6 +67,17 @@ try {
 catch {
     Write-Host "  [FAIL] Error deleting folder: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "  [INFO] You may need to manually delete: $AgentBasePath" -ForegroundColor Yellow
+}
+
+# Delete loader run folders kept by failed runs
+foreach ($runFolder in @(Get-ChildItem -Path $env:ProgramData -Directory -Filter 'AutopilotMonitor-Loader-*' -ErrorAction SilentlyContinue)) {
+    try {
+        Remove-Item -LiteralPath $runFolder.FullName -Recurse -Force -ErrorAction Stop
+        Write-Host "  [OK] Loader run folder deleted: $($runFolder.FullName)" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "  [FAIL] Error deleting $($runFolder.FullName): $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
 Write-Host ""
