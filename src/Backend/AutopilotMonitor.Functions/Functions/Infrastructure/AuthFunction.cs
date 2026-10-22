@@ -37,7 +37,7 @@ public class AuthFunction
     private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
     private readonly EntraAppRegistry _appRegistry;
     private readonly AdminIdentityResolver _identityResolver;
-    private readonly ISignalRNotificationService _signalRService;
+    private readonly LiveStreamRevoker _streams;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly IOffboardingAuditRepository _offboardingRepo;
     private readonly Services.Push.PushOwnerSignInService? _pushSignIn;
@@ -57,7 +57,7 @@ public class AuthFunction
         Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
         EntraAppRegistry appRegistry,
         AdminIdentityResolver identityResolver,
-        ISignalRNotificationService signalRService,
+        LiveStreamRevoker streams,
         AdminConfigurationService adminConfigService,
         IOffboardingAuditRepository offboardingRepo,
         Services.Push.PushOwnerSignInService? pushSignIn = null,
@@ -69,7 +69,7 @@ public class AuthFunction
         _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
-        _signalRService = signalRService;
+        _streams = streams;
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
         _tenantConfigService = tenantConfigService;
@@ -433,9 +433,9 @@ public class AuthFunction
 
         // SignalR group authorization is join-time only: a removed Global Admin/Reader with a live
         // connection in 'global-admins' would keep receiving cross-tenant pushes until the socket
-        // drops. Cut the UPN's connections (negotiate binds userId = lowercased UPN); a reconnect
-        // re-runs the join gates against the now-missing platform role.
-        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
+        // drops. Cut the connections signed in to the UPN's bound tenant, the only one a platform role
+        // resolves under; a reconnect re-runs the join gates against the now-missing platform role.
+        await _streams.CutBoundIdentityAsync(upn);
 
         _logger.LogInformation($"Global Admin removed: {upn} by {currentUpn}");
 

@@ -66,7 +66,7 @@ public class GlobalAdminService
 
     private readonly Push.IPushDeviceRevoker? _pushRevoker;
 
-    /// <summary>Role-loss hook (K6): a removed or disabled Global Admin loses the platform-scope push devices. Fail-soft.</summary>
+    /// <summary>Role-loss hook (K6): a removed Global Admin loses the platform-scope push devices. Fail-soft.</summary>
     private Task RevokePushDevicesAsync(string upn, string reason)
         => _pushRevoker?.RevokeOwnerAsync(Notifications.NotificationScope.Platform, upn, reason) ?? Task.CompletedTask;
 
@@ -171,20 +171,6 @@ public class GlobalAdminService
         // Invalidate cache
         _cache.Remove($"global-role:{upn}");
         await RevokePushDevicesAsync(upn, "global_admin_removed");
-    }
-
-    /// <summary>
-    /// Disables (but does not delete) a Global Admin
-    /// </summary>
-    public async Task DisableGlobalAdminAsync(string upn)
-    {
-        upn = upn.ToLowerInvariant();
-
-        await _adminRepo.DisableGlobalAdminAsync(upn);
-
-        // Invalidate cache
-        _cache.Remove($"global-role:{upn}");
-        await RevokePushDevicesAsync(upn, "global_admin_disabled");
     }
 
     /// <summary>

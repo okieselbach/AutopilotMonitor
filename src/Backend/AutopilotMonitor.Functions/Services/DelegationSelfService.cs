@@ -58,7 +58,8 @@ public interface ISelfServiceAssignees
 ///   <item>Removing a customer (by either side) frees the slot only after <see cref="DelegatedSlotService.ReleaseHold"/>
 ///   (24 h) — no rotating customers through a small allowance. A Global Admin can release a hold early.</item>
 ///   <item>Every access change is audited under BOTH tenants: the managed customer's trail records who can read
-///   it, the managing tenant's trail records its own actions. Live streams of affected users are cut.</item>
+///   it, the managing tenant's trail records its own actions. Live streams of affected users are cut under the
+///   managing tenant, the only tenant a self-service grant resolves under.</item>
 /// </list>
 /// Self-service grants are always <see cref="Constants.DelegatedRoles.DelegatedReader"/> (read-only).
 /// </summary>
@@ -97,7 +98,7 @@ public class DelegationSelfService : ISelfServiceAssignees
     private readonly TenantEntitlementService _entitlements;
     private readonly IConfigRepository _configRepo;
     private readonly IMaintenanceRepository _audit;
-    private readonly ISignalRNotificationService _signalR;
+    private readonly LiveStreamRevoker _streams;
     private readonly ProConferralService _proConferral;
     private readonly ILogger<DelegationSelfService> _logger;
     private readonly TimeProvider _time;
@@ -110,10 +111,10 @@ public class DelegationSelfService : ISelfServiceAssignees
         TenantEntitlementService entitlements,
         IConfigRepository configRepo,
         IMaintenanceRepository audit,
-        ISignalRNotificationService signalR,
+        LiveStreamRevoker streams,
         ProConferralService proConferral,
         ILogger<DelegationSelfService> logger)
-        : this(adminRepo, invitations, delegatedAdmins, slots, entitlements, configRepo, audit, signalR, proConferral, logger, TimeProvider.System)
+        : this(adminRepo, invitations, delegatedAdmins, slots, entitlements, configRepo, audit, streams, proConferral, logger, TimeProvider.System)
     {
     }
 
@@ -126,7 +127,7 @@ public class DelegationSelfService : ISelfServiceAssignees
         TenantEntitlementService entitlements,
         IConfigRepository configRepo,
         IMaintenanceRepository audit,
-        ISignalRNotificationService signalR,
+        LiveStreamRevoker streams,
         ProConferralService proConferral,
         ILogger<DelegationSelfService> logger,
         TimeProvider time)
@@ -138,7 +139,7 @@ public class DelegationSelfService : ISelfServiceAssignees
         _entitlements = entitlements;
         _configRepo = configRepo;
         _audit = audit;
-        _signalR = signalR;
+        _streams = streams;
         _proConferral = proConferral;
         _logger = logger;
         _time = time;
@@ -333,7 +334,7 @@ public class DelegationSelfService : ISelfServiceAssignees
         {
             await _audit.LogAuditEntryAsync(target, "DELETE", AuditGroupAccess, assignee.Upn, by,
                 new Dictionary<string, string> { { "GroupId", groupId }, { "Reason", reason }, { "HomeTenantId", home } });
-            await _signalR.DisconnectUserAsync(assignee.Upn);
+            await _streams.CutAsync(home, assignee.Upn);
         }
         await _audit.LogAuditEntryAsync(home, "DELETE", AuditManagedTenant, target, by,
             new Dictionary<string, string> { { "Reason", reason }, { "SlotHeldUntilUtc", hold.HoldUntilUtc?.ToString("O") ?? string.Empty } });
@@ -395,7 +396,7 @@ public class DelegationSelfService : ISelfServiceAssignees
         if (!await EndAssignmentAsync(homeTenantId, upn, actor, AssigneeReasons.SelfServiceUnassigned))
             return DelegationResult<bool>.Fail(404, Constants.DelegationCodes.AssigneeNotFound, "That person is not assigned.");
 
-        await _signalR.DisconnectUserAsync(upn.ToLowerInvariant());
+        await _streams.CutAsync(homeTenantId, upn);
         return DelegationResult<bool>.Success(true);
     }
 

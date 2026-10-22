@@ -19,20 +19,20 @@ public class TenantAdminManagementFunction
     private readonly ILogger<TenantAdminManagementFunction> _logger;
     private readonly TenantAdminsService _tenantAdminsService;
     private readonly IMaintenanceRepository _maintenanceRepo;
-    private readonly ISignalRNotificationService _signalRService;
+    private readonly LiveStreamRevoker _streams;
     private readonly ISelfServiceAssignees _selfServiceAssignees;
 
     public TenantAdminManagementFunction(
         ILogger<TenantAdminManagementFunction> logger,
         TenantAdminsService tenantAdminsService,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService,
+        LiveStreamRevoker streams,
         ISelfServiceAssignees selfServiceAssignees)
     {
         _logger = logger;
         _tenantAdminsService = tenantAdminsService;
         _maintenanceRepo = maintenanceRepo;
-        _signalRService = signalRService;
+        _streams = streams;
         _selfServiceAssignees = selfServiceAssignees;
     }
 
@@ -59,12 +59,13 @@ public class TenantAdminManagementFunction
     /// SignalR group authorization is evaluated only at join time (SignalRAddToGroupFunction), so a
     /// member whose role was removed, disabled or lowered would keep their already-joined
     /// 'tenant-{tid}' broadcast, notify-group and session-group streams until the socket drops.
-    /// Cutting the UPN's connections (negotiate binds userId = lowercased UPN) forces a reconnect that
-    /// re-runs the join gates against the new role. Coarse by design — a still-authorized client
-    /// simply reconnects — and mirrors the delegated-admin / tenant-group revoke paths.
+    /// Cutting the member's connections forces a reconnect that re-runs the join gates against the new
+    /// role. Coarse by design — a still-authorized client simply reconnects. The cut names this tenant
+    /// only: the membership resolves under it, and so does the member's self-service delegation, so
+    /// nothing here reaches the same UPN signed in to another tenant (see <see cref="LiveStreamRevoker"/>).
     /// </summary>
-    private Task CutLiveStreamsAsync(string adminUpn) =>
-        _signalRService.DisconnectUserAsync(adminUpn.ToLowerInvariant());
+    private Task CutLiveStreamsAsync(string tenantId, string adminUpn) =>
+        _streams.CutAsync(tenantId, adminUpn);
 
     /// <summary>
     /// GET /api/tenants/{tenantId}/admins
@@ -198,8 +199,11 @@ public class TenantAdminManagementFunction
             }
         }
 
-        // Remove the admin
-        await _tenantAdminsService.RemoveTenantAdminAsync(requestCtx.TargetTenantId, adminUpn);
+        // Remove the admin. A UPN without a row in this tenant is not this tenant's to act on: no audit, no cut.
+        if (!await _tenantAdminsService.RemoveTenantAdminAsync(requestCtx.TargetTenantId, adminUpn))
+        {
+            return await req.NotFoundAsync("Member not found");
+        }
 
         await _maintenanceRepo.LogAuditEntryAsync(
             requestCtx.TargetTenantId,
@@ -210,7 +214,7 @@ public class TenantAdminManagementFunction
         );
 
         await EndSelfServiceAssignmentAsync(requestCtx.TargetTenantId, adminUpn, upn!, DelegationSelfService.AssigneeReasons.MemberRemoved);
-        await CutLiveStreamsAsync(adminUpn);
+        await CutLiveStreamsAsync(requestCtx.TargetTenantId, adminUpn);
 
         _logger.LogInformation($"Tenant Admin removed: {adminUpn} from tenant {requestCtx.TargetTenantId} by {upn}");
 
@@ -234,8 +238,11 @@ public class TenantAdminManagementFunction
         var requestCtx = context.GetRequestContext();
         var upn = requestCtx.UserPrincipalName;
 
-        // Disable the admin
-        await _tenantAdminsService.DisableTenantAdminAsync(requestCtx.TargetTenantId, adminUpn);
+        // Disable the admin (404 for a UPN without a row in this tenant, as on remove)
+        if (!await _tenantAdminsService.DisableTenantAdminAsync(requestCtx.TargetTenantId, adminUpn))
+        {
+            return await req.NotFoundAsync("Member not found");
+        }
 
         await _maintenanceRepo.LogAuditEntryAsync(
             requestCtx.TargetTenantId,
@@ -247,7 +254,7 @@ public class TenantAdminManagementFunction
         );
 
         await EndSelfServiceAssignmentAsync(requestCtx.TargetTenantId, adminUpn, upn!, DelegationSelfService.AssigneeReasons.MemberDisabled);
-        await CutLiveStreamsAsync(adminUpn);
+        await CutLiveStreamsAsync(requestCtx.TargetTenantId, adminUpn);
 
         _logger.LogInformation($"Tenant Admin disabled: {adminUpn} for tenant {requestCtx.TargetTenantId} by {upn}");
 
@@ -271,8 +278,11 @@ public class TenantAdminManagementFunction
         var requestCtx = context.GetRequestContext();
         var upn = requestCtx.UserPrincipalName;
 
-        // Enable the admin
-        await _tenantAdminsService.EnableTenantAdminAsync(requestCtx.TargetTenantId, adminUpn);
+        // Enable the admin (404 for a UPN without a row in this tenant, as on remove)
+        if (!await _tenantAdminsService.EnableTenantAdminAsync(requestCtx.TargetTenantId, adminUpn))
+        {
+            return await req.NotFoundAsync("Member not found");
+        }
 
         await _maintenanceRepo.LogAuditEntryAsync(
             requestCtx.TargetTenantId,
@@ -359,7 +369,7 @@ public class TenantAdminManagementFunction
 
         // Only Admin holds the admin-tier notify group; any other target role may have lost it.
         if (role != AutopilotMonitor.Shared.Constants.TenantRoles.Admin)
-            await CutLiveStreamsAsync(adminUpn);
+            await CutLiveStreamsAsync(requestCtx.TargetTenantId, adminUpn);
 
         _logger.LogInformation("Member permissions updated: {AdminUpn} -> role={Role} in tenant {TenantId} by {Upn}", adminUpn, role, requestCtx.TargetTenantId, upn);
 

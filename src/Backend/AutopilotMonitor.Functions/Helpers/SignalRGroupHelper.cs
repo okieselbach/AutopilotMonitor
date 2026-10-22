@@ -3,7 +3,8 @@ using System;
 namespace AutopilotMonitor.Functions.Helpers;
 
 /// <summary>
-/// Helper class for parsing SignalR group names.
+/// Helper class for SignalR addressing: the user id a client connection is negotiated under
+/// (<see cref="UserId"/>) and the group names.
 /// Group formats:
 ///   - "tenant-{tenantId}"                       — tenant-wide live updates (sessions, etc.)
 ///   - "tenant-{tenantId}-notify-member"          — tenant notification bell (Member-tier visibility)
@@ -18,6 +19,14 @@ public static class SignalRGroupHelper
     /// in [SignalROutput(HubName = ...)] attribute arguments.
     /// </summary>
     public const string HubName = "autopilotmonitor";
+
+    /// <summary>
+    /// The SignalR user id of a client connection: the caller's sign-in tenant (JWT tid) plus principal key, the
+    /// pair every role resolves under. A revoke addresses exactly this pair, so an action in one tenant never
+    /// reaches the same UPN signed in to another. The tenant id is a GUID (no ':'), so the id is unambiguous.
+    /// </summary>
+    public static string UserId(string tenantId, string principalKey)
+        => $"{tenantId.ToLowerInvariant()}:{principalKey.ToLowerInvariant()}";
 
     public const string TenantNotifyMemberSuffix = "-notify-member";
     public const string TenantNotifyAdminSuffix = "-notify-admin";

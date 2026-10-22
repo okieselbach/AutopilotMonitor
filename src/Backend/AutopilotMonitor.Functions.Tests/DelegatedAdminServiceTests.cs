@@ -28,6 +28,12 @@ public class DelegatedAdminServiceTests
 
     private static (DelegatedAdminService Svc, Mock<IAdminRepository> Repo) Build()
     {
+        var (svc, repo, _) = BuildWithBindings();
+        return (svc, repo);
+    }
+
+    private static (DelegatedAdminService Svc, Mock<IAdminRepository> Repo, StubAdminIdentityBindingService Bindings) BuildWithBindings()
+    {
         var repo = new Mock<IAdminRepository>();
         repo.Setup(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<DelegatedAdminEntry>());
@@ -38,14 +44,18 @@ public class DelegatedAdminServiceTests
         // Entitlements stubbed to Enterprise for every tenant — these tests pin ROLE resolution;
         // the edition filter has its own dedicated tests (DelegatedAdminEditionGateTests).
         // Binding stubbed to "bound" — these tests pin ROW resolution; the identity check has its own
-        // tests (AdminIdentityBindingServiceTests / AdminIdentityBindingAuthorizationTests).
+        // tests (AdminIdentityBindingServiceTests / AdminIdentityBindingAuthorizationTests). The binding
+        // read homes the assignees of these tests in HomeTenant, which owns the self-service group below.
+        var bindings = new StubAdminIdentityBindingService(bound: true);
+        bindings.BoundTenants[Upn] = HomeTenant;
+        bindings.BoundTenants[SelfServiceAppKey] = HomeTenant;
         var svc = new DelegatedAdminService(
             repo.Object,
-            new StubAdminIdentityBindingService(bound: true),
+            bindings,
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache,
             NullLogger<DelegatedAdminService>.Instance);
-        return (svc, repo);
+        return (svc, repo, bindings);
     }
 
     /// <summary>The caller identity for a UPN: homed in <see cref="HomeTenant"/> with <see cref="Oid"/>.</summary>
@@ -667,10 +677,12 @@ public class DelegatedAdminServiceTests
         repo.Verify(r => r.GetTenantMemberAsync(HomeTenant, Upn), Times.Once);
     }
 
+    private const string SelfServiceAppKey = "app:0a0a0a0a-0000-0000-0000-000000000001";
+
     [Fact]
     public async Task GetScope_SelfServiceGroup_ApplicationPrincipal_IsGatedOnItsAppKeyRow()
     {
-        const string appKey = "app:0a0a0a0a-0000-0000-0000-000000000001";
+        const string appKey = SelfServiceAppKey;
         var (svc, repo) = Build();
         repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(appKey)).ReturnsAsync(new List<TenantGroupAssignment>
         {
@@ -686,10 +698,10 @@ public class DelegatedAdminServiceTests
     }
 
     [Fact]
-    public async Task GetScope_OperatorGroup_NeverReadsTenantMembership()
+    public async Task GetScope_OperatorGroup_NeverReadsTenantMembershipOrTheBinding()
     {
         // Operator groups (GUID ids) are granted by a Global Admin to people who are not members of any owner.
-        var (svc, repo) = Build();
+        var (svc, repo, bindings) = BuildWithBindings();
         ReturnsGroups(repo, Assignment(GroupId1));
         GroupTenants(repo, GroupId1, TenantA);
 
@@ -697,6 +709,62 @@ public class DelegatedAdminServiceTests
 
         Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantA));
         repo.Verify(r => r.GetTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.Equal(0, bindings.GetCalls);
+    }
+
+    // ── ...and only while its assignee is bound to the owner: a self-service grant resolves under the owner alone ──
+
+    [Theory]
+    [InlineData(TenantC)] // a Global Admin rebound the person to their real tenant (the squat chain)
+    [InlineData(null)]    // no binding at all
+    public async Task GetScope_SelfServiceGroup_AssigneeNotBoundToTheOwner_ConfersNothing(string? boundTenant)
+    {
+        var (svc, repo, bindings) = BuildWithBindings();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        OwnerMember(repo, Upn, enabled: true);
+        if (boundTenant == null)
+            bindings.BoundTenants.Remove(Upn);
+        else
+            bindings.BoundTenants[Upn] = boundTenant;
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(scope.IsEmpty);
+        repo.Verify(r => r.GetGroupMembershipAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetScope_ReboundSelfServiceAssignee_KeepsOperatorGroupAndDirectGrant()
+    {
+        var (svc, repo, bindings) = BuildWithBindings();
+        Returns(repo, Row(TenantC));
+        ReturnsGroups(repo, Assignment(SelfServiceGroup), Assignment(GroupId1));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        GroupTenants(repo, GroupId1, TenantB);
+        OwnerMember(repo, Upn, enabled: true);
+        bindings.BoundTenants[Upn] = TenantC;
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.Null(scope.RoleFor(TenantA));
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantB));
+        Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantC));
+    }
+
+    [Fact]
+    public async Task GetFreshScope_ReadsTheBindingFresh_AfterARebind()
+    {
+        // The SignalR re-join after a rebind's cut must not be admitted by a row scope cached before it.
+        var (svc, repo, bindings) = BuildWithBindings();
+        ReturnsGroups(repo, Assignment(SelfServiceGroup));
+        GroupTenants(repo, SelfServiceGroup, TenantA);
+        OwnerMember(repo, Upn, enabled: true);
+        Assert.NotNull((await svc.GetScopeAsync(Id(Upn))).RoleFor(TenantA)); // warms the row cache
+
+        bindings.BoundTenants[Upn] = TenantC; // rebound elsewhere
+
+        Assert.True((await svc.GetFreshScopeAsync(Id(Upn))).IsEmpty);
     }
 
     [Fact]

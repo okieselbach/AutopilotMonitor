@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Functions.Admin;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -17,7 +18,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// security invariants: (1) a miss (no assignment row) neither audits nor disconnects — a typo must not
 /// write false customer-visible "access removed" rows while the real grant stays live; (2) a real
 /// revoke/disable/unassign/group-delete always cuts the affected UPN's live streams (group authorization
-/// is join-time only); (3) grant validation is fail-closed (GUID tenantId, recognized roles only).
+/// is join-time only) under its bound tenant, the only one the grant resolved under; (3) grant validation is
+/// fail-closed (GUID tenantId, recognized roles only).
 /// </summary>
 public class RevokeEnforcementTests
 {
@@ -65,14 +67,29 @@ public class RevokeEnforcementTests
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()), Times.Never);
 
+    /// <summary>The tenant the revoked UPNs are bound to: a platform or delegated grant resolves only under it.</summary>
+    private const string HomeTenant = "66666666-6666-6666-6666-666666666666";
+
+    /// <summary>The revoker the functions cut through, over bindings homing every UPN of these tests in <see cref="HomeTenant"/>.</summary>
+    private static LiveStreamRevoker Streams(FakeSignalRNotificationService signalR, bool bound)
+    {
+        var bindings = new StubAdminIdentityBindingService();
+        if (bound)
+        {
+            foreach (var upn in new[] { UpnLower, "one@partner.example", "two@partner.example" })
+                bindings.BoundTenants[upn] = HomeTenant;
+        }
+        return new LiveStreamRevoker(signalR, bindings, NullLogger<LiveStreamRevoker>.Instance);
+    }
+
     private static (DelegatedAdminManagementFunction Fn, Mock<IAdminRepository> Repo,
-        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildAdminFn()
+        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildAdminFn(bool bound = true)
     {
         var repo = new Mock<IAdminRepository>();
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new DelegatedAdminManagementFunction(
-            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo));
+            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, Streams(signalR, bound), BuildSlots(repo));
         return (fn, repo, audit, signalR);
     }
 
@@ -90,7 +107,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
-            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo),
+            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, Streams(signalR, bound: true), BuildSlots(repo),
             proConferral ?? TestProConferral.Inert(), assignees ?? new FakeSelfServiceAssignees(signalR));
         return (fn, repo, audit, signalR);
     }
@@ -202,7 +219,7 @@ public class RevokeEnforcementTests
     }
 
     [Fact]
-    public async Task RevokeCore_RemovedRow_AuditsAndDisconnectsLowercasedUpn()
+    public async Task RevokeCore_RemovedRow_AuditsAndDisconnectsUnderTheBoundTenant()
     {
         var (fn, repo, audit, signalR) = BuildAdminFn();
         repo.Setup(r => r.RemoveDelegatedAdminAsync(UpnLower, TenantA)).ReturnsAsync(true);
@@ -210,8 +227,23 @@ public class RevokeEnforcementTests
         var removed = await fn.RevokeCoreAsync(Upn, TenantA, "ga@vendor.example");
 
         Assert.True(removed);
-        // SignalR user ids are lowercased UPNs — a mixed-case route param must still hit the user's connections.
-        Assert.Equal(new[] { UpnLower }, signalR.DisconnectedUsers);
+        // The grant resolved only under the UPN's bound tenant — never the managed tenant it pointed at. User ids
+        // are lowercase, so a mixed-case route param still hits the user's connections.
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(HomeTenant, UpnLower) }, signalR.DisconnectedUsers);
+        audit.Verify(a => a.LogAuditEntryAsync(
+            TenantA, "DELETE", "DelegatedAdmin", UpnLower, "ga@vendor.example", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task RevokeCore_RemovedRow_WithoutBinding_AuditsButCutsNothing()
+    {
+        // No binding ⇒ the grant never resolved for anyone ⇒ no connection holds its groups.
+        var (fn, repo, audit, signalR) = BuildAdminFn(bound: false);
+        repo.Setup(r => r.RemoveDelegatedAdminAsync(UpnLower, TenantA)).ReturnsAsync(true);
+
+        Assert.True(await fn.RevokeCoreAsync(Upn, TenantA, "ga@vendor.example"));
+
+        Assert.Empty(signalR.DisconnectedUsers);
         audit.Verify(a => a.LogAuditEntryAsync(
             TenantA, "DELETE", "DelegatedAdmin", UpnLower, "ga@vendor.example", null), Times.Once);
     }
@@ -240,7 +272,7 @@ public class RevokeEnforcementTests
         var ok = await fn.SetEnabledCoreAsync(Upn, TenantA, isEnabled: false, "ga@vendor.example");
 
         Assert.True(ok);
-        Assert.Equal(new[] { UpnLower }, signalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(HomeTenant, UpnLower) }, signalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -287,7 +319,7 @@ public class RevokeEnforcementTests
         var unassigned = await fn.UnassignCoreAsync(GroupId, Upn, "ga@vendor.example");
 
         Assert.True(unassigned);
-        Assert.Equal(new[] { UpnLower }, signalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(HomeTenant, UpnLower) }, signalR.DisconnectedUsers);
         // Lost access is audited under EACH of the group's tenants (customer-visible trail).
         audit.Verify(a => a.LogAuditEntryAsync(
             TenantA, "DELETE", "DelegatedGroupAccess", UpnLower, "ga@vendor.example",
@@ -320,7 +352,11 @@ public class RevokeEnforcementTests
 
         await fn.DeleteGroupCoreAsync(GroupId, "ga@vendor.example");
 
-        Assert.Equal(new[] { "one@partner.example", "two@partner.example" }, signalR.DisconnectedUsers);
+        Assert.Equal(new[]
+        {
+            SignalRGroupHelper.UserId(HomeTenant, "one@partner.example"),
+            SignalRGroupHelper.UserId(HomeTenant, "two@partner.example"),
+        }, signalR.DisconnectedUsers);
         audit.Verify(a => a.LogAuditEntryAsync(
             TenantA, "DELETE", "DelegatedGroupAccess", "*", "ga@vendor.example",
             It.IsAny<Dictionary<string, string>?>()), Times.Once);

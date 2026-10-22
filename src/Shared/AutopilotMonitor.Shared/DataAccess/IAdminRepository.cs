@@ -20,7 +20,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<GlobalAdminEntry>> GetAllGlobalAdminsAsync();
         Task<bool> AddGlobalAdminAsync(string upn, string addedBy);
         Task<bool> RemoveGlobalAdminAsync(string upn);
-        Task<bool> DisableGlobalAdminAsync(string upn);
 
         // --- MCP Users ---
         Task<McpUserEntry?> GetMcpUserAsync(string upn);
@@ -105,8 +104,10 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// holds is never overwritten. Storage errors throw.
         /// </summary>
         Task<bool> TryAddTenantMemberAsync(string tenantId, string upn, string addedBy, string role);
+        /// <summary>Deletes the member row: true when one was deleted, false when the tenant had none for the UPN.</summary>
         Task<bool> RemoveTenantMemberAsync(string tenantId, string upn);
         Task<bool> UpdateMemberPermissionsAsync(string tenantId, string upn, string role, bool canManageBootstrapTokens);
+        /// <summary>Sets the member row's enabled flag: false when the tenant has no row for the UPN.</summary>
         Task<bool> SetTenantMemberEnabledAsync(string tenantId, string upn, bool isEnabled);
         Task<TenantMember?> GetTenantMemberAsync(string tenantId, string upn);
     }

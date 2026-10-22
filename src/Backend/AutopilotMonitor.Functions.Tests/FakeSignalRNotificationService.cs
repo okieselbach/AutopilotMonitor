@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -76,18 +77,21 @@ public class FakeSignalRNotificationService : ISignalRNotificationService
         return Task.CompletedTask;
     }
 
-    public List<string> NegotiatedUserIds { get; } = new();
+    /// <summary>The SignalR user id each negotiation was bound to, composed like the real service (null: no user id).</summary>
+    public List<string?> NegotiatedUserIds { get; } = new();
+
+    /// <summary>The SignalR user id each cut addressed, composed like the real service.</summary>
     public List<string> DisconnectedUsers { get; } = new();
 
-    public Task<(string Url, string AccessToken)?> NegotiateClientAsync(string userId)
+    public Task<(string Url, string AccessToken)?> NegotiateClientAsync(string tenantId, string? principalKey)
     {
-        NegotiatedUserIds.Add(userId);
+        NegotiatedUserIds.Add(string.IsNullOrEmpty(principalKey) ? null : SignalRGroupHelper.UserId(tenantId, principalKey));
         return Task.FromResult<(string Url, string AccessToken)?>(("https://fake.signalr.test/client", "fake-token"));
     }
 
-    public Task DisconnectUserAsync(string userId)
+    public Task DisconnectUserAsync(string tenantId, string principalKey)
     {
-        DisconnectedUsers.Add(userId);
+        DisconnectedUsers.Add(SignalRGroupHelper.UserId(tenantId, principalKey));
         return Task.CompletedTask;
     }
 }

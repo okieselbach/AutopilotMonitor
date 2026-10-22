@@ -36,7 +36,7 @@ public class TenantGroupManagementFunction
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly AdminIdentityResolver _identityResolver;
     private readonly IMaintenanceRepository _maintenanceRepo;
-    private readonly ISignalRNotificationService _signalRService;
+    private readonly LiveStreamRevoker _streams;
     private readonly DelegatedSlotService _slots;
     private readonly ProConferralService _proConferral;
     private readonly ISelfServiceAssignees _selfServiceAssignees;
@@ -48,7 +48,7 @@ public class TenantGroupManagementFunction
         DelegatedAdminService delegatedAdminService,
         AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService,
+        LiveStreamRevoker streams,
         DelegatedSlotService slots,
         ProConferralService proConferral,
         ISelfServiceAssignees selfServiceAssignees)
@@ -57,7 +57,7 @@ public class TenantGroupManagementFunction
         _delegatedAdminService = delegatedAdminService;
         _identityResolver = identityResolver;
         _maintenanceRepo = maintenanceRepo;
-        _signalRService = signalRService;
+        _streams = streams;
         _slots = slots;
         _proConferral = proConferral;
         _selfServiceAssignees = selfServiceAssignees;
@@ -204,7 +204,7 @@ public class TenantGroupManagementFunction
         await _delegatedAdminService.DeleteGroupAsync(groupId);
 
         foreach (var assignee in assignees)
-            await _signalRService.DisconnectUserAsync(assignee.Upn);
+            await _streams.CutBoundIdentityAsync(assignee.Upn);
 
         // The portal hides Delete for owned groups, but the route accepts any group id — without the
         // anchor a member that raised its retention under Pro (MSP) would be clamped to the Community
@@ -309,9 +309,9 @@ public class TenantGroupManagementFunction
                 normalizedTenantId, "DELETE", AuditEntity, assignee.Upn, currentUpn ?? "",
                 new Dictionary<string, string> { { "GroupId", groupId }, { "Reason", "tenant-removed-from-group" } });
             // Enforcement: cut already-joined live streams for the tenant that just left the group.
-            // Coarse by design (connection close, see DisconnectUserAsync) — still-authorized
+            // Coarse by design (connection close, see LiveStreamRevoker) — still-authorized
             // streams recover automatically via the client's reconnect + re-join.
-            await _signalRService.DisconnectUserAsync(assignee.Upn);
+            await _streams.CutBoundIdentityAsync(assignee.Upn);
         }
 
         _logger.LogInformation("Tenant {TenantId} removed from group {GroupId} by {By}", normalizedTenantId, groupId, currentUpn);
@@ -463,7 +463,7 @@ public class TenantGroupManagementFunction
         if (!unassigned)
             return false;
 
-        await _signalRService.DisconnectUserAsync(normalizedUpn);
+        await _streams.CutBoundIdentityAsync(normalizedUpn);
 
         if (group != null)
         {

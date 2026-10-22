@@ -306,9 +306,9 @@ public class SessionDeletionHandlerOrderingTests
             public Task SendGlobalNotificationAsync(object dto) => Task.CompletedTask;
             public Task SendGlobalNotificationDismissedAsync(string notificationId) => Task.CompletedTask;
             public Task SendGlobalNotificationDismissedAllAsync() => Task.CompletedTask;
-            public Task<(string Url, string AccessToken)?> NegotiateClientAsync(string userId)
+            public Task<(string Url, string AccessToken)?> NegotiateClientAsync(string tenantId, string? principalKey)
                 => Task.FromResult<(string Url, string AccessToken)?>(null);
-            public Task DisconnectUserAsync(string userId) => Task.CompletedTask;
+            public Task DisconnectUserAsync(string tenantId, string principalKey) => Task.CompletedTask;
         }
     }
 }

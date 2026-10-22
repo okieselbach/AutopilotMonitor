@@ -51,19 +51,21 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             }
 
             // Negotiate via the Management SDK (not the SignalRConnectionInfoInput binding) so the
-            // client access token is bound to a SignalR USER ID = the lowercased UPN. That binding is
-            // what makes revocation enforceable: when a delegated grant / tenant-group assignment is
-            // revoked, the revoke path calls DisconnectUserAsync(upn) to cut already-joined
-            // live streams — anonymous connections (no user id) cannot be targeted. The UPN comes from
-            // the middleware-validated JWT, never from client-controlled binding data.
-            var userEmail = TenantHelper.GetUserIdentifier(req);
-            var negotiation = await _signalRService.NegotiateClientAsync(userEmail.ToLowerInvariant());
+            // client access token is bound to a SignalR USER ID = sign-in tenant + principal key, the
+            // pair every role resolves under (SignalRGroupHelper.UserId). That binding is what makes
+            // revocation enforceable, and only inside the tenant whose grant was revoked
+            // (LiveStreamRevoker). Both values come from the middleware-validated JWT, never from
+            // client-controlled data. Without a principal key the connection has no user id: every
+            // revocable join gate needs one.
+            var requestCtx = req.GetRequestContext();
+            var principalKey = string.IsNullOrEmpty(requestCtx.UserPrincipalName) ? null : requestCtx.UserPrincipalName;
+            var negotiation = await _signalRService.NegotiateClientAsync(requestCtx.TenantId, principalKey);
             if (negotiation == null)
             {
                 return await req.ErrorAsync(HttpStatusCode.ServiceUnavailable, Constants.ApiErrorCodes.ServiceUnavailable, "SignalR negotiation unavailable");
             }
 
-            _logger.LogInformation($"SignalR connection negotiated for user: {userEmail}");
+            _logger.LogInformation($"SignalR connection negotiated for user: {principalKey ?? "(no principal key)"}");
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             // Exactly the shape the @microsoft/signalr client's negotiate protocol expects.

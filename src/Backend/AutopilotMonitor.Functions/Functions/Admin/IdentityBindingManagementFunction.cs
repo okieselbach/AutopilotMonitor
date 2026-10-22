@@ -17,7 +17,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// Grants create a binding implicitly and REFUSE to overwrite one (409); this surface is the explicit, audited
 /// path for the two legitimate changes: re-homing a UPN in another tenant, and re-pinning the object id after
 /// the UPN was re-assigned to a new account (PUT without objectId clears the pin so the next sign-in from the
-/// bound tenant re-pins). DELETE makes every role row of the UPN inert without touching the rows.
+/// bound tenant re-pins). DELETE makes every role row of the UPN inert without touching the rows. Replacing or
+/// deleting a binding cuts the live streams signed in under the previous one.
 ///
 /// Reads are GlobalReadOrAdmin; mutations are GlobalAdminOnly (route catalog). Audited under the binding's
 /// HOME tenant with entity <c>AdminIdentityBinding</c>.
@@ -27,17 +28,20 @@ public class IdentityBindingManagementFunction
     private readonly ILogger<IdentityBindingManagementFunction> _logger;
     private readonly AdminIdentityBindingService _bindings;
     private readonly IMaintenanceRepository _maintenanceRepo;
+    private readonly LiveStreamRevoker _streams;
 
     private const string AuditEntity = "AdminIdentityBinding";
 
     public IdentityBindingManagementFunction(
         ILogger<IdentityBindingManagementFunction> logger,
         AdminIdentityBindingService bindings,
-        IMaintenanceRepository maintenanceRepo)
+        IMaintenanceRepository maintenanceRepo,
+        LiveStreamRevoker streams)
     {
         _logger = logger;
         _bindings = bindings;
         _maintenanceRepo = maintenanceRepo;
+        _streams = streams;
     }
 
     /// <summary>GET /api/global/identity-bindings — every binding. GlobalReadOrAdmin.</summary>
@@ -93,6 +97,11 @@ public class IdentityBindingManagementFunction
             previous == null ? "Created" : "Replaced", upn, binding.TenantId,
             binding.IsObjectIdPinned ? binding.ObjectId : "(unpinned)", currentUpn);
 
+        // Every platform and delegated grant of the UPN resolved under the previous binding: cut those
+        // connections, so their re-join meets the new one.
+        if (previous != null)
+            await _streams.CutAsync(previous.TenantId, upn);
+
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new IdentityBindingResponse { Binding = binding });
         return response;
@@ -128,6 +137,7 @@ public class IdentityBindingManagementFunction
             });
         _logger.LogWarning("[IdentityBinding] Removed binding for {Upn} (was tenant {TenantId}) by {By}",
             upn, previous.TenantId, currentUpn);
+        await _streams.CutAsync(previous.TenantId, upn);
 
         return await req.OkAsync(new MessageResponse { Message = "Binding removed" });
     }

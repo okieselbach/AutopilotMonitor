@@ -22,6 +22,15 @@ internal sealed class StubAdminIdentityBindingService : AdminIdentityBindingServ
     /// <summary>Every (upn, tenantId, objectId) passed to EnsureBoundAsync / RebindAsync, in call order.</summary>
     public List<(string Upn, string TenantId, string? ObjectId)> Bindings { get; } = new();
 
+    /// <summary>The home tenant <see cref="GetAsync"/> answers per UPN: seeded by a test, or the latest bind / rebind.</summary>
+    public Dictionary<string, string> BoundTenants { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>When set, <see cref="GetAsync"/> throws it (a storage failure on the binding read).</summary>
+    public Exception? GetThrows { get; set; }
+
+    /// <summary>How often <see cref="GetAsync"/> was called.</summary>
+    public int GetCalls { get; private set; }
+
     public StubAdminIdentityBindingService(bool bound = true) : this(_ => bound)
     {
     }
@@ -42,6 +51,7 @@ internal sealed class StubAdminIdentityBindingService : AdminIdentityBindingServ
     {
         OnEnsureBound?.Invoke();
         Bindings.Add((upn.ToLowerInvariant(), tenantId.ToLowerInvariant(), objectId?.ToLowerInvariant()));
+        BoundTenants[upn] = tenantId.ToLowerInvariant();
         return Task.FromResult(new AdminIdentityBinding
         {
             Upn = upn.ToLowerInvariant(),
@@ -54,5 +64,19 @@ internal sealed class StubAdminIdentityBindingService : AdminIdentityBindingServ
     public override Task<AdminIdentityBinding> RebindAsync(string upn, string tenantId, string? objectId, string boundBy)
         => EnsureBoundAsync(upn, tenantId, objectId, boundBy);
 
-    public override Task RemoveAsync(string upn) => Task.CompletedTask;
+    public override Task RemoveAsync(string upn)
+    {
+        BoundTenants.Remove(upn);
+        return Task.CompletedTask;
+    }
+
+    public override Task<AdminIdentityBinding?> GetAsync(string upn)
+    {
+        GetCalls++;
+        if (GetThrows != null)
+            throw GetThrows;
+        return Task.FromResult(BoundTenants.TryGetValue(upn, out var tenantId)
+            ? new AdminIdentityBinding { Upn = upn.ToLowerInvariant(), TenantId = tenantId }
+            : null);
+    }
 }

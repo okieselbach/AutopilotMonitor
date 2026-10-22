@@ -147,7 +147,7 @@ public class AdminIdentityBindingService
         _cache.Remove(CacheKey(upn));
     }
 
-    public Task<AdminIdentityBinding?> GetAsync(string upn) => _adminRepo.GetIdentityBindingAsync(upn.ToLowerInvariant());
+    public virtual Task<AdminIdentityBinding?> GetAsync(string upn) => _adminRepo.GetIdentityBindingAsync(upn.ToLowerInvariant());
 
     public Task<List<AdminIdentityBinding>> GetAllAsync() => _adminRepo.GetAllIdentityBindingsAsync();
 

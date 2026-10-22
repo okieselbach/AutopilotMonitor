@@ -22,8 +22,10 @@ namespace AutopilotMonitor.Functions.Services;
 /// (UPN-keyed; binding + gate applied per call); every mutation invalidates the cache.
 ///
 /// An assignment to a tenant's self-service group (<see cref="Constants.TenantGroupIds"/>) confers scope only
-/// while its assignee is an ENABLED member of the owning tenant — re-checked at every row resolution, so a
-/// person removed or disabled under Access Management stops reading the managed customers on every path.
+/// while its assignee is an ENABLED member of the owning tenant and bound to it as home — re-checked at every row
+/// resolution, so a person removed or disabled under Access Management stops reading the managed customers on
+/// every path, and a self-service grant resolves only under the owner's sign-in (which is why the owner's member
+/// actions cut its live streams under the owner alone, see <see cref="LiveStreamRevoker"/>).
 /// </summary>
 public class DelegatedAdminService
 {
@@ -153,6 +155,16 @@ public class DelegatedAdminService
             {
                 _logger.LogWarning(
                     "[DelegatedAdmin] Ignoring the assignment of {Upn} to self-service group {GroupId}: not an enabled member of the owning tenant {OwnerTenantId}",
+                    upn, assignment.GroupId, owner);
+                continue;
+            }
+
+            // The assignment bound the person to the owner as home; only a Global Admin's rebind moves them. Without
+            // this check a rebound assignee would read the owner's customers under another tenant's sign-in.
+            if (owner != null && !string.Equals((await _bindings.GetAsync(upn))?.TenantId, owner, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "[DelegatedAdmin] Ignoring the assignment of {Upn} to self-service group {GroupId}: not bound to the owning tenant {OwnerTenantId}",
                     upn, assignment.GroupId, owner);
                 continue;
             }

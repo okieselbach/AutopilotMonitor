@@ -1,5 +1,6 @@
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Functions.Infrastructure;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Tests.Offboarding;
 using AutopilotMonitor.Shared;
@@ -60,6 +61,7 @@ public class AuthFunctionSideEffectTests
         { CallBase = false };
 
         var bindings = new StubAdminIdentityBindingService(bound: true);
+        bindings.BoundTenants[RemovedAdminUpn] = RemovedAdminHomeTenant;
         _globalAdminMock = new Mock<GlobalAdminService>(
             adminRepo, bindings, cache, Mock.Of<ILogger<GlobalAdminService>>())
         { CallBase = false };
@@ -124,7 +126,7 @@ public class AuthFunctionSideEffectTests
                 Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()),
             new Mock<AdminIdentityResolver>(
                 _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object,
-            _signalR,
+            new LiveStreamRevoker(_signalR, bindings, Mock.Of<ILogger<LiveStreamRevoker>>()),
             adminConfigService.Object,
             _offboardingRepo,
             pushSignIn: pushSignIn,
@@ -155,6 +157,9 @@ public class AuthFunctionSideEffectTests
 
     // ── RemoveGlobalAdmin cuts live SignalR streams (join-time-only group authz) ──
 
+    private const string RemovedAdminUpn = "removed@contoso.com";
+    private const string RemovedAdminHomeTenant = "77777777-7777-7777-7777-777777777777";
+
     [Fact]
     public async Task RemoveGlobalAdmin_DisconnectsTheRemovedAdminsSignalRConnections()
     {
@@ -163,7 +168,8 @@ public class AuthFunctionSideEffectTests
         var response = await _sut.RemoveGlobalAdmin(req, "Removed@Contoso.com", ctx);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new[] { "removed@contoso.com" }, _signalR.DisconnectedUsers);
+        // A platform role resolves only under the UPN's bound tenant: the cut names that tenant.
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(RemovedAdminHomeTenant, RemovedAdminUpn) }, _signalR.DisconnectedUsers);
     }
 
     [Fact]

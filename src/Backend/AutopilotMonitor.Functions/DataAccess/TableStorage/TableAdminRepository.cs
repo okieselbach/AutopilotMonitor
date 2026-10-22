@@ -128,28 +128,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return true;
         }
 
-        public async Task<bool> DisableGlobalAdminAsync(string upn)
-        {
-            upn = upn.ToLowerInvariant();
-
-            try
-            {
-                var result = await _globalAdminsTableClient.GetEntityAsync<GlobalAdminEntity>(
-                    "GlobalAdmins", upn);
-                var entity = result.Value;
-                if (entity != null)
-                {
-                    entity.IsEnabled = false;
-                    await _globalAdminsTableClient.UpdateEntityAsync(entity, ETag.All);
-                }
-                return true;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return false;
-            }
-        }
-
         // --- MCP Users ---
 
         public async Task<McpUserEntry?> GetMcpUserAsync(string upn)
@@ -869,8 +847,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             tenantId = tenantId.ToLowerInvariant();
             upn = upn.ToLowerInvariant();
-            await _tenantAdminsTableClient.DeleteEntityAsync(tenantId, upn);
-            return true;
+            // A missing row does NOT throw, DeleteEntityAsync returns the 404 response (see
+            // RemoveDelegatedAdminAsync): report it, so removing a non-member 404s instead of auditing.
+            var response = await _tenantAdminsTableClient.DeleteEntityAsync(tenantId, upn);
+            return response.Status != 404;
         }
 
         public async Task<bool> UpdateMemberPermissionsAsync(string tenantId, string upn, string role, bool canManageBootstrapTokens)

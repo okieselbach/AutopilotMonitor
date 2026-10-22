@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -40,6 +41,7 @@ public class DelegationSelfServiceTests
         public required Mock<IDelegationInvitationRepository> Invitations { get; init; }
         public required Mock<IMaintenanceRepository> Audit { get; init; }
         public required FakeSignalRNotificationService SignalR { get; init; }
+        public required StubAdminIdentityBindingService Bindings { get; init; }
         public required List<DelegationInvitation> Rows { get; init; }
         public required List<string> GroupTenants { get; init; }
         public required Mock<ProConferralService> ProConferral { get; init; }
@@ -110,7 +112,10 @@ public class DelegationSelfServiceTests
         var entitlements = homeResolution is EditionResolution resolution
             ? new StubTenantEntitlementService(t => t == Home ? resolution : new EditionResolution(TenantEdition.Community, EditionSource.Community, OwnPro: false), null)
             : new StubTenantEntitlementService(t => t == Home ? homeEdition : TenantEdition.Community);
-        var delegatedAdmins = new DelegatedAdminService(repo.Object, new StubAdminIdentityBindingService(bound: true), entitlements, cache, NullLogger<DelegatedAdminService>.Instance);
+        // A self-service assignee is homed in the managing tenant (the assignment binds it there).
+        var bindings = new StubAdminIdentityBindingService(bound: true);
+        bindings.BoundTenants[MspUser] = Home;
+        var delegatedAdmins = new DelegatedAdminService(repo.Object, bindings, entitlements, cache, NullLogger<DelegatedAdminService>.Instance);
         var slots = new DelegatedSlotService(repo.Object, configRepo.Object, invitations.Object, cache, NullLogger<DelegatedSlotService>.Instance, time);
         var audit = new Mock<IMaintenanceRepository>();
         audit.Setup(a => a.LogAuditEntryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()))
@@ -124,9 +129,10 @@ public class DelegationSelfServiceTests
             ManagedTenantProIndex.None,
             NullLogger<ProConferralService>.Instance) { CallBase = false };
 
-        var svc = new DelegationSelfService(repo.Object, invitations.Object, delegatedAdmins, slots, entitlements, configRepo.Object, audit.Object, signalR,
+        var streams = new LiveStreamRevoker(signalR, bindings, NullLogger<LiveStreamRevoker>.Instance);
+        var svc = new DelegationSelfService(repo.Object, invitations.Object, delegatedAdmins, slots, entitlements, configRepo.Object, audit.Object, streams,
             proConferral.Object, NullLogger<DelegationSelfService>.Instance, time);
-        return new Harness { Svc = svc, Repo = repo, Invitations = invitations, Audit = audit, SignalR = signalR, Rows = rows, GroupTenants = groupTenants, ProConferral = proConferral };
+        return new Harness { Svc = svc, Repo = repo, Invitations = invitations, Audit = audit, SignalR = signalR, Bindings = bindings, Rows = rows, GroupTenants = groupTenants, ProConferral = proConferral };
     }
 
     // ── Conferred Pro hooks ───────────────────────────────────────────────────────
@@ -444,7 +450,7 @@ public class DelegationSelfServiceTests
         h.Audit.Verify(a => a.LogAuditEntryAsync(Customer, "DELETE", "DelegatedGroupAccess", MspUser, MspAdmin,
             It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "customer-removed-by-manager")), Times.Once);
         VerifyAudit(h.Audit, Home, "DELETE", "DelegationManagedTenant", Times.Once());
-        Assert.Contains(MspUser, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(Home, MspUser) }, h.SignalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -462,6 +468,8 @@ public class DelegationSelfServiceTests
         Assert.Equal(Customer, hold.TenantId);
         h.Audit.Verify(a => a.LogAuditEntryAsync(Customer, "DELETE", "DelegatedGroupAccess", MspUser, CustomerAdmin,
             It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "customer-revoked")), Times.Once);
+        // The customer's revoke cuts the assignees' streams under the managing tenant, where the grant resolved.
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(Home, MspUser) }, h.SignalR.DisconnectedUsers);
     }
 
     // ── Assignees ───────────────────────────────────────────────────────────────
@@ -610,7 +618,24 @@ public class DelegationSelfServiceTests
         Assert.True(r.Ok);
         h.Audit.Verify(a => a.LogAuditEntryAsync(Customer, "DELETE", "DelegatedGroupAccess", MspUser, MspAdmin,
             It.Is<Dictionary<string, string>?>(d => d != null && d["Reason"] == "self-service-unassigned")), Times.Once);
-        Assert.Equal(new[] { MspUser }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(Home, MspUser) }, h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Unassign_OfAnAssigneeRehomedElsewhere_CutsOnlyUnderTheManagingTenant()
+    {
+        // The squat chain of the security review: the assignment bound the UPN here, a Global Admin later rebound it
+        // to its real tenant. The managing tenant's unassign must not reach the UPN's connections there.
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+        AssignedToTheGroup(h);
+        h.Bindings.BoundTenants[MspUser] = Other;
+
+        var r = await h.Svc.UnassignAsync(Home, MspUser, MspAdmin);
+
+        Assert.True(r.Ok);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(Home, MspUser) }, h.SignalR.DisconnectedUsers);
+        Assert.DoesNotContain(SignalRGroupHelper.UserId(Other, MspUser), h.SignalR.DisconnectedUsers);
     }
 
     // ── Managers (customer side) ────────────────────────────────────────────────

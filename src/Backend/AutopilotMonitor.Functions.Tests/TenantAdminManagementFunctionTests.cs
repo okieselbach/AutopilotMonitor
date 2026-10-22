@@ -28,6 +28,8 @@ public class TenantAdminManagementFunctionTests
 {
     private const string TenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     private const string CallerUpn = "admin@contoso.com";
+    private const string ForeignTenantId = "f0e1d2c3-b4a5-4697-8899-aabbccddeeff";
+    private const string ForeignUpn = "ga@fabrikam.example";
 
     // ── TryCanonicalizeRole ─────────────────────────────────────────────────
 
@@ -144,7 +146,7 @@ public class TenantAdminManagementFunctionTests
         var response = await h.Function.RemoveTenantAdmin(req, TenantId, "Demoted@Contoso.com", ctx);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new[] { "demoted@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "demoted@contoso.com") }, h.SignalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -156,7 +158,7 @@ public class TenantAdminManagementFunctionTests
         var response = await h.Function.DisableTenantAdmin(req, TenantId, "Demoted@Contoso.com", ctx);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new[] { "demoted@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "demoted@contoso.com") }, h.SignalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -165,8 +167,9 @@ public class TenantAdminManagementFunctionTests
         var h = BuildHarness();
         var (req, ctx) = BuildRequest(new { });
 
-        await h.Function.EnableTenantAdmin(req, TenantId, "user@contoso.com", ctx);
+        var response = await h.Function.EnableTenantAdmin(req, TenantId, "user@contoso.com", ctx);
 
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(h.SignalR.DisconnectedUsers);
     }
 
@@ -177,11 +180,60 @@ public class TenantAdminManagementFunctionTests
 
         var (demote, ctx1) = BuildRequest(new { role = "viewer", canManageBootstrapTokens = false });
         await h.Function.UpdateMemberPermissions(demote, TenantId, "User@Contoso.com", ctx1);
-        Assert.Equal(new[] { "user@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "user@contoso.com") }, h.SignalR.DisconnectedUsers);
 
         var (promote, ctx2) = BuildRequest(new { role = "admin", canManageBootstrapTokens = false });
         await h.Function.UpdateMemberPermissions(promote, TenantId, "other@contoso.com", ctx2);
-        Assert.Equal(new[] { "user@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "user@contoso.com") }, h.SignalR.DisconnectedUsers);
+    }
+
+    // ── a member action never reaches the UPN signed in to another tenant (security finding) ──
+
+    [Fact]
+    public async Task Adding_then_removing_disabling_and_demoting_a_foreign_upn_cuts_only_this_tenants_connections()
+    {
+        // The attack: a tenant admin adds the UPN of a Global Admin homed elsewhere, then removes, disables or
+        // demotes it. Every cut must name this tenant; the victim's connections live under their own tenant.
+        var h = BuildHarness();
+        var (add, ctx0) = BuildRequest(new { upn = ForeignUpn, role = "admin" });
+        await h.Function.AddTenantAdmin(add, TenantId, ctx0);
+
+        var (demote, ctx1) = BuildRequest(new { role = "viewer", canManageBootstrapTokens = false });
+        await h.Function.UpdateMemberPermissions(demote, TenantId, ForeignUpn, ctx1);
+        var (disable, ctx2) = BuildRequest(new { });
+        await h.Function.DisableTenantAdmin(disable, TenantId, ForeignUpn, ctx2);
+        var (remove, ctx3) = BuildRequest(new { });
+        await h.Function.RemoveTenantAdmin(remove, TenantId, ForeignUpn, ctx3);
+
+        var thisTenant = SignalRGroupHelper.UserId(TenantId, ForeignUpn);
+        Assert.Equal(new[] { thisTenant, thisTenant, thisTenant }, h.SignalR.DisconnectedUsers);
+        Assert.DoesNotContain(SignalRGroupHelper.UserId(ForeignTenantId, ForeignUpn), h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Remove_disable_and_enable_of_a_non_member_return_404_without_any_side_effect()
+    {
+        var h = BuildHarness();
+        h.AdminRepo.Setup(r => r.RemoveTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        h.AdminRepo.Setup(r => r.SetTenantMemberEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(false);
+
+        var (remove, ctx1) = BuildRequest(new { });
+        var removed = await h.Function.RemoveTenantAdmin(remove, TenantId, ForeignUpn, ctx1);
+        var (disable, ctx2) = BuildRequest(new { });
+        var disabled = await h.Function.DisableTenantAdmin(disable, TenantId, ForeignUpn, ctx2);
+        var (enable, ctx3) = BuildRequest(new { });
+        var enabled = await h.Function.EnableTenantAdmin(enable, TenantId, ForeignUpn, ctx3);
+
+        Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, disabled.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, enabled.StatusCode);
+        Assert.Empty(h.SignalR.DisconnectedUsers);
+        Assert.Empty(h.Assignees.Ended);
+        h.MaintenanceRepo.Verify(r => r.LogAuditEntryAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>?>()),
+            Times.Never);
     }
 
     // ── removal and disable end the member's self-service delegation, before the stream cut ──
@@ -201,7 +253,7 @@ public class TenantAdminManagementFunctionTests
         Assert.Equal(CallerUpn, ended.Actor);
         Assert.Equal(DelegationSelfService.AssigneeReasons.MemberRemoved, ended.Reason);
         Assert.Equal(0, ended.DisconnectsBefore);
-        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "leaver@contoso.com") }, h.SignalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -218,7 +270,7 @@ public class TenantAdminManagementFunctionTests
         Assert.Equal("leaver@contoso.com", ended.Upn.ToLowerInvariant());
         Assert.Equal(DelegationSelfService.AssigneeReasons.MemberDisabled, ended.Reason);
         Assert.Equal(0, ended.DisconnectsBefore);
-        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "leaver@contoso.com") }, h.SignalR.DisconnectedUsers);
     }
 
     [Fact]
@@ -248,7 +300,7 @@ public class TenantAdminManagementFunctionTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Single(h.Assignees.Ended);
-        Assert.Equal(new[] { "leaver@contoso.com" }, h.SignalR.DisconnectedUsers);
+        Assert.Equal(new[] { SignalRGroupHelper.UserId(TenantId, "leaver@contoso.com") }, h.SignalR.DisconnectedUsers);
     }
 
     // ── harness ─────────────────────────────────────────────────────────────
@@ -257,18 +309,23 @@ public class TenantAdminManagementFunctionTests
     {
         public TenantAdminManagementFunction Function = default!;
         public Mock<IAdminRepository> AdminRepo = default!;
+        public Mock<IMaintenanceRepository> MaintenanceRepo = default!;
         public FakeSignalRNotificationService SignalR = default!;
         public FakeSelfServiceAssignees Assignees = default!;
     }
 
     private static Harness BuildHarness()
     {
+        // Every member a test names exists unless the test says otherwise (the routes 404 a UPN without a row).
         var adminRepo = new Mock<IAdminRepository>(MockBehavior.Loose);
         adminRepo.Setup(r => r.AddTenantMemberAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
             .ReturnsAsync(true);
         adminRepo.Setup(r => r.UpdateMemberPermissionsAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(true);
+        adminRepo.Setup(r => r.RemoveTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+        adminRepo.Setup(r => r.SetTenantMemberEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
             .ReturnsAsync(true);
 
         var service = new TenantAdminsService(
@@ -279,12 +336,17 @@ public class TenantAdminManagementFunctionTests
         var maintenanceRepo = new Mock<IMaintenanceRepository>(MockBehavior.Loose);
         var signalR = new FakeSignalRNotificationService();
         var assignees = new FakeSelfServiceAssignees(signalR);
+        // The Global Admin of another tenant is bound there: no member action of this tenant may follow it.
+        var bindings = new StubAdminIdentityBindingService();
+        bindings.BoundTenants[ForeignUpn] = ForeignTenantId;
+        var streams = new LiveStreamRevoker(signalR, bindings, NullLogger<LiveStreamRevoker>.Instance);
 
         return new Harness
         {
             Function = new TenantAdminManagementFunction(
-                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object, signalR, assignees),
+                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object, streams, assignees),
             AdminRepo = adminRepo,
+            MaintenanceRepo = maintenanceRepo,
             SignalR = signalR,
             Assignees = assignees,
         };

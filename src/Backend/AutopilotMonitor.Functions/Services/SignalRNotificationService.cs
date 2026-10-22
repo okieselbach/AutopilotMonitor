@@ -271,12 +271,13 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Negotiates a client connection with the access token bound to <paramref name="userId"/>
-        /// (lowercased UPN) — see <see cref="ISignalRNotificationService.NegotiateClientAsync"/>.
+        /// Negotiates a client connection with the access token bound to the principal's user id, or to
+        /// none without a principal key — see <see cref="ISignalRNotificationService.NegotiateClientAsync"/>.
         /// Token generation is local (no service round-trip beyond hub-context init).
         /// </summary>
-        public virtual async Task<(string Url, string AccessToken)?> NegotiateClientAsync(string userId)
+        public virtual async Task<(string Url, string AccessToken)?> NegotiateClientAsync(string tenantId, string? principalKey)
         {
+            var userId = string.IsNullOrEmpty(principalKey) ? null : SignalRGroupHelper.UserId(tenantId, principalKey);
             try
             {
                 using var cts = new CancellationTokenSource(NegotiateTimeout);
@@ -297,7 +298,7 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Cuts the user's live streams after a revoke (see
+        /// Cuts one principal's live streams after a revoke (see
         /// <see cref="ISignalRNotificationService.DisconnectUserAsync"/>). Two prongs, because the
         /// Management SDK (1.33) exposes no user-level connection close: (1) strip the user from all
         /// groups server-side, and (2) push "accessRevoked" to the user's connections — the web
@@ -306,8 +307,9 @@ namespace AutopilotMonitor.Functions.Services
         /// whose connection-scoped memberships survive (1) keeps its streams until the connection
         /// drops. Warning (not Debug) on failure so it reaches App Insights.
         /// </summary>
-        public virtual async Task DisconnectUserAsync(string userId)
+        public virtual async Task DisconnectUserAsync(string tenantId, string principalKey)
         {
+            var userId = SignalRGroupHelper.UserId(tenantId, principalKey);
             try
             {
                 using var cts = new CancellationTokenSource(SendTimeout);

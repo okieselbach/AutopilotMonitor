@@ -33,6 +33,31 @@ public class SignalRGroupHelperTests
         Assert.Equal(expected, SignalRGroupHelper.ExtractTenantIdFromGroupName(group));
     }
 
+    // ── User ids: the principal a connection is negotiated under and a revoke addresses ──
+
+    [Fact]
+    public void UserId_is_the_lowercased_sign_in_tenant_and_principal_key()
+    {
+        Assert.Equal($"{TenantId}:user@contoso.example",
+            SignalRGroupHelper.UserId(TenantId.ToUpperInvariant(), "User@Contoso.Example"));
+    }
+
+    [Fact]
+    public void UserId_of_the_same_upn_differs_per_sign_in_tenant()
+    {
+        // The reason a revoke in one tenant never reaches the same UPN signed in to another.
+        Assert.NotEqual(
+            SignalRGroupHelper.UserId(TenantId, "user@contoso.example"),
+            SignalRGroupHelper.UserId("99999999-9999-9999-9999-999999999999", "user@contoso.example"));
+    }
+
+    [Fact]
+    public void UserId_keeps_an_application_principal_key_whole()
+    {
+        Assert.Equal($"{TenantId}:app:0a0a0a0a-0000-0000-0000-000000000001",
+            SignalRGroupHelper.UserId(TenantId, "app:0A0A0A0A-0000-0000-0000-000000000001"));
+    }
+
     [Fact]
     public void IsTenantNotifyAdminGroup_OnlyTrueForAdminSuffix()
     {

@@ -269,6 +269,8 @@ builder.Services.AddSingleton<SlaBreachEvaluationService>();
 // Identity binding (tid + oid behind every cross-tenant-role UPN) — consulted by both role services.
 builder.Services.AddSingleton<AdminIdentityBindingService>();
 builder.Services.AddSingleton<AdminIdentityResolver>();
+// Every revoke's live-stream cut, addressed to the tenant the revoked grant resolved under.
+builder.Services.AddSingleton<LiveStreamRevoker>();
 builder.Services.AddSingleton<GlobalAdminService>();
 builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<DelegatedSlotService>();

@@ -126,50 +126,56 @@ public class TenantAdminsService
     }
 
     /// <summary>
-    /// Removes a user from Tenant Admins
+    /// Removes a user from Tenant Admins. False, with no side effect, when the tenant has no row for the UPN.
     /// </summary>
-    public async Task RemoveTenantAdminAsync(string tenantId, string upn)
+    public async Task<bool> RemoveTenantAdminAsync(string tenantId, string upn)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
 
-        await _adminRepo.RemoveTenantMemberAsync(tenantId, upn);
+        if (!await _adminRepo.RemoveTenantMemberAsync(tenantId, upn))
+            return false;
 
         InvalidateMemberCache(tenantId, upn);
         await RevokePushDevicesAsync(tenantId, upn, "member_removed");
 
         _logger.LogInformation($"Removed Tenant Admin: {upn} from tenant {tenantId}");
+        return true;
     }
 
     /// <summary>
-    /// Disables (but does not delete) a Tenant Admin
+    /// Disables (but does not delete) a Tenant Admin. False, with no side effect, when the tenant has no row for the UPN.
     /// </summary>
-    public async Task DisableTenantAdminAsync(string tenantId, string upn)
+    public async Task<bool> DisableTenantAdminAsync(string tenantId, string upn)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
 
-        await _adminRepo.SetTenantMemberEnabledAsync(tenantId, upn, false);
+        if (!await _adminRepo.SetTenantMemberEnabledAsync(tenantId, upn, false))
+            return false;
 
         InvalidateMemberCache(tenantId, upn);
         await RevokePushDevicesAsync(tenantId, upn, "member_disabled");
 
         _logger.LogInformation($"Disabled Tenant Admin: {upn} for tenant {tenantId}");
+        return true;
     }
 
     /// <summary>
-    /// Enables a Tenant Admin
+    /// Enables a Tenant Admin. False when the tenant has no row for the UPN.
     /// </summary>
-    public async Task EnableTenantAdminAsync(string tenantId, string upn)
+    public async Task<bool> EnableTenantAdminAsync(string tenantId, string upn)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
 
-        await _adminRepo.SetTenantMemberEnabledAsync(tenantId, upn, true);
+        if (!await _adminRepo.SetTenantMemberEnabledAsync(tenantId, upn, true))
+            return false;
 
         InvalidateMemberCache(tenantId, upn);
 
         _logger.LogInformation($"Enabled Tenant Admin: {upn} for tenant {tenantId}");
+        return true;
     }
 
     /// <summary>

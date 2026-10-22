@@ -27,7 +27,7 @@ public class DelegatedAdminManagementFunction
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly AdminIdentityResolver _identityResolver;
     private readonly IMaintenanceRepository _maintenanceRepo;
-    private readonly ISignalRNotificationService _signalRService;
+    private readonly LiveStreamRevoker _streams;
     private readonly DelegatedSlotService _slots;
 
     public DelegatedAdminManagementFunction(
@@ -35,14 +35,14 @@ public class DelegatedAdminManagementFunction
         DelegatedAdminService delegatedAdminService,
         AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService,
+        LiveStreamRevoker streams,
         DelegatedSlotService slots)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
         _identityResolver = identityResolver;
         _maintenanceRepo = maintenanceRepo;
-        _signalRService = signalRService;
+        _streams = streams;
         _slots = slots;
     }
 
@@ -159,7 +159,7 @@ public class DelegatedAdminManagementFunction
         await _maintenanceRepo.LogAuditEntryAsync(
             tenantId.ToLowerInvariant(), "DELETE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "");
 
-        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
+        await _streams.CutBoundIdentityAsync(upn);
 
         _logger.LogInformation("Delegated revoke: {Upn} -> {TenantId} by {By}", upn, tenantId, currentUpn);
         return true;
@@ -210,7 +210,7 @@ public class DelegatedAdminManagementFunction
             new Dictionary<string, string> { { "IsEnabled", isEnabled.ToString() } });
 
         if (!isEnabled)
-            await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
+            await _streams.CutBoundIdentityAsync(upn);
 
         _logger.LogInformation("Delegated {Action}: {Upn} -> {TenantId} by {By}",
             isEnabled ? "enable" : "disable", upn, tenantId, currentUpn);

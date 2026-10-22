@@ -11,9 +11,9 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 
 /// <summary>
 /// The role-loss hooks (K6): a tenant member who is removed, disabled or demoted below Operator
-/// loses the paired push devices of that tenant, a removed or disabled Global Admin loses the
-/// platform-scope devices, and no other mutation touches a device. The hook is optional — the
-/// original constructors without a revoker keep working — and it keys on the NEW role only.
+/// loses the paired push devices of that tenant, a removed Global Admin loses the platform-scope
+/// devices, and no other mutation touches a device. The hook is optional — the original
+/// constructors without a revoker keep working — and it keys on the NEW role only.
 /// </summary>
 public class PushRoleLossHookTests
 {
@@ -131,6 +131,21 @@ public class PushRoleLossHookTests
     }
 
     [Fact]
+    public async Task Remove_disable_and_enable_of_a_missing_row_return_false_and_revoke_nothing()
+    {
+        // A UPN without a row in the tenant is not the tenant's to act on: the routes answer 404 on false.
+        var h = new TenantHarness();
+        h.AdminRepo.Setup(r => r.RemoveTenantMemberAsync(TenantId, Upn)).ReturnsAsync(false);
+        h.AdminRepo.Setup(r => r.SetTenantMemberEnabledAsync(TenantId, Upn, It.IsAny<bool>())).ReturnsAsync(false);
+
+        Assert.False(await h.Sut.RemoveTenantAdminAsync(TenantId, Upn));
+        Assert.False(await h.Sut.DisableTenantAdminAsync(TenantId, Upn));
+        Assert.False(await h.Sut.EnableTenantAdminAsync(TenantId, Upn));
+
+        AssertNeverRevoked(h.Revoker);
+    }
+
+    [Fact]
     public async Task Update_that_changes_no_row_revokes_nothing()
     {
         var h = new TenantHarness();
@@ -169,16 +184,6 @@ public class PushRoleLossHookTests
     }
 
     [Fact]
-    public async Task Disabling_a_global_admin_revokes_their_platform_devices_once_as_global_admin_disabled()
-    {
-        var h = new GlobalHarness();
-
-        await h.Sut.DisableGlobalAdminAsync(Upn);
-
-        AssertRevokedOnce(h.Revoker, NotificationScope.Platform, Upn, "global_admin_disabled");
-    }
-
-    [Fact]
     public async Task Global_remove_hands_the_revoker_the_lower_cased_upn()
     {
         var h = new GlobalHarness();
@@ -189,15 +194,13 @@ public class PushRoleLossHookTests
     }
 
     [Fact]
-    public async Task Global_service_without_a_revoker_still_completes_remove_and_disable()
+    public async Task Global_service_without_a_revoker_still_completes_remove()
     {
         var h = new GlobalHarness(withRevoker: false);
 
         await h.Sut.RemoveGlobalAdminAsync(Upn);
-        await h.Sut.DisableGlobalAdminAsync(Upn);
 
         h.AdminRepo.Verify(r => r.RemoveGlobalAdminAsync(Upn), Times.Once);
-        h.AdminRepo.Verify(r => r.DisableGlobalAdminAsync(Upn), Times.Once);
     }
 
     // ── Assertions ───────────────────────────────────────────────────────────
@@ -248,7 +251,6 @@ public class PushRoleLossHookTests
         public GlobalHarness(bool withRevoker = true)
         {
             AdminRepo.Setup(r => r.RemoveGlobalAdminAsync(It.IsAny<string>())).ReturnsAsync(true);
-            AdminRepo.Setup(r => r.DisableGlobalAdminAsync(It.IsAny<string>())).ReturnsAsync(true);
             Revoker.Setup(r => r.RevokeOwnerAsync(It.IsAny<NotificationScope>(), It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
 
             var cache = new MemoryCache(new MemoryCacheOptions());
