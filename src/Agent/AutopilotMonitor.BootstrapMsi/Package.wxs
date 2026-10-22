@@ -11,12 +11,16 @@
   logic stays updatable without re-shipping the MSI, and both delivery channels share one
   implementation.
 
+  The loader is installed under Program Files, where only administrators and SYSTEM can
+  create or change anything: the file that a SYSTEM custom action runs must not live in a
+  folder a standard user could create first (ProgramData lets every user create folders).
+
   Build: wix build Package.wxs -arch x64 -o bin\AutopilotMonitor-Bootstrap.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Autopilot Monitor Bootstrap"
            Manufacturer="Autopilot Monitor"
-           Version="1.2.0"
+           Version="1.3.0"
            UpgradeCode="1fbe5515-d346-445c-b8b8-14ee79f97522"
            Scope="perMachine"
            Compressed="yes">
@@ -24,16 +28,16 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Autopilot Monitor Bootstrap is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <StandardDirectory Id="CommonAppDataFolder">
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="CompanyFolder" Name="AutopilotMonitor">
-        <Directory Id="INSTALLFOLDER" Name="Msi" />
+        <Directory Id="INSTALLFOLDER" Name="Bootstrap" />
       </Directory>
     </StandardDirectory>
 
     <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
       <!-- Source is relative to the build working directory (the project dir), not to this
-           file. New component GUID because the key path changed. -->
-      <Component Id="RunnerScript" Guid="A972F561-01B5-400A-8C2A-47D12BA97DCA">
+           file. New component GUID because the key path changed (1.3.0: Program Files). -->
+      <Component Id="RunnerScript" Guid="3C6F0E2D-8B41-4A77-9D5E-2F1B6C8A4D90">
         <File Id="RunnerPs1"
               Source="..\..\..\scripts\Bootstrap\Start-AutopilotMonitor.ps1"
               Name="Start-AutopilotMonitor.ps1"

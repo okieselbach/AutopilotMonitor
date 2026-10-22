@@ -57,8 +57,11 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Info("======================= Agent install mode (--install) =======================");
 
                 EnsureAgentDirectories(logger);
-                LogAgentDirectoryAcl(AgentDirectoryAcl.EnsureProtected(
-                    Environment.ExpandEnvironmentVariables(Constants.AgentDataDirectory)), logger, alwaysLog: true);
+                if (!ProtectAgentDirectories(logger, alwaysLog: true))
+                {
+                    logger.Error("Install refused: the agent folder could not be protected; nothing was installed.");
+                    return 1;
+                }
 
                 var sourceExePath = Assembly.GetExecutingAssembly().Location;
                 var sourceDir = Path.GetDirectoryName(sourceExePath) ?? string.Empty;
@@ -276,31 +279,48 @@ namespace AutopilotMonitor.Agent.V2
         }
 
         /// <summary>
-        /// Logs the outcome of <see cref="AgentDirectoryAcl.EnsureProtected"/>. Install mode logs
-        /// every outcome; the runtime start only a change or a failure, so a normal start stays quiet.
+        /// Protects the base folder and the Agent folder the task runs from. False when one of them
+        /// could not be protected: install mode then refuses to go on, a running agent logs it.
+        /// Install mode logs every outcome; the runtime start only a change or a failure, so a
+        /// normal start stays quiet.
         /// </summary>
-        internal static void LogAgentDirectoryAcl(AgentDirectoryAclResult result, AgentLogger logger, bool alwaysLog)
+        internal static bool ProtectAgentDirectories(AgentLogger logger, bool alwaysLog)
         {
-            switch (result.Outcome)
+            var basePath = Environment.ExpandEnvironmentVariables(Constants.AgentDataDirectory);
+            var ok = true;
+            foreach (var path in new[] { basePath, Path.Combine(basePath, DefaultAgentSubdirectory) })
             {
-                case AgentDirectoryAclOutcome.Applied:
-                    logger.Info("Agent data directory protected: SYSTEM and Administrators full control, Users read and execute, nothing inherited from ProgramData.");
-                    break;
-                case AgentDirectoryAclOutcome.Failed:
-                    logger.Warning($"Could not protect the agent data directory: {result.Error}");
-                    break;
-                default:
-                    if (alwaysLog) logger.Info($"Agent data directory ACL: {result.Outcome}.");
-                    break;
+                var result = AgentDirectoryAcl.EnsureProtected(path);
+                switch (result.Outcome)
+                {
+                    case AgentDirectoryAclOutcome.Applied:
+                        logger.Info($"Agent folder {path} protected: owner Administrators; SYSTEM and Administrators full control, Users read and execute, nothing inherited.");
+                        break;
+                    case AgentDirectoryAclOutcome.Failed:
+                        logger.Warning($"Could not protect the agent folder {path}: {result.Error}");
+                        ok = false;
+                        break;
+                    default:
+                        if (alwaysLog) logger.Info($"Agent folder {path} ACL: {result.Outcome}.");
+                        break;
+                }
             }
+            return ok;
         }
 
         private static void EnsureAgentDirectories(AgentLogger logger)
         {
             var basePath = Environment.ExpandEnvironmentVariables(Constants.AgentDataDirectory);
+            if (!Directory.Exists(basePath))
+            {
+                // Protected from the first moment: created with ProgramData's default entries, the
+                // folder would let any user add to it until the protection arrives.
+                AgentDirectoryAcl.CreateProtected(basePath);
+                logger.Info($"Created directory: {basePath}");
+            }
+
             var paths = new[]
             {
-                basePath,
                 Path.Combine(basePath, DefaultAgentSubdirectory),
                 Environment.ExpandEnvironmentVariables(Constants.SpoolDirectory),
                 Environment.ExpandEnvironmentVariables(Constants.LogDirectory),

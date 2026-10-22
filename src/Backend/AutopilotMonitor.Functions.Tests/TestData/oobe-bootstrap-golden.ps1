@@ -239,6 +239,42 @@ function Get-AgentPayloadRejections {
     return , $rejected
 }
 
+# Extracts the agent ZIP into the payload folder. Every entry is checked before the first one
+# is written: a rooted name, or one whose resolved path lies outside the folder, refuses the
+# whole package. The guarantee is this script's own, not the device's Expand-Archive's.
+function Expand-AgentPayload {
+    param([string]$ZipPath, [string]$Destination)
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $planned = New-Object System.Collections.Generic.List[object]
+        foreach ($entry in $archive.Entries) {
+            $name = $entry.FullName
+            $target = $null
+            if (-not [System.IO.Path]::IsPathRooted($name) -and -not $name.Contains(':')) {
+                $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $name))
+            }
+            if ($null -eq $target -or -not $target.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "The agent package has an entry that would be written outside the payload folder ($name); refusing the package."
+            }
+            $planned.Add([pscustomobject]@{ Entry = $entry; Target = $target })
+        }
+        [System.IO.Directory]::CreateDirectory($root) | Out-Null
+        foreach ($item in $planned) {
+            if ($item.Entry.FullName.EndsWith('/') -or $item.Entry.FullName.EndsWith('\')) {
+                [System.IO.Directory]::CreateDirectory($item.Target) | Out-Null
+                continue
+            }
+            [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($item.Target)) | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($item.Entry, $item.Target, $false)
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 # Verifies the payload in the run folder and moves it in as the agent folder. The move fails
 # when that folder exists, so nothing is ever merged into it.
 function Install-VerifiedAgentPayload {
@@ -251,7 +287,7 @@ function Install-VerifiedAgentPayload {
     )
 
     $payload = Join-Path $StagingPath 'Agent'
-    Expand-Archive -Path $ZipPath -DestinationPath $payload -Force -ErrorAction Stop
+    Expand-AgentPayload -ZipPath $ZipPath -Destination $payload
 
     $rejections = Get-AgentPayloadRejections -Path $payload -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
     if ($rejections.Count -gt 0) {

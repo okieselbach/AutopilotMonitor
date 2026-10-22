@@ -8,18 +8,20 @@ using System.Security.Principal;
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
     /// <summary>
-    /// Keeps <c>%ProgramData%\AutopilotMonitor</c> out of reach of standard users. Left alone the
-    /// folder inherits ProgramData's "Users may create files and folders" entry, and the SYSTEM
-    /// agent and its boot task start from the Agent subfolder: a user who can add a file there
-    /// can plant code the next SYSTEM start loads. During the device phase of OOBE only SYSTEM is
-    /// around, but the agent keeps running through the user phase and on the desktop until the
-    /// enrollment ends, restarted by the boot task after every reboot; that is the window this
-    /// closes. The payload catalog does not cover it: it is checked at install time, a file
-    /// added later is never looked at.
+    /// Keeps <c>%ProgramData%\AutopilotMonitor</c> and the Agent folder the SYSTEM task runs from
+    /// out of reach of standard users. Left alone the folder inherits ProgramData's "Users may
+    /// create files and folders" entry: a user who can add a file where the agent starts can plant
+    /// code the next SYSTEM start loads. During the device phase of OOBE only SYSTEM is around, but
+    /// the agent keeps running through the user phase and on the desktop until the enrollment
+    /// ends, restarted by the boot task after every reboot; that is the window this closes. The
+    /// payload catalog does not cover it: it is checked at install time, a file added later is
+    /// never looked at.
     /// <para>
     /// The DACL is protected (nothing inherited from ProgramData): SYSTEM and Administrators full
-    /// control, Users read and execute, all inherited by the subfolders. Explicit entries on a
-    /// child stay. The summary dialog's temp folder lives outside this tree anyway.
+    /// control, Users read and execute, all inherited by the subfolders. The owner is Administrators:
+    /// the owner of a folder can always hand itself the rights back, so a folder a standard user
+    /// created first stays theirs until the owner changes, whatever the DACL says. A junction or
+    /// symbolic link is never protected or followed.
     /// </para>
     /// </summary>
     public static class AgentDirectoryAcl
@@ -31,8 +33,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private static readonly SecurityIdentifier Users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
 
         /// <summary>
-        /// Applies the protected DACL to <paramref name="path"/> unless it is already in place.
-        /// Never throws: a folder the agent cannot protect must not stop the agent.
+        /// Applies the protected DACL and the owner to <paramref name="path"/> unless both are already
+        /// in place. A reparse point is refused, not followed. Never throws: a folder the agent cannot
+        /// protect must not crash the agent; the caller decides what the failure means.
         /// </summary>
         public static AgentDirectoryAclResult EnsureProtected(string path)
         {
@@ -41,8 +44,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 var directory = new DirectoryInfo(path);
                 if (!directory.Exists)
                     return new AgentDirectoryAclResult(AgentDirectoryAclOutcome.Missing, null);
+                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                    return new AgentDirectoryAclResult(AgentDirectoryAclOutcome.Failed, $"{path} is a junction or symbolic link, not a folder");
 
-                if (IsProtectedAsExpected(directory.GetAccessControl(AccessControlSections.Access)))
+                if (IsProtectedAsExpected(directory.GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner)))
                     return new AgentDirectoryAclResult(AgentDirectoryAclOutcome.AlreadyProtected, null);
 
                 directory.SetAccessControl(BuildProtectedSecurity());
@@ -54,6 +59,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             }
         }
 
+        /// <summary>
+        /// Creates the folder with the protected DACL and owner in one step, so there is no moment
+        /// in which it carries ProgramData's inherited entries.
+        /// </summary>
+        public static void CreateProtected(string path) => Directory.CreateDirectory(path, BuildProtectedSecurity());
+
         internal static DirectorySecurity BuildProtectedSecurity()
         {
             var security = new DirectorySecurity();
@@ -61,15 +72,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             security.AddAccessRule(new FileSystemAccessRule(LocalSystem, FileSystemRights.FullControl, Inherit, PropagationFlags.None, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(Administrators, FileSystemRights.FullControl, Inherit, PropagationFlags.None, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(Users, FileSystemRights.ReadAndExecute, Inherit, PropagationFlags.None, AccessControlType.Allow));
+            security.SetOwner(Administrators);
             return security;
         }
 
         /// <summary>
-        /// True when the DACL is protected and holds exactly the three entries above. Windows adds
-        /// <see cref="FileSystemRights.Synchronize"/> when it stores an entry, so that bit is ignored.
+        /// True when the owner is SYSTEM or Administrators and the DACL is protected and holds exactly
+        /// the three entries above. Windows adds <see cref="FileSystemRights.Synchronize"/> when it
+        /// stores an entry, so that bit is ignored.
         /// </summary>
         internal static bool IsProtectedAsExpected(DirectorySecurity security)
         {
+            if (!(security.GetOwner(typeof(SecurityIdentifier)) is SecurityIdentifier owner)
+                || !(owner.IsWellKnown(WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                return false;
+
             if (!security.AreAccessRulesProtected)
                 return false;
 

@@ -53,6 +53,20 @@ BeforeAll {
         return $p
     }
 
+    # A ZIP with exactly these entry names, for the containment checks.
+    function New-ZipWithEntries {
+        param([string]$Path, [string[]]$Names)
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::Open($Path, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($name in $Names) {
+                $writer = New-Object System.IO.StreamWriter($archive.CreateEntry($name).Open())
+                try { $writer.Write("content of $name") } finally { $writer.Dispose() }
+            }
+        } finally { $archive.Dispose() }
+    }
+
     function New-CategoryError {
         param([System.Management.Automation.ErrorCategory]$Category)
         return New-Object System.Management.Automation.ErrorRecord((New-Object System.Exception 'simulated'), 'Simulated', $Category, $null)
@@ -936,6 +950,34 @@ Describe 'Install-VerifiedAgentPayload' {
     }
 }
 
+Describe 'Expand-AgentPayload' {
+    BeforeEach {
+        $script:zip = Join-Path $TestDrive "package-$([guid]::NewGuid().ToString('N')).zip"
+        $script:area = New-TestFolder 'area'
+        $script:destination = Join-Path $script:area 'Agent'
+    }
+
+    It 'extracts files and subfolders into the destination' {
+        New-ZipWithEntries -Path $script:zip -Names @('AutopilotMonitor.Agent.exe', 'sub/inner.dll', 'a..b.txt')
+        Expand-AgentPayload -ZipPath $script:zip -Destination $script:destination
+        $extracted = @(Get-ChildItem -LiteralPath $script:destination -Recurse -File | ForEach-Object { $_.FullName.Substring($script:destination.Length + 1) } | Sort-Object)
+        $extracted | Should -Be @(@('AutopilotMonitor.Agent.exe', 'sub\inner.dll', 'a..b.txt') | Sort-Object)
+    }
+
+    It 'refuses a package with an entry <Case>, writing nothing' -TestCases @(
+        @{ Case = 'above the destination';       Name = '..\outside.txt' }
+        @{ Case = 'climbing out of a subfolder'; Name = 'sub/../../outside.txt' }
+        @{ Case = 'with a rooted name';          Name = 'C:\outside.txt' }
+        @{ Case = 'with a leading separator';    Name = '/outside.txt' }
+        @{ Case = 'with a drive-relative name';  Name = 'C:outside.txt' }
+    ) {
+        New-ZipWithEntries -Path $script:zip -Names @('AutopilotMonitor.Agent.exe', $Name)
+        { Expand-AgentPayload -ZipPath $script:zip -Destination $script:destination } | Should -Throw '*outside the payload folder*'
+        Test-Path -LiteralPath $script:destination | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $script:area -Recurse -Force).Count | Should -Be 0
+    }
+}
+
 Describe 'Invoke-AgentInstallMode' {
     It 'returns only the exit code; the program''s output goes to the host' {
         $r = @(Invoke-AgentInstallMode -ExePath "$env:SystemRoot\System32\cmd.exe" -Arguments @('/c', 'echo from-agent & exit 3'))
@@ -955,7 +997,16 @@ Describe 'Read-LoaderLogs' {
         $env:ProgramData = $script:realProgramData
     }
 
-    It 'takes the whole log of loader 1.3 from the run folder it started this script from' {
+    It 'takes nothing from a run folder that is not ours' {
+        Mock Test-IsOwnedByUs { $false }
+        $run = Join-Path $env:ProgramData 'AutopilotMonitor-Loader-0a1b2c3d'
+        New-Item -ItemType Directory -Path $run | Out-Null
+        Set-Content -Path (Join-Path $run 'bootstrap-loader.log') -Value 'planted'
+        @(Read-LoaderLogs -ScriptPath (Join-Path $run 'Install-AutopilotMonitor.ps1') -ScriptRoot $run).Count | Should -Be 0
+    }
+
+    It 'takes the whole log of loader 1.3 or later from the run folder it started this script from' {
+        Mock Test-IsOwnedByUs { $true }
         $run = Join-Path $env:ProgramData 'AutopilotMonitor-Loader-0a1b2c3d'
         New-Item -ItemType Directory -Path $run | Out-Null
         Set-Content -Path (Join-Path $run 'bootstrap-msi.log') -Value '[2026-10-22 10:00:00] === Autopilot Monitor bootstrap loader v1.3 started (user=SYSTEM, pid=1) ==='
@@ -1030,11 +1081,22 @@ Describe 'Remove-StaleLoaderRunFolders' {
         $stale = Join-Path $env:ProgramData 'AutopilotMonitor-Loader-22222222'
         New-Item -ItemType Directory -Path $current, $stale | Out-Null
         Set-Content -Path (Join-Path $stale 'bootstrap-loader.log') -Value 'x'
+        [System.IO.Directory]::SetCreationTimeUtc($stale, [System.DateTime]::UtcNow.AddHours(-2))
 
         Remove-StaleLoaderRunFolders -ScriptRoot $current
 
         Test-Path $current | Should -BeTrue
         Test-Path $stale | Should -BeFalse
+    }
+
+    It 'keeps a run folder younger than an hour: a loader may still be running there' {
+        Mock Test-IsOwnedByUs { $true }
+        $young = Join-Path $env:ProgramData 'AutopilotMonitor-Loader-55555555'
+        New-Item -ItemType Directory -Path $young | Out-Null
+
+        Remove-StaleLoaderRunFolders -ScriptRoot $null
+
+        Test-Path $young | Should -BeTrue
     }
 
     It 'leaves alone what is not ours or is a link' {
@@ -1060,11 +1122,17 @@ Describe 'script text' {
 
     It 'declares the role and version the loader checks, one line each' {
         ([regex]::Matches($script:text, '(?m)^\$ScriptRole = "AutopilotMonitor-Installer"\s*$')).Count | Should -Be 1
-        ([regex]::Matches($script:text, '(?m)^\$ScriptVersion = "2\.7"\s*$')).Count | Should -Be 1
+        ([regex]::Matches($script:text, '(?m)^\$ScriptVersion = "2\.8"\s*$')).Count | Should -Be 1
     }
 
     It 'never stages anything in the shared temp folder' {
         $script:text | Should -Not -Match 'env:TEMP'
+    }
+
+    # Whether every entry stays inside the payload folder is this script's own check.
+    It 'never extracts with Expand-Archive' {
+        $expands = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Expand-Archive' }, $true)
+        @($expands).Count | Should -Be 0
     }
 
     It 'never deletes recursively except through Remove-OwnTree' {

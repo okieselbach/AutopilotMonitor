@@ -132,7 +132,7 @@ Describe 'Test-InstallerIdentity' {
         $script:candidate = Join-Path $TestDrive ("installer-" + [guid]::NewGuid().ToString('N') + '.ps1')
     }
 
-    It 'accepts version <Version>' -TestCases @(@{ Version = '2.7' }, @{ Version = '2.10' }, @{ Version = '3.0.1' }) {
+    It 'accepts version <Version>' -TestCases @(@{ Version = '2.8' }, @{ Version = '2.10' }, @{ Version = '3.0.1' }) {
         [System.IO.File]::WriteAllText($script:candidate, "`$ScriptVersion = `"$Version`"`n`$ScriptRole = `"AutopilotMonitor-Installer`"`n")
         Test-InstallerIdentity -Path $script:candidate | Should -BeTrue
     }
@@ -140,14 +140,14 @@ Describe 'Test-InstallerIdentity' {
     # Every installer the publisher ever signed keeps a valid signature; the minimum keeps the
     # older ones from running.
     It 'refuses an installer below the minimum version' {
-        [System.IO.File]::WriteAllText($script:candidate, "`$ScriptVersion = `"2.6`"`n`$ScriptRole = `"AutopilotMonitor-Installer`"`n")
+        [System.IO.File]::WriteAllText($script:candidate, "`$ScriptVersion = `"2.7`"`n`$ScriptRole = `"AutopilotMonitor-Installer`"`n")
         Test-InstallerIdentity -Path $script:candidate | Should -BeFalse
-        Should -Invoke Write-Log -ParameterFilter { $Message -like '*below the minimum 2.7*' }
+        Should -Invoke Write-Log -ParameterFilter { $Message -like '*below the minimum 2.8*' }
     }
 
     # The publisher signs other scripts too.
     It 'refuses another role' {
-        [System.IO.File]::WriteAllText($script:candidate, "`$ScriptVersion = `"2.7`"`n`$ScriptRole = `"AutopilotMonitor-Uninstaller`"`n")
+        [System.IO.File]::WriteAllText($script:candidate, "`$ScriptVersion = `"2.8`"`n`$ScriptRole = `"AutopilotMonitor-Uninstaller`"`n")
         Test-InstallerIdentity -Path $script:candidate | Should -BeFalse
     }
 
@@ -165,19 +165,28 @@ Describe 'Get-VerifiedBootstrapScript' {
     BeforeEach {
         Mock Write-Log { }
         Mock Start-Sleep { }
-        Mock Invoke-WebRequest { }
+        Mock Invoke-WebRequest { [System.IO.File]::WriteAllText($OutFile, 'downloaded') }
         Mock Test-InstallerIdentity { $true }
+        # The test account owns the folder; the loader asks for SYSTEM or Administrators.
+        Mock Test-IsOwnedByUs { $true }
+        $script:run = Join-Path $TestDrive ('run-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:run | Out-Null
+        $script:dest = Join-Path $script:run 'Install-AutopilotMonitor.ps1'
+        $RunState = [pscustomobject]@{ LogFile = $null; Installer = $null }
+    }
+    AfterEach {
+        if ($RunState.Installer) { $RunState.Installer.Dispose() }
     }
 
     It 'returns after the first attempt when the download verifies' {
         Mock Test-BootstrapSignature { $true }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeTrue
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeTrue
         Should -Invoke Invoke-WebRequest -Times 1 -Exactly
     }
 
     It 'gives up after three attempts when verification keeps failing' {
         Mock Test-BootstrapSignature { $false }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeFalse
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeFalse
         Should -Invoke Invoke-WebRequest -Times 3 -Exactly
     }
 
@@ -186,30 +195,54 @@ Describe 'Get-VerifiedBootstrapScript' {
     It 'retries a failed verification and accepts a later attempt' {
         $script:calls = 0
         Mock Test-BootstrapSignature { $script:calls++; return ($script:calls -ge 2) }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeTrue
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeTrue
         Should -Invoke Invoke-WebRequest -Times 2 -Exactly
     }
 
     It 'retries a transport failure' {
         $script:downloads = 0
-        Mock Invoke-WebRequest { $script:downloads++; if ($script:downloads -eq 1) { throw 'connection reset' } }
+        Mock Invoke-WebRequest { $script:downloads++; if ($script:downloads -eq 1) { throw 'connection reset' }; [System.IO.File]::WriteAllText($OutFile, 'downloaded') }
         Mock Test-BootstrapSignature { $true }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeTrue
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeTrue
         Should -Invoke Invoke-WebRequest -Times 2 -Exactly
     }
 
     It 'refuses a validly signed script that is not the current installer' {
         Mock Test-BootstrapSignature { $true }
         Mock Test-InstallerIdentity { $false }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeFalse
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeFalse
         Should -Invoke Invoke-WebRequest -Times 3 -Exactly
     }
 
     # The identity lines count only once the signature proves they are the publisher's.
     It 'reads the identity only after the signature passed' {
         Mock Test-BootstrapSignature { $false }
-        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination 'TestDrive:\s.ps1' | Should -BeFalse
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeFalse
         Should -Invoke Test-InstallerIdentity -Times 0 -Exactly
+    }
+
+    It 'stops without downloading when the run folder is no longer a folder of ours' {
+        Mock Test-IsOwnedByUs { $false }
+        Mock Test-BootstrapSignature { $true }
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeFalse
+        Should -Invoke Invoke-WebRequest -Times 0 -Exactly
+    }
+
+    # The file that was checked is the file that runs: nobody can replace it in between.
+    It 'keeps the verified file open, so it cannot be replaced or deleted' {
+        Mock Test-BootstrapSignature { $true }
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeTrue
+        $RunState.Installer | Should -Not -BeNullOrEmpty
+        { [System.IO.File]::WriteAllText($script:dest, 'replaced') } | Should -Throw
+        { [System.IO.File]::Delete($script:dest) } | Should -Throw
+        [System.IO.File]::ReadAllText($script:dest) | Should -Be 'downloaded'
+    }
+
+    It 'holds nothing when no attempt verifies' {
+        Mock Test-BootstrapSignature { $false }
+        Get-VerifiedBootstrapScript -Url 'https://example.invalid/s.ps1' -Destination $script:dest -RunFolder $script:run | Should -BeFalse
+        $RunState.Installer | Should -BeNullOrEmpty
+        { [System.IO.File]::Delete($script:dest) } | Should -Not -Throw
     }
 }
 
@@ -232,13 +265,20 @@ Describe 'Remove-LoaderRunFiles' {
         $log = Join-Path $run 'bootstrap-loader.log'
         Set-Content -Path $installer -Value 'downloaded'
         Set-Content -Path $log -Value 'log'
-        $LogState = [pscustomobject]@{ File = $log }
+        $RunState = [pscustomobject]@{ LogFile = $log; Installer = $null }
     }
 
     It 'removes the download, the log and the folder' {
         Remove-LoaderRunFiles -RunFolder $run -InstallerPath $installer
         Test-Path -LiteralPath $run | Should -BeFalse
-        $LogState.File | Should -BeNullOrEmpty
+        $RunState.LogFile | Should -BeNullOrEmpty
+    }
+
+    It 'releases the held download before deleting it' {
+        $RunState.Installer = New-Object System.IO.FileStream($installer, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        Remove-LoaderRunFiles -RunFolder $run -InstallerPath $installer
+        Test-Path -LiteralPath $run | Should -BeFalse
+        $RunState.Installer | Should -BeNullOrEmpty
     }
 
     It 'keeps the log and the folder with -KeepLog, but never the download' {
@@ -262,7 +302,7 @@ Describe 'Start-BootstrapLoader' {
         $script:runFolder = Join-Path $env:ProgramData 'AutopilotMonitor-Loader-0a1b2c3d'
         $script:marker = Join-Path $TestDrive ("ran-" + [guid]::NewGuid().ToString('N') + '.txt')
 
-        $LogState = [pscustomobject]@{ File = $null }
+        $RunState = [pscustomobject]@{ LogFile = $null; Installer = $null }
         $InstallerArguments = @()
 
         Mock Write-Host { }
@@ -425,5 +465,13 @@ Describe 'publish contract' {
         $wxs = Get-Content (Join-Path $PSScriptRoot '..\..\src\Agent\AutopilotMonitor.BootstrapMsi\Package.wxs') -Raw
         $wxs.Contains('[INSTALLFOLDER]Start-AutopilotMonitor.ps1') | Should -BeTrue
         $wxs.Contains('-LogFileName bootstrap-msi.log') | Should -BeTrue
+    }
+
+    # The file a SYSTEM custom action runs must not sit where a standard user could have
+    # created the folder first: Program Files, never ProgramData.
+    It 'is installed by the bootstrap MSI under Program Files' {
+        $wxs = Get-Content (Join-Path $PSScriptRoot '..\..\src\Agent\AutopilotMonitor.BootstrapMsi\Package.wxs') -Raw
+        $wxs | Should -Match '<StandardDirectory Id="ProgramFiles64Folder">'
+        $wxs | Should -Not -Match 'CommonAppDataFolder'
     }
 }

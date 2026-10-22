@@ -10,8 +10,10 @@
     the installer changes.
 
     The download and the log go into %ProgramData%\AutopilotMonitor-Loader-<random>, which only
-    SYSTEM and administrators can change. After a successful run the folder is removed; after
-    a failure it keeps the log for diagnosis, and the next installer run removes it.
+    SYSTEM and administrators can change. The loader keeps the downloaded file open from the
+    check to the end of the run, so what it checked is what runs. After a successful run the
+    folder is removed; after a failure it keeps the log for diagnosis, and a later installer
+    run removes it.
 
     The exit code is always 0, so the loader never fails enrollment. Without SYSTEM or
     administrator rights it stops with an error and changes nothing.
@@ -40,28 +42,29 @@ param(
 # attribute would reject them instead.
 $InstallerArguments = $args
 
-$ScriptVersion = "1.3"
+$ScriptVersion = "1.4"
 
 # A subject pattern, not a thumbprint, so a certificate renewal keeps deployed loaders working.
 $ExpectedPublisher = "*O=glueckkanja AG*"
 
 $ExpectedInstallerRole = "AutopilotMonitor-Installer"
-$MinimumInstallerVersion = [version]"2.7"
+$MinimumInstallerVersion = [version]"2.8"
 
 $RunFolderPrefix = "AutopilotMonitor-Loader-"
 
 $DownloadAttempts = 3
 $RetryDelaySeconds = 10
 
-$LogState = [pscustomobject]@{ File = $null }
+# The log file, and the handle that keeps the verified installer unchanged until the run ends.
+$RunState = [pscustomobject]@{ LogFile = $null; Installer = $null }
 
 function Write-Log {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] $Message"
     Write-Host $logMessage
-    if ($LogState.File) {
-        Add-Content -Path $LogState.File -Value $logMessage -ErrorAction SilentlyContinue
+    if ($RunState.LogFile) {
+        Add-Content -Path $RunState.LogFile -Value $logMessage -ErrorAction SilentlyContinue
     }
 }
 
@@ -200,18 +203,28 @@ function Test-BootstrapSignature {
     return $true
 }
 
-# A download that fails verification, such as a truncated one, is retried too.
+# A download that fails verification, such as a truncated one, is retried too. The run folder
+# is checked before every attempt: one that is no longer a real folder of ours stops the run.
+# The downloaded file is opened for reading before it is checked and stays open until the run
+# ends, so no one can change or replace what was checked.
 function Get-VerifiedBootstrapScript {
-    param([string]$Url, [string]$Destination)
+    param([string]$Url, [string]$Destination, [string]$RunFolder)
 
     for ($attempt = 1; $attempt -le $DownloadAttempts; $attempt++) {
+        if ((Test-IsReparsePoint $RunFolder) -or -not (Test-IsOwnedByUs $RunFolder)) {
+            Write-Log "REJECTED: the run folder $RunFolder is no longer a folder of ours. Nothing was downloaded."
+            return $false
+        }
         try {
             Write-Log "Download attempt $attempt/$DownloadAttempts from $Url"
             Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
 
+            $held = New-Object System.IO.FileStream($Destination, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
             if ((Test-BootstrapSignature -Path $Destination) -and (Test-InstallerIdentity -Path $Destination)) {
+                $RunState.Installer = $held
                 return $true
             }
+            $held.Dispose()
         }
         catch {
             Write-Log "Download attempt $attempt failed: $($_.Exception.Message)"
@@ -229,11 +242,15 @@ function Get-VerifiedBootstrapScript {
 # otherwise they stay for diagnosis.
 function Remove-LoaderRunFiles {
     param([string]$RunFolder, [string]$InstallerPath, [switch]$KeepLog)
+    if ($RunState.Installer) {
+        $RunState.Installer.Dispose()
+        $RunState.Installer = $null
+    }
     try {
         if ([System.IO.File]::Exists($InstallerPath)) { [System.IO.File]::Delete($InstallerPath) }
         if ($KeepLog) { return }
-        $logFile = $LogState.File
-        $LogState.File = $null
+        $logFile = $RunState.LogFile
+        $RunState.LogFile = $null
         if ($logFile -and [System.IO.File]::Exists($logFile)) { [System.IO.File]::Delete($logFile) }
         [System.IO.Directory]::Delete($RunFolder, $false)
     }
@@ -265,14 +282,14 @@ function Start-BootstrapLoader {
         return
     }
 
-    $LogState.File = Join-Path $runFolder $LogFileName
+    $RunState.LogFile = Join-Path $runFolder $LogFileName
     Write-Log "=== Autopilot Monitor bootstrap loader v$ScriptVersion started (user=$env:USERNAME, pid=$PID) ==="
     Write-Log ("PowerShell {0}, {1}, language mode {2}, run folder {3}" -f $PSVersionTable.PSVersion, $(if ([Environment]::Is64BitProcess) { '64-bit' } else { '32-bit' }), $ExecutionContext.SessionState.LanguageMode, $runFolder)
 
     $installerPath = Join-Path $runFolder 'Install-AutopilotMonitor.ps1'
     $succeeded = $false
     try {
-        if (-not (Get-VerifiedBootstrapScript -Url $BootstrapUrl -Destination $installerPath)) {
+        if (-not (Get-VerifiedBootstrapScript -Url $BootstrapUrl -Destination $installerPath -RunFolder $runFolder)) {
             Write-Log "No verified installer available after $DownloadAttempts attempt(s). Nothing was executed."
             return
         }

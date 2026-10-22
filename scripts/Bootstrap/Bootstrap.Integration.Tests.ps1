@@ -6,8 +6,9 @@
 # What these tests do not cover is swapped out by global aliases, which win over cmdlets and
 # over functions a script defines: downloads (served from a scratch folder), signatures, the
 # catalog check, the guard decision, the deployment marker, the agent task, the agent's
-# --install and sleeps. Every swap writes a trace line, and the tests check the lines they rely
-# on, so a swap that stops working turns a test red instead of reaching the real machine.
+# --install (a real program start from PowerShell's location, with the agent's work left out)
+# and sleeps. Every swap writes a trace line, and the tests check the lines they rely on, so a
+# swap that stops working turns a test red instead of reaching the real machine.
 #
 # Run elevated (CI also runs it as SYSTEM), the folder permissions are the real ones. Without
 # elevation the test account may not make Administrators the owner, so the protected DACL is
@@ -114,7 +115,15 @@ function global:HarnessGetScheduledTask {
 function global:HarnessInvokeAgentInstallMode {
     param([string]$ExePath, [string[]]$Arguments = @('--install'))
     Write-HarnessTrace 'Invoke-AgentInstallMode' ('{0} {1} exists={2}' -f $ExePath, ($Arguments -join ' '), [System.IO.File]::Exists($ExePath))
-    return [int]$global:HarnessOptions.InstallExitCode
+    # A real program start from PowerShell's own location, as the agent start is: a location
+    # that no longer exists fails here with error 267, as it did on the MSI channel. With
+    # AgentStartFails the stub payload itself is started, a text file that never runs.
+    if ($global:HarnessOptions.AgentStartFails) {
+        & $ExePath @Arguments | Out-Host
+        return $LASTEXITCODE
+    }
+    & "$env:SystemRoot\System32\cmd.exe" /c "exit $([int]$global:HarnessOptions.InstallExitCode)" | Out-Host
+    return $LASTEXITCODE
 }
 
 function global:HarnessGetProcess {
@@ -188,6 +197,31 @@ if ($global:HarnessOptions.Iex) {
 exit $LASTEXITCODE
 '@
 
+    # A ZIP with exactly these entry names.
+    function New-ZipWithEntries {
+        param([string]$Path, [string[]]$Names)
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::Open($Path, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($name in $Names) {
+                $writer = New-Object System.IO.StreamWriter($archive.CreateEntry($name).Open())
+                try { $writer.Write("content of $name") } finally { $writer.Dispose() }
+            }
+        } finally { $archive.Dispose() }
+    }
+
+    # Serves a package with one entry that points outside the payload folder, with the
+    # matching manifest hash, under the stable names.
+    function Set-EscapingPackage {
+        param($Scenario)
+        $zip = Join-Path $Scenario.Server 'AutopilotMonitor-Agent.zip'
+        Remove-Item -LiteralPath $zip
+        New-ZipWithEntries -Path $zip -Names @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Agent.cat', '../../../outside.txt')
+        $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        Set-Content -LiteralPath (Join-Path $Scenario.Server 'version.json') -Value ('{"version":"2.0.9999","sha256":"' + $sha + '"}')
+    }
+
     function New-Scenario {
         $root = Join-Path $TestDrive ('s' + [guid]::NewGuid().ToString('N').Substring(0, 7))
         $scenario = [pscustomobject]@{
@@ -228,6 +262,7 @@ exit $LASTEXITCODE
             CatalogValid    = $true
             Elevated        = $true
             Iex             = $false
+            AgentStartFails = $false
         }
         foreach ($key in $Options.Keys) { $settings[$key] = $Options[$key] }
         $settings.SwapElevation = ([bool]$settings.Elevated -ne $script:isElevated)
@@ -333,7 +368,7 @@ exit $LASTEXITCODE
     )
 }
 
-Describe 'loader 1.3' {
+Describe 'loader 1.4' {
     It 'installs and leaves only the agent folder, with its log carried over' {
         $s = New-Scenario
         $run = Invoke-Scenario $s -Script $script:loaderPath -Arguments @('-MaxBootstrapWindowHours', '24')
@@ -349,7 +384,7 @@ Describe 'loader 1.3' {
         @($run.Trace | Where-Object { $_ -like 'Test-FileCatalog|*' }).Count | Should -Be 1
         @($run.Trace | Where-Object { $_ -like 'Invoke-AgentInstallMode|*\AutopilotMonitor\Agent\AutopilotMonitor.Agent.exe --install exists=True' }).Count | Should -Be 1
         $run.StdOut | Should -Match 'Bootstrap Completed Successfully'
-        Get-Content -LiteralPath (Join-Path $s.Base 'Logs\bootstrap-loader.log') -Raw | Should -Match '=== Autopilot Monitor bootstrap loader v1\.3 started'
+        Get-Content -LiteralPath (Join-Path $s.Base 'Logs\bootstrap-loader.log') -Raw | Should -Match '=== Autopilot Monitor bootstrap loader v1\.4 started'
         if ($script:isElevated) {
             (Get-Item -LiteralPath $s.Base).GetAccessControl('Owner').GetOwner([System.Security.Principal.SecurityIdentifier]).Value | Should -Be 'S-1-5-32-544'
         }
@@ -400,7 +435,7 @@ Describe 'loader 1.3' {
         Get-Tree $s.ProgramData -Content | Should -Be $before
     }
 
-    It 'keeps its log when the installer fails, and the next run removes it' {
+    It 'keeps its log when the installer fails; a later run removes it, a run within the hour leaves it' {
         $s = New-Scenario
         Remove-Item -LiteralPath (Join-Path $s.Server 'version.json')
         $failed = Invoke-Scenario $s -Script $script:loaderPath
@@ -418,17 +453,25 @@ Describe 'loader 1.3' {
         ))
 
         Set-Content -LiteralPath (Join-Path $s.Server 'version.json') -Value ('{"version":"2.0.9999","sha256":"' + $script:agentZipSha256 + '"}')
-        $next = Invoke-Scenario $s -Script $script:loaderPath
+        $kept = (Get-ChildItem -LiteralPath $s.ProgramData -Directory -Filter 'AutopilotMonitor-Loader-*').FullName
 
-        $next.ExitCode | Should -Be 0
-        $next.StdErr | Should -BeNullOrEmpty
-        Get-Tree $s.ProgramData | Should -Be (Join-Tree ($script:installedTree + 'AutopilotMonitor\Logs\bootstrap-loader.log' + 'AutopilotMonitor\Logs\bootstrap-script.log'))
+        # Minutes later the folder may still belong to a running loader: it stays.
+        $soon = Invoke-Scenario $s -Script $script:loaderPath
+        $soon.ExitCode | Should -Be 0
+        $soon.StdErr | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $kept | Should -BeTrue
+        Get-Tree $s.Base | Should -Be (Join-Tree ((@($script:installedTree) | ForEach-Object { $_ -replace '^AutopilotMonitor\\', '' } | Where-Object { $_ }) + 'Logs\bootstrap-loader.log' + 'Logs\bootstrap-script.log'))
+
+        [System.IO.Directory]::SetCreationTimeUtc($kept, [System.DateTime]::UtcNow.AddHours(-2))
+        $later = Invoke-Scenario $s -Script $script:loaderPath -Options @{ Install = $false }
+        $later.ExitCode | Should -Be 0
+        Test-Path -LiteralPath $kept | Should -BeFalse
     }
 
     It 'runs nothing it cannot verify: <Case>' -TestCases @(
         @{ Case = 'unsigned'; Options = @{ SignatureStatus = 'NotSigned' }; Edit = $null }
         @{ Case = 'another publisher'; Options = @{ SignerSubject = 'CN=Somebody Else, O=Somebody Else Ltd, C=US' }; Edit = $null }
-        @{ Case = 'an installer below 2.7'; Options = @{}; Edit = @('$ScriptVersion = "2.7"', '$ScriptVersion = "2.6"') }
+        @{ Case = 'an installer below 2.8'; Options = @{}; Edit = @('$ScriptVersion = "2.8"', '$ScriptVersion = "2.7"') }
         @{ Case = 'not the installer'; Options = @{}; Edit = @('$ScriptRole = "AutopilotMonitor-Installer"', '$ScriptRole = "AutopilotMonitor-Other"') }
     ) {
         $s = New-Scenario
@@ -485,10 +528,13 @@ Describe 'installer assigned directly' {
         Get-Content -LiteralPath (Join-Path $s.Outside 'target\sentinel.txt') | Should -Be 'must survive'
     }
 
+    # An agent that ran owns its folder, even after a failed --install; one that never started
+    # leaves only payload, which a later run would take for an agent.
     It 'fails with exit code 1 and exactly one line on stderr: <Case>' -TestCases @(
-        @{ Case = 'the download fails'; Missing = 'AutopilotMonitor-Agent.zip'; Options = @{}; Message = 'AutopilotMonitor bootstrap failed: The remote server returned an error: (404) Not Found.*' }
-        @{ Case = 'the payload fails its catalog'; Missing = $null; Options = @{ CatalogValid = $false }; Message = 'AutopilotMonitor bootstrap failed: Payload verification FAILED*' }
-        @{ Case = 'the agent install fails'; Missing = $null; Options = @{ InstallExitCode = 7 }; Message = 'AutopilotMonitor bootstrap failed: Agent install failed with exit code 7' }
+        @{ Case = 'the download fails'; Missing = 'AutopilotMonitor-Agent.zip'; Options = @{}; Message = 'AutopilotMonitor bootstrap failed: The remote server returned an error: (404) Not Found.*'; AgentFolder = 'gone' }
+        @{ Case = 'the payload fails its catalog'; Missing = $null; Options = @{ CatalogValid = $false }; Message = 'AutopilotMonitor bootstrap failed: Payload verification FAILED*'; AgentFolder = 'gone' }
+        @{ Case = 'the agent install fails'; Missing = $null; Options = @{ InstallExitCode = 7 }; Message = 'AutopilotMonitor bootstrap failed: Agent install failed with exit code 7'; AgentFolder = 'stays' }
+        @{ Case = 'the agent does not start'; Missing = $null; Options = @{ AgentStartFails = $true }; Message = "AutopilotMonitor bootstrap failed: Program 'AutopilotMonitor.Agent.exe' failed to run*"; AgentFolder = 'gone' }
     ) {
         if ($Missing) { Remove-Item -LiteralPath (Join-Path $s.Server $Missing) }
         $run = Invoke-Scenario $s -Script $imeCopy -Options $Options
@@ -497,7 +543,19 @@ Describe 'installer assigned directly' {
         @(Get-StdErrLines $run).Count | Should -Be 1
         @(Get-StdErrLines $run)[0] | Should -BeLike $Message
         Get-Tree $s.ProgramData | Should -Not -Match 'Agent-Install'
+        Test-Path -LiteralPath (Join-Path $s.Base 'Agent') | Should -Be ($AgentFolder -eq 'stays')
         Test-Path -LiteralPath (Join-Path $s.Base 'Logs\bootstrap-script.log') | Should -BeTrue
+    }
+
+    It 'refuses an agent package with an entry outside the payload folder and writes nothing outside' {
+        Set-EscapingPackage $s
+        $run = Invoke-Scenario $s -Script $imeCopy
+
+        $run.ExitCode | Should -Be 1
+        @(Get-StdErrLines $run).Count | Should -Be 1
+        @(Get-StdErrLines $run)[0] | Should -BeLike 'AutopilotMonitor bootstrap failed: The agent package has an entry that would be written outside the payload folder*'
+        Get-Tree $s.Root | Should -Not -Match 'outside\.txt'
+        Get-Tree $s.ProgramData | Should -Be (Join-Tree @('AutopilotMonitor\', 'AutopilotMonitor\Logs\', 'AutopilotMonitor\Logs\bootstrap-script.log'))
     }
 
     It 'refuses to run without SYSTEM or administrator rights and changes nothing' {
@@ -587,12 +645,13 @@ Describe 'loader 1.2, frozen' {
 
 Describe 'bootstrap MSI layouts, started in the folder the MSI installed' {
     It '<Name> skips and leaves <Left>' -TestCases @(
+        @{ Name = 'MSI 1.3 (loader in Program Files)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Location = 'program-files'; Arguments = @('-LogFileName', 'bootstrap-msi.log'); Left = 'nothing'; Tree = @() }
         @{ Name = 'MSI 1.2 (loader 1.3)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Arguments = @('-LogFileName', 'bootstrap-msi.log'); Left = 'nothing'; Tree = @() }
         @{ Name = 'MSI 1.1 (loader 1.2)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader12'; Arguments = @('-LogFileName', 'bootstrap-msi.log'); Left = 'nothing'; Tree = @() }
         @{ Name = 'MSI 1.0 (own runner)'; File = 'Invoke-BootstrapDownload.ps1'; Source = 'msiRunner'; Arguments = @(); Left = 'only the log the runner holds open'; Tree = @('AutopilotMonitor\', 'AutopilotMonitor\Logs\', 'AutopilotMonitor\Logs\bootstrap-msi.log') }
     ) {
         $s = New-Scenario
-        $msi = Join-Path $s.Base 'Msi'
+        $msi = if ($Location -eq 'program-files') { Join-Path $s.Root 'ProgramFiles\AutopilotMonitor\Bootstrap' } else { Join-Path $s.Base 'Msi' }
         New-Item -ItemType Directory -Path $msi -Force | Out-Null
         $sourcePath = @{ loader = $script:loaderPath; loader12 = $script:loader12Path; msiRunner = $script:msiRunnerPath }[$Source]
         Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $msi $File)
@@ -604,12 +663,13 @@ Describe 'bootstrap MSI layouts, started in the folder the MSI installed' {
     }
 
     It '<Name> installs' -TestCases @(
+        @{ Name = 'MSI 1.3 (loader in Program Files)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Location = 'program-files'; Arguments = @('-LogFileName', 'bootstrap-msi.log') }
         @{ Name = 'MSI 1.2 (loader 1.3)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Arguments = @('-LogFileName', 'bootstrap-msi.log') }
         @{ Name = 'MSI 1.1 (loader 1.2)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader12'; Arguments = @('-LogFileName', 'bootstrap-msi.log') }
         @{ Name = 'MSI 1.0 (own runner)'; File = 'Invoke-BootstrapDownload.ps1'; Source = 'msiRunner'; Arguments = @() }
     ) {
         $s = New-Scenario
-        $msi = Join-Path $s.Base 'Msi'
+        $msi = if ($Location -eq 'program-files') { Join-Path $s.Root 'ProgramFiles\AutopilotMonitor\Bootstrap' } else { Join-Path $s.Base 'Msi' }
         New-Item -ItemType Directory -Path $msi -Force | Out-Null
         $sourcePath = @{ loader = $script:loaderPath; loader12 = $script:loader12Path; msiRunner = $script:msiRunnerPath }[$Source]
         Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $msi $File)
@@ -649,6 +709,17 @@ Describe 'OOBE script, as the backend generates it' {
         ))
         @($run.Trace | Where-Object { $_ -like 'Invoke-WebRequest|*' }).Count | Should -Be 0
         @($run.Trace | Where-Object { $_ -like 'Invoke-AgentInstallMode|*' }).Count | Should -Be 1
+    }
+
+    It 'refuses an agent package with an entry outside the payload folder and writes nothing outside' {
+        $s = New-Scenario
+        Set-EscapingPackage $s
+        $run = Invoke-Scenario $s -Script $script:oobeScriptPath -Options @{ Iex = $true }
+
+        $run.ExitCode | Should -Be 1
+        $run.StdOut | Should -Match 'The agent package has an entry that would be written outside the payload folder'
+        Get-Tree $s.Root | Should -Not -Match 'outside\.txt'
+        Get-Tree $s.ProgramData | Should -Be (Join-Tree @('AutopilotMonitor\', 'AutopilotMonitor\Logs\', 'AutopilotMonitor\Logs\oobe_bootstrap.log'))
     }
 
     It 'refuses to run without SYSTEM or administrator rights and creates nothing' {
@@ -697,9 +768,9 @@ Describe 'publish pipeline and dev channel' {
     }
 
     It 'refuses to publish an installer the loader would refuse: <Case>' -TestCases @(
-        @{ Case = 'below the minimum version'; Old = '$ScriptVersion = "2.7"'; New = '$ScriptVersion = "2.6"' }
+        @{ Case = 'below the minimum version'; Old = '$ScriptVersion = "2.8"'; New = '$ScriptVersion = "2.7"' }
         @{ Case = 'without its role line'; Old = '$ScriptRole = "AutopilotMonitor-Installer"'; New = '# no role' }
-        @{ Case = 'with a second version line'; Old = '$ScriptVersion = "2.7"'; New = "`$ScriptVersion = `"2.7`"`n`$ScriptVersion = `"2.8`"" }
+        @{ Case = 'with a second version line'; Old = '$ScriptVersion = "2.8"'; New = "`$ScriptVersion = `"2.8`"`n`$ScriptVersion = `"2.9`"" }
     ) {
         $root = Join-Path $TestDrive ('repo' + [guid]::NewGuid().ToString('N').Substring(0, 6))
         New-Item -ItemType Directory -Path (Join-Path $root 'scripts\Bootstrap') -Force | Out-Null
@@ -746,7 +817,7 @@ Describe 'publish pipeline and dev channel' {
 
         $run.ExitCode | Should -Be 0
         $run.StdErr | Should -BeNullOrEmpty
-        $run.StdOut | Should -Match 'Installer accepted: AutopilotMonitor-Installer v2\.7'
+        $run.StdOut | Should -Match 'Installer accepted: AutopilotMonitor-Installer v2\.8'
         $run.StdOut | Should -Match 'Bootstrap Completed Successfully'
     }
 }

@@ -53,7 +53,7 @@ param(
 )
 
 # The loader checks these two lines before it runs this script.
-$ScriptVersion = "2.7"
+$ScriptVersion = "2.8"
 $ScriptRole = "AutopilotMonitor-Installer"
 
 # Signer of the agent's file catalog; a subject pattern, so certificate renewals keep working.
@@ -517,6 +517,42 @@ function Get-AgentPayloadRejections {
     return , $rejected
 }
 
+# Extracts the agent ZIP into the payload folder. Every entry is checked before the first one
+# is written: a rooted name, or one whose resolved path lies outside the folder, refuses the
+# whole package. The guarantee is this script's own, not the device's Expand-Archive's.
+function Expand-AgentPayload {
+    param([string]$ZipPath, [string]$Destination)
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $planned = New-Object System.Collections.Generic.List[object]
+        foreach ($entry in $archive.Entries) {
+            $name = $entry.FullName
+            $target = $null
+            if (-not [System.IO.Path]::IsPathRooted($name) -and -not $name.Contains(':')) {
+                $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $name))
+            }
+            if ($null -eq $target -or -not $target.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "The agent package has an entry that would be written outside the payload folder ($name); refusing the package."
+            }
+            $planned.Add([pscustomobject]@{ Entry = $entry; Target = $target })
+        }
+        [System.IO.Directory]::CreateDirectory($root) | Out-Null
+        foreach ($item in $planned) {
+            if ($item.Entry.FullName.EndsWith('/') -or $item.Entry.FullName.EndsWith('\')) {
+                [System.IO.Directory]::CreateDirectory($item.Target) | Out-Null
+                continue
+            }
+            [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($item.Target)) | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($item.Entry, $item.Target, $false)
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 # Verifies the payload in the run folder and moves it in as the agent folder. The move fails
 # when that folder exists, so nothing is ever merged into it.
 function Install-VerifiedAgentPayload {
@@ -529,7 +565,7 @@ function Install-VerifiedAgentPayload {
     )
 
     $payload = Join-Path $StagingPath 'Agent'
-    Expand-Archive -Path $ZipPath -DestinationPath $payload -Force -ErrorAction Stop
+    Expand-AgentPayload -ZipPath $ZipPath -Destination $payload
 
     $rejections = Get-AgentPayloadRejections -Path $payload -ExpectedPublisher $ExpectedPublisher -CatalogName $CatalogName
     if ($rejections.Count -gt 0) {
@@ -587,13 +623,13 @@ function Test-IsLegacyInstallerPath {
 }
 
 # The loader's log, carried into Logs for the agent and the diagnostics package: whole from a
-# loader v1.3 run folder; from older loaders, whose log folder users could write to, only the
-# start line. Callers wrap the result in @(); never throws.
+# loader run folder that is ours; from older loaders, whose log folder users could write to,
+# only the start line. Callers wrap the result in @(); never throws.
 function Read-LoaderLogs {
     param([string]$ScriptPath, [string]$ScriptRoot)
     $logs = New-Object System.Collections.Generic.List[object]
     try {
-        if (Test-IsLoaderRunFolder $ScriptRoot) {
+        if ((Test-IsLoaderRunFolder $ScriptRoot) -and (Get-FolderState $ScriptRoot) -eq 'Ours') {
             foreach ($file in [System.IO.Directory]::GetFiles($ScriptRoot, '*.log')) {
                 $logs.Add([pscustomobject]@{ Name = [System.IO.Path]::GetFileName($file); Text = [System.IO.File]::ReadAllText($file) })
             }
@@ -628,14 +664,16 @@ function Write-LoaderLogs {
     }
 }
 
-# Run folders that failed loader runs kept for diagnosis. Never throws.
+# Run folders that failed loader runs kept for diagnosis. A folder younger than an hour may
+# belong to a loader that is still running and stays. Never throws.
 function Remove-StaleLoaderRunFolders {
     param([string]$ScriptRoot)
     try { $folders = [System.IO.Directory]::GetDirectories($env:ProgramData, $LoaderRunFolderPrefix + '*') } catch { return }
+    $cutoff = [System.DateTime]::UtcNow.AddHours(-1)
     foreach ($folder in $folders) {
         if ($ScriptRoot -and [string]::Equals([System.IO.Path]::GetFullPath($folder), [System.IO.Path]::GetFullPath($ScriptRoot), [System.StringComparison]::OrdinalIgnoreCase)) { continue }
         try {
-            if ((Get-FolderState $folder) -eq 'Ours') { $null = Remove-OwnTree -Path $folder }
+            if ((Get-FolderState $folder) -eq 'Ours' -and [System.IO.Directory]::GetCreationTimeUtc($folder) -lt $cutoff) { $null = Remove-OwnTree -Path $folder }
         } catch { }
     }
 }
@@ -661,9 +699,11 @@ function Invoke-Bootstrap {
             exit 1
         }
 
-        # The bootstrap MSI starts PowerShell inside the agent folder, and a working directory
-        # cannot be deleted.
+        # The bootstrap MSI starts PowerShell inside the agent folder: a working directory cannot
+        # be deleted, and PowerShell starts programs from its own location, which must not point
+        # at a folder that is gone by then.
         [System.IO.Directory]::SetCurrentDirectory("$env:SystemRoot\System32")
+        Set-Location -LiteralPath "$env:SystemRoot\System32"
 
         Write-Log "===== Autopilot Monitor Bootstrap Started ====="
         Write-Log "Bootstrap script version: v$ScriptVersion"
@@ -788,7 +828,18 @@ function Invoke-Bootstrap {
         }
 
         Write-Log "Calling agent install mode (--install)..."
-        $installExitCode = Invoke-AgentInstallMode -ExePath $agentExePath
+        try {
+            $installExitCode = Invoke-AgentInstallMode -ExePath $agentExePath
+        }
+        catch [System.Management.Automation.ApplicationFailedException] {
+            # The program never started (bad directory, not a program, blocked by policy). An
+            # agent that ran owns its folder; one that never ran leaves only payload there, which
+            # every later run would take for an agent.
+            $left = Remove-OwnTree -Path $AgentBinPath
+            if ($left.Foreign.Count -eq 0 -and $left.Locked.Count -eq 0) { Write-Log "The agent did not start; $AgentBinPath removed." }
+            else { Write-Log "The agent did not start; $AgentBinPath not fully removed ($($left.Foreign.Count + $left.Locked.Count) entries stay)." }
+            throw
+        }
         if ($installExitCode -ne 0) {
             throw "Agent install failed with exit code $installExitCode"
         }
@@ -821,7 +872,8 @@ function Invoke-Bootstrap {
         Write-Log "Stack trace: $($_.ScriptStackTrace)"
         if ($LogState.Ready) { Write-Log "Please check log file: $LogFile" }
 
-        $errMsg = "AutopilotMonitor bootstrap failed: $($_.Exception.Message)"
+        # One line: a failed program start carries PowerShell's position lines in its message.
+        $errMsg = "AutopilotMonitor bootstrap failed: $($_.Exception.Message)" -replace '\s*\r?\n\s*', ' '
         if ($errMsg.Length -gt 2048) { $errMsg = $errMsg.Substring(0, 2045) + '...' }
         [Console]::Error.WriteLine($errMsg)
 
