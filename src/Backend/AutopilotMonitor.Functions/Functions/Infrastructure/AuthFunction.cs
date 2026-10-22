@@ -127,15 +127,16 @@ public class AuthFunction
         var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(identity);
         var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(identity);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
-        var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
+        // The caller's row and whether the tenant has any member come from ONE read: the first-user
+        // auto-admin decision must never combine two states of the TenantAdmins partition.
+        var membershipTask = _tenantAdminsService.GetMembershipSnapshotAsync(tenantId, upn);
         // App roles ride along so the AllMembers path sees a claim-derived member the same way the policy
         // middleware does (the table-vs-claim reconciliation happens inside the shared role resolver).
         var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId, objectId, principal.GetAppRoles());
-        var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
         var whatsNewSeenTask = _metricsRepo.GetUserWhatsNewSeenAsync(tenantId, upn);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,
-                           membershipTask, mcpCheckTask, existingAdminsTask, whatsNewSeenTask);
+                           membershipTask, mcpCheckTask, whatsNewSeenTask);
 
         var (tenantConfig, _) = tenantConfigTask.Result;
         var globalRole = globalRoleTask.Result;
@@ -145,9 +146,8 @@ public class AuthFunction
         // Surfaced to the web app so it can show fleet/switcher UI and bound it to this set.
         var delegatedTenantIds = delegatedScopeTask.Result.TenantIds;
         var isApproved = isApprovedTask.Result;
-        var (tableState, tableRole) = membershipTask.Result;
+        var (tableState, tableRole, tenantHasMembers) = membershipTask.Result;
         var mcpCheck = mcpCheckTask.Result;
-        var existingAdmins = existingAdminsTask.Result;
         var whatsNewSeen = whatsNewSeenTask.Result;
 
         // Reconcile the TenantAdmins table state with any Entra app-role claim. An enabled row
@@ -195,7 +195,7 @@ public class AuthFunction
         // --- Pure decision logic (tested by AuthFunctionTests) ---
         var decision = BuildAuthResult(
             tenantConfig, isGlobalAdmin, isGlobalReader, isApproved,
-            memberRole, mcpCheck, existingAdmins.Count > 0,
+            memberRole, mcpCheck, tenantHasMembers,
             tenantId, upn, displayName ?? string.Empty, objectId ?? string.Empty,
             delegatedTenantIds,
             homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary",

@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// The shared effective-role resolver (policy middleware + MCP AllMembers gate): TenantAdmins table first,
 /// the token's Entra app-role claim only when no row exists AND the tenant opted in, and no tenant-config
-/// read at all for a roleless token — so the common "no row, no claim" path costs one cached membership read.
+/// read at all for a roleless token — so the common "no row, no claim" path costs one membership read.
 /// </summary>
 public class TenantMemberRoleResolverTests
 {

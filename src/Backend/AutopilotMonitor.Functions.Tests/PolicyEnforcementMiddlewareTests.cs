@@ -269,6 +269,28 @@ public class PolicyEnforcementMiddlewareTests
     private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn, string objectId = TestOid)
         => new(new ClaimsIdentity(new[] { new Claim("tid", tenantId), new Claim("upn", upn), new Claim("oid", objectId) }, "TestAuth"));
 
+    // ── A grant written on another instance counts on the next request ──────────────
+
+    /// <summary>
+    /// A new tenant's first admin opens the dashboard on an instance that resolved "no row" for them seconds
+    /// earlier, while the auto-approve worker wrote their promotion out of reach of this process's cache
+    /// invalidation. The session list must already admit them.
+    /// </summary>
+    [Fact]
+    public async Task MemberRead_RowWrittenAfterADenial_IsAdmittedOnTheNextRequest()
+    {
+        const string upn = "first.admin@contoso.com";
+        var h = BuildHarness();
+
+        var before = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+        h.AsTenantAdmin(TenantA, upn);
+        var after = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(before.Allowed);
+        Assert.True(after.Allowed);
+        Assert.True(after.Context!.IsTenantAdmin);
+    }
+
     // ── ADDITIVE: GlobalReader + own-tenant Admin keeps IsTenantAdmin ──────────────
 
     [Fact]

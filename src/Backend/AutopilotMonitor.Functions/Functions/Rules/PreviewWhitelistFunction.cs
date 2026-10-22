@@ -201,13 +201,13 @@ public class PreviewWhitelistFunction
 
         // Send-on-save half of the welcome-mail race: with auto-approve, activation
         // typically finishes before the user has typed this address on the activation
-        // page — the approval path then found no address and deferred to us. Fresh
-        // approval read: a cached "not approved" can be stale for exactly this window.
+        // page — the approval path then found no address and deferred to us. IsApprovedAsync
+        // never caches "not approved", so an activation that landed before this write is seen.
         // The sent-marker inside TrySendWelcomeEmailAsync dedupes against the approval
         // path and against repeated saves.
         var welcomeEmailSent = false;
         if (!string.IsNullOrWhiteSpace(email) &&
-            await _previewWhitelistService.IsApprovedFreshAsync(tenantId))
+            await _previewWhitelistService.IsApprovedAsync(tenantId))
         {
             welcomeEmailSent = await _tenantApprovalService.TrySendWelcomeEmailAsync(tenantId);
         }

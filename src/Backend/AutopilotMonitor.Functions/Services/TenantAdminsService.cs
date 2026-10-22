@@ -20,11 +20,14 @@ public class TenantAdminsService
     // Authorization state is cached per-process (IMemoryCache). On a scaled-out Flex Consumption
     // plan InvalidateMemberCache only clears the instance that handled the grant/revoke mutation;
     // other warm instances keep serving the stale role until their entry expires. A short TTL caps
-    // that cross-instance divergence window (newly-granted role appears, revoked role disappears)
-    // so a role change self-heals in seconds instead of minutes. The underlying lookup is a single
-    // Table Storage point-read (PK+RK), so the extra reads are negligible. Do NOT raise this back
-    // to minutes "for performance" — it reintroduces the role flip-flop. Matches the 30s
-    // cross-instance revalidation convention used by BlockedDeviceService.
+    // that cross-instance divergence window so a revoked or changed role self-heals in seconds
+    // instead of minutes. Only an ENABLED membership is cached: a missing or disabled row is re-read
+    // on every call, because the grant that ends it may run where no invalidation reaches this
+    // process (activation promotes the onboarding member on the queue worker) and a cached "no"
+    // answered that new admin as a roleless user. The underlying lookup is a single Table Storage
+    // point-read (PK+RK), so the extra reads are negligible. Do NOT raise this back to minutes
+    // "for performance" — it reintroduces the role flip-flop. Matches the 30s cross-instance
+    // revalidation convention used by BlockedDeviceService.
     private readonly TimeSpan _cacheDuration = TimeSpan.FromSeconds(30);
 
     public TenantAdminsService(
@@ -62,44 +65,13 @@ public class TenantAdminsService
         => _pushRevoker?.RevokeOwnerAsync(Notifications.NotificationScope.Tenant(tenantId), upn, reason) ?? Task.CompletedTask;
 
     /// <summary>
-    /// Checks if a UPN is a Tenant Admin for a specific tenant
-    /// Uses caching for performance
+    /// True if the UPN holds an enabled Admin row in the tenant (a row without a role is an Admin).
+    /// Reads through <see cref="GetTableMembershipAsync"/>, so it shares that cache and its rules.
     /// </summary>
-    /// <param name="tenantId">Tenant ID</param>
-    /// <param name="upn">User Principal Name (e.g., oliver@contoso.com)</param>
-    /// <returns>True if the user is a Tenant Admin for this tenant</returns>
     public async Task<bool> IsTenantAdminAsync(string tenantId, string? upn)
     {
-        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(upn))
-        {
-            _logger.LogDebug("IsTenantAdminAsync: TenantId or UPN is null or empty");
-            return false;
-        }
-
-        // Normalize for case-insensitive comparison
-        tenantId = tenantId.ToLowerInvariant();
-        upn = upn.ToLowerInvariant();
-
-        // Check cache first
-        var cacheKey = $"tenant-admin:{tenantId}:{upn}";
-        if (_cache.TryGetValue<bool>(cacheKey, out var isAdmin))
-        {
-            _logger.LogDebug("Tenant Admin check (from cache): {Upn} @ {TenantId} -> {IsAdmin}", upn, tenantId, isAdmin);
-            return isAdmin;
-        }
-
-        // Query via repository
-        _logger.LogDebug("Querying repository for Tenant Admin: {Upn} @ {TenantId}", upn, tenantId);
-        var member = await _adminRepo.GetTenantMemberAsync(tenantId, upn);
-        // Only true for Admin role (null Role = Admin for backward compat)
-        var result = member != null && member.IsEnabled
-                     && (member.Role == null || member.Role == Constants.TenantRoles.Admin);
-
-        _logger.LogDebug("Tenant Admin check result: {Upn} @ {TenantId} -> {Result}", upn, tenantId, result);
-
-        _cache.Set(cacheKey, result, _cacheDuration);
-
-        return result;
+        var (state, role) = await GetTableMembershipAsync(tenantId, upn);
+        return state == TableMemberState.Enabled && role?.Role == Constants.TenantRoles.Admin;
     }
 
     /// <summary>
@@ -202,37 +174,15 @@ public class TenantAdminsService
         }).ToList();
     }
 
-    /// <summary>
-    /// Clears the cache for a specific tenant's admins
-    /// Useful after bulk updates
-    /// </summary>
-    public void ClearCacheForTenant(string tenantId)
-    {
-        // Note: IMemoryCache doesn't have a clear all method by default
-        // In production, consider using a distributed cache with better cache invalidation
-        // For now, cache entries will expire after _cacheDuration
-    }
-
     // -----------------------------------------------------------------------
     // Role-aware methods (Admin / Operator / Viewer)
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Gets the role info for a tenant member. Returns null if the user has no enabled row
-    /// (either no row at all or a disabled row). For Entra app-role reconciliation use
-    /// <see cref="GetTableMembershipAsync"/>, which distinguishes "no row" from "disabled row".
-    /// </summary>
-    public virtual async Task<MemberRoleInfo?> GetMemberRoleAsync(string tenantId, string? upn)
-    {
-        var (state, role) = await GetTableMembershipAsync(tenantId, upn);
-        return state == TableMemberState.Enabled ? role : null;
-    }
-
-    /// <summary>
     /// Gets the tri-state table membership for a user: whether a TenantAdmins row is absent,
     /// disabled, or enabled (with its role). The disabled/absent distinction is required by the
     /// Entra app-role resolver so a disabled row stays an explicit deny and is never silently
-    /// re-authorized through an app-role claim.
+    /// re-authorized through an app-role claim. Only the enabled state is cached (see _cacheDuration).
     /// </summary>
     public virtual async Task<(TableMemberState State, MemberRoleInfo? Role)> GetTableMembershipAsync(string tenantId, string? upn)
     {
@@ -246,33 +196,41 @@ public class TenantAdminsService
         if (_cache.TryGetValue<(TableMemberState, MemberRoleInfo?)>(cacheKey, out var cached))
             return cached;
 
-        var member = await _adminRepo.GetTenantMemberAsync(tenantId, upn);
-
-        (TableMemberState State, MemberRoleInfo? Role) result;
-        if (member == null)
-            result = (TableMemberState.NotPresent, null);
-        else if (!member.IsEnabled)
-            result = (TableMemberState.Disabled, null);
-        else
-            result = (TableMemberState.Enabled, new MemberRoleInfo
-            {
-                Role = member.Role ?? Constants.TenantRoles.Admin,
-                CanManageBootstrapTokens = member.CanManageBootstrapTokens
-            });
-
-        _cache.Set(cacheKey, result, _cacheDuration);
+        var result = ToMembership(await _adminRepo.GetTenantMemberAsync(tenantId, upn));
+        if (result.State == TableMemberState.Enabled)
+            _cache.Set(cacheKey, result, _cacheDuration);
         return result;
     }
 
     /// <summary>
-    /// Checks if a user can manage bootstrap tokens (Admin, or Operator with CanManageBootstrapTokens).
+    /// The caller's table membership and whether the tenant has any member row at all (disabled and
+    /// application rows included), both from ONE uncached partition read. auth/me decides the first-user
+    /// auto-admin from these two facts; read apart they disagree right after activation promotes the
+    /// onboarding member, and the new admin is answered as a roleless user. Never cache this: a cached
+    /// "no members" would make the next person who signs in the tenant's admin.
     /// </summary>
-    public async Task<bool> CanManageBootstrapAsync(string tenantId, string? upn)
+    public virtual async Task<(TableMemberState State, MemberRoleInfo? Role, bool TenantHasMembers)> GetMembershipSnapshotAsync(
+        string tenantId, string upn)
     {
-        var role = await GetMemberRoleAsync(tenantId, upn);
-        if (role == null) return false;
-        if (role.Role == Constants.TenantRoles.Admin) return true;
-        return role.Role == Constants.TenantRoles.Operator && role.CanManageBootstrapTokens;
+        SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+        var members = await _adminRepo.GetTenantMembersAsync(tenantId);
+        var (state, role) = ToMembership(
+            members.FirstOrDefault(m => string.Equals(m.Upn, upn, StringComparison.OrdinalIgnoreCase)));
+        return (state, role, members.Count > 0);
+    }
+
+    private static (TableMemberState State, MemberRoleInfo? Role) ToMembership(TenantMember? member)
+    {
+        if (member == null)
+            return (TableMemberState.NotPresent, null);
+        if (!member.IsEnabled)
+            return (TableMemberState.Disabled, null);
+        return (TableMemberState.Enabled, new MemberRoleInfo
+        {
+            Role = member.Role ?? Constants.TenantRoles.Admin,
+            CanManageBootstrapTokens = member.CanManageBootstrapTokens
+        });
     }
 
     /// <summary>
@@ -324,12 +282,10 @@ public class TenantAdminsService
     }
 
     /// <summary>
-    /// Invalidates both admin and member cache entries for a user.
+    /// Drops this process's cached membership of a user (other instances expire on their own).
     /// </summary>
     private void InvalidateMemberCache(string tenantId, string upn)
     {
-        _cache.Remove($"tenant-admin:{tenantId}:{upn}");
-        _cache.Remove($"tenant-member:{tenantId}:{upn}");
         _cache.Remove($"tenant-member-state:{tenantId}:{upn}");
     }
 }

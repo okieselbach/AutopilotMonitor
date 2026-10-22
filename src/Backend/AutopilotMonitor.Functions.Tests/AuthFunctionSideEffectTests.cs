@@ -43,7 +43,8 @@ public class AuthFunctionSideEffectTests
     private readonly FakeOffboardingAuditRepository _offboardingRepo = new();
     private readonly StoredTenantConfig _store;
     private readonly Mock<GlobalAdminService> _globalAdminMock;
-    private readonly Func<PushOwnerSignInService?, AuthFunction> _buildSut;
+    /// <summary>Builds the function; null arguments fall back to the class mocks.</summary>
+    private readonly Func<PushOwnerSignInService?, TenantAdminsService?, PreviewWhitelistService?, AuthFunction> _buildSut;
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -106,14 +107,14 @@ public class AuthFunctionSideEffectTests
         _opsEventsMock = new Mock<OpsEventService>(null!, null!, null!) { CallBase = false };
         _opsEventsMock.Setup(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
 
-        _buildSut = pushSignIn => new AuthFunction(
+        _buildSut = (pushSignIn, tenantAdmins, preview) => new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
             globalAdminMock.Object,
             delegatedAdminMock.Object,
             _tenantConfigMock.Object,
-            _tenantAdminsMock.Object,
+            tenantAdmins ?? _tenantAdminsMock.Object,
             _metricsRepoMock.Object,
-            _previewMock.Object,
+            preview ?? _previewMock.Object,
             _telegramMock.Object,
             _globalNotificationMock.Object,
             _mcpUserMock.Object,
@@ -128,7 +129,7 @@ public class AuthFunctionSideEffectTests
             _offboardingRepo,
             pushSignIn: pushSignIn,
             opsEvents: _opsEventsMock.Object);
-        _sut = _buildSut(null);
+        _sut = _buildSut(null, null, null);
 
         // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
         // a brand-new tenant). Default: all fire-and-forget calls succeed.
@@ -880,7 +881,8 @@ public class AuthFunctionSideEffectTests
     {
         _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId)).ReturnsAsync((config, exists));
         _previewMock.Setup(x => x.IsApprovedAsync(TenantId)).ReturnsAsync(approved);
-        _tenantAdminsMock.Setup(x => x.GetTenantAdminsAsync(TenantId)).ReturnsAsync(new List<TenantAdminRow>());
+        _tenantAdminsMock.Setup(x => x.GetMembershipSnapshotAsync(TenantId, Upn))
+            .ReturnsAsync((TableMemberState.NotPresent, null, false));
         _mcpUserMock
             .Setup(x => x.IsAllowedAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
                 It.IsAny<IReadOnlyList<string>?>(), It.IsAny<bool>()))
@@ -940,6 +942,53 @@ public class AuthFunctionSideEffectTests
         Assert.Contains(external ? "\"isTenantAdmin\":false" : "\"isTenantAdmin\":true", await ReadBodyAsync(response));
     }
 
+    /// <summary>
+    /// The sequence behind new tenants' first admins landing on the progress page, over the real role caches.
+    /// While the tenant waits for activation, this instance resolves the member's role (the feedback-status
+    /// read after every activation poll) and finds no row. The auto-approve worker then activates the tenant
+    /// and promotes the member on another instance, whose cache invalidation never reaches this one. The next
+    /// poll must answer the member as Admin: not as still pending (a cached "not activated") and not as
+    /// roleless (a cached "no row" next to a fresh member list).
+    /// </summary>
+    [Fact]
+    public async Task GetCurrentUser_FirstPollAfterActivation_AnswersThePromotedMemberAsAdmin()
+    {
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        config.OnboardedBy = Upn;
+        ArrangeAuthMe(config, exists: true, approved: false);
+
+        var activated = false;
+        var rows = new List<TenantMember>();
+        var configRepo = new Mock<IConfigRepository>();
+        configRepo.Setup(r => r.IsInPreviewWhitelistAsync(TenantId)).ReturnsAsync(() => activated);
+        var adminRepo = new Mock<IAdminRepository>();
+        adminRepo.Setup(r => r.GetTenantMembersAsync(TenantId)).ReturnsAsync(() => rows.ToList());
+        adminRepo.Setup(r => r.GetTenantMemberAsync(TenantId, Upn)).ReturnsAsync(() => rows.FirstOrDefault());
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var tenantAdmins = new TenantAdminsService(adminRepo.Object, cache, Mock.Of<ILogger<TenantAdminsService>>());
+        var sut = _buildSut(null, tenantAdmins, new PreviewWhitelistService(
+            configRepo.Object, cache, Mock.Of<ILogger<PreviewWhitelistService>>(), _tenantConfigMock.Object));
+
+        var (pollReq, pollCtx) = BuildRequest(SignedIn(external: false));
+        Assert.Equal(HttpStatusCode.Forbidden, (await sut.GetCurrentUser(pollReq, pollCtx)).StatusCode);
+        Assert.Equal(TableMemberState.NotPresent, (await tenantAdmins.GetTableMembershipAsync(TenantId, Upn)).State);
+
+        activated = true;
+        rows.Add(new TenantMember { TenantId = TenantId, Upn = Upn, Role = Constants.TenantRoles.Admin, IsEnabled = true });
+
+        var (req, ctx) = BuildRequest(SignedIn(external: false));
+        var response = await sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadBodyAsync(response);
+        Assert.Contains("\"isTenantAdmin\":true", body);
+        Assert.Contains("\"role\":\"Admin\"", body);
+        // The promotion already wrote the row: no first-user auto-admin on top of it.
+        adminRepo.Verify(r => r.AddTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
     // -------------------------------------------------------------------------
     // GetCurrentUser: the push sign-in (stamp with the app-role claim, resume)
     // -------------------------------------------------------------------------
@@ -951,10 +1000,9 @@ public class AuthFunctionSideEffectTests
         config.DomainName = "contoso.com";
         config.EntraAppRolesEnabled = true;
         ArrangeAuthMe(config, exists: true, approved: true);
-        _tenantAdminsMock.Setup(x => x.GetTenantAdminsAsync(TenantId))
-            .ReturnsAsync(new List<TenantAdminRow> { new() { TenantId = TenantId, Upn = "first@contoso.com" } });
-        _tenantAdminsMock.Setup(x => x.GetTableMembershipAsync(TenantId, Upn)).ReturnsAsync((memberRow,
-            memberRow == TableMemberState.Enabled ? new MemberRoleInfo { Role = Constants.TenantRoles.Operator } : null));
+        _tenantAdminsMock.Setup(x => x.GetMembershipSnapshotAsync(TenantId, Upn)).ReturnsAsync((memberRow,
+            memberRow == TableMemberState.Enabled ? new MemberRoleInfo { Role = Constants.TenantRoles.Operator } : null,
+            true));
     }
 
     private (AuthFunction Sut, Push.PushDeliveryServiceTests.Harness Push) BuildWithPushSignIn()
@@ -962,7 +1010,7 @@ public class AuthFunctionSideEffectTests
         var push = new Push.PushDeliveryServiceTests.Harness();
         var signIn = new PushOwnerSignInService(push.Repo, new Mock<IAdminRepository>().Object, push.Settings, push.Sut,
             Mock.Of<ILogger<PushOwnerSignInService>>());
-        return (_buildSut(signIn), push);
+        return (_buildSut(signIn, null, null), push);
     }
 
     [Theory]

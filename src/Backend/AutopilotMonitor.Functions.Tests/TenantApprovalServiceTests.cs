@@ -1,5 +1,7 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
@@ -54,7 +56,8 @@ public class TenantApprovalServiceTests
             configRepo, NullLogger<AdminConfigurationService>.Instance, cache);
         var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
-        // IsTenantAdminAsync is not virtual: it runs for real against the empty repository (no member yet).
+        // IsTenantAdminAsync runs for real and reads through the virtual GetTableMembershipAsync,
+        // which ArrangeNewlyApproved sets up per test.
         _tenantAdminsMock = new Mock<TenantAdminsService>(
             Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance);
 
@@ -112,7 +115,7 @@ public class TenantApprovalServiceTests
 
     // --- Auto-promote on activation: only the onboarding member (OnboardedBy) becomes Tenant Admin.
 
-    private void ArrangeNewlyApproved(string? onboardedBy, string updatedBy = "System")
+    private void ArrangeNewlyApproved(string? onboardedBy, string updatedBy = "System", bool alreadyAdmin = false)
     {
         var config = ConfigWith(contactEmail: null);
         config.OnboardedBy = onboardedBy;
@@ -120,6 +123,9 @@ public class TenantApprovalServiceTests
         _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(true);
         _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync((string?)null);
         _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId)).ReturnsAsync(config);
+        _tenantAdminsMock.Setup(x => x.GetTableMembershipAsync(TenantId, It.IsAny<string?>())).ReturnsAsync(alreadyAdmin
+            ? (TableMemberState.Enabled, new MemberRoleInfo { Role = Constants.TenantRoles.Admin })
+            : (TableMemberState.NotPresent, null));
     }
 
     private void VerifyNoPromotion() =>
@@ -136,6 +142,16 @@ public class TenantApprovalServiceTests
 
         _tenantAdminsMock.Verify(
             x => x.AddTenantAdminAsync(TenantId, "first.member@contoso.example", ApprovedBy), Times.Once);
+    }
+
+    [Fact]
+    public async Task NewlyApproved_OnboardingMemberAlreadyAdmin_IsNotWrittenAgain()
+    {
+        ArrangeNewlyApproved(onboardedBy: "first.member@contoso.example", alreadyAdmin: true);
+
+        await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        VerifyNoPromotion();
     }
 
     [Fact]

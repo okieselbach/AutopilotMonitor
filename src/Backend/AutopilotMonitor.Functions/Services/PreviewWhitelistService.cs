@@ -20,14 +20,6 @@ public class PreviewWhitelistService
     private readonly TenantConfigurationService _tenantConfigService;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// Short TTL for a negative ("not approved") result. The activation page polls auth/me
-    /// while the auto-approve worker activates the tenant ~1 minute after signup on another
-    /// instance — a 5-minute negative cache would hide that activation for up to 4 extra
-    /// minutes. Positive results keep the long TTL (activation is rarely revoked).
-    /// </summary>
-    private static readonly TimeSpan NotApprovedCacheDuration = TimeSpan.FromSeconds(30);
-
     public PreviewWhitelistService(
         IConfigRepository configRepo,
         IMemoryCache cache,
@@ -41,7 +33,11 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Checks whether a tenant is activated (cached).
+    /// Checks whether a tenant is activated. Only an activation is cached: "not activated" is read
+    /// fresh on every call, because the activation is written on the auto-approve worker (another
+    /// instance, out of reach of this cache) while the activation page polls auth/me. The
+    /// notification-email save path relies on this, too: it must see an activation that landed
+    /// just before its own write (welcome-mail arbitration).
     /// </summary>
     public virtual async Task<bool> IsApprovedAsync(string tenantId)
     {
@@ -56,7 +52,8 @@ public class PreviewWhitelistService
         {
             var result = await _configRepo.IsInPreviewWhitelistAsync(tenantId);
 
-            _cache.Set(cacheKey, result, result ? CacheDuration : NotApprovedCacheDuration);
+            if (result)
+                _cache.Set(cacheKey, true, CacheDuration);
             return result;
         }
         catch (Exception ex)
@@ -83,29 +80,6 @@ public class PreviewWhitelistService
             _logger.LogInformation("Tenant {TenantId} approved for preview by {ApprovedBy}", tenantId, approvedBy);
         }
         return newlyApproved;
-    }
-
-    /// <summary>
-    /// Fresh, uncached approval check. Used by the notification-email save path to decide
-    /// send-on-save: the 30s negative cache of <see cref="IsApprovedAsync"/> would hide an
-    /// activation for exactly the race window this check exists to close (auto-approve on
-    /// another instance finishing seconds before the user saves their address).
-    /// Fail-closed: false on storage errors — the GA resend button remains the fallback.
-    /// </summary>
-    public virtual async Task<bool> IsApprovedFreshAsync(string tenantId)
-    {
-        if (string.IsNullOrWhiteSpace(tenantId))
-            return false;
-
-        try
-        {
-            return await _configRepo.IsInPreviewWhitelistAsync(tenantId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error checking preview whitelist (fresh) for tenant {TenantId}", tenantId);
-            return false;
-        }
     }
 
     /// <summary>
