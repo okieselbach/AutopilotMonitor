@@ -55,7 +55,12 @@ env:
 jobs:
   # $/ is the self-repository form: this repository at the running commit, never a
   # path some earlier step could have written to the workspace.
+  #
+  # A push with [skip publish] in one of its commit messages runs neither job and uploads
+  # nothing; pester.yml, whose paths cover these, still checks it. Never [skip actions] for
+  # that: it drops every check of the push, CI and these gates included.
   gates:
+    if: github.event_name != 'push' || !contains(join(github.event.commits.*.message, ' '), '[skip publish]')
     uses: $/.github/workflows/bootstrap-script-gates.yml
 
   publish:

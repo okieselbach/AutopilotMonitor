@@ -34,6 +34,12 @@ env:
   CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
 
 jobs:
+  # The loader executes as SYSTEM on every enrolling device, and the MSI's custom action runs
+  # it: nothing is signed before the bootstrap gates pass on this commit, since a signed copy
+  # of ours is trusted wherever it lands.
+  gates:
+    uses: $/.github/workflows/bootstrap-script-gates.yml
+
   # Signs the loader BEFORE the build: wix embeds the file as it finds it, so a loader signed
   # afterwards would leave the copy inside the MSI unsigned. Devices under an AllSigned policy
   # need the embedded loader to carry a signature of its own.
@@ -42,6 +48,7 @@ jobs:
   # here. The `release` environment is the only subject the code-signing identity trusts.
   sign-loader:
     name: Sign bootstrap loader
+    needs: gates
     runs-on: windows-latest
     environment: release
     permissions:
@@ -58,22 +65,6 @@ jobs:
       - name: Load endpoints
         shell: pwsh
         run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
-
-      # The loader executes as SYSTEM on every enrolling device — a parse error or
-      # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
-      # bootstrap-script-gates.yml runs the same checks plus Pester on pushes; this job
-      # stands on its own because it can be dispatched at any time.
-      - name: Validate runner script (parse + ASCII-only)
-        shell: pwsh
-        run: |
-          $errs = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $env:RUNNER_SCRIPT), [ref]$null, [ref]$errs) | Out-Null
-          if ($errs) { $errs | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
-          if ((Get-Content $env:RUNNER_SCRIPT -Raw) -match '[^\x00-\x7F]') {
-            Write-Error "Runner script contains non-ASCII characters"
-            exit 1
-          }
-          Write-Host "Runner script parse + ASCII check passed"
 
       # Every published MSI is signed; a missing variable stops the run before the build.
       - name: Check code-signing configuration

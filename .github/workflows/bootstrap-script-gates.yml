@@ -1,11 +1,14 @@
-name: Bootstrap script gates
+name: Bootstrap script gates (reusable)
 
 # Quality gate for the customer-facing PowerShell scripts, factored out so it exists
-# once and both callers run the identical checks:
-#   * pester.yml           -- pull requests (reports, does not block the merge button)
-#   * publish-scripts.yml  -- pushes to main, where it BLOCKS the upload to the
-#                             download alias. Devices execute these scripts as SYSTEM
-#                             during enrollment, so a red suite must never ship.
+# once and every caller runs the identical checks. Its runs show under the caller:
+#   * pester.yml           -- every pull request and push to main that changes an input
+#                             of these checks (reports, does not block the merge button)
+#   * publish-scripts.yml  -- BLOCKS the upload to the download alias
+#   * build-agent.yml      -- BLOCKS a stable release, which publishes the scripts too
+#   * build-msi.yml        -- BLOCKS signing the loader the MSI embeds
+# Devices execute these scripts as SYSTEM during enrollment, so a red suite must never
+# ship: every job that signs or uploads them waits for this workflow.
 
 on:
   workflow_call:

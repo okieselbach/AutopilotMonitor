@@ -254,6 +254,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # A stable release publishes the customer scripts as well, so it waits for the gates their
+  # own publish waits for. Next to the build; skipped when nothing goes out as stable.
+  gates:
+    if: inputs.publish_as_stable
+    uses: $/.github/workflows/bootstrap-script-gates.yml
+
   # Trust zone: only this repository's scripts, pinned actions and the pinned signing tool
   # run here -- never a restore or build. The build output arrives as data. The runner
   # image's Windows SDK signtool is used read-only, to verify third-party signatures.
@@ -263,7 +269,9 @@ jobs:
   # sign nor write storage, whatever its permissions say.
   release:
     name: Sign and publish
-    needs: [reserve, build]
+    needs: [reserve, build, gates]
+    # A skipped gates job (no stable publish) lets the release run; a failed or cancelled one stops it.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.gates.result == 'success' || needs.gates.result == 'skipped') }}
     runs-on: windows-latest
     environment: release
     permissions:
@@ -726,9 +734,9 @@ jobs:
             Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:STABLE_ZIP -ContentType "application/zip"
             Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:STABLE_MANIFEST -ContentType "application/json"
 
-            # Customer-facing scripts: same publisher publish-scripts.yml runs on every push
-            # to main, so a release lands a set that is consistent with what is already live
-            # (dev render, version-bump guard, bootstrapVersion oracles, alias verification).
+            # Customer-facing scripts: same publisher and same gates (the gates job) as
+            # publish-scripts.yml, so a release lands a set that is consistent with what is
+            # already live (dev render, version-bump guard, bootstrapVersion oracles, alias verification).
             # Runs AFTER version.json so its bootstrapVersion read sees this build's manifest.
             # Signed with the same identity: the device-side loader verifies the publisher
             # of what it downloads, and the publisher refuses to upload unsigned scripts.
