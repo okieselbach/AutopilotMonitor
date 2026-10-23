@@ -1,16 +1,50 @@
-name: Bootstrap script gates (reusable)
+name: Bootstrap script gates
 
-# Quality gate for the customer-facing PowerShell scripts, factored out so it exists
-# once and every caller runs the identical checks. Its runs show under the caller:
-#   * pester.yml           -- every pull request and push to main that changes an input
-#                             of these checks (reports, does not block the merge button)
-#   * publish-scripts.yml  -- BLOCKS the upload to the download alias
-#   * build-agent.yml      -- BLOCKS a stable release, which publishes the scripts too
-#   * build-msi.yml        -- BLOCKS signing the loader the MSI embeds
-# Devices execute these scripts as SYSTEM during enrollment, so a red suite must never
-# ship: every job that signs or uploads them waits for this workflow.
+# Quality gate for the customer-facing PowerShell scripts. Devices execute them as SYSTEM
+# during enrollment, so a red suite must never ship. It runs in two roles:
+#   * on its own, on every pull request and push to main that changes an input of these
+#     checks (reports, does not block the merge button);
+#   * called as the gates job that BLOCKS every signing or upload of bootstrap code:
+#     publish-scripts.yml, build-agent.yml (stable releases), build-msi.yml. Those runs
+#     show under the caller.
+#
+# Both path lists are the checks' complete inputs and stay identical. They cover every
+# push path of publish-scripts.yml, which leaves the check of a [skip publish] push to
+# this workflow.
+#
+# No concurrency group: it would also bind the runs called by the publishers, and a
+# cancel there would block a publish.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/Bootstrap/**'
+      - 'scripts/CustomerSetup/**'
+      - '.github/scripts/Publish-BootstrapScripts.ps1'
+      - '.github/scripts/Get-Endpoints.ps1'
+      - '.github/scripts/Invoke-BootstrapSystemPass.ps1'
+      - '.github/scripts/Test-BootstrapAttacker.ps1'
+      - '.github/workflows/bootstrap-script-gates.yml'
+      # The integration tests run the generated OOBE script and the MSI's custom action; the
+      # contract tests also read the MSI build.
+      - 'src/Backend/AutopilotMonitor.Functions.Tests/TestData/oobe-bootstrap-golden.ps1'
+      - 'src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs'
+      - '.github/workflows/build-msi.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/Bootstrap/**'
+      - 'scripts/CustomerSetup/**'
+      - '.github/scripts/Publish-BootstrapScripts.ps1'
+      - '.github/scripts/Get-Endpoints.ps1'
+      - '.github/scripts/Invoke-BootstrapSystemPass.ps1'
+      - '.github/scripts/Test-BootstrapAttacker.ps1'
+      - '.github/workflows/bootstrap-script-gates.yml'
+      - 'src/Backend/AutopilotMonitor.Functions.Tests/TestData/oobe-bootstrap-golden.ps1'
+      - 'src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs'
+      - '.github/workflows/build-msi.yml'
+  workflow_dispatch:
   workflow_call:
 
 permissions:

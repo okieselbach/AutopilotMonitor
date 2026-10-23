@@ -38,7 +38,6 @@ on:
       - '.github/workflows/deploy-mcp.yml'
       - '.github/workflows/deploy-web.yml'
       - '.github/workflows/indexnow-notify.yml'
-      - '.github/workflows/pester.yml'
       - '.github/workflows/publish-scripts.yml'
   pull_request:
     branches: [main]
@@ -70,7 +69,6 @@ on:
       - '.github/workflows/deploy-mcp.yml'
       - '.github/workflows/deploy-web.yml'
       - '.github/workflows/indexnow-notify.yml'
-      - '.github/workflows/pester.yml'
       - '.github/workflows/publish-scripts.yml'
   schedule:
     # Weekly, so advisories published after a merge still surface. Deliberately
