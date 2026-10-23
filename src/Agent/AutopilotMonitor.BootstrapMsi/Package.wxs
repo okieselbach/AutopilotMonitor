@@ -15,14 +15,19 @@
   folder, which the installer owns: it removes the copy in every outcome. Any standard user
   can create that folder first, and Windows Installer keeps a modified unversioned file, so
   the custom action never runs the file at that path as such: it reads the file once, checks
-  our Authenticode signature on exactly those bytes (the publisher pin the loader applies to
-  the installer) and runs exactly those bytes. PowerShell starts in System32, never in a
-  folder users can write to. Windows Installer formats the command: every square bracket and
-  every brace of the PowerShell text is written as [\[], [\]], [\{] or [\}], because a brace
-  block that holds a bracket is a conditional block to the formatter and loses its braces.
+  that those bytes are the loader this package embeds (SHA-256 baked in at build time, so no
+  other script of ours, however validly signed, runs here) and carry our Authenticode
+  signature (the publisher pin the loader applies to the installer), and runs exactly those
+  bytes. PowerShell starts in System32, never in a folder users can write to. Windows
+  Installer formats the command: every square bracket and every brace of the PowerShell text
+  is written as [\[], [\]], [\{] or [\}], because a brace block that holds a bracket is a
+  conditional block to the formatter and loses its braces.
 
-  Build: wix build Package.wxs -arch x64 -o bin\AutopilotMonitor-Bootstrap.msi
+  Build: wix build Package.wxs -arch x64 -d LoaderSha256=<lower-case SHA-256 of the loader being embedded> -o bin\AutopilotMonitor-Bootstrap.msi
 -->
+<?ifndef var.LoaderSha256 ?>
+  <?error LoaderSha256 is required: the SHA-256 of the loader this package embeds, lower-case (wix build -d LoaderSha256=...). ?>
+<?endif ?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Autopilot Monitor Bootstrap"
            Manufacturer="Autopilot Monitor"
@@ -62,7 +67,7 @@
          diag tooling keys on that name. -->
     <CustomAction Id="RunBootstrap"
                   Directory="System64Folder"
-                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$b = [\[]System.IO.File[\]]::ReadAllBytes('[INSTALLFOLDER]Start-AutopilotMonitor.ps1'); $s = Get-AuthenticodeSignature -Content $b -SourcePathOrExtension '.ps1'; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '*O=glueckkanja AG*') [\{] &amp; ([\[]scriptblock[\]]::Create([\[]System.Text.Encoding[\]]::UTF8.GetString($b))) -LogFileName bootstrap-msi.log [\}]&quot;"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$b = [\[]System.IO.File[\]]::ReadAllBytes('[INSTALLFOLDER]Start-AutopilotMonitor.ps1'); $h = [\[]System.BitConverter[\]]::ToString([\[]System.Security.Cryptography.SHA256[\]]::Create().ComputeHash($b)).Replace('-', '').ToLowerInvariant(); $s = Get-AuthenticodeSignature -Content $b -SourcePathOrExtension '.ps1'; if ($h -eq '$(var.LoaderSha256)' -and $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '*O=glueckkanja AG*') [\{] &amp; ([\[]scriptblock[\]]::Create([\[]System.Text.Encoding[\]]::UTF8.GetString($b))) -LogFileName bootstrap-msi.log [\}]&quot;"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />

@@ -116,7 +116,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Bootstrap
             Assert.Contains("-NonInteractive", exeCommand);
             Assert.Contains("[\\[]System.IO.File[\\]]::ReadAllBytes('[INSTALLFOLDER]Start-AutopilotMonitor.ps1')", command);
             Assert.Contains("Get-AuthenticodeSignature -Content $b -SourcePathOrExtension '.ps1'", command);
-            Assert.Contains("$s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '" + Assignment(Loader, "ExpectedPublisher") + "'", command);
+            Assert.Contains("$h -eq '$(var.LoaderSha256)' -and $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '" + Assignment(Loader, "ExpectedPublisher") + "'", command);
+            // The hash is baked in by the build from the loader it embeds; a package built without it must not exist.
+            Assert.Contains("<?ifndef var.LoaderSha256 ?>", Wxs);
+            var workflow = File.ReadAllText(Path.Combine(RepoPaths.Root(), ".github", "workflows", "build-msi.yml"));
+            Assert.Contains("wix build Package.wxs -arch x64 -d LoaderSha256=$loaderSha256", workflow);
+            Assert.Contains("Get-FileHash -LiteralPath $env:RUNNER_SCRIPT -Algorithm SHA256", workflow);
             Assert.Contains("[\\[]scriptblock[\\]]::Create([\\[]System.Text.Encoding[\\]]::UTF8.GetString($b))", command);
             Assert.DoesNotContain("-File", command);
             // Without the [\x] escapes, the only bracket left is the one property reference.

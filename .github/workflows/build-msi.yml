@@ -181,11 +181,16 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
+          # The MSI's action runs only the exact bytes the package embeds: the hash of the
+          # signed loader goes into the command here, so no other signed script of ours runs
+          # in its place on a device.
+          $loaderSha256 = (Get-FileHash -LiteralPath $env:RUNNER_SCRIPT -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Embedded loader SHA-256: $loaderSha256"
           # wix resolves File/@Source relative to the working directory, not the wxs —
           # build from inside the project dir (same as the local build documented in the wxs).
           $out = Join-Path (Get-Location) $env:STABLE_MSI
           Push-Location $env:MSI_PROJECT_DIR
-          wix build Package.wxs -arch x64 -o $out
+          wix build Package.wxs -arch x64 -d LoaderSha256=$loaderSha256 -o $out
           Pop-Location
           if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
           Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"

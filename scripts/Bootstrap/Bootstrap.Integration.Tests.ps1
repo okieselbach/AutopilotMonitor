@@ -743,10 +743,12 @@ Describe 'bootstrap MSI 1.4: the action checks the loader copy and runs what it 
         $action = @($wxs.Wix.Package.CustomAction) | Where-Object { $_.Id -eq 'RunBootstrap' }
         if ($action.ExeCommand -notmatch ' -Command "(.*)"$') { throw 'Package.wxs: the action has no -Command argument.' }
         $script:actionCommand = $Matches[1]
+        # What the build bakes in: the hash of the loader the package embeds, here the one served.
+        $script:loaderSha256 = (Get-FileHash -LiteralPath $script:loaderPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
         function Format-MsiAction {
             param([string]$Text, [string]$InstallFolder)
-            return $Text.Replace('[\[]', '[').Replace('[\]]', ']').Replace('[\{]', '{').Replace('[\}]', '}').Replace('[INSTALLFOLDER]', $InstallFolder)
+            return $Text.Replace('$(var.LoaderSha256)', $script:loaderSha256).Replace('[\[]', '[').Replace('[\]]', ']').Replace('[\{]', '{').Replace('[\}]', '}').Replace('[INSTALLFOLDER]', $InstallFolder)
         }
 
         function Add-MsiCopy {
@@ -826,12 +828,14 @@ Describe 'bootstrap MSI 1.4: the action checks the loader copy and runs what it 
     }
 
     It 'runs nothing it cannot verify: <Case>' -TestCases @(
-        @{ Case = 'unsigned'; Options = @{ SignatureStatus = 'NotSigned' } }
-        @{ Case = 'changed after signing'; Options = @{ SignatureStatus = 'HashMismatch' } }
-        @{ Case = 'another publisher'; Options = @{ SignerSubject = 'CN=Somebody Else, O=Somebody Else Ltd, C=US' } }
+        @{ Case = 'unsigned'; Options = @{ SignatureStatus = 'NotSigned' }; Append = $null }
+        @{ Case = 'changed after signing'; Options = @{ SignatureStatus = 'HashMismatch' }; Append = $null }
+        @{ Case = 'another publisher'; Options = @{ SignerSubject = 'CN=Somebody Else, O=Somebody Else Ltd, C=US' }; Append = $null }
+        @{ Case = 'not the loader the package embeds, however validly signed'; Options = @{}; Append = "`r`n# one more line" }
     ) {
         $s = New-Scenario
         Add-MsiCopy $s
+        if ($Append) { [System.IO.File]::AppendAllText((Join-Path $s.Base 'Msi\Start-AutopilotMonitor.ps1'), $Append) }
         $run = Invoke-MsiAction $s -Options $Options
 
         $run.ExitCode | Should -Be 0
