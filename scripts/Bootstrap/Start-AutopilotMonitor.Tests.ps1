@@ -467,11 +467,15 @@ Describe 'publish contract' {
         $wxs.Contains('-LogFileName bootstrap-msi.log') | Should -BeTrue
     }
 
-    # The file a SYSTEM custom action runs must not sit where a standard user could have
-    # created the folder first: Program Files, never ProgramData.
-    It 'is installed by the bootstrap MSI under Program Files' {
+    # Everything of ours lives under ProgramData, so the copy the MSI installs does too, where
+    # the installer removes it. A standard user could have created that folder first, so the
+    # action never runs the file as such: it checks the signature on the bytes it read and runs
+    # those bytes, from System32.
+    It 'is installed by the bootstrap MSI under ProgramData and run only after the check' {
         $wxs = Get-Content (Join-Path $PSScriptRoot '..\..\src\Agent\AutopilotMonitor.BootstrapMsi\Package.wxs') -Raw
-        $wxs | Should -Match '<StandardDirectory Id="ProgramFiles64Folder">'
-        $wxs | Should -Not -Match 'CommonAppDataFolder'
+        $wxs | Should -Match '<StandardDirectory Id="CommonAppDataFolder">'
+        $wxs | Should -Not -Match 'ProgramFiles'
+        $wxs.Contains('Get-AuthenticodeSignature -Content $b -SourcePathOrExtension ''.ps1''') | Should -BeTrue
+        $wxs.Contains('Directory="System64Folder"') | Should -BeTrue
     }
 }

@@ -70,8 +70,8 @@ function global:HarnessInvokeRestMethod {
 
 function global:HarnessGetAuthenticodeSignature {
     [CmdletBinding()]
-    param([string]$FilePath)
-    Write-HarnessTrace 'Get-AuthenticodeSignature' $FilePath
+    param([string]$FilePath, [byte[]]$Content, [string[]]$SourcePathOrExtension)
+    Write-HarnessTrace 'Get-AuthenticodeSignature' $(if ($Content) { "content:$($Content.Length)" } else { $FilePath })
     return [pscustomobject]@{
         Status            = $global:HarnessOptions.SignatureStatus
         SignerCertificate = [pscustomobject]@{ Subject = $global:HarnessOptions.SignerSubject; Thumbprint = 'HARNESS' }
@@ -188,8 +188,11 @@ if ($global:HarnessOptions.SwapElevation) { $swaps['Test-IsElevated'] = 'Harness
 if ($global:HarnessOptions.SwapDacl) { $swaps['New-ProtectedDirectorySecurity'] = 'HarnessNewProtectedDirectorySecurity' }
 foreach ($name in $swaps.Keys) { Set-Alias -Name $name -Value $swaps[$name] -Scope Global -Force }
 
-# The OOBE script arrives as irm | iex, which ignores #Requires.
-if ($global:HarnessOptions.Iex) {
+# The bootstrap MSI's action is a -Command line; the OOBE script arrives as irm | iex, which
+# ignores #Requires.
+if ($global:HarnessOptions.CommandText) {
+    Invoke-Expression $global:HarnessOptions.CommandText
+} elseif ($global:HarnessOptions.Iex) {
     Invoke-Expression ([System.IO.File]::ReadAllText($global:HarnessOptions.Script))
 } else {
     & $global:HarnessOptions.Script @args
@@ -228,6 +231,7 @@ exit $LASTEXITCODE
             Root        = $root
             ProgramData = Join-Path $root 'ProgramData'
             Base        = Join-Path $root 'ProgramData\AutopilotMonitor'
+            ProgramFiles = Join-Path $root 'ProgramFiles'
             Temp        = Join-Path $root 'Temp'
             Server      = Join-Path $root 'Server'
             Outside     = Join-Path $root 'Outside'
@@ -262,9 +266,11 @@ exit $LASTEXITCODE
             CatalogValid    = $true
             Elevated        = $true
             Iex             = $false
+            CommandText     = $null
             AgentStartFails = $false
         }
         foreach ($key in $Options.Keys) { $settings[$key] = $Options[$key] }
+        $script:promiseScenario = $Scenario
         $settings.SwapElevation = ([bool]$settings.Elevated -ne $script:isElevated)
         $settings.SwapDacl = -not $script:isElevated
 
@@ -287,6 +293,7 @@ exit $LASTEXITCODE
         $psi.EnvironmentVariables['ALLUSERSPROFILE'] = $Scenario.ProgramData
         $psi.EnvironmentVariables['TEMP'] = $Scenario.Temp
         $psi.EnvironmentVariables['TMP'] = $Scenario.Temp
+        $psi.EnvironmentVariables['ProgramW6432'] = $Scenario.ProgramFiles
         $process = [System.Diagnostics.Process]::Start($psi)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
@@ -326,6 +333,25 @@ exit $LASTEXITCODE
         $sorted = [string[]]@($Entries | Where-Object { $_ })
         [System.Array]::Sort($sorted, [System.StringComparer]::Ordinal)
         return ($sorted -join "`n")
+    }
+
+    # The promise every run keeps, whatever the scenario asserts about ProgramData: nothing of
+    # ours anywhere else. The scenario's own fixture folders are the only other entries.
+    function Assert-NothingOutsideProgramData {
+        param($Scenario)
+        $fixtures = @('ProgramData', 'ProgramFiles', 'Temp', 'Server', 'Outside', 'Ime', 'Harness')
+        $others = @([System.IO.Directory]::GetFileSystemEntries($Scenario.Root) | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Where-Object { $_ -notin $fixtures })
+        $others | Should -BeNullOrEmpty -Because 'the scripts write nowhere but ProgramData'
+        Get-Tree $Scenario.ProgramFiles | Should -BeNullOrEmpty -Because 'nothing of ours stays under Program Files'
+        Get-Tree $Scenario.Temp | Should -BeNullOrEmpty -Because 'the scripts never stage in the shared temp folder'
+    }
+
+    # Every Describe runs this after each test: the last run of the test kept the promise.
+    function Assert-PromiseOfLastRun {
+        if (-not $script:promiseScenario) { return }
+        $scenario = $script:promiseScenario
+        $script:promiseScenario = $null
+        Assert-NothingOutsideProgramData $scenario
     }
 
     function Get-StdErrLines {
@@ -369,6 +395,7 @@ exit $LASTEXITCODE
 }
 
 Describe 'loader 1.4' {
+    AfterEach { Assert-PromiseOfLastRun }
     It 'installs and leaves only the agent folder, with its log carried over' {
         $s = New-Scenario
         $run = Invoke-Scenario $s -Script $script:loaderPath -Arguments @('-MaxBootstrapWindowHours', '24')
@@ -471,7 +498,7 @@ Describe 'loader 1.4' {
     It 'runs nothing it cannot verify: <Case>' -TestCases @(
         @{ Case = 'unsigned'; Options = @{ SignatureStatus = 'NotSigned' }; Edit = $null }
         @{ Case = 'another publisher'; Options = @{ SignerSubject = 'CN=Somebody Else, O=Somebody Else Ltd, C=US' }; Edit = $null }
-        @{ Case = 'an installer below 2.8'; Options = @{}; Edit = @('$ScriptVersion = "2.8"', '$ScriptVersion = "2.7"') }
+        @{ Case = 'an installer below 2.8'; Options = @{}; Edit = @('$ScriptVersion = "2.9"', '$ScriptVersion = "2.7"') }
         @{ Case = 'not the installer'; Options = @{}; Edit = @('$ScriptRole = "AutopilotMonitor-Installer"', '$ScriptRole = "AutopilotMonitor-Other"') }
     ) {
         $s = New-Scenario
@@ -502,6 +529,7 @@ Describe 'loader 1.4' {
 }
 
 Describe 'installer assigned directly' {
+    AfterEach { Assert-PromiseOfLastRun }
     BeforeEach {
         $s = New-Scenario
         $imeCopy = Join-Path $s.Ime '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0.ps1'
@@ -605,6 +633,7 @@ Describe 'installer assigned directly' {
 }
 
 Describe 'loader 1.2, frozen' {
+    AfterEach { Assert-PromiseOfLastRun }
     It 'installs with the current installer, which removes its copy and keeps the loader start line' {
         $s = New-Scenario
         $run = Invoke-Scenario $s -Script $script:loader12Path
@@ -644,6 +673,7 @@ Describe 'loader 1.2, frozen' {
 }
 
 Describe 'bootstrap MSI layouts, started in the folder the MSI installed' {
+    AfterEach { Assert-PromiseOfLastRun }
     It '<Name> skips and leaves <Left>' -TestCases @(
         @{ Name = 'MSI 1.3 (loader in Program Files)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Location = 'program-files'; Arguments = @('-LogFileName', 'bootstrap-msi.log'); Left = 'nothing'; Tree = @() }
         @{ Name = 'MSI 1.2 (loader 1.3)'; File = 'Start-AutopilotMonitor.ps1'; Source = 'loader'; Arguments = @('-LogFileName', 'bootstrap-msi.log'); Left = 'nothing'; Tree = @() }
@@ -660,6 +690,26 @@ Describe 'bootstrap MSI layouts, started in the folder the MSI installed' {
         $run.ExitCode | Should -Be 0
         $run.StdErr | Should -BeNullOrEmpty
         Get-Tree $s.ProgramData | Should -Be (Join-Tree $Tree)
+        if ($Location -eq 'program-files') { $run.StdOut | Should -Match 'Bootstrap removed, and with it the empty' }
+    }
+
+    # MSI 1.3 installed its loader under Program Files, where nothing of ours belongs; the
+    # installer takes it away in every outcome, also when an agent is present.
+    It 'MSI 1.3 leaves nothing under Program Files when an agent is present' {
+        $s = New-Scenario
+        $msi = Join-Path $s.ProgramFiles 'AutopilotMonitor\Bootstrap'
+        New-Item -ItemType Directory -Path $msi -Force | Out-Null
+        Copy-Item -LiteralPath $script:loaderPath -Destination (Join-Path $msi 'Start-AutopilotMonitor.ps1')
+        Add-File (Join-Path $s.Base 'Logs\agent.log') 'kept log'
+        $before = Get-Tree $s.ProgramData -Content
+        $run = Invoke-Scenario $s -Script (Join-Path $msi 'Start-AutopilotMonitor.ps1') -Arguments @('-LogFileName', 'bootstrap-msi.log') -WorkingDirectory $msi -Options @{ Marker = '2026-10-01T08:00:00Z' }
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData -Content | Should -Be $before
+        Test-Path -LiteralPath (Join-Path $s.ProgramFiles 'AutopilotMonitor') | Should -BeFalse
+        $run.StdOut | Should -Match 'Agent present \(deployment marker\): .* is left as it is\.'
+        $run.StdOut | Should -Match 'Bootstrap removed, and with it the empty'
     }
 
     It '<Name> installs' -TestCases @(
@@ -678,10 +728,123 @@ Describe 'bootstrap MSI layouts, started in the folder the MSI installed' {
         $run.ExitCode | Should -Be 0
         $run.StdErr | Should -BeNullOrEmpty
         Get-Tree $s.ProgramData | Should -Be (Join-Tree ($script:installedTree + 'AutopilotMonitor\Logs\bootstrap-msi.log' + 'AutopilotMonitor\Logs\bootstrap-script.log'))
+        if ($Location -eq 'program-files') { $run.StdOut | Should -Match 'Bootstrap removed, and with it the empty' }
+    }
+}
+
+# MSI 1.4 installs the loader copy under <base>\Msi and runs this command as SYSTEM from
+# System32: read the copy once, check our signature on those bytes, run those bytes. The
+# command is taken from Package.wxs and formatted as Windows Installer formats it (measured
+# on the built MSI, 2026-10-23); the wrapper runs it where the stubs apply.
+Describe 'bootstrap MSI 1.4: the action checks the loader copy and runs what it read' {
+    AfterEach { Assert-PromiseOfLastRun }
+    BeforeAll {
+        $wxs = [xml][System.IO.File]::ReadAllText((Join-Path $script:repoRoot 'src\Agent\AutopilotMonitor.BootstrapMsi\Package.wxs'))
+        $action = @($wxs.Wix.Package.CustomAction) | Where-Object { $_.Id -eq 'RunBootstrap' }
+        if ($action.ExeCommand -notmatch ' -Command "(.*)"$') { throw 'Package.wxs: the action has no -Command argument.' }
+        $script:actionCommand = $Matches[1]
+
+        function Format-MsiAction {
+            param([string]$Text, [string]$InstallFolder)
+            return $Text.Replace('[\[]', '[').Replace('[\]]', ']').Replace('[\{]', '{').Replace('[\}]', '}').Replace('[INSTALLFOLDER]', $InstallFolder)
+        }
+
+        function Add-MsiCopy {
+            param($Scenario)
+            $msi = Join-Path $Scenario.Base 'Msi'
+            New-Item -ItemType Directory -Path $msi -Force | Out-Null
+            Copy-Item -LiteralPath $script:loaderPath -Destination (Join-Path $msi 'Start-AutopilotMonitor.ps1')
+        }
+
+        function Invoke-MsiAction {
+            param($Scenario, [hashtable]$Options = @{})
+            $command = Format-MsiAction -Text $script:actionCommand -InstallFolder ((Join-Path $Scenario.Base 'Msi') + '\')
+            return Invoke-Scenario $Scenario -WorkingDirectory "$env:SystemRoot\System32" -Options ($Options + @{ CommandText = $command })
+        }
+
+        $script:copyOnlyTree = @('AutopilotMonitor\', 'AutopilotMonitor\Msi\', 'AutopilotMonitor\Msi\Start-AutopilotMonitor.ps1')
+    }
+
+    It 'is PowerShell that parses, with every bracket and brace escaped for Windows Installer' {
+        # Without the [\x] escapes, the only bracket left is the one property reference.
+        ($script:actionCommand -replace '\[\\.\]', '').Replace('[INSTALLFOLDER]', '') | Should -Not -Match '[{}\[\]]'
+        @([regex]::Matches($script:actionCommand, '\[[A-Za-z0-9_.]+\]') | ForEach-Object { $_.Value } | Sort-Object -Unique) | Should -Be @('[INSTALLFOLDER]')
+        $errors = $null
+        [System.Management.Automation.Language.Parser]::ParseInput((Format-MsiAction -Text $script:actionCommand -InstallFolder 'C:\ProgramData\AutopilotMonitor\Msi\'), [ref]$null, [ref]$errors) | Out-Null
+        @($errors) | Should -BeNullOrEmpty
+    }
+
+    It 'installs, and the copy goes with the emptied agent folder' {
+        $s = New-Scenario
+        Add-MsiCopy $s
+        $run = Invoke-MsiAction $s
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData | Should -Be (Join-Tree ($script:installedTree + 'AutopilotMonitor\Logs\bootstrap-msi.log' + 'AutopilotMonitor\Logs\bootstrap-script.log'))
+        @($run.Trace | Where-Object { $_ -like 'Get-AuthenticodeSignature|content:*' }).Count | Should -Be 1
+        @($run.Trace | Where-Object { $_ -like 'Get-BootstrapDecision|*' }).Count | Should -Be 1
+        $run.StdOut | Should -Match 'Bootstrap Completed Successfully'
+        Get-Content -LiteralPath (Join-Path $s.Base 'Logs\bootstrap-msi.log') -Raw | Should -Match '=== Autopilot Monitor bootstrap loader v1\.4 started'
+    }
+
+    It 'skips and leaves nothing behind' {
+        $s = New-Scenario
+        Add-MsiCopy $s
+        $run = Invoke-MsiAction $s -Options @{ Install = $false }
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData | Should -BeNullOrEmpty
+        $run.StdOut | Should -Match 'No agent on this device: .* removed\.'
+    }
+
+    It 'leaves nothing behind when only the deployment marker is there' {
+        $s = New-Scenario
+        Add-MsiCopy $s
+        $run = Invoke-MsiAction $s -Options @{ Marker = '2026-10-01T08:00:00Z' }
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData | Should -BeNullOrEmpty
+        $run.StdOut | Should -Match 'Agent present \(deployment marker\): .*\\Msi removed, and with it the empty'
+        @($run.Trace | Where-Object { $_ -like 'Invoke-WebRequest|*Agent.zip' }).Count | Should -Be 0
+    }
+
+    It 'removes the copy and leaves the folder of an agent as it is' {
+        $s = New-Scenario
+        Add-File (Join-Path $s.Base 'Agent\AutopilotMonitor.Agent.exe') 'running agent'
+        Add-File (Join-Path $s.Base 'Logs\agent.log') 'agent log'
+        Add-MsiCopy $s
+        $run = Invoke-MsiAction $s
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData | Should -Be (Join-Tree @('AutopilotMonitor\', 'AutopilotMonitor\Agent\', 'AutopilotMonitor\Agent\AutopilotMonitor.Agent.exe', 'AutopilotMonitor\Logs\', 'AutopilotMonitor\Logs\agent.log'))
+        $run.StdOut | Should -Match 'Agent present \(agent executable\): .*\\Msi removed\.'
+        @($run.Trace | Where-Object { $_ -like 'Invoke-AgentInstallMode|*' }).Count | Should -Be 0
+    }
+
+    It 'runs nothing it cannot verify: <Case>' -TestCases @(
+        @{ Case = 'unsigned'; Options = @{ SignatureStatus = 'NotSigned' } }
+        @{ Case = 'changed after signing'; Options = @{ SignatureStatus = 'HashMismatch' } }
+        @{ Case = 'another publisher'; Options = @{ SignerSubject = 'CN=Somebody Else, O=Somebody Else Ltd, C=US' } }
+    ) {
+        $s = New-Scenario
+        Add-MsiCopy $s
+        $run = Invoke-MsiAction $s -Options $Options
+
+        $run.ExitCode | Should -Be 0
+        $run.StdErr | Should -BeNullOrEmpty
+        Get-Tree $s.ProgramData | Should -Be (Join-Tree $script:copyOnlyTree)
+        @($run.Trace | Where-Object { $_ -like 'Get-AuthenticodeSignature|content:*' }).Count | Should -Be 1
+        @($run.Trace | Where-Object { $_ -like 'Invoke-WebRequest|*' }).Count | Should -Be 0
+        @($run.Trace | Where-Object { $_ -like 'Get-BootstrapDecision|*' }).Count | Should -Be 0
     }
 }
 
 Describe 'OOBE script, as the backend generates it' {
+    AfterEach { Assert-PromiseOfLastRun }
     It 'installs the agent with the bootstrap token and leaves only the agent folder' {
         $s = New-Scenario
         Add-Leftovers $s
@@ -733,6 +896,7 @@ Describe 'OOBE script, as the backend generates it' {
 }
 
 Describe 'publish pipeline and dev channel' {
+    AfterEach { Assert-PromiseOfLastRun }
     BeforeAll {
         $script:rendered = Join-Path $TestDrive 'rendered'
         $script:pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -768,9 +932,9 @@ Describe 'publish pipeline and dev channel' {
     }
 
     It 'refuses to publish an installer the loader would refuse: <Case>' -TestCases @(
-        @{ Case = 'below the minimum version'; Old = '$ScriptVersion = "2.8"'; New = '$ScriptVersion = "2.7"' }
+        @{ Case = 'below the minimum version'; Old = '$ScriptVersion = "2.9"'; New = '$ScriptVersion = "2.7"' }
         @{ Case = 'without its role line'; Old = '$ScriptRole = "AutopilotMonitor-Installer"'; New = '# no role' }
-        @{ Case = 'with a second version line'; Old = '$ScriptVersion = "2.8"'; New = "`$ScriptVersion = `"2.8`"`n`$ScriptVersion = `"2.9`"" }
+        @{ Case = 'with a second version line'; Old = '$ScriptVersion = "2.9"'; New = "`$ScriptVersion = `"2.9`"`n`$ScriptVersion = `"3.0`"" }
     ) {
         $root = Join-Path $TestDrive ('repo' + [guid]::NewGuid().ToString('N').Substring(0, 6))
         New-Item -ItemType Directory -Path (Join-Path $root 'scripts\Bootstrap') -Force | Out-Null
@@ -817,7 +981,7 @@ Describe 'publish pipeline and dev channel' {
 
         $run.ExitCode | Should -Be 0
         $run.StdErr | Should -BeNullOrEmpty
-        $run.StdOut | Should -Match 'Installer accepted: AutopilotMonitor-Installer v2\.8'
+        $run.StdOut | Should -Match 'Installer accepted: AutopilotMonitor-Installer v2\.9'
         $run.StdOut | Should -Match 'Bootstrap Completed Successfully'
     }
 }

@@ -198,11 +198,90 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The real chain on a runner, before anything is signed or published: msiexec installs the
+  # MSI from the build, its action checks the loader copy and runs it, the loader fetches the
+  # published installer, which finds the deployment marker set here and removes the copy. The
+  # marker is the installer's first guard, so no agent is ever installed on the runner. Needs
+  # the published installer to be 2.9 or later, which removes the copy in every outcome.
+  smoke:
+    name: Install on a runner (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download unsigned MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bootstrap-msi-unsigned
+          path: ${{ runner.temp }}/msi
+
+      - name: Install with the deployment marker set, check the footprint, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP "msi/$env:STABLE_MSI"
+          $wxs = Get-Content "$env:MSI_PROJECT_DIR/Package.wxs" -Raw
+          if ($wxs -notmatch 'Version="(\d+\.\d+\.\d+)"') { throw 'Could not parse Version from Package.wxs' }
+          $version = $Matches[1]
+
+          New-Item -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Force | Out-Null
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Name 'Deployed' -Value ((Get-Date).ToUniversalTime().ToString('o'))
+
+          function Invoke-Msiexec {
+            param([string]$Verb, [string]$Log)
+            $p = Start-Process -FilePath msiexec.exe -ArgumentList "/$Verb `"$msi`" /qn /l*v `"$Log`"" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $Log | Select-Object -Last 60; throw "msiexec /$Verb exited with $($p.ExitCode)" }
+          }
+          function Get-Registration {
+            Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.DisplayName -eq 'Autopilot Monitor Bootstrap' }
+          }
+          function Show-Tree {
+            param([string]$Path)
+            Get-ChildItem -LiteralPath $Path -Recurse -Force | ForEach-Object { Write-Host "  $($_.FullName)" }
+          }
+
+          $installLog = Join-Path $env:RUNNER_TEMP 'msi-install.log'
+          Invoke-Msiexec -Verb i -Log $installLog
+          $registered = Get-Registration
+          if (-not $registered) { throw 'The product is not registered after the install.' }
+          if ($registered.DisplayVersion -ne $version) { throw "Registered version $($registered.DisplayVersion), Package.wxs says $version." }
+          if ((Get-Content $installLog -Raw) -notmatch 'RunBootstrap') { throw 'The install log does not show the action.' }
+          Write-Host "Registered: $($registered.DisplayName) $($registered.DisplayVersion)"
+
+          # Only the installer removes the copy the MSI put under ProgramData: its absence
+          # proves the action ran the loader and the loader ran the installer.
+          foreach ($path in @("$env:ProgramW6432\AutopilotMonitor", "$env:ProgramData\AutopilotMonitor")) {
+            if (Test-Path -LiteralPath $path) { Show-Tree $path; throw "$path exists after the run." }
+          }
+          $runFolders = @(Get-ChildItem -LiteralPath $env:ProgramData -Directory -Filter 'AutopilotMonitor-Loader-*' -Force)
+          if ($runFolders.Count -ne 0) {
+            foreach ($folder in $runFolders) {
+              Show-Tree $folder.FullName
+              Get-ChildItem -LiteralPath $folder.FullName -Filter '*.log' | ForEach-Object { Get-Content -LiteralPath $_.FullName }
+            }
+            throw 'A loader run folder stays: the loader did not end with exit 0.'
+          }
+          Write-Host 'After the install: nothing under ProgramData or Program Files.'
+
+          Invoke-Msiexec -Verb x -Log (Join-Path $env:RUNNER_TEMP 'msi-uninstall.log')
+          if (Get-Registration) { throw 'The product is still registered after the uninstall.' }
+          Remove-Item -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Recurse -Force
+          Write-Host 'Uninstalled; the registration is gone.'
+
   # Trust zone: signs, verifies and publishes the MSI as data; never builds. Environment
   # `release`, like sign-loader.
   release:
     name: Sign and publish MSI
-    needs: build
+    needs: smoke
     runs-on: windows-latest
     environment: release
     permissions:

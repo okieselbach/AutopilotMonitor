@@ -11,16 +11,22 @@
   logic stays updatable without re-shipping the MSI, and both delivery channels share one
   implementation.
 
-  The loader is installed under Program Files, where only administrators and SYSTEM can
-  create or change anything: the file that a SYSTEM custom action runs must not live in a
-  folder a standard user could create first (ProgramData lets every user create folders).
+  Everything of ours on a device lives under ProgramData. The loader copy goes to the agent
+  folder, which the installer owns: it removes the copy in every outcome. Any standard user
+  can create that folder first, and Windows Installer keeps a modified unversioned file, so
+  the custom action never runs the file at that path as such: it reads the file once, checks
+  our Authenticode signature on exactly those bytes (the publisher pin the loader applies to
+  the installer) and runs exactly those bytes. PowerShell starts in System32, never in a
+  folder users can write to. Windows Installer formats the command: every square bracket and
+  every brace of the PowerShell text is written as [\[], [\]], [\{] or [\}], because a brace
+  block that holds a bracket is a conditional block to the formatter and loses its braces.
 
   Build: wix build Package.wxs -arch x64 -o bin\AutopilotMonitor-Bootstrap.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Autopilot Monitor Bootstrap"
            Manufacturer="Autopilot Monitor"
-           Version="1.3.0"
+           Version="1.4.0"
            UpgradeCode="1fbe5515-d346-445c-b8b8-14ee79f97522"
            Scope="perMachine"
            Compressed="yes">
@@ -28,16 +34,16 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Autopilot Monitor Bootstrap is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <StandardDirectory Id="ProgramFiles64Folder">
+    <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="CompanyFolder" Name="AutopilotMonitor">
-        <Directory Id="INSTALLFOLDER" Name="Bootstrap" />
+        <Directory Id="INSTALLFOLDER" Name="Msi" />
       </Directory>
     </StandardDirectory>
 
     <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
       <!-- Source is relative to the build working directory (the project dir), not to this
-           file. New component GUID because the key path changed (1.3.0: Program Files). -->
-      <Component Id="RunnerScript" Guid="3C6F0E2D-8B41-4A77-9D5E-2F1B6C8A4D90">
+           file. New component GUID because the key path changed (1.4.0: back to ProgramData). -->
+      <Component Id="RunnerScript" Guid="5E8D1B6A-2C47-4F93-A1D0-7B9E3C5F8A21">
         <File Id="RunnerPs1"
               Source="..\..\..\scripts\Bootstrap\Start-AutopilotMonitor.ps1"
               Name="Start-AutopilotMonitor.ps1"
@@ -49,13 +55,14 @@
       <ComponentGroupRef Id="MainComponents" />
     </Feature>
 
-    <!-- Deferred + no-impersonate: runs as SYSTEM after files land. Return=ignore keeps
-         the LOB install green even if the loader hits a transient error (the loader is
-         additionally fail-soft itself). -LogFileName keeps this channel distinguishable in
-         a diagnostics package; the diag tooling keys on that name. -->
+    <!-- Deferred + no-impersonate: runs as SYSTEM after the file lands. Return=ignore keeps
+         the LOB install green whatever happens (the loader is fail-soft itself). Runs on
+         every install of the product, upgrades included, so the installer gets to remove the
+         copy. -LogFileName keeps this channel distinguishable in a diagnostics package; the
+         diag tooling keys on that name. -->
     <CustomAction Id="RunBootstrap"
-                  Directory="INSTALLFOLDER"
-                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Start-AutopilotMonitor.ps1&quot; -LogFileName bootstrap-msi.log"
+                  Directory="System64Folder"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$b = [\[]System.IO.File[\]]::ReadAllBytes('[INSTALLFOLDER]Start-AutopilotMonitor.ps1'); $s = Get-AuthenticodeSignature -Content $b -SourcePathOrExtension '.ps1'; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '*O=glueckkanja AG*') [\{] &amp; ([\[]scriptblock[\]]::Create([\[]System.Text.Encoding[\]]::UTF8.GetString($b))) -LogFileName bootstrap-msi.log [\}]&quot;"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />

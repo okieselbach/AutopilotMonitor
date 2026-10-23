@@ -13,7 +13,8 @@
     The agent is installed only when its ZIP matches the SHA-256 in its manifest and every
     file matches the catalog signed by glueckkanja AG. The agent removes itself when
     enrollment completes; the registry value HKLM\SOFTWARE\AutopilotMonitor\Deployed stays so
-    that the device is not installed again. A skipped device without an agent keeps nothing.
+    that the device is not installed again. A skipped device without an agent keeps nothing,
+    and the loader copy the bootstrap MSI installs is removed in every outcome.
 
     Log: %ProgramData%\AutopilotMonitor\Logs\bootstrap-script.log when the agent is installed
     or the install fails; a skip is logged to the script output only. Exit code 0: installed
@@ -53,7 +54,7 @@ param(
 )
 
 # The loader checks these two lines before it runs this script.
-$ScriptVersion = "2.8"
+$ScriptVersion = "2.9"
 $ScriptRole = "AutopilotMonitor-Installer"
 
 # Signer of the agent's file catalog; a subject pattern, so certificate renewals keep working.
@@ -68,6 +69,9 @@ $LogFile = "$AgentLogPath\bootstrap-script.log"
 # Where loaders before v1.3 saved this script, and the name prefix of loader v1.3 run folders.
 $LegacyInstallerPath = "$AgentBasePath\Install-AutopilotMonitor.ps1"
 $LoaderRunFolderPrefix = "AutopilotMonitor-Loader-"
+
+# Where the bootstrap MSI installs its loader copy; this script removes it in every outcome.
+$MsiTransportPath = "$AgentBasePath\Msi"
 
 $AgentExeName = "AutopilotMonitor.Agent.exe"
 $AgentTaskName = "AutopilotMonitor-Agent"
@@ -608,6 +612,57 @@ function Remove-AgentBaseOnSkip {
     }
 }
 
+# The loader copy the bootstrap MSI installs. It goes whatever the outcome; an agent folder
+# that is then empty goes with it (a running agent, or logs kept after enrollment, keep it).
+# Returns what was done, or $null when there was nothing to do; never throws.
+function Remove-MsiTransportFolder {
+    try {
+        if ((Get-FolderState $AgentBasePath) -ne 'Ours') { return $null }
+        $state = Get-FolderState $MsiTransportPath
+        if ($state -eq 'Missing') { return $null }
+        if ($state -ne 'Ours') { return "$MsiTransportPath left as it is ($state)." }
+        $left = Remove-OwnTree -Path $MsiTransportPath
+        if ($left.Foreign.Count -gt 0 -or $left.Locked.Count -gt 0) {
+            return ("$MsiTransportPath kept: {0} entries of another account, {1} in use." -f $left.Foreign.Count, $left.Locked.Count)
+        }
+        if (@([System.IO.Directory]::EnumerateFileSystemEntries($AgentBasePath)).Count -eq 0) {
+            [System.IO.Directory]::Delete($AgentBasePath, $false)
+            return "$MsiTransportPath removed, and with it the empty $AgentBasePath."
+        }
+        return "$MsiTransportPath removed."
+    } catch {
+        return "$MsiTransportPath left as it is ($($_.Exception.Message))."
+    }
+}
+
+# What bootstrap MSI 1.3 installed under Program Files, on devices that still enroll with it.
+# Returns what was done, or $null when there was nothing to do; never throws.
+function Remove-LegacyMsiLoaderFolder {
+    try {
+        $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+        if (-not $programFiles) { return $null }
+        $company = Join-Path $programFiles 'AutopilotMonitor'
+        $companyState = Get-FolderState $company
+        if ($companyState -eq 'Missing') { return $null }
+        if ($companyState -ne 'Ours') { return "$company left as it is ($companyState)." }
+        $path = Join-Path $company 'Bootstrap'
+        $state = Get-FolderState $path
+        if ($state -eq 'Missing') { return $null }
+        if ($state -ne 'Ours') { return "$path left as it is ($state)." }
+        $left = Remove-OwnTree -Path $path
+        if ($left.Foreign.Count -gt 0 -or $left.Locked.Count -gt 0) {
+            return ("$path kept: {0} entries of another account, {1} in use." -f $left.Foreign.Count, $left.Locked.Count)
+        }
+        if (@([System.IO.Directory]::EnumerateFileSystemEntries($company)).Count -eq 0) {
+            [System.IO.Directory]::Delete($company, $false)
+            return "$path removed, and with it the empty $company."
+        }
+        return "$path removed."
+    } catch {
+        return "The loader folder of bootstrap MSI 1.3 is left as it is ($($_.Exception.Message))."
+    }
+}
+
 function Test-IsLoaderRunFolder {
     param([string]$Folder)
     if (-not $Folder) { return $false }
@@ -711,12 +766,17 @@ function Invoke-Bootstrap {
         $decision = Get-BootstrapDecision -MaxBootstrapWindowHours $MaxBootstrapWindowHours -OobeProfileMaxAgeMinutes $OobeProfileMaxAgeMinutes
         $agent = Get-AgentPresence
         if ($agent) {
-            Write-Log "Agent present ($agent): $AgentBasePath is left as it is."
+            $transport = Remove-MsiTransportFolder
+            Write-Log "Agent present ($agent): $(if ($transport) { $transport } else { "$AgentBasePath is left as it is." })"
+            $legacy = Remove-LegacyMsiLoaderFolder
+            if ($legacy) { Write-Log $legacy }
             Remove-StaleLoaderRunFolders -ScriptRoot $PSScriptRoot
             exit 0
         }
         if (-not $decision.Install) {
             Write-Log "No agent on this device: $(Remove-AgentBaseOnSkip -Path $AgentBasePath)"
+            $legacy = Remove-LegacyMsiLoaderFolder
+            if ($legacy) { Write-Log $legacy }
             Remove-StaleLoaderRunFolders -ScriptRoot $PSScriptRoot
             exit 0
         }
@@ -729,6 +789,8 @@ function Invoke-Bootstrap {
         Write-LoaderLogs $loaderLogs
         Open-LogFile
         Write-Log "Agent folder prepared: $AgentBasePath (protected, emptied)."
+        $legacy = Remove-LegacyMsiLoaderFolder
+        if ($legacy) { Write-Log $legacy }
         Remove-StaleLoaderRunFolders -ScriptRoot $PSScriptRoot
 
         $agentExePath = Join-Path $AgentBinPath $AgentExeName

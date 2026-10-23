@@ -800,6 +800,153 @@ Describe 'Remove-AgentBaseOnSkip' {
     }
 }
 
+Describe 'Remove-MsiTransportFolder' {
+    BeforeEach {
+        Mock Start-Sleep { }
+        Mock New-ProtectedDirectorySecurity { New-TestDirectorySecurity }
+        Mock Test-IsOwnedByUs { $true }
+        $AgentBasePath = Join-Path $TestDrive "AutopilotMonitor-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        $MsiTransportPath = Join-Path $AgentBasePath 'Msi'
+    }
+
+    It 'has nothing to do without an agent folder or without the copy' {
+        Remove-MsiTransportFolder | Should -BeNullOrEmpty
+        New-Item -ItemType Directory -Path (Join-Path $AgentBasePath 'Logs') -Force | Out-Null
+        Remove-MsiTransportFolder | Should -BeNullOrEmpty
+        Test-Path (Join-Path $AgentBasePath 'Logs') | Should -BeTrue
+    }
+
+    It 'removes the copy and keeps an agent folder that holds anything else' {
+        New-Item -ItemType File -Path (Join-Path $AgentBasePath 'Logs\agent.log') -Value 'kept' -Force | Out-Null
+        New-Item -ItemType Directory -Path $MsiTransportPath -Force | Out-Null
+        Set-Content -Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') -Value 'x'
+
+        Remove-MsiTransportFolder | Should -Be "$MsiTransportPath removed."
+
+        Test-Path $MsiTransportPath | Should -BeFalse
+        Get-Content (Join-Path $AgentBasePath 'Logs\agent.log') | Should -Be 'kept'
+    }
+
+    It 'removes the copy and with it an agent folder that is then empty' {
+        New-Item -ItemType Directory -Path $MsiTransportPath -Force | Out-Null
+        Set-Content -Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') -Value 'x'
+
+        Remove-MsiTransportFolder | Should -Be "$MsiTransportPath removed, and with it the empty $AgentBasePath."
+
+        Test-Path $AgentBasePath | Should -BeFalse
+    }
+
+    It 'leaves a copy that is not ours, and says so' {
+        New-Item -ItemType Directory -Path $MsiTransportPath -Force | Out-Null
+        Set-Content -Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') -Value 'x'
+        Mock Test-IsOwnedByUs { $Path -notlike '*\Msi' }
+
+        Remove-MsiTransportFolder | Should -Be "$MsiTransportPath left as it is (Foreign)."
+
+        Test-Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') | Should -BeTrue
+    }
+
+    It 'touches nothing below an agent folder that is not ours' {
+        New-Item -ItemType Directory -Path $MsiTransportPath -Force | Out-Null
+        Set-Content -Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') -Value 'x'
+        Mock Test-IsOwnedByUs { $false }
+
+        Remove-MsiTransportFolder | Should -BeNullOrEmpty
+
+        Test-Path (Join-Path $MsiTransportPath 'Start-AutopilotMonitor.ps1') | Should -BeTrue
+    }
+
+    It 'never follows a link planted as the copy' {
+        New-Item -ItemType Directory -Path $AgentBasePath -Force | Out-Null
+        $target = New-SentinelJunction -Link $MsiTransportPath
+
+        Remove-MsiTransportFolder | Should -Be "$MsiTransportPath left as it is (Link)."
+
+        Test-Path (Join-Path $target 'sentinel.txt') | Should -BeTrue
+    }
+
+    It 'never throws' {
+        Mock Get-FolderState { throw 'unexpected' }
+        { Remove-MsiTransportFolder } | Should -Not -Throw
+    }
+}
+
+Describe 'Remove-LegacyMsiLoaderFolder' {
+    BeforeEach {
+        Mock Start-Sleep { }
+        Mock New-ProtectedDirectorySecurity { New-TestDirectorySecurity }
+        Mock Test-IsOwnedByUs { $true }
+        $script:realProgramW6432 = $env:ProgramW6432
+        $script:realProgramFiles = $env:ProgramFiles
+        $env:ProgramW6432 = New-TestFolder 'ProgramFiles64'
+        $env:ProgramFiles = New-TestFolder 'ProgramFiles32'
+        $script:company = Join-Path $env:ProgramW6432 'AutopilotMonitor'
+        $script:loader = Join-Path $script:company 'Bootstrap\Start-AutopilotMonitor.ps1'
+    }
+    AfterEach {
+        $env:ProgramW6432 = $script:realProgramW6432
+        $env:ProgramFiles = $script:realProgramFiles
+    }
+
+    It 'has nothing to do where MSI 1.3 never ran' {
+        Remove-LegacyMsiLoaderFolder | Should -BeNullOrEmpty
+        New-Item -ItemType Directory -Path $script:company -Force | Out-Null
+        Remove-LegacyMsiLoaderFolder | Should -BeNullOrEmpty
+        Test-Path $script:company | Should -BeTrue
+    }
+
+    It 'removes what MSI 1.3 installed, and the company folder with it' {
+        New-Item -ItemType File -Path $script:loader -Force | Out-Null
+
+        Remove-LegacyMsiLoaderFolder | Should -Be "$(Split-Path $script:loader) removed, and with it the empty $script:company."
+
+        Test-Path $script:company | Should -BeFalse
+    }
+
+    It 'keeps the company folder when anything else is in it' {
+        New-Item -ItemType File -Path $script:loader -Force | Out-Null
+        Set-Content -Path (Join-Path $script:company 'other.txt') -Value 'x'
+
+        Remove-LegacyMsiLoaderFolder | Should -Be "$(Split-Path $script:loader) removed."
+
+        Test-Path (Split-Path $script:loader) | Should -BeFalse
+        Test-Path (Join-Path $script:company 'other.txt') | Should -BeTrue
+    }
+
+    It 'reads the 64-bit Program Files, also from the 32-bit host' {
+        $other = Join-Path $env:ProgramFiles 'AutopilotMonitor\Bootstrap\Start-AutopilotMonitor.ps1'
+        New-Item -ItemType File -Path $script:loader -Force | Out-Null
+        New-Item -ItemType File -Path $other -Force | Out-Null
+
+        Remove-LegacyMsiLoaderFolder | Should -BeLike '*removed*'
+
+        Test-Path $script:company | Should -BeFalse
+        Test-Path $other | Should -BeTrue
+    }
+
+    It 'leaves a folder that is not ours' {
+        New-Item -ItemType File -Path $script:loader -Force | Out-Null
+        Mock Test-IsOwnedByUs { $false }
+
+        Remove-LegacyMsiLoaderFolder | Should -Be "$script:company left as it is (Foreign)."
+
+        Test-Path $script:loader | Should -BeTrue
+    }
+
+    It 'never follows a link' {
+        $target = New-SentinelJunction -Link $script:company
+
+        Remove-LegacyMsiLoaderFolder | Should -Be "$script:company left as it is (Link)."
+
+        Test-Path (Join-Path $target 'sentinel.txt') | Should -BeTrue
+    }
+
+    It 'never throws' {
+        Mock Get-FolderState { throw 'unexpected' }
+        { Remove-LegacyMsiLoaderFolder } | Should -Not -Throw
+    }
+}
+
 Describe 'Get-AgentPayloadRejections' {
     # The payload catalog check, shared verbatim with the OOBE go-script. What matters is the
     # DECISION: which payload is accepted and which is refused. Test-FileCatalog is mocked for
@@ -1122,7 +1269,7 @@ Describe 'script text' {
 
     It 'declares the role and version the loader checks, one line each' {
         ([regex]::Matches($script:text, '(?m)^\$ScriptRole = "AutopilotMonitor-Installer"\s*$')).Count | Should -Be 1
-        ([regex]::Matches($script:text, '(?m)^\$ScriptVersion = "2\.8"\s*$')).Count | Should -Be 1
+        ([regex]::Matches($script:text, '(?m)^\$ScriptVersion = "2\.9"\s*$')).Count | Should -Be 1
     }
 
     It 'never stages anything in the shared temp folder' {
