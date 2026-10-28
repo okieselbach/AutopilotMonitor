@@ -30,7 +30,7 @@
     "express": "^5.3.0",
     "fuse.js": "^7.5.0",
     "jose": "^6.2.12",
-    "undici": "^8.11.2",
+    "undici": "^8.12.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -40,10 +40,10 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.5",
     "eslint": "^9.39.5",
-    "knip": "^6.41.0",
+    "knip": "^6.42.1",
     "tsx": "^4.23.15",
     "typescript": "^5.0.0",
-    "typescript-eslint": "^8.71.2",
+    "typescript-eslint": "^8.72.0",
     "vitest": "^4.1.12"
   },
   "overrides": {
