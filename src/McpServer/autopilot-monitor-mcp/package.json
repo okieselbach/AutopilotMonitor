@@ -48,7 +48,7 @@
   },
   "overrides": {
     "sharp": "^0.35.5",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^3.1.9",
     "global-agent": "^4.1.3"
   }
 }
