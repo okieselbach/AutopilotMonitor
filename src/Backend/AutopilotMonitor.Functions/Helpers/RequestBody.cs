@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AutopilotMonitor.Shared.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker.Http;
 using JsonConvert = Newtonsoft.Json.JsonConvert;
 
@@ -32,8 +33,9 @@ public sealed class BodyResult<T> where T : class
 /// The one way a function reads an HTTP request body. The generic overloads constrain on
 /// <see cref="IApiRequest"/>, so every body type is a Shared wire type (exported to TypeScript
 /// by SharedManifestParityTests); TypedRequestGuardTests refuses the raw deserializers in
-/// handlers. Empty, malformed or non-object bodies are a 400 envelope here, never a 500 from an
-/// unhandled <see cref="JsonException"/>. The optional byte cap is per site (a session report
+/// handlers. Empty, malformed, non-object or incomplete bodies (the client aborted mid-body) are
+/// a 400 envelope here, never a 500 from an unhandled <see cref="JsonException"/> or
+/// <see cref="BadHttpRequestException"/>. The optional byte cap is per site (a session report
 /// carries base64 attachments; most admin bodies fit in a kilobyte).
 /// </summary>
 public static class RequestBody
@@ -41,6 +43,7 @@ public static class RequestBody
     private const string RequiredMessage = "Request body is required";
     private const string InvalidMessage = "Invalid JSON body";
     private const string TooLargeMessage = "Request body too large";
+    private const string IncompleteMessage = "Request body incomplete";
 
     /// <summary>System.Text.Json with <see cref="ApiJsonOptions.Read"/> — the default reader.</summary>
     public static async Task<BodyResult<T>> ReadAsync<T>(this HttpRequestData req, long? maxBytes = null)
@@ -155,7 +158,18 @@ public static class RequestBody
             return BodyResult<string>.Fail(await req.BadRequestAsync(TooLargeMessage));
         }
 
-        var text = await req.ReadAsStringAsync();
+        string? text;
+        try
+        {
+            text = await req.ReadAsStringAsync();
+        }
+        catch (BadHttpRequestException)
+        {
+            // The client stopped sending mid-body (tab closed, navigation, network drop) and Kestrel
+            // reports "Unexpected end of request content". The server is fine, so this is a 4xx.
+            return BodyResult<string>.Fail(await req.BadRequestAsync(IncompleteMessage));
+        }
+
         if (!string.IsNullOrWhiteSpace(text)) return BodyResult<string>.Ok(text!);
         return allowEmpty
             ? BodyResult<string>.Empty()

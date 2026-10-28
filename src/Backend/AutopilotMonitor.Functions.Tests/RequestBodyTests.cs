@@ -13,12 +13,13 @@ using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
+using BadHttpRequestException = Microsoft.AspNetCore.Http.BadHttpRequestException;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// The one body reader (D-207): camelCase and PascalCase both bind, string enums bind, an empty
-/// or malformed body is a 400 envelope (never a 500), the optional variant treats "no body" as
+/// The one body reader (D-207): camelCase and PascalCase both bind, string enums bind, an empty,
+/// malformed or aborted body is a 400 envelope (never a 500), the optional variant treats "no body" as
 /// null, the byte cap and the Newtonsoft branch behave the same way.
 /// </summary>
 public class RequestBodyTests
@@ -83,6 +84,16 @@ public class RequestBodyTests
         var req = Build(body);
         var read = await req.ReadAsync<BlockDeviceRequest>();
         await AssertBadRequest(read.Error, "Invalid JSON body");
+    }
+
+    [Fact]
+    public async Task Aborted_body_is_400_incomplete_not_500()
+    {
+        // The client closed the tab mid-body: before this, the handler's catch turned it into a 500.
+        var req = Build(new AbortedBodyStream());
+        var read = await req.ReadAsync<SignalRJoinGroupRequest>();
+        await AssertBadRequest(read.Error, "Request body incomplete");
+        Assert.Null(read.Value);
     }
 
     [Fact]
@@ -165,6 +176,9 @@ public class RequestBodyTests
     }
 
     private static HttpRequestData Build(string body, long? contentLength = null)
+        => Build(new MemoryStream(Encoding.UTF8.GetBytes(body)), contentLength);
+
+    private static HttpRequestData Build(Stream body, long? contentLength = null)
     {
         var services = new ServiceCollection();
         services.AddOptions();
@@ -180,9 +194,18 @@ public class RequestBodyTests
 
         var req = new Mock<HttpRequestData>(context.Object);
         req.SetupGet(r => r.Headers).Returns(headers);
-        req.SetupGet(r => r.Body).Returns(new MemoryStream(Encoding.UTF8.GetBytes(body)));
+        req.SetupGet(r => r.Body).Returns(body);
         req.Setup(r => r.CreateResponse()).Returns(() => new FakeHttpResponseData(context.Object));
         return req.Object;
+    }
+
+    /// <summary>What Kestrel's request body does when the client disconnects mid-body.</summary>
+    private sealed class AbortedBodyStream : MemoryStream
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw Aborted();
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => throw Aborted();
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => throw Aborted();
+        private static BadHttpRequestException Aborted() => new("Unexpected end of request content.");
     }
 
     private sealed class FakeHttpResponseData : HttpResponseData
