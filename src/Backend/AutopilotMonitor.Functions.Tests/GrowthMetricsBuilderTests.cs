@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Counting rules of the growth figures: window membership on the UTC day, activation from the
 /// counters, the first enrollment from the daily usage rows (pending while only today's counters
 /// moved), activity from the usage rows plus today's counters, hour and weekday in the requested
-/// time zone, and no approval-time rows in the hours or peaks.
+/// time zone, no approval-time rows in the hours or peaks, and excluded tenants in no figure.
 /// </summary>
 public class GrowthMetricsBuilderTests
 {
@@ -21,6 +21,8 @@ public class GrowthMetricsBuilderTests
         Assert.True(GrowthMetricsBuilder.TryResolveTimeZone("Europe/Berlin", out var tz));
         return tz;
     }
+
+    private static readonly string[] NoExclusions = Array.Empty<string>();
 
     private static string Tid(char c) => $"{new string(c, 8)}-0000-4000-8000-000000000000";
 
@@ -35,7 +37,7 @@ public class GrowthMetricsBuilderTests
 
     private static DateTime Utc(int month, int day, int hour, int minute = 0) => new(2026, month, day, hour, minute, 0, DateTimeKind.Utc);
 
-    private static GrowthMetricsResponse Scenario(bool includeTenants = false)
+    private static GrowthMetricsResponse Scenario(bool includeTenants = false, params char[] excluded)
     {
         var configs = new List<TenantConfiguration>
         {
@@ -67,7 +69,7 @@ public class GrowthMetricsBuilderTests
             Active('e', 2026, 10, 5),
         };
 
-        return GrowthMetricsBuilder.Build(configs, stats, activity, Now, 7, Berlin, includeTenants);
+        return GrowthMetricsBuilder.Build(configs, stats, activity, Now, 7, Berlin, includeTenants, excluded.Select(Tid).ToList());
     }
 
     [Fact]
@@ -79,6 +81,7 @@ public class GrowthMetricsBuilderTests
         Assert.Equal("2026-10-28", r.WindowEnd);
         Assert.Equal("2026-10-27", r.UsageDaysThrough);
         Assert.Equal("Europe/Berlin", r.TimeZone);
+        Assert.Equal(0, r.ExcludedTenants);
         Assert.Equal(5, r.Signups.Total);
         Assert.Equal(1, r.Signups.PreviousWindowTotal);
         Assert.Equal("day", r.Signups.BucketSize);
@@ -176,12 +179,56 @@ public class GrowthMetricsBuilderTests
     }
 
     [Fact]
+    public void Excluded_tenants_leave_every_figure_and_only_signed_up_rows_count_as_excluded()
+    {
+        // a: in-window pro signup, paying, enrolled the same day; e: older tenant active 23 days ago;
+        // g: a row without a domain (never a tenant); z: no configuration row at all.
+        var r = Scenario(true, 'a', 'e', 'g', 'z');
+
+        Assert.Equal(2, r.ExcludedTenants);
+        Assert.Equal(4, r.Signups.Total);
+        Assert.Equal(new[] { 0, 1, 1, 0, 1, 1, 0 }, r.Signups.Buckets.Select(b => b.Count));
+        Assert.Equal(0, r.Signups.ByHour[11]);
+        Assert.Equal(2, r.Activation.Enrolled);
+        Assert.Equal(0, r.Activation.FirstEnrollmentSameDay);
+        Assert.Equal(1, r.Activation.MedianDaysToFirstEnrollment);
+        Assert.Equal(new[] { 2, 2 }, r.Cohorts.Select(c => c.Signups)); // b, c | d, h
+        Assert.Equal(5, r.AllTenants.Tenants);
+        Assert.Equal(2, r.AllTenants.Active7Days);
+        Assert.Equal(2, r.AllTenants.Active30Days);
+        Assert.Equal(new[] { ("free", 5) }, r.Plans.ByPlanTier.Select(x => (x.PlanTier, x.Tenants)));
+        Assert.Equal(0, r.Plans.PayingCustomers);
+        Assert.Equal(new[] { Tid('b'), Tid('c'), Tid('d'), Tid('h') }, r.Tenants!.Select(t => t.TenantId));
+    }
+
+    [Theory]
+    [InlineData(null, true, "")]
+    [InlineData("", true, "")]
+    [InlineData(" {AAAAAAAA-0000-4000-8000-000000000000} ,,bbbbbbbb-0000-4000-8000-000000000000", true,
+        "aaaaaaaa-0000-4000-8000-000000000000,bbbbbbbb-0000-4000-8000-000000000000")]
+    [InlineData("aaaaaaaa-0000-4000-8000-000000000000,contoso.example", false, "")]
+    public void Excluded_tenants_are_tenant_ids_in_the_lowercase_d_form(string? raw, bool ok, string expected)
+    {
+        Assert.Equal(ok, GrowthMetricsBuilder.TryParseExcludedTenants(raw, out var ids));
+        if (ok) Assert.Equal(expected, string.Join(",", ids));
+    }
+
+    [Fact]
+    public void At_most_twenty_tenants_can_be_excluded()
+    {
+        static string Ids(int n) => string.Join(",", Enumerable.Range(0, n).Select(i => $"{i:x8}-0000-4000-8000-000000000000"));
+
+        Assert.True(GrowthMetricsBuilder.TryParseExcludedTenants(Ids(GrowthMetricsBuilder.MaxExcludedTenants), out _));
+        Assert.False(GrowthMetricsBuilder.TryParseExcludedTenants(Ids(GrowthMetricsBuilder.MaxExcludedTenants + 1), out _));
+    }
+
+    [Fact]
     public void A_first_enrollment_without_a_usage_row_and_without_activity_today_is_unknown()
     {
         var configs = new[] { Config('a', Utc(10, 20, 9)) };
         var stats = new[] { Stats('a', 4, 4, Utc(10, 27, 8)) };
 
-        var a = GrowthMetricsBuilder.Build(configs, stats, Array.Empty<TenantActivityDay>(), Now, 30, TimeZoneInfo.Utc, false).Activation;
+        var a = GrowthMetricsBuilder.Build(configs, stats, Array.Empty<TenantActivityDay>(), Now, 30, TimeZoneInfo.Utc, false, NoExclusions).Activation;
 
         Assert.Equal(1, a.FirstEnrollmentUnknown);
         Assert.Equal(0, a.FirstEnrollmentPending);
@@ -203,7 +250,7 @@ public class GrowthMetricsBuilderTests
         Signups(10, 16, 1);
 
         var r = GrowthMetricsBuilder.Build(configs, Array.Empty<TenantStats>(), Array.Empty<TenantActivityDay>(),
-            new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc), 7, TimeZoneInfo.Utc, false);
+            new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc), 7, TimeZoneInfo.Utc, false, NoExclusions);
 
         var peak = Assert.Single(r.Signups.PeakDays);
         Assert.Equal("2026-10-15", peak.Day);
@@ -221,7 +268,7 @@ public class GrowthMetricsBuilderTests
             .ToList();
 
         var r = GrowthMetricsBuilder.Build(configs, Array.Empty<TenantStats>(), Array.Empty<TenantActivityDay>(),
-            Now, 365, TimeZoneInfo.Utc, false);
+            Now, 365, TimeZoneInfo.Utc, false, NoExclusions);
 
         Assert.Equal(5, r.Signups.Total);
         Assert.Equal(1, r.Signups.ByHour.Sum());
@@ -236,7 +283,7 @@ public class GrowthMetricsBuilderTests
         var configs = new[] { Config('a', Utc(10, 20, 9)), Config('b', Utc(8, 3, 9)) };
 
         var r = GrowthMetricsBuilder.Build(configs, Array.Empty<TenantStats>(), Array.Empty<TenantActivityDay>(),
-            Now, 120, TimeZoneInfo.Utc, false);
+            Now, 120, TimeZoneInfo.Utc, false, NoExclusions);
 
         Assert.Equal("week", r.Signups.BucketSize);
         Assert.Equal(r.WindowStart, r.Signups.Buckets[0].Start);

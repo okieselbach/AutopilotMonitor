@@ -1090,13 +1090,16 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('IANA zone of the hour/weekday counts, e.g. "Europe/Berlin"; default UTC.'),
         includeTenants: z.boolean().optional()
           .describe('Add one row per signup (ids and dates, no domain) for joins by tenant id.'),
+        excludeTenantIds: z.array(z.string().max(64)).max(20).optional()
+          .describe('Own and test tenants to leave out of every figure; `excludedTenants` counts the matches.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_growth_metrics', args, async () => {
       try {
-        const { days, timeZone, includeTenants } = args;
-        const data = await apiFetch<GrowthMetricsResponse>(`/api/global/metrics/growth${buildQuery({ days, timeZone, includeTenants })}`);
+        const { days, timeZone, includeTenants, excludeTenantIds } = args;
+        const query = buildQuery({ days, timeZone, includeTenants, excludeTenantIds: excludeTenantIds?.join(',') });
+        const data = await apiFetch<GrowthMetricsResponse>(`/api/global/metrics/growth${query}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_growth_metrics', args, error);

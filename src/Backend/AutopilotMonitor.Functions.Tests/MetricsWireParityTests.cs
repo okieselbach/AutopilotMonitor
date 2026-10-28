@@ -842,6 +842,7 @@ public class MetricsWireParityTests
         TimeZone = "Europe/Berlin",
         ExactSignupTimesFrom = "2026-03-18",
         UsageDaysThrough = "2026-10-27",
+        ExcludedTenants = 1,
         Signups = new GrowthSignups
         {
             Total = 5,
@@ -884,6 +885,7 @@ public class MetricsWireParityTests
         timeZone = "Europe/Berlin",
         exactSignupTimesFrom = "2026-03-18",
         usageDaysThrough = "2026-10-27",
+        excludedTenants = 1,
         signups = new
         {
             total = 5,

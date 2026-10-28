@@ -24,6 +24,8 @@ namespace AutopilotMonitor.Shared.Models
         public string ExactSignupTimesFrom { get; set; } = string.Empty;
         /// <summary>Last day ("yyyy-MM-dd", yesterday) the daily usage rows cover; a first enrollment after it is pending.</summary>
         public string UsageDaysThrough { get; set; } = string.Empty;
+        /// <summary>Tenants of excludeTenantIds (own and test tenants) left out of every figure; fewer than named means an id without a configuration row.</summary>
+        public int ExcludedTenants { get; set; }
         public GrowthSignups Signups { get; set; } = default!;
         /// <summary>One entry per Monday-anchored UTC signup week of the window, oldest first.</summary>
         public IReadOnlyList<GrowthCohortWeek> Cohorts { get; set; } = default!;

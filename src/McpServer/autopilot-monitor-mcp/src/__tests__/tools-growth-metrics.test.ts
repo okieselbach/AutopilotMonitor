@@ -50,6 +50,16 @@ describe('get_growth_metrics — request', () => {
     expect(q.get('includeTenants')).toBe('true');
   });
 
+  it('sends the excluded tenants as one comma-separated parameter', async () => {
+    apiFetchMock.mockResolvedValueOnce({ windowDays: 30, excludedTenants: 2 });
+    const ids = ['aaaaaaaa-0000-4000-8000-000000000000', 'bbbbbbbb-0000-4000-8000-000000000000'];
+
+    await handlers(true, true).get_growth_metrics({ excludeTenantIds: ids });
+
+    const q = params(apiFetchMock.mock.calls[0][0] as string);
+    expect(q.getAll('excludeTenantIds')).toEqual([ids.join(',')]);
+  });
+
   it('leaves unset arguments to the backend defaults', async () => {
     apiFetchMock.mockResolvedValueOnce({ windowDays: 30 });
 

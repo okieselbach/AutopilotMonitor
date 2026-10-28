@@ -12605,6 +12605,14 @@
           "doc": "Last day (\"yyyy-MM-dd\", yesterday) the daily usage rows cover; a first enrollment after it is pending."
         },
         {
+          "name": "excludedTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Tenants of excludeTenantIds (own and test tenants) left out of every figure; fewer than named means an id without a configuration row."
+        },
+        {
           "name": "signups",
           "type": {
             "kind": "ref",

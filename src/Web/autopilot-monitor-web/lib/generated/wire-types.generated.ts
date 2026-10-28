@@ -2669,6 +2669,8 @@ export interface GrowthMetricsResponse {
   exactSignupTimesFrom: string;
   /** Last day ("yyyy-MM-dd", yesterday) the daily usage rows cover; a first enrollment after it is pending. */
   usageDaysThrough: string;
+  /** Tenants of excludeTenantIds (own and test tenants) left out of every figure; fewer than named means an id without a configuration row. */
+  excludedTenants: number;
   signups: GrowthSignups;
   /** One entry per Monday-anchored UTC signup week of the window, oldest first. */
   cohorts: GrowthCohortWeek[];

@@ -14,7 +14,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     /// Operator-only growth figures: the signups of the last N UTC days and how far they got (enrolled,
     /// succeeded, days to the first day with sessions, still active), plus the activity and plan state of
     /// every tenant. The configuration rows, the per-tenant counters and the daily usage rows are joined
-    /// here, so the growth report never joins them itself. Serves the <c>get_growth_metrics</c> MCP tool.
+    /// here, so the growth report never joins them itself. Tenants named in <c>excludeTenantIds</c> (the
+    /// operator's own and test tenants) leave every figure. Serves the <c>get_growth_metrics</c> MCP tool.
     /// </summary>
     public class GetGrowthMetricsFunction
     {
@@ -43,6 +44,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var days = QueryParams.Int(query["days"], GrowthMetricsBuilder.DefaultWindowDays, 1, GrowthMetricsBuilder.MaxWindowDays);
                 if (!GrowthMetricsBuilder.TryResolveTimeZone(query["timeZone"], out var timeZone))
                     return await req.BadRequestAsync("timeZone must be an IANA time zone id such as Europe/Berlin");
+                if (!GrowthMetricsBuilder.TryParseExcludedTenants(query["excludeTenantIds"], out var excludedTenantIds))
+                    return await req.BadRequestAsync(
+                        $"excludeTenantIds must be at most {GrowthMetricsBuilder.MaxExcludedTenants} comma-separated tenant ids");
                 var includeTenants = string.Equals(query["includeTenants"], "true", StringComparison.OrdinalIgnoreCase);
 
                 var nowUtc = DateTime.UtcNow;
@@ -51,7 +55,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var activity = await _metricsRepo.GetTenantActivityDaysAsync(
                     GrowthMetricsBuilder.UsageReadStart(nowUtc.Date, days), nowUtc.Date.AddDays(-1));
 
-                return await req.OkAsync(GrowthMetricsBuilder.Build(configs, stats, activity, nowUtc, days, timeZone, includeTenants));
+                return await req.OkAsync(GrowthMetricsBuilder.Build(
+                    configs, stats, activity, nowUtc, days, timeZone, includeTenants, excludedTenantIds));
             }
             catch (Exception ex)
             {
@@ -103,6 +108,25 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             return true;
         }
 
+        /// <summary>Cap of excludeTenantIds: the operator's own and test tenants, listed outside the code.</summary>
+        internal const int MaxExcludedTenants = 20;
+
+        /// <summary>No value ⇒ none; otherwise up to 20 comma-separated tenant ids (normalized), or false.</summary>
+        internal static bool TryParseExcludedTenants(string? raw, out IReadOnlyList<string> tenantIds)
+        {
+            var ids = new List<string>();
+            tenantIds = ids;
+            if (string.IsNullOrWhiteSpace(raw)) return true;
+            var entries = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (entries.Length > MaxExcludedTenants) return false;
+            foreach (var entry in entries)
+            {
+                if (!Guid.TryParse(entry, out var id)) return false;
+                ids.Add(id.ToString("D"));
+            }
+            return true;
+        }
+
         private sealed class TenantFacts
         {
             public TenantConfiguration Config { get; init; } = default!;
@@ -124,7 +148,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             DateTime nowUtc,
             int days,
             TimeZoneInfo timeZone,
-            bool includeTenants)
+            bool includeTenants,
+            IReadOnlyCollection<string> excludedTenantIds)
         {
             var today = nowUtc.Date;
             var windowStart = InclusiveWindowStart(today, days);
@@ -140,8 +165,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     StringComparer.OrdinalIgnoreCase);
 
             // A configuration row without a domain is a read of an unknown tenant id, not a signup.
-            var tenants = configs
-                .Where(c => !string.IsNullOrEmpty(c.DomainName))
+            var signedUp = configs.Where(c => !string.IsNullOrEmpty(c.DomainName)).ToList();
+            var excluded = new HashSet<string>(excludedTenantIds, StringComparer.OrdinalIgnoreCase);
+            var tenants = signedUp
+                .Where(c => !excluded.Contains(c.TenantId))
                 .Select(c => Facts(c, statsByTenant, activeDaysByTenant, today))
                 .ToList();
             var window = tenants
@@ -159,6 +186,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 TimeZone = timeZone.Id,
                 ExactSignupTimesFrom = Key(ExactSignupTimesFrom),
                 UsageDaysThrough = Key(today.AddDays(-1)),
+                ExcludedTenants = signedUp.Count - tenants.Count,
                 Signups = BuildSignups(tenants, window, windowStart, previousStart, today, days, timeZone),
                 Cohorts = window
                     .GroupBy(t => WeekStart(t.SignupUtc!.Value.Date))
