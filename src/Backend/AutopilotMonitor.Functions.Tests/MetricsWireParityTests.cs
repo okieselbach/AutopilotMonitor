@@ -832,6 +832,134 @@ public class MetricsWireParityTests
             });
     }
 
+    // ---- GetGrowthMetrics ---------------------------------------------------------------
+
+    private static GrowthMetricsResponse GrowthResponse(double? median, IReadOnlyList<GrowthTenantRow>? tenants) => new()
+    {
+        WindowDays = 7,
+        WindowStart = "2026-10-22",
+        WindowEnd = "2026-10-28",
+        TimeZone = "Europe/Berlin",
+        ExactSignupTimesFrom = "2026-03-18",
+        UsageDaysThrough = "2026-10-27",
+        Signups = new GrowthSignups
+        {
+            Total = 5,
+            PreviousWindowTotal = 1,
+            BucketSize = "day",
+            Buckets = new List<GrowthBucket> { new() { Start = "2026-10-22", Count = 5 } },
+            PeakDays = new List<GrowthPeakDay> { new() { Day = "2026-10-22", Count = 5, BaselineMedian = 1 } },
+            ByHour = new int[24],
+            ByWeekday = new int[7],
+        },
+        Cohorts = new List<GrowthCohortWeek>
+        {
+            new() { WeekStart = "2026-10-19", Signups = 5, Enrolled = 3, Succeeded = 2, ActiveLast7Days = 3, MedianDaysToFirstEnrollment = median },
+        },
+        Activation = new GrowthActivation
+        {
+            Enrolled = 3, Succeeded = 2, NeverEnrolled = 2,
+            FirstEnrollmentSameDay = 1, FirstEnrollmentNextDay = 1, FirstEnrollmentDays2To7 = 0, FirstEnrollmentLater = 0,
+            FirstEnrollmentPending = 1, FirstEnrollmentUnknown = 0, MedianDaysToFirstEnrollment = median,
+        },
+        AllTenants = new GrowthTenantSegments
+        {
+            Tenants = 7, NeverEnrolled = 2, Enrolled = 5, EnrolledWithoutSuccess = 1, Active7Days = 3, Active30Days = 4, Dormant = 1,
+        },
+        Plans = new GrowthPlans
+        {
+            ByPlanTier = new List<GrowthPlanCount> { new() { PlanTier = "free", Tenants = 6 } },
+            TrialsStartedInWindow = 1,
+            TrialsActive = 1,
+            PayingCustomers = 1,
+        },
+        Tenants = tenants,
+    };
+
+    private static object GrowthLiteral(double? median, object? tenants) => new
+    {
+        windowDays = 7,
+        windowStart = "2026-10-22",
+        windowEnd = "2026-10-28",
+        timeZone = "Europe/Berlin",
+        exactSignupTimesFrom = "2026-03-18",
+        usageDaysThrough = "2026-10-27",
+        signups = new
+        {
+            total = 5,
+            previousWindowTotal = 1,
+            bucketSize = "day",
+            buckets = new[] { new { start = "2026-10-22", count = 5 } },
+            peakDays = new[] { new { day = "2026-10-22", count = 5, baselineMedian = 1.0 } },
+            byHour = new int[24],
+            byWeekday = new int[7],
+        },
+        cohorts = new[]
+        {
+            new { weekStart = "2026-10-19", signups = 5, enrolled = 3, succeeded = 2, activeLast7Days = 3, medianDaysToFirstEnrollment = median },
+        },
+        activation = new
+        {
+            enrolled = 3, succeeded = 2, neverEnrolled = 2,
+            firstEnrollmentSameDay = 1, firstEnrollmentNextDay = 1, firstEnrollmentDays2To7 = 0, firstEnrollmentLater = 0,
+            firstEnrollmentPending = 1, firstEnrollmentUnknown = 0, medianDaysToFirstEnrollment = median,
+        },
+        allTenants = new
+        {
+            tenants = 7, neverEnrolled = 2, enrolled = 5, enrolledWithoutSuccess = 1, active7Days = 3, active30Days = 4, dormant = 1,
+        },
+        plans = new
+        {
+            byPlanTier = new[] { new { planTier = "free", tenants = 6 } },
+            trialsStartedInWindow = 1,
+            trialsActive = 1,
+            payingCustomers = 1,
+        },
+        tenants,
+    };
+
+    [Fact]
+    public void GrowthMetricsResponse_matches_the_shape_with_tenant_rows()
+    {
+        var tenantId = "8bb31d22-0003-4c8d-b2e3-63f4bbbb0001";
+        var onboardedAt = new DateTime(2026, 10, 22, 9, 0, 0, DateTimeKind.Utc);
+
+        AssertParity(
+            GrowthLiteral(0.5, new[]
+            {
+                new
+                {
+                    tenantId,
+                    onboardedAt,
+                    planTier = "free",
+                    enrolled = true,
+                    succeeded = true,
+                    firstEnrollmentDay = "2026-10-22",
+                    lastActiveDay = "2026-10-27",
+                },
+            }),
+            GrowthResponse(0.5, new List<GrowthTenantRow>
+            {
+                new()
+                {
+                    TenantId = tenantId,
+                    OnboardedAt = onboardedAt,
+                    PlanTier = "free",
+                    Enrolled = true,
+                    Succeeded = true,
+                    FirstEnrollmentDay = "2026-10-22",
+                    LastActiveDay = "2026-10-27",
+                },
+            }));
+    }
+
+    [Fact]
+    public void GrowthMetricsResponse_omits_unknown_medians_and_the_tenant_rows()
+    {
+        // No first enrollment known yet and no includeTenants: the three keys vanish identically.
+        AssertParity(GrowthLiteral(null, null), GrowthResponse(null, null));
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

@@ -564,6 +564,8 @@ public static class EndpointAccessPolicyCatalog
         // Operator-only classifier diagnostics and drift alerts; the handler reads ?tenantId= itself. None, so no
         // delegated (MSP) reader reaches them.
         new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin),
+        // Operator growth figures across all tenants (signups, activation, plan state); no tenant parameter.
+        new("GET",    "global/metrics/growth",      EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/analytics",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/sessions",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

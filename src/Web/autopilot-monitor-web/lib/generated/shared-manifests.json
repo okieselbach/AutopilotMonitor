@@ -12398,6 +12398,545 @@
         }
       ]
     },
+    "GrowthActivation": {
+      "kind": "object",
+      "doc": "The window's signups by the UTC days from signup to their first day with sessions.",
+      "fields": [
+        {
+          "name": "enrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "neverEnrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstEnrollmentSameDay",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstEnrollmentNextDay",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstEnrollmentDays2To7",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstEnrollmentLater",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstEnrollmentPending",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrolled today for the first time; the daily usage row is written tomorrow."
+        },
+        {
+          "name": "firstEnrollmentUnknown",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrolled, but no daily usage row since signup (beyond the rows' 180 days)."
+        },
+        {
+          "name": "medianDaysToFirstEnrollment",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Median UTC days to the first day with sessions; absent while no first day is known."
+        }
+      ]
+    },
+    "GrowthBucket": {
+      "kind": "object",
+      "doc": "Signups of one day or week bucket.",
+      "fields": [
+        {
+          "name": "start",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "First UTC day of the bucket (\"yyyy-MM-dd\")."
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "GrowthCohortWeek": {
+      "kind": "object",
+      "doc": "The signups of one Monday-anchored UTC week and how far they got.",
+      "fields": [
+        {
+          "name": "weekStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Monday of the week (\"yyyy-MM-dd\"); in the window's first week the window may start after it."
+        },
+        {
+          "name": "signups",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "enrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Registered at least one enrollment session."
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "At least one session reached Succeeded."
+        },
+        {
+          "name": "activeLast7Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Had sessions in the last 7 days."
+        },
+        {
+          "name": "medianDaysToFirstEnrollment",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Median UTC days from signup to the first day with sessions; absent while no first day is known."
+        }
+      ]
+    },
+    "GrowthMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/metrics/growth: the signups of the last N UTC days (today included), how far they got, and the activity of every tenant that exists today. A signup is a configuration row with a domain, dated by the row's insert time; offboarding deletes the row, so the figures are net. Operator-only.",
+      "fields": [
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window start (\"yyyy-MM-dd\", UTC)."
+        },
+        {
+          "name": "windowEnd",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window end (\"yyyy-MM-dd\", UTC, today)."
+        },
+        {
+          "name": "timeZone",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "IANA time zone of the hour and weekday counts."
+        },
+        {
+          "name": "exactSignupTimesFrom",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "First day (\"yyyy-MM-dd\") whose signup times are exact; earlier rows carry their approval time and stay out of the hour and weekday counts."
+        },
+        {
+          "name": "usageDaysThrough",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Last day (\"yyyy-MM-dd\", yesterday) the daily usage rows cover; a first enrollment after it is pending."
+        },
+        {
+          "name": "signups",
+          "type": {
+            "kind": "ref",
+            "name": "GrowthSignups"
+          }
+        },
+        {
+          "name": "cohorts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GrowthCohortWeek"
+            }
+          },
+          "doc": "One entry per Monday-anchored UTC signup week of the window, oldest first."
+        },
+        {
+          "name": "activation",
+          "type": {
+            "kind": "ref",
+            "name": "GrowthActivation"
+          }
+        },
+        {
+          "name": "allTenants",
+          "type": {
+            "kind": "ref",
+            "name": "GrowthTenantSegments"
+          }
+        },
+        {
+          "name": "plans",
+          "type": {
+            "kind": "ref",
+            "name": "GrowthPlans"
+          }
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GrowthTenantRow"
+            }
+          },
+          "optional": true,
+          "doc": "One row per signup of the window, oldest first; only with includeTenants=true."
+        }
+      ]
+    },
+    "GrowthPeakDay": {
+      "kind": "object",
+      "doc": "A day that stands out against the two weeks before it.",
+      "fields": [
+        {
+          "name": "day",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UTC day (\"yyyy-MM-dd\")."
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineMedian",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Median signups per day of the 14 days before."
+        }
+      ]
+    },
+    "GrowthPlanCount": {
+      "kind": "object",
+      "doc": "Tenants of one stored plan tier.",
+      "fields": [
+        {
+          "name": "planTier",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "GrowthPlans": {
+      "kind": "object",
+      "doc": "Plan state of every tenant that exists today.",
+      "fields": [
+        {
+          "name": "byPlanTier",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GrowthPlanCount"
+            }
+          },
+          "doc": "Tenants per stored plan tier, most first."
+        },
+        {
+          "name": "trialsStartedInWindow",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "trialsActive",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Trials whose expiry lies in the future."
+        },
+        {
+          "name": "payingCustomers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "GrowthSignups": {
+      "kind": "object",
+      "doc": "Signups of the window.",
+      "fields": [
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "previousWindowTotal",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Signups of the window of the same length just before."
+        },
+        {
+          "name": "bucketSize",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"day\" up to 90 days, \"week\" (Monday-anchored, clipped to the window) beyond."
+        },
+        {
+          "name": "buckets",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GrowthBucket"
+            }
+          },
+          "doc": "Oldest first, empty buckets included."
+        },
+        {
+          "name": "peakDays",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GrowthPeakDay"
+            }
+          },
+          "doc": "Days with at least 3 signups and at least twice the median of the 14 days before, oldest first."
+        },
+        {
+          "name": "byHour",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "24 counts; the index is the hour of day in the response's time zone."
+        },
+        {
+          "name": "byWeekday",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "7 counts, Monday first, in the response's time zone."
+        }
+      ]
+    },
+    "GrowthTenantRow": {
+      "kind": "object",
+      "doc": "One signup of the window: ids and dates only, no domain.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "onboardedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "planTier",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "enrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "firstEnrollmentDay",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "First UTC day with sessions since signup (\"yyyy-MM-dd\"); absent while pending or unknown."
+        },
+        {
+          "name": "lastActiveDay",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Latest UTC day with sessions (\"yyyy-MM-dd\"; today when the counters moved today); absent without any."
+        }
+      ]
+    },
+    "GrowthTenantSegments": {
+      "kind": "object",
+      "doc": "Every tenant that exists today, whenever it signed up.",
+      "fields": [
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "neverEnrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "No enrollment on record. The counters started on 2026-07-11 from the sessions kept then, so a tenant whose sessions had all aged out by that day counts here."
+        },
+        {
+          "name": "enrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "enrolledWithoutSuccess",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrolled, but no session reached Succeeded. Rows from before 2026-09-18 may lack the success counter."
+        },
+        {
+          "name": "active7Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions in the last 7 days."
+        },
+        {
+          "name": "active30Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions in the last 30 days."
+        },
+        {
+          "name": "dormant",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrolled, but no sessions in the last 30 days."
+        }
+      ]
+    },
     "HardwareCount": {
       "kind": "object",
       "fields": [

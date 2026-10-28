@@ -1,3 +1,4 @@
+using System.Globalization;
 using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
@@ -66,78 +67,34 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        // The daily job writes the all-tenants row of a day under this RowKey.
+        private const string UsageMetricsPlatformRowKey = "global";
+
         /// <summary>
-        /// Gets historical metrics for a date range
+        /// Tenant days with sessions between two UTC days (both inclusive): one UsageMetrics row per
+        /// tenant and day, the platform row excluded, only the session count read. Not fail-soft —
+        /// a swallowed failure would read as "no tenant was active".
         /// </summary>
-        public async Task<List<UsageMetricsSnapshot>> GetUsageMetricsSnapshotAsync(string? tenantId = null, string? startDate = null, string? endDate = null, int maxResults = 100)
+        public async Task<List<TenantActivityDay>> GetTenantActivityDaysAsync(DateTime fromDay, DateTime toDay)
         {
-            if (!string.IsNullOrEmpty(tenantId))
-                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
-
-            try
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UsageMetrics);
+            var filter = $"PartitionKey ge '{UsageDayKey(fromDay)}' and PartitionKey le '{UsageDayKey(toDay)}'"
+                + $" and RowKey ne '{UsageMetricsPlatformRowKey}'";
+            var result = new List<TenantActivityDay>();
+            await foreach (var row in tableClient.QueryAsync<TableEntity>(
+                filter: filter, select: new[] { "PartitionKey", "RowKey", "SessionsTotal" }).ConfigureAwait(false))
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UsageMetrics);
-
-                // Build filter
-                var filters = new List<string>();
-
-                if (!string.IsNullOrEmpty(startDate))
-                    filters.Add($"PartitionKey ge '{startDate}'");
-
-                if (!string.IsNullOrEmpty(endDate))
-                    filters.Add($"PartitionKey le '{endDate}'");
-
-                if (!string.IsNullOrEmpty(tenantId))
-                    filters.Add($"RowKey eq '{tenantId}'");
-
-                var filter = filters.Count > 0 ? string.Join(" and ", filters) : null;
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
-
-                var results = new List<UsageMetricsSnapshot>();
-                await foreach (var entity in query)
-                {
-                    results.Add(new UsageMetricsSnapshot
-                    {
-                        Date = entity.PartitionKey,
-                        TenantId = entity.RowKey,
-                        ComputedAt = entity.GetDateTimeOffset("ComputedAt")?.UtcDateTime ?? DateTime.UtcNow,
-                        ComputeDurationMs = entity.GetInt32("ComputeDurationMs") ?? 0,
-                        SessionsTotal = entity.GetInt32("SessionsTotal") ?? 0,
-                        SessionsSucceeded = entity.GetInt32("SessionsSucceeded") ?? 0,
-                        SessionsFailed = entity.GetInt32("SessionsFailed") ?? 0,
-                        SessionsInProgress = entity.GetInt32("SessionsInProgress") ?? 0,
-                        SessionsIncomplete = entity.GetInt32("SessionsIncomplete") ?? 0,
-                        SessionsSuccessRate = entity.GetDouble("SessionsSuccessRate") ?? 0,
-                        AvgDurationMinutes = entity.GetDouble("AvgDurationMinutes") ?? 0,
-                        MedianDurationMinutes = entity.GetDouble("MedianDurationMinutes") ?? 0,
-                        P95DurationMinutes = entity.GetDouble("P95DurationMinutes") ?? 0,
-                        P99DurationMinutes = entity.GetDouble("P99DurationMinutes") ?? 0,
-                        UniqueTenants = entity.GetInt32("UniqueTenants") ?? 0,
-                        UniqueUsers = entity.GetInt32("UniqueUsers") ?? 0,
-                        LoginCount = entity.GetInt32("LoginCount") ?? 0,
-                        TopManufacturers = entity.GetString("TopManufacturers") ?? "[]",
-                        TopModels = entity.GetString("TopModels") ?? "[]",
-                        UserDrivenSessions = entity.GetInt32("UserDrivenSessions") ?? 0,
-                        WhiteGloveSessions = entity.GetInt32("WhiteGloveSessions") ?? 0,
-                        AvgAppsPerSession = entity.GetDouble("AvgAppsPerSession") ?? 0,
-                        TotalUniqueApps = entity.GetInt32("TotalUniqueApps") ?? 0,
-                        AvgPlatformScriptsPerSession = entity.GetDouble("AvgPlatformScriptsPerSession") ?? 0,
-                        AvgRemediationScriptsPerSession = entity.GetDouble("AvgRemediationScriptsPerSession") ?? 0,
-                        TotalPlatformScripts = entity.GetInt32("TotalPlatformScripts") ?? 0,
-                        TotalRemediationScripts = entity.GetInt32("TotalRemediationScripts") ?? 0
-                    });
-
-                    if (results.Count >= maxResults) break;
-                }
-
-                return results.OrderByDescending(m => m.Date).Take(maxResults).ToList();
+                var sessions = row.GetInt32("SessionsTotal") ?? 0;
+                if (sessions > 0 && DateTime.TryParseExact(row.PartitionKey, UsageDayFormat, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var day))
+                    result.Add(new TenantActivityDay { Day = day, TenantId = row.RowKey, SessionsTotal = sessions });
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get historical metrics");
-                return new List<UsageMetricsSnapshot>();
-            }
+            return result;
         }
+
+        private const string UsageDayFormat = "yyyy-MM-dd";
+
+        private static string UsageDayKey(DateTime day) => day.ToString(UsageDayFormat, CultureInfo.InvariantCulture);
 
         /// <summary>
         /// Checks if a global usage metrics snapshot exists for a given date.
@@ -1168,6 +1125,7 @@ namespace AutopilotMonitor.Functions.Services
 
         private static TenantStats MapTenantStats(TableEntity entity) => new TenantStats
         {
+            TenantId = entity.PartitionKey,
             TotalEnrollments = entity.GetInt64(nameof(TenantStats.TotalEnrollments)) ?? 0,
             SuccessfulEnrollments = entity.GetInt64(nameof(TenantStats.SuccessfulEnrollments)) ?? 0,
             TotalEventsProcessed = entity.GetInt64(nameof(TenantStats.TotalEventsProcessed)) ?? 0,

@@ -127,6 +127,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_fleet_overview',
     'get_geographic_metrics',
     'get_geographic_sessions',
+    // Platform scope (GA + Global Reader): GlobalReadOrAdmin endpoint, operator growth figures.
+    'get_growth_metrics',
     'get_ime_pattern_health',
     'get_ime_version_history',
     'get_metrics',
@@ -224,6 +226,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_api_usage',
     'get_deployment_state',
     'get_fleet_overview',
+    'get_growth_metrics',
     'get_ime_pattern_health',
     'get_ops_events',
     'get_platform_metrics',

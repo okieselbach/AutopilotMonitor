@@ -13,8 +13,12 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         // --- Usage Metrics Snapshots ---
         Task<bool> SaveUsageMetricsSnapshotAsync(UsageMetricsSnapshot metrics);
-        Task<List<UsageMetricsSnapshot>> GetUsageMetricsSnapshotAsync(
-            string? tenantId = null, string? startDate = null, string? endDate = null, int maxResults = 100);
+        /// <summary>
+        /// The tenant days with sessions between two UTC days (both inclusive), one entry per tenant and
+        /// day, the platform row excluded. Not fail-soft: a swallowed failure would read as "no tenant was
+        /// active".
+        /// </summary>
+        Task<List<TenantActivityDay>> GetTenantActivityDaysAsync(DateTime fromDay, DateTime toDay);
         Task<bool> HasUsageMetricsSnapshotAsync(string date);
         /// <summary>Retention cleanup: deletes UsageMetrics snapshots whose date (PK, "yyyy-MM-dd") is older than the cutoff. Returns the number deleted.</summary>
         Task<int> DeleteUsageMetricsSnapshotsOlderThanAsync(string cutoffDate);

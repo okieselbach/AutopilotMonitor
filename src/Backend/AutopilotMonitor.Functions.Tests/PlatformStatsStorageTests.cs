@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Storage side of the platform rollup: the platform row is merged with the ETag it was read
 /// with and never carries IssuesDetected, the tenant floors land in one write, and the reads
-/// that feed the rollup baseline are scoped to exactly the rows they mean.
+/// that feed the rollup baseline and the growth figures are scoped to exactly the rows they mean.
 /// </summary>
 public class PlatformStatsStorageTests
 {
@@ -53,6 +53,7 @@ public class PlatformStatsStorageTests
 
             var service = new Mock<TableServiceClient>();
             service.Setup(s => s.GetTableClient(Constants.TableNames.PlatformStats)).Returns(Table.Object);
+            service.Setup(s => s.GetTableClient(Constants.TableNames.UsageMetrics)).Returns(Table.Object);
             Sut = new TableStorageService(service.Object, NullLogger<TableStorageService>.Instance);
         }
     }
@@ -231,6 +232,7 @@ public class PlatformStatsStorageTests
         var stats = Assert.Single(await h.Sut.GetAllTenantStatsAsync());
 
         Assert.Equal("RowKey eq 'current' and PartitionKey ne 'global'", Assert.Single(h.Filters));
+        Assert.Equal(Tenant, stats.TenantId);
         Assert.Equal(7, stats.TotalEnrollments);
         Assert.Equal(5, stats.SuccessfulEnrollments);
         Assert.Equal(900, stats.TotalEventsProcessed);
@@ -244,6 +246,39 @@ public class PlatformStatsStorageTests
         var h = new Harness { RowsFor = _ => throw new RequestFailedException(503, "busy") };
 
         await Assert.ThrowsAsync<RequestFailedException>(() => h.Sut.GetAllTenantStatsAsync());
+    }
+
+    // ---------- tenant activity days (growth figures) ----------
+
+    [Fact]
+    public async Task Tenant_activity_days_read_the_tenant_rows_of_the_range_only()
+    {
+        var h = new Harness
+        {
+            RowsFor = _ => new[]
+            {
+                new TableEntity("2026-10-01", Tenant) { ["SessionsTotal"] = 3 },
+                new TableEntity("2026-10-02", Tenant) { ["SessionsTotal"] = 0 },
+            }
+        };
+
+        var days = await h.Sut.GetTenantActivityDaysAsync(
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 27, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal("PartitionKey ge '2026-10-01' and PartitionKey le '2026-10-27' and RowKey ne 'global'", Assert.Single(h.Filters));
+        var day = Assert.Single(days);
+        Assert.Equal(Tenant, day.TenantId);
+        Assert.Equal(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), day.Day);
+        Assert.Equal(DateTimeKind.Utc, day.Day.Kind);
+        Assert.Equal(3, day.SessionsTotal);
+    }
+
+    [Fact]
+    public async Task A_failing_activity_read_throws_instead_of_reporting_no_activity()
+    {
+        var h = new Harness { RowsFor = _ => throw new RequestFailedException(503, "busy") };
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => h.Sut.GetTenantActivityDaysAsync(DateTime.UtcNow.Date, DateTime.UtcNow.Date));
     }
 
     // ---------- seen device models ----------

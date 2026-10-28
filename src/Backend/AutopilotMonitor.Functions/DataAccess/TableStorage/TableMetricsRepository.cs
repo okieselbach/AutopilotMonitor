@@ -20,9 +20,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<bool> SaveUsageMetricsSnapshotAsync(UsageMetricsSnapshot metrics)
             => _storage.SaveUsageMetricsSnapshotAsync(metrics);
 
-        public Task<List<UsageMetricsSnapshot>> GetUsageMetricsSnapshotAsync(
-            string? tenantId = null, string? startDate = null, string? endDate = null, int maxResults = 100)
-            => _storage.GetUsageMetricsSnapshotAsync(tenantId, startDate, endDate, maxResults);
+        public Task<List<TenantActivityDay>> GetTenantActivityDaysAsync(DateTime fromDay, DateTime toDay)
+            => _storage.GetTenantActivityDaysAsync(fromDay, toDay);
 
         public Task<bool> HasUsageMetricsSnapshotAsync(string date)
             => _storage.HasUsageMetricsSnapshotAsync(date);

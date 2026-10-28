@@ -2617,6 +2617,139 @@ export interface GraphFeatureStatusItem {
   requiredPermissions: string[];
 }
 
+/** The window's signups by the UTC days from signup to their first day with sessions. */
+export interface GrowthActivation {
+  enrolled: number;
+  succeeded: number;
+  neverEnrolled: number;
+  firstEnrollmentSameDay: number;
+  firstEnrollmentNextDay: number;
+  firstEnrollmentDays2To7: number;
+  firstEnrollmentLater: number;
+  /** Enrolled today for the first time; the daily usage row is written tomorrow. */
+  firstEnrollmentPending: number;
+  /** Enrolled, but no daily usage row since signup (beyond the rows' 180 days). */
+  firstEnrollmentUnknown: number;
+  /** Median UTC days to the first day with sessions; absent while no first day is known. */
+  medianDaysToFirstEnrollment?: number;
+}
+
+/** Signups of one day or week bucket. */
+export interface GrowthBucket {
+  /** First UTC day of the bucket ("yyyy-MM-dd"). */
+  start: string;
+  count: number;
+}
+
+/** The signups of one Monday-anchored UTC week and how far they got. */
+export interface GrowthCohortWeek {
+  /** Monday of the week ("yyyy-MM-dd"); in the window's first week the window may start after it. */
+  weekStart: string;
+  signups: number;
+  /** Registered at least one enrollment session. */
+  enrolled: number;
+  /** At least one session reached Succeeded. */
+  succeeded: number;
+  /** Had sessions in the last 7 days. */
+  activeLast7Days: number;
+  /** Median UTC days from signup to the first day with sessions; absent while no first day is known. */
+  medianDaysToFirstEnrollment?: number;
+}
+
+/** Response of GET global/metrics/growth: the signups of the last N UTC days (today included), how far they got, and the activity of every tenant that exists today. A signup is a configuration row with a domain, dated by the row's insert time; offboarding deletes the row, so the figures are net. Operator-only. */
+export interface GrowthMetricsResponse {
+  windowDays: number;
+  /** Inclusive window start ("yyyy-MM-dd", UTC). */
+  windowStart: string;
+  /** Inclusive window end ("yyyy-MM-dd", UTC, today). */
+  windowEnd: string;
+  /** IANA time zone of the hour and weekday counts. */
+  timeZone: string;
+  /** First day ("yyyy-MM-dd") whose signup times are exact; earlier rows carry their approval time and stay out of the hour and weekday counts. */
+  exactSignupTimesFrom: string;
+  /** Last day ("yyyy-MM-dd", yesterday) the daily usage rows cover; a first enrollment after it is pending. */
+  usageDaysThrough: string;
+  signups: GrowthSignups;
+  /** One entry per Monday-anchored UTC signup week of the window, oldest first. */
+  cohorts: GrowthCohortWeek[];
+  activation: GrowthActivation;
+  allTenants: GrowthTenantSegments;
+  plans: GrowthPlans;
+  /** One row per signup of the window, oldest first; only with includeTenants=true. */
+  tenants?: GrowthTenantRow[];
+}
+
+/** A day that stands out against the two weeks before it. */
+export interface GrowthPeakDay {
+  /** UTC day ("yyyy-MM-dd"). */
+  day: string;
+  count: number;
+  /** Median signups per day of the 14 days before. */
+  baselineMedian: number;
+}
+
+/** Tenants of one stored plan tier. */
+export interface GrowthPlanCount {
+  planTier: string;
+  tenants: number;
+}
+
+/** Plan state of every tenant that exists today. */
+export interface GrowthPlans {
+  /** Tenants per stored plan tier, most first. */
+  byPlanTier: GrowthPlanCount[];
+  trialsStartedInWindow: number;
+  /** Trials whose expiry lies in the future. */
+  trialsActive: number;
+  payingCustomers: number;
+}
+
+/** Signups of the window. */
+export interface GrowthSignups {
+  total: number;
+  /** Signups of the window of the same length just before. */
+  previousWindowTotal: number;
+  /** "day" up to 90 days, "week" (Monday-anchored, clipped to the window) beyond. */
+  bucketSize: string;
+  /** Oldest first, empty buckets included. */
+  buckets: GrowthBucket[];
+  /** Days with at least 3 signups and at least twice the median of the 14 days before, oldest first. */
+  peakDays: GrowthPeakDay[];
+  /** 24 counts; the index is the hour of day in the response's time zone. */
+  byHour: number[];
+  /** 7 counts, Monday first, in the response's time zone. */
+  byWeekday: number[];
+}
+
+/** One signup of the window: ids and dates only, no domain. */
+export interface GrowthTenantRow {
+  tenantId: string;
+  onboardedAt: string;
+  planTier: string;
+  enrolled: boolean;
+  succeeded: boolean;
+  /** First UTC day with sessions since signup ("yyyy-MM-dd"); absent while pending or unknown. */
+  firstEnrollmentDay?: string;
+  /** Latest UTC day with sessions ("yyyy-MM-dd"; today when the counters moved today); absent without any. */
+  lastActiveDay?: string;
+}
+
+/** Every tenant that exists today, whenever it signed up. */
+export interface GrowthTenantSegments {
+  tenants: number;
+  /** No enrollment on record. The counters started on 2026-07-11 from the sessions kept then, so a tenant whose sessions had all aged out by that day counts here. */
+  neverEnrolled: number;
+  enrolled: number;
+  /** Enrolled, but no session reached Succeeded. Rows from before 2026-09-18 may lack the success counter. */
+  enrolledWithoutSuccess: number;
+  /** Sessions in the last 7 days. */
+  active7Days: number;
+  /** Sessions in the last 30 days. */
+  active30Days: number;
+  /** Enrolled, but no sessions in the last 30 days. */
+  dormant: number;
+}
+
 export interface HardwareCount {
   name: string;
   count: number;

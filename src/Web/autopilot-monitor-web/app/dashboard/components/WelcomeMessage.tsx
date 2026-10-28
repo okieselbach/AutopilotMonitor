@@ -1,6 +1,14 @@
 "use client";
 
+import { trackEvent } from "@/lib/appInsights";
 import { DOCS_URL } from "@/lib/config";
+import { DOCS_PATHS } from "@/lib/docsPaths";
+import { GITHUB_REPO_URL } from "@/lib/githubStars";
+
+// The card shows only while the tenant has no sessions, so these clicks are the onboarding funnel
+// between signup and the first enrollment. All links open a new tab; the page stays loaded.
+const trackLink = (link: "setup_guide" | "deploy_agent" | "docs" | "github") =>
+  trackEvent("welcome_link_clicked", { link });
 
 export function WelcomeMessage() {
   return (
@@ -27,7 +35,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
             <p className="text-sm text-gray-700">
               Follow the{" "}
-              <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">setup guide</a>
+              <a href={`${DOCS_URL}${DOCS_PATHS.portalSetup}`} target="_blank" rel="noopener noreferrer" onClick={() => trackLink("setup_guide")} className="text-green-700 hover:underline font-medium">setup guide</a>
               {" "}to configure your tenant and grant the required permissions.
             </p>
           </li>
@@ -35,7 +43,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
             <p className="text-sm text-gray-700">
               Deploy the{" "}
-              <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">Intune bootstrapper</a>
+              <a href={`${DOCS_URL}${DOCS_PATHS.deployTheAgent}`} target="_blank" rel="noopener noreferrer" onClick={() => trackLink("deploy_agent")} className="text-green-700 hover:underline font-medium">Intune bootstrapper</a>
               {" "}to your Autopilot device groups — the agent installs automatically on first boot.
             </p>
           </li>
@@ -49,6 +57,7 @@ export function WelcomeMessage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <a
             href={DOCS_URL} target="_blank" rel="noopener noreferrer"
+            onClick={() => trackLink("docs")}
             className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-green-300 hover:bg-green-50 transition-colors"
           >
             <span className="shrink-0 w-8 h-8 rounded-lg bg-white border border-gray-200 group-hover:border-green-200 flex items-center justify-center shadow-sm">
@@ -65,9 +74,10 @@ export function WelcomeMessage() {
             </svg>
           </a>
           <a
-            href="https://github.com/okieselbach/AutopilotMonitor"
+            href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackLink("github")}
             className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-gray-400 hover:bg-gray-100 transition-colors"
           >
             <span className="shrink-0 w-8 h-8 rounded-lg bg-white border border-gray-200 group-hover:border-gray-300 flex items-center justify-center shadow-sm">

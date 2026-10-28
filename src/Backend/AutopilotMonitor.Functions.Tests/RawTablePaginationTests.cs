@@ -137,6 +137,16 @@ public class RawTablePaginationTests
     }
 
     [Fact]
+    public void BuildNextLink_echoes_fields_so_a_follow_up_page_keeps_the_projection()
+    {
+        var query = new NameValueCollection { { "fields", "Status,StartedAt" } };
+
+        var link = RawTablePagination.BuildNextLink("Sessions", 200, "abc", query);
+
+        Assert.Contains("fields=Status%2CStartedAt", link);
+    }
+
+    [Fact]
     public void BuildNextLink_url_encodes_table_name_with_special_chars()
     {
         // Table names are always alpha by convention, but defensive encoding

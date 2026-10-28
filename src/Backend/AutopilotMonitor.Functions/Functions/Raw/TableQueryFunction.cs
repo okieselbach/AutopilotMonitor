@@ -65,7 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
         /// <summary>
         /// GET /api/global/raw/tables/{tableName} — Query any table directly
-        /// Query params: partitionKey, rowKeyPrefix, filter, limit
+        /// Query params: partitionKey, rowKeyPrefix, filter, fields, pageSize, continuation
         /// </summary>
         [Function("QueryRawTable")]
         public async Task<HttpResponseData> QueryTable(
@@ -100,6 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 var partitionKey = query["partitionKey"];
                 var rowKeyPrefix = query["rowKeyPrefix"];
                 var filter = query["filter"];
+                var fields = query["fields"];
 
                 var pagination = RawTablePagination.ParsePagination(query);
                 if (pagination.Error != null)
@@ -132,25 +133,10 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                     pageSize: pagination.PageSize,
                     continuation: azureToken);
 
-                var entities = new List<Dictionary<string, object?>>(rawEntities.Count);
-                foreach (var entity in rawEntities)
-                {
-                    var dict = new Dictionary<string, object?>
-                    {
-                        ["PartitionKey"] = entity.PartitionKey,
-                        ["RowKey"] = entity.RowKey,
-                        ["Timestamp"] = entity.Timestamp,
-                    };
-
-                    foreach (var kvp in entity)
-                    {
-                        if (kvp.Key is "odata.etag" or "PartitionKey" or "RowKey" or "Timestamp")
-                            continue;
-                        dict[kvp.Key] = kvp.Value;
-                    }
-
-                    entities.Add(dict);
-                }
+                // fields= is not part of the continuation fingerprint; BuildNextLink echoes it, so a
+                // follow-up page keeps the projection.
+                var entities = RawEntityProjection.Project(
+                    rawEntities.Select(RawEntityProjection.ToDictionary), fields);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(nextRawToken))

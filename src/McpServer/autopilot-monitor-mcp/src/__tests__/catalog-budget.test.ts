@@ -40,8 +40,9 @@ interface Role {
   maxCatalogChars: number;
 }
 const ROLES: Role[] = [
-  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 92_000 },
-  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 77_000 },
+  // Raised 2026-10-28 by +1,100 each: the platform-only get_growth_metrics (measured 1,106 chars).
+  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 93_100 },
+  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 78_100 },
   { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_000 },
   // Lowered 2026-10-11: Operators/Viewers and delegated callers without the home Admin role no longer
   // list the two rule dry-runs (measured 49,385 and 53,645 chars).

@@ -6,22 +6,22 @@ namespace AutopilotMonitor.Functions.Helpers
 {
     /// <summary>
     /// Serialises raw Azure-Table <see cref="TableEntity"/> rows to plain dictionaries for the
-    /// "raw" reader endpoints (<c>/api/raw/sessions</c>, <c>/api/raw/events</c> and their
-    /// <c>/global</c> twins). Unlike the curated DTO mappers (<c>MapIndexEntityToSessionSummary</c>,
+    /// "raw" reader endpoints (<c>/api/raw/sessions</c>, <c>/api/raw/events</c>, their
+    /// <c>/global</c> twins and <c>/api/global/raw/tables/{name}</c>). Unlike the curated DTO mappers (<c>MapIndexEntityToSessionSummary</c>,
     /// <c>MapToEnrollmentEvent</c>), this preserves <b>every stored column verbatim</b> — real
     /// PascalCase names plus <c>PartitionKey</c>/<c>RowKey</c>/<c>Timestamp</c> — so the raw tools
     /// honour their name. The enriched/typed views live behind <c>search_sessions</c> /
     /// <c>get_session</c> / <c>get_session_events</c> / <c>search_events</c>.
     /// </summary>
     /// <remarks>
-    /// <see cref="ToDictionary"/> runs in the repository layer (it needs the Azure SDK type); the
+    /// For sessions and events <see cref="ToDictionary"/> runs in the repository layer (it needs the Azure SDK type); the
     /// <c>fields=</c> projection in <see cref="Project"/> runs in the function layer over the
     /// Azure-free dictionaries the interface exposes. The projection is a <b>pure pass-through</b>:
     /// it narrows the emitted columns (case-insensitive) but never silently drops a real column —
     /// any requested key the row actually has is returned, and unknown keys are simply absent. This
     /// is the opposite of the former hard-coded whitelist on <c>QueryRawSessionsFunction</c>, which
     /// dropped ~20 genuine columns. <c>PartitionKey</c> + <c>RowKey</c> are always retained (row
-    /// identity + cursor stability), mirroring the client-side projection on <c>query_table</c>.
+    /// identity + cursor stability). <c>/api/global/raw/tables/{name}</c> uses the same pair.
     /// </remarks>
     public static class RawEntityProjection
     {

@@ -62,6 +62,9 @@ export const DOCS_PATHS = {
   optionalGraphPermissions: "/reference/optional-graph-permissions",
   // Progress Portal access hint (members without a role)
   progressPortalOnly: "/troubleshooting-and-support/progress-portal-only",
+  // Dashboard welcome card (tenant without sessions)
+  portalSetup: "/getting-started/portal-setup",
+  deployTheAgent: "/getting-started/deploy-the-agent",
 } as const;
 
 /** Top-level URL segments GitBook publishes for docs.autopilotmonitor.com (SUMMARY.md groups + root pages). */

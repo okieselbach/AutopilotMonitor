@@ -4,6 +4,8 @@ import { useState } from "react";
 import { BOOTSTRAP_GO_URL } from "@/lib/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { useCopy } from "@/hooks/useCopy";
+import { trackEvent } from "@/lib/appInsights";
 
 // Display-only: the authoritative URL comes from the backend's bootstrapUrl
 // (Constants.BootstrapGoBaseUrl); this host renders the sessions list rows.
@@ -49,8 +51,7 @@ export default function BootstrapSessionsSection({
   const [label, setLabel] = useState("");
   const [creating, setCreating] = useState(false);
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copiedCommand, setCopiedCommand] = useState(false);
+  const { copied, copy } = useCopy();
   const [revoking, setRevoking] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
@@ -78,15 +79,10 @@ export default function BootstrapSessionsSection({
     }
   };
 
-  const copyToClipboard = async (text: string, type: "url" | "command") => {
-    await navigator.clipboard.writeText(text);
-    if (type === "url") {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } else {
-      setCopiedCommand(true);
-      setTimeout(() => setCopiedCommand(false), 1400);
-    }
+  // Copying the code is the step between creating it and the first OOBE enrollment.
+  const copyCreated = (value: string, kind: "command" | "url") => {
+    trackEvent("bootstrap_session_copied", { kind });
+    void copy(value, kind);
   };
 
   const getStatusBadge = (session: BootstrapSessionItem) => {
@@ -190,14 +186,14 @@ export default function BootstrapSessionsSection({
                       </code>
                       <button
                         onClick={() =>
-                          copyToClipboard(`irm ${createdUrl} | iex`, "command")
+                          copyCreated(`irm ${createdUrl} | iex`, "command")
                         }
                         className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors"
                         title={
-                          copiedCommand ? "Copied!" : "Copy command"
+                          copied === "command" ? "Copied!" : "Copy command"
                         }
                       >
-                        {copiedCommand ? (
+                        {copied === "command" ? (
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
@@ -216,11 +212,11 @@ export default function BootstrapSessionsSection({
                         {createdUrl}
                       </code>
                       <button
-                        onClick={() => copyToClipboard(createdUrl, "url")}
+                        onClick={() => copyCreated(createdUrl, "url")}
                         className="p-1.5 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors"
-                        title={copied ? "Copied!" : "Copy URL"}
+                        title={copied === "url" ? "Copied!" : "Copy URL"}
                       >
-                        {copied ? (
+                        {copied === "url" ? (
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>

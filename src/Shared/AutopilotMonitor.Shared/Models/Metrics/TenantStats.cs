@@ -14,6 +14,9 @@ namespace AutopilotMonitor.Shared.Models
     /// </summary>
     public class TenantStats
     {
+        /// <summary>Tenant of the row (its PartitionKey); filled on read, never stored as a column.</summary>
+        public string TenantId { get; set; } = string.Empty;
+
         /// <summary>Total enrollment sessions registered by this tenant since signup</summary>
         public long TotalEnrollments { get; set; }
 

@@ -112,6 +112,7 @@ import type {
   GetSessionTimeAttributionResponse,
   GetTenantConfigFieldsSchemaResponse,
   GetUnmatchedSoftwareResponse,
+  GrowthMetricsResponse,
   ListRawTablesResponse,
   ListTenantConfigBackupsResponse,
   LogQueryRequest,
@@ -1070,6 +1071,39 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
+  // Tool: get_growth_metrics — platform scope (GA + Global Reader). Operator growth figures: signups,
+  // their activation and the activity of every tenant — never a customer surface.
+  if (ga) server.registerTool(
+    'get_growth_metrics',
+    {
+      title: 'Growth Metrics',
+      description:
+        'Signups of the last N UTC days and whether they started using the product. A signup is a configuration ' +
+        'row with a domain, dated by its insert time (net of offboarding; before `exactSignupTimesFrom` the date is ' +
+        'the approval). Returns totals against the previous window, day buckets, peak days and hour/weekday counts; ' +
+        'per signup week enrolled, succeeded, median UTC days to the first day with sessions and active in 7 days; ' +
+        'segments of all tenants (never enrolled, active in 7/30 days, dormant) and plan counts.',
+      inputSchema: {
+        days: z.coerce.number().int().min(1).max(365).optional()
+          .describe(daysDescription(30, 365)),
+        timeZone: z.string().max(64).optional()
+          .describe('IANA zone of the hour/weekday counts, e.g. "Europe/Berlin"; default UTC.'),
+        includeTenants: z.boolean().optional()
+          .describe('Add one row per signup (ids and dates, no domain) for joins by tenant id.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_growth_metrics', args, async () => {
+      try {
+        const { days, timeZone, includeTenants } = args;
+        const data = await apiFetch<GrowthMetricsResponse>(`/api/global/metrics/growth${buildQuery({ days, timeZone, includeTenants })}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_growth_metrics', args, error);
+      }
+    })
+  );
+
   // Tool 18: list_session_reports — Global Admin only; not registered for normal users.
   if (ga) server.registerTool(
     'list_session_reports',
@@ -1643,15 +1677,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Query any Azure Table Storage table directly with OData filters. Table names come from list_tables — a guessed ' +
         'name is a NotFound, not an empty result. Useful for TenantConfiguration, RuleResults, or any raw data where no ' +
         'specialized tool exists. Full TableEntity rows can be 1 KB+ each, so pass a lean `fields=` keep-list for ' +
-        'counting (dropped client-side after fetch).',
+        'counting; a follow-up page keeps it.',
       inputSchema: {
         tableName: z.string().describe('Table name (e.g. "Sessions", "Events", "RuleResults", "TenantConfiguration")'),
         partitionKey: z.string().optional().describe('Filter by exact partition key (usually TenantId)'),
         rowKeyPrefix: z.string().optional().describe('Filter by row key prefix'),
         filter: z.string().optional().describe('OData filter expression (e.g. "Status eq \'Failed\'")'),
         fields: z.string().optional()
-          .describe('Comma-separated column names to keep (e.g. "PartitionKey,RowKey,Status"); other columns are dropped ' +
-                    'client-side. PartitionKey and RowKey are always kept.'),
+          .describe('Comma-separated column names to keep (e.g. "PartitionKey,RowKey,Status", case-insensitive); other ' +
+                    'columns are dropped server-side. PartitionKey and RowKey are always kept.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: ContinuationSchema.optional()
@@ -1664,29 +1698,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { tableName, partitionKey, rowKeyPrefix, filter, fields, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const basePath = `/api/global/raw/tables/${encodeURIComponent(tableName)}`;
+        // The backend projects fields= and echoes it in its nextLink, so a continuation keeps the
+        // projection unless this call passes a new one.
         const path = followNextLink(
           basePath,
-          { partitionKey, rowKeyPrefix, filter, pageSize },
+          { partitionKey, rowKeyPrefix, filter, fields, pageSize },
           continuation,
-          { pageSize },
+          { pageSize, fields },
         );
         const data = await apiFetch<QueryRawTableResponse>(path);
-
-        // Client-side projection — TableEntity columns are dynamic so the backend
-        // can't help. Always retain PartitionKey + RowKey (cursor stability +
-        // identity) and add Timestamp by default since it's universally useful.
-        if (fields && Array.isArray(data?.entities)) {
-          const fieldSet = new Set(
-            fields.split(',').map((f) => f.trim()).filter(Boolean).concat(['PartitionKey', 'RowKey']),
-          );
-          data.entities = data.entities.map((row) => {
-            const projected: Record<string, unknown> = {};
-            for (const key of Object.keys(row)) {
-              if (fieldSet.has(key)) projected[key] = row[key];
-            }
-            return projected;
-          });
-        }
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.rawTable);
       } catch (error: unknown) {
         return toolError('query_table', args, error);

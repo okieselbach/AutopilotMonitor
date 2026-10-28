@@ -152,6 +152,40 @@ describe('query_table — OData filter forwarded verbatim and URL-safely encoded
   });
 });
 
+// ── query_table: the fields= projection rides along with the nextLink ───────
+describe('query_table — fields projection is forwarded and kept across pages', () => {
+  it('sends fields to the backend on the first page', async () => {
+    const handler = gaHandler('query_table');
+    const { calls } = stubFetchCapture();
+
+    await runWithCaller(GA, () => handler({ tableName: 'Sessions', fields: 'Status,StartedAt' }, extra));
+
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0].url, 'https://base.invalid').searchParams.get('fields')).toBe('Status,StartedAt');
+  });
+
+  it('keeps the projection the backend echoed in its nextLink', async () => {
+    const handler = gaHandler('query_table');
+    const { calls } = stubFetchCapture();
+    const ownLink = '/api/global/raw/tables/Sessions?pageSize=200&continuation=abc&fields=Status%2CStartedAt';
+
+    await runWithCaller(GA, () => handler({ tableName: 'Sessions', continuation: ownLink }, extra));
+
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0].url, 'https://base.invalid').searchParams.get('fields')).toBe('Status,StartedAt');
+  });
+
+  it('lets a follow-up call replace the projection', async () => {
+    const handler = gaHandler('query_table');
+    const { calls } = stubFetchCapture();
+    const ownLink = '/api/global/raw/tables/Sessions?pageSize=200&continuation=abc&fields=Status';
+
+    await runWithCaller(GA, () => handler({ tableName: 'Sessions', continuation: ownLink, fields: 'DeviceName' }, extra));
+
+    expect(new URL(calls[0].url, 'https://base.invalid').searchParams.get('fields')).toBe('DeviceName');
+  });
+});
+
 // ── query_backend_logs: KQL forwarded verbatim over POST ────────────────────
 describe('query_backend_logs — KQL forwarded verbatim in POST body (backend is the gate)', () => {
   const queries: Array<[label: string, query: string]> = [
