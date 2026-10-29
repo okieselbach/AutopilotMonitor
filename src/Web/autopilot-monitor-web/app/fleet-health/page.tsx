@@ -507,7 +507,7 @@ function FleetHealthContent() {
                           </span>
                         </div>
                         <div className="text-xs text-gray-400">
-                          {m.count} enrollments
+                          {`${m.count} ${m.count === 1 ? "enrollment" : "enrollments"}`}
                         </div>
                       </div>
                     </div>
@@ -629,7 +629,7 @@ function FleetHealthContent() {
                               />
                             </div>
                             <span className="text-xs text-gray-400 flex-shrink-0">
-                              max {maxLabel} | {app.succeeded} installs
+                              {`max ${maxLabel} | ${app.succeeded} ${app.succeeded === 1 ? "install" : "installs"}`}
                             </span>
                           </div>
                         </div>
@@ -732,7 +732,7 @@ function FleetHealthContent() {
                       <div className="flex items-baseline justify-between mb-1">
                         <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.label}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
-                          {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} enrollments)</span>
+                          {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">{`(${m.total} ${m.total === 1 ? "enrollment" : "enrollments"})`}</span>
                         </span>
                       </div>
                       <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
