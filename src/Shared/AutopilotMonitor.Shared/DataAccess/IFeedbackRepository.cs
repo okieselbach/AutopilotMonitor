@@ -18,9 +18,13 @@ namespace AutopilotMonitor.Shared.DataAccess
     ///   <item><c>PK="Offboarding"</c>, <c>RK=historyRowKey</c> — free-form "what could we
     ///   improve" comment captured during the offboarding drain-barrier countdown. One row
     ///   per offboarding attempt (matches the <c>OffboardingHistory</c> row).</item>
-    ///   <item><c>PK="General"</c>, <c>RK={invertedTicks}_{id}</c> — free-text feedback sent
+    ///   <item><c>PK="General"</c>, <c>RK={invertedTicks}_{FeedbackId}</c> — free-text feedback sent
     ///   from the portal's help menu. One row per submission, newest first; never replaced.</item>
     /// </list>
+    /// <para>
+    /// Every row carries a <see cref="FeedbackEntry.FeedbackId"/>, minted by the repository when the row is first
+    /// written and kept by every later write of that row (the In-App and Offboarding rows are rewritten whole).
+    /// </para>
     /// </summary>
     public interface IFeedbackRepository
     {
@@ -32,7 +36,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>
         /// Applies one answer to the person's row: reads it, lets <paramref name="decide"/> compute the new row
         /// (null = nothing changes) and writes it only if nobody wrote in between; a conflict decides again on what
-        /// was stored. Returns the written row, or null when nothing was written.
+        /// was stored. Returns the written row with its <see cref="FeedbackEntry.FeedbackId"/>, or null when nothing
+        /// was written.
         /// </summary>
         Task<FeedbackEntry?> UpdateInAppFeedbackAsync(string upn, Func<FeedbackEntry?, FeedbackEntry?> decide);
 
@@ -41,14 +46,17 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Returns the offboarding feedback for the given history-row-key, or null if none submitted.</summary>
         Task<FeedbackEntry?> GetOffboardingFeedbackAsync(string historyRowKey);
 
-        /// <summary>Upserts the offboarding feedback entry. Sets <see cref="FeedbackEntry.Type"/> to <c>"Offboarding"</c>.</summary>
+        /// <summary>
+        /// Upserts the offboarding feedback entry. Sets <see cref="FeedbackEntry.Type"/> to <c>"Offboarding"</c> and
+        /// <see cref="FeedbackEntry.FeedbackId"/> to the stored row's id, or a new one.
+        /// </summary>
         Task SaveOffboardingFeedbackAsync(FeedbackEntry entry);
 
         // ── General feedback (free text, one row per submission) ────────────────
 
         /// <summary>
         /// Inserts one general-feedback submission. Sets <see cref="FeedbackEntry.Type"/> to <c>"General"</c>
-        /// and stamps <see cref="FeedbackEntry.FeedbackId"/> (the RowKey) from <see cref="FeedbackEntry.InteractedAt"/>.
+        /// and mints <see cref="FeedbackEntry.FeedbackId"/>, which ends the RowKey.
         /// </summary>
         Task SaveGeneralFeedbackAsync(FeedbackEntry entry);
 
@@ -75,6 +83,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string? Comment { get; set; }
         public DateTime? InteractedAt { get; set; }
 
+        /// <summary>
+        /// The entry's reference: 12 lowercase hex characters, the same shape as a session report id. Minted once per
+        /// row and stored in the <c>FeedbackId</c> column of every kind. Null only on a row that has none yet.
+        /// </summary>
+        public string? FeedbackId { get; set; }
+
         // ── In-App-only ─────────────────────────────────────────────────────────
         public int? Rating { get; set; }
         public bool Dismissed { get; set; }
@@ -92,9 +106,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string? DomainName { get; set; }
 
         // ── General-only ────────────────────────────────────────────────────────
-
-        /// <summary>RowKey of a general-feedback row (<c>{invertedTicks}_{id}</c>). Only set for <c>Type="General"</c>.</summary>
-        public string? FeedbackId { get; set; }
 
         /// <summary>Optional reply address the sender entered. Only set for <c>Type="General"</c>.</summary>
         public string? ContactEmail { get; set; }

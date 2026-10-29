@@ -61,6 +61,7 @@ public class TableFeedbackRepositoryTests
         Assert.False(fetched.Dismissed);
         Assert.True(fetched.Submitted);
         Assert.Equal(entry.InteractedAt, fetched.InteractedAt);
+        Assert.Matches(IdShape, fetched.FeedbackId!);
     }
 
     [Fact]
@@ -143,6 +144,7 @@ public class TableFeedbackRepositoryTests
         Assert.Equal("contoso.invalid", fetched.DomainName);
         Assert.Equal("Pricing was too high for our use case.", fetched.Comment);
         Assert.Equal(entry.InteractedAt, fetched.InteractedAt);
+        Assert.Matches(IdShape, fetched.FeedbackId!);
     }
 
     [Fact]
@@ -327,6 +329,117 @@ public class TableFeedbackRepositoryTests
     private static async Task SaveInApp(Harness harness, FeedbackEntry entry)
         => await harness.Sut.UpdateInAppFeedbackAsync(entry.Upn, _ => entry);
 
+    // ── FeedbackId: minted once per row, kept by every later write ───────────
+
+    private const string IdShape = "^[0-9a-f]{12}$";
+
+    [Fact]
+    public async Task InApp_SecondAnswer_KeepsTheIdOfTheFirst()
+    {
+        // The row is rewritten whole on every answer; the id must survive the Replace.
+        var harness = new Harness();
+        var first = await harness.Sut.UpdateInAppFeedbackAsync(Upn, _ => new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 1,
+            InteractedAt = DateTime.UtcNow.AddDays(-61),
+        });
+        var second = await harness.Sut.UpdateInAppFeedbackAsync(Upn, _ => new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Rating = 4, Submitted = true, DismissCount = 1,
+            InteractedAt = DateTime.UtcNow,
+        });
+
+        Assert.Matches(IdShape, first!.FeedbackId!);
+        Assert.Equal(first.FeedbackId, second!.FeedbackId);
+        Assert.Equal(first.FeedbackId, (await harness.Sut.GetInAppFeedbackAsync(Upn))!.FeedbackId);
+        Assert.Equal(first.FeedbackId, harness.SingleRow("InApp").GetString("FeedbackId"));
+    }
+
+    [Fact]
+    public async Task InApp_RowWithoutId_GetsOneOnItsNextWrite()
+    {
+        var harness = new Harness();
+        harness.Seed(new TableEntity("InApp", Upn)
+        {
+            ["TenantId"] = TenantId, ["DisplayName"] = "Alice", ["Dismissed"] = true, ["Submitted"] = false,
+            ["DismissCount"] = 1, ["InteractedAt"] = DateTime.UtcNow.AddDays(-61),
+        });
+        Assert.Null((await harness.Sut.GetInAppFeedbackAsync(Upn))!.FeedbackId);
+
+        var written = await harness.Sut.UpdateInAppFeedbackAsync(Upn, current => new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = current!.DismissCount + 1,
+            InteractedAt = DateTime.UtcNow,
+        });
+
+        Assert.Matches(IdShape, written!.FeedbackId!);
+        Assert.Equal(written.FeedbackId, harness.SingleRow("InApp").GetString("FeedbackId"));
+    }
+
+    [Fact]
+    public async Task InApp_IdFromTheCaller_IsIgnored()
+    {
+        // The repository owns the id: a decision that carries one cannot replace the stored id.
+        var harness = new Harness();
+        var first = await harness.Sut.UpdateInAppFeedbackAsync(Upn, _ => new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 1,
+            InteractedAt = DateTime.UtcNow,
+        });
+        var second = await harness.Sut.UpdateInAppFeedbackAsync(Upn, _ => new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Dismissed = true, DismissCount = 2,
+            InteractedAt = DateTime.UtcNow, FeedbackId = "ffffffffffff",
+        });
+
+        Assert.Equal(first!.FeedbackId, second!.FeedbackId);
+    }
+
+    [Fact]
+    public async Task Offboarding_SecondComment_KeepsTheIdOfTheFirst()
+    {
+        var harness = new Harness();
+        FeedbackEntry Comment(string text) => new()
+        {
+            HistoryRowKey = HistoryRowKey, TenantId = TenantId, Upn = Upn, DisplayName = "Alice", Comment = text,
+            InteractedAt = DateTime.UtcNow,
+        };
+        var first = Comment("Too expensive.");
+        await harness.Sut.SaveOffboardingFeedbackAsync(first);
+        var second = Comment("Too expensive for our size.");
+        await harness.Sut.SaveOffboardingFeedbackAsync(second);
+
+        Assert.Matches(IdShape, first.FeedbackId!);
+        Assert.Equal(first.FeedbackId, second.FeedbackId);
+        var stored = await harness.Sut.GetOffboardingFeedbackAsync(HistoryRowKey);
+        Assert.Equal("Too expensive for our size.", stored!.Comment);
+        Assert.Equal(first.FeedbackId, stored.FeedbackId);
+    }
+
+    [Fact]
+    public async Task GetAll_EveryKind_CarriesItsOwnId()
+    {
+        var harness = new Harness();
+        await SaveInApp(harness, new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Rating = 5, Submitted = true, InteractedAt = DateTime.UtcNow,
+        });
+        await harness.Sut.SaveOffboardingFeedbackAsync(new FeedbackEntry
+        {
+            HistoryRowKey = HistoryRowKey, TenantId = TenantId, Upn = Upn, Comment = "x", InteractedAt = DateTime.UtcNow,
+        });
+        await harness.Sut.SaveGeneralFeedbackAsync(new FeedbackEntry
+        {
+            Upn = Upn, TenantId = TenantId, DisplayName = "Alice", Comment = "y", InteractedAt = DateTime.UtcNow,
+        });
+
+        var all = await harness.Sut.GetAllAsync();
+
+        Assert.Equal(3, all.Count);
+        Assert.All(all, e => Assert.Matches(IdShape, e.FeedbackId!));
+        Assert.Equal(3, all.Select(e => e.FeedbackId).Distinct().Count());
+    }
+
     // ── General (help-menu feedback) ────────────────────────────────────────
 
     [Fact]
@@ -350,8 +463,8 @@ public class TableFeedbackRepositoryTests
         var fetched = Assert.Single(await harness.Sut.GetAllAsync());
         Assert.Equal(FeedbackEntryType.General, fetched.Type);
         Assert.Equal(entry.FeedbackId, fetched.FeedbackId);
-        Assert.Matches("^[0-9]{19}_[0-9a-f]{12}$", fetched.FeedbackId!);
-        Assert.StartsWith((DateTime.MaxValue.Ticks - at.Ticks).ToString("D19"), fetched.FeedbackId!);
+        Assert.Matches(IdShape, fetched.FeedbackId!);
+        Assert.Equal($"{DateTime.MaxValue.Ticks - at.Ticks:D19}_{fetched.FeedbackId}", harness.SingleRow("General").RowKey);
         Assert.Equal("alice@contoso.invalid", fetched.Upn);
         Assert.Equal(TenantId, fetched.TenantId);
         Assert.Equal("Alice (Contoso)", fetched.DisplayName);
@@ -429,6 +542,9 @@ public class TableFeedbackRepositoryTests
 
         /// <summary>Runs once just before the next Add/Update — a concurrent writer between read and write.</summary>
         public Action? BeforeNextWrite { get; set; }
+
+        /// <summary>The one stored row of a partition.</summary>
+        public TableEntity SingleRow(string partitionKey) => _store.Values.Single(e => e.PartitionKey == partitionKey);
 
         /// <summary>Stores a row as another writer would (fresh ETag).</summary>
         public void Seed(TableEntity entity)

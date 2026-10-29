@@ -9721,7 +9721,7 @@
             "name": "string"
           },
           "optional": true,
-          "doc": "Row id of a general-feedback entry; absent on the other kinds."
+          "doc": "The entry's 12-character reference (lowercase hex) on every kind; absent only on a row that has none yet."
         },
         {
           "name": "contactEmail",

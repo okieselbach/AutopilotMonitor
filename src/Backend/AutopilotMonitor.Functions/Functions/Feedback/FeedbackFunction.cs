@@ -185,7 +185,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
 
             // Only a rating that was actually recorded is announced — at most once per person.
             if (stored is { Submitted: true } && stored.Rating is int rating)
-                await AnnounceRatingAsync(tenantId, upn, displayName, rating, comment);
+                await AnnounceRatingAsync(tenantId, upn, displayName, stored.FeedbackId!, rating, comment);
 
             _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
                 stored == null ? "unchanged" : body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
@@ -198,7 +198,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         /// them. The ops event carries the stars and the comment length only, so an alert channel
         /// receives no personal data; the Telegram ping keeps sender and comment until it is retired.
         /// </summary>
-        private async Task AnnounceRatingAsync(string tenantId, string upn, string displayName, int rating, string? comment)
+        private async Task AnnounceRatingAsync(
+            string tenantId, string upn, string displayName, string feedbackId, int rating, string? comment)
         {
             _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
 
@@ -211,7 +212,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             try
             {
                 await _opsEvents.RecordFeedbackRatingReceivedAsync(
-                    normalizedTenantId, upn, domainName, rating, comment?.Length ?? 0);
+                    normalizedTenantId, upn, domainName, feedbackId, rating, comment?.Length ?? 0);
             }
             catch (Exception ex)
             {
@@ -220,7 +221,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
 
             _ = _globalNotifications.CreateNotificationAsync(
                 "feedback", "New Rating", $"{upn} ({domainName ?? normalizedTenantId}) · {rating}/5",
-                href: Constants.PortalUserFeedbackPath);
+                href: Constants.PortalUserFeedbackEntryPath(feedbackId));
         }
 
         /// <summary>

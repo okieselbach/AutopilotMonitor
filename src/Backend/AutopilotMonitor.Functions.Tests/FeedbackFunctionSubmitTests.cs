@@ -30,6 +30,8 @@ public sealed class FeedbackFunctionSubmitTests
     private const string DisplayName = "Alice (Contoso)";
     private const string Comment = "The timeline filter could remember my last choice.";
     private static readonly DateTime Now = new(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc);
+    private const string FeedbackId = "0123456789ab";
+    private static readonly string EntryPath = Constants.PortalUserFeedbackEntryPath(FeedbackId);
 
     [Fact]
     public async Task Rating_IsStored_RaisesTheEvent_RingsTheBell_AndPings()
@@ -57,10 +59,11 @@ public sealed class FeedbackFunctionSubmitTests
         Assert.Equal(4, details.RootElement.GetProperty("rating").GetInt32());
         Assert.Equal(Comment.Length, details.RootElement.GetProperty("commentLength").GetInt32());
         Assert.Equal("contoso.invalid", details.RootElement.GetProperty("domainName").GetString());
-        Assert.Equal(Constants.PortalUserFeedbackPath, details.RootElement.GetProperty("portalPath").GetString());
+        Assert.Equal(FeedbackId, details.RootElement.GetProperty("feedbackId").GetString());
+        Assert.Equal("/admin/reports/user-feedback?feedbackId=0123456789ab", details.RootElement.GetProperty("portalPath").GetString());
 
         h.Bell.Verify(b => b.CreateNotificationAsync(
-            "feedback", "New Rating", $"{Upn} (contoso.invalid) · 4/5", Constants.PortalUserFeedbackPath), Times.Once);
+            "feedback", "New Rating", $"{Upn} (contoso.invalid) · 4/5", EntryPath), Times.Once);
         h.Telegram.Verify(t => t.SendFeedbackAsync(TenantId, Upn, DisplayName, 4, Comment), Times.Once);
     }
 
@@ -142,7 +145,7 @@ public sealed class FeedbackFunctionSubmitTests
         using var details = JsonDocument.Parse(ops.Details!);
         Assert.Equal(0, details.RootElement.GetProperty("commentLength").GetInt32());
         h.Bell.Verify(b => b.CreateNotificationAsync(
-            "feedback", "New Rating", $"{Upn} ({NormalizedTenantId}) · 5/5", Constants.PortalUserFeedbackPath), Times.Once);
+            "feedback", "New Rating", $"{Upn} ({NormalizedTenantId}) · 5/5", EntryPath), Times.Once);
     }
 
     [Fact]
@@ -156,7 +159,7 @@ public sealed class FeedbackFunctionSubmitTests
         Assert.Single(h.Repo.Written);
         Assert.Empty(h.OpsEvents);
         h.Bell.Verify(b => b.CreateNotificationAsync(
-            "feedback", "New Rating", It.IsAny<string>(), Constants.PortalUserFeedbackPath), Times.Once);
+            "feedback", "New Rating", It.IsAny<string>(), EntryPath), Times.Once);
         h.Telegram.Verify(t => t.SendFeedbackAsync(TenantId, Upn, DisplayName, 3, Comment), Times.Once);
     }
 
@@ -247,7 +250,10 @@ public sealed class FeedbackFunctionSubmitTests
         }
     }
 
-    /// <summary>In-memory feedback repo holding one person's bubble row; only the in-app members are expected.</summary>
+    /// <summary>
+    /// In-memory feedback repo holding one person's bubble row; only the in-app members are expected. Like the table
+    /// repository it keeps the stored row's id and mints <see cref="FeedbackId"/> for a new row.
+    /// </summary>
     private sealed class FakeFeedbackRepository : IFeedbackRepository
     {
         private FeedbackEntry? _current;
@@ -264,6 +270,7 @@ public sealed class FeedbackFunctionSubmitTests
             if (next != null)
             {
                 next.Type = FeedbackEntryType.InApp;
+                next.FeedbackId = _current?.FeedbackId ?? FeedbackId;
                 _current = next;
                 Written.Add(next);
             }

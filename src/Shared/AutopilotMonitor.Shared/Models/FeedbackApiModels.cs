@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Shared.Models
         public string? InteractedAt { get; set; }
         public string? HistoryRowKey { get; set; }
         public string? DomainName { get; set; }
-        /// <summary>Row id of a general-feedback entry; absent on the other kinds.</summary>
+        /// <summary>The entry's 12-character reference (lowercase hex) on every kind; absent only on a row that has none yet.</summary>
         public string? FeedbackId { get; set; }
         /// <summary>Reply address a general-feedback sender entered; absent when none was given.</summary>
         public string? ContactEmail { get; set; }

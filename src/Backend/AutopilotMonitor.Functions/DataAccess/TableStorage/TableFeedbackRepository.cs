@@ -68,6 +68,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
                 next.Type = FeedbackEntryType.InApp;
                 next.Upn = rowKey;
+                next.FeedbackId = stored?.GetString("FeedbackId") ?? NewFeedbackId();
                 try
                 {
                     // Conditional on what was read: two tabs answering at once must not let a dismissal
@@ -117,6 +118,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     "HistoryRowKey required for offboarding feedback", nameof(entry));
             try
             {
+                // A second comment in the same offboarding replaces the row and keeps its id.
+                entry.FeedbackId = (await GetOffboardingFeedbackAsync(entry.HistoryRowKey))?.FeedbackId ?? NewFeedbackId();
                 await _tableClient.UpsertEntityAsync(StoreOffboarding(entry), TableUpdateMode.Replace);
             }
             catch (Exception ex)
@@ -134,7 +137,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             entry.Type = FeedbackEntryType.General;
             entry.InteractedAt ??= DateTime.UtcNow;
             entry.Upn = entry.Upn.ToLowerInvariant();
-            entry.FeedbackId = $"{RowKeyCodec.InvertedTicks(entry.InteractedAt.Value)}_{Guid.NewGuid().ToString("N")[..12]}";
+            entry.FeedbackId = NewFeedbackId();
             try
             {
                 // Insert, never upsert: every submission is its own row.
@@ -209,6 +212,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["Submitted"] = e.Submitted,
                 ["DismissCount"] = e.DismissCount,
                 ["InteractedAt"] = e.InteractedAt,
+                ["FeedbackId"] = e.FeedbackId,
             };
 
         private static FeedbackEntry MapInApp(TableEntity e)
@@ -228,6 +232,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // Rows from before the count existed: one recorded dismissal at most.
                 DismissCount = e.GetInt32("DismissCount") ?? (dismissed && !submitted ? 1 : 0),
                 InteractedAt = e.GetDateTime("InteractedAt"),
+                FeedbackId = e.GetString("FeedbackId"),
             };
         }
 
@@ -240,6 +245,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["DomainName"] = e.DomainName,
                 ["Comment"] = e.Comment,
                 ["InteractedAt"] = e.InteractedAt,
+                ["FeedbackId"] = e.FeedbackId,
             };
 
         private static FeedbackEntry MapOffboarding(TableEntity e) => new()
@@ -252,10 +258,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             DomainName = e.GetString("DomainName"),
             Comment = e.GetString("Comment"),
             InteractedAt = e.GetDateTime("InteractedAt"),
+            FeedbackId = e.GetString("FeedbackId"),
         };
 
         private static TableEntity StoreGeneral(FeedbackEntry e) =>
-            new(FeedbackEntryType.General, e.FeedbackId!)
+            new(FeedbackEntryType.General, $"{RowKeyCodec.InvertedTicks(e.InteractedAt!.Value)}_{e.FeedbackId}")
             {
                 ["TenantId"] = e.TenantId,
                 ["Upn"] = e.Upn,
@@ -264,12 +271,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["Comment"] = e.Comment,
                 ["ContactEmail"] = e.ContactEmail,
                 ["InteractedAt"] = e.InteractedAt,
+                ["FeedbackId"] = e.FeedbackId,
             };
 
         private static FeedbackEntry MapGeneral(TableEntity e) => new()
         {
             Type = FeedbackEntryType.General,
-            FeedbackId = e.RowKey,
+            FeedbackId = e.GetString("FeedbackId"),
             TenantId = e.GetString("TenantId") ?? string.Empty,
             Upn = e.GetString("Upn") ?? string.Empty,
             DisplayName = e.GetString("DisplayName") ?? string.Empty,
@@ -289,6 +297,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             TenantId = e.GetString("TenantId") ?? string.Empty,
             Comment = e.GetString("Comment"),
             InteractedAt = e.GetDateTime("InteractedAt"),
+            FeedbackId = e.GetString("FeedbackId"),
         };
+
+        // Same shape as a session report id. Minted once per row; every later write of the row keeps it.
+        private static string NewFeedbackId() => Guid.NewGuid().ToString("N")[..12];
     }
 }

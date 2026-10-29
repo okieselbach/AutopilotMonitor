@@ -551,7 +551,7 @@ public class TypedContractCompletionWireParityTests
                         interactedAt = (string?)"2026-08-30T10:00:00.0000000Z",
                         historyRowKey = (string?)null, // in-app entry → key vanishes
                         domainName = (string?)null,
-                        feedbackId = (string?)null,
+                        feedbackId = (string?)"a1b2c3d4e5f6", // every kind carries its id
                         contactEmail = (string?)null,
                         dismissCount = (int?)1,
                     },
@@ -568,7 +568,7 @@ public class TypedContractCompletionWireParityTests
                         interactedAt = (string?)"2026-10-05T09:30:00.0000000Z",
                         historyRowKey = (string?)null,
                         domainName = (string?)"fabrikam.invalid",
-                        feedbackId = (string?)"2516114433936827287_0123456789ab",
+                        feedbackId = (string?)"0123456789ab",
                         contactEmail = (string?)"bob.support@fabrikam.invalid",
                         dismissCount = (int?)null, // general entry → no count
                     },
@@ -591,6 +591,7 @@ public class TypedContractCompletionWireParityTests
                         InteractedAt = "2026-08-30T10:00:00.0000000Z",
                         HistoryRowKey = null,
                         DomainName = null,
+                        FeedbackId = "a1b2c3d4e5f6",
                         DismissCount = 1,
                     },
                     new FeedbackEntryWire
@@ -605,7 +606,7 @@ public class TypedContractCompletionWireParityTests
                         Submitted = false,
                         InteractedAt = "2026-10-05T09:30:00.0000000Z",
                         DomainName = "fabrikam.invalid",
-                        FeedbackId = "2516114433936827287_0123456789ab",
+                        FeedbackId = "0123456789ab",
                         ContactEmail = "bob.support@fabrikam.invalid",
                     },
                 },

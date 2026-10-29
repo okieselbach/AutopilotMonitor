@@ -654,7 +654,7 @@ namespace AutopilotMonitor.Functions.Services
         /// of signal product wants to be notified about so feedback gets read promptly.
         /// </summary>
         public Task RecordOffboardingFeedbackReceivedAsync(
-            string tenantId, string submittedBy, string? domainName, string historyRowKey)
+            string tenantId, string submittedBy, string? domainName, string historyRowKey, string feedbackId)
         {
             var tenantLabel = TenantLabel(tenantId, domainName);
 
@@ -662,6 +662,8 @@ namespace AutopilotMonitor.Functions.Services
             {
                 ["domainName"] = domainName,
                 ["historyRowKey"] = historyRowKey,
+                ["feedbackId"] = feedbackId,
+                ["portalPath"] = Constants.PortalUserFeedbackEntryPath(feedbackId),
             };
 
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.OffboardingFeedbackReceived, OpsEventSeverity.Info,
@@ -686,7 +688,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["feedbackId"] = feedbackId,
                 ["length"] = length,
                 ["hasContactEmail"] = hasContactEmail,
-                ["portalPath"] = Constants.PortalUserFeedbackPath,
+                ["portalPath"] = Constants.PortalUserFeedbackEntryPath(feedbackId),
             };
 
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FeedbackReceived, OpsEventSeverity.Info,
@@ -697,18 +699,19 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Fired when a member rates the portal in the feedback bubble — at most once per person, never
         /// for a dismissal. Info. Like <see cref="RecordFeedbackReceivedAsync"/>, message and details carry
-        /// neither the comment nor the sender: only the stars and the comment length; the comment is read
-        /// in the portal (User Feedback).
+        /// neither the comment nor the sender: only the entry's id, the stars and the comment length; the comment
+        /// is read in the portal (User Feedback).
         /// </summary>
         public Task RecordFeedbackRatingReceivedAsync(
-            string tenantId, string submittedBy, string? domainName, int rating, int commentLength)
+            string tenantId, string submittedBy, string? domainName, string feedbackId, int rating, int commentLength)
         {
             var details = new Dictionary<string, object?>
             {
                 ["domainName"] = domainName,
+                ["feedbackId"] = feedbackId,
                 ["rating"] = rating,
                 ["commentLength"] = commentLength,
-                ["portalPath"] = Constants.PortalUserFeedbackPath,
+                ["portalPath"] = Constants.PortalUserFeedbackEntryPath(feedbackId),
             };
 
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FeedbackRatingReceived, OpsEventSeverity.Info,

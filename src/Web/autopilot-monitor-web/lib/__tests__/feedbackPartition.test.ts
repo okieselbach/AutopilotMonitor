@@ -3,6 +3,7 @@ import {
   partitionFeedback,
   paginate,
   avgRating,
+  locateFeedback,
   type FeedbackEntryLike,
 } from "../feedbackPartition";
 
@@ -50,11 +51,32 @@ function mkGeneral(overrides: Partial<FeedbackEntryLike> = {}): FeedbackEntryLik
     interactedAt: "2026-10-05T09:30:00Z",
     historyRowKey: null,
     domainName: "contoso.invalid",
-    feedbackId: "2516114433936827287_0123456789ab",
+    feedbackId: "0123456789ab",
     contactEmail: "dave.support@contoso.invalid",
     ...overrides,
   };
 }
+
+describe("locateFeedback", () => {
+  const ratings = Array.from({ length: 7 }, (_, i) => mkInApp({ upn: `user${i}@contoso.invalid`, feedbackId: `aaaaaaaaaa${i}0` }));
+  const mixed = [mkGeneral(), ...ratings, mkOffb({ feedbackId: "bbbbbbbbbbbb" })];
+
+  it("finds the tab and the page of the entry within its own tab", () => {
+    expect(locateFeedback(mixed, "0123456789ab", 5)).toEqual({ tab: "General", page: 0 });
+    expect(locateFeedback(mixed, "aaaaaaaaaa40", 5)).toEqual({ tab: "InApp", page: 0 });
+    expect(locateFeedback(mixed, "aaaaaaaaaa50", 5)).toEqual({ tab: "InApp", page: 1 });
+    expect(locateFeedback(mixed, "bbbbbbbbbbbb", 5)).toEqual({ tab: "Offboarding", page: 0 });
+  });
+
+  it("returns null for an unknown id and for an entry of an unknown kind", () => {
+    expect(locateFeedback(mixed, "ffffffffffff", 5)).toBeNull();
+    expect(locateFeedback([{ ...mkInApp({ feedbackId: "cccccccccccc" }), type: "FutureKind" }], "cccccccccccc", 5)).toBeNull();
+  });
+
+  it("never matches entries that carry no id", () => {
+    expect(locateFeedback([mkInApp()], "", 5)).toBeNull();
+  });
+});
 
 describe("partitionFeedback", () => {
   it("splits mixed list by type discriminator", () => {
@@ -65,7 +87,7 @@ describe("partitionFeedback", () => {
       mkInApp({ upn: "carol@contoso.invalid" }),
     ]);
     expect(general).toHaveLength(1);
-    expect(general[0].feedbackId).toBe("2516114433936827287_0123456789ab");
+    expect(general[0].feedbackId).toBe("0123456789ab");
     expect(inApp).toHaveLength(2);
     expect(offboarding).toHaveLength(1);
     expect(offboarding[0].historyRowKey).toBe("20260519093000000_tenant-2");

@@ -183,7 +183,7 @@ public class SubmitOffboardingFeedbackFunction
         try
         {
             await _opsEvents.RecordOffboardingFeedbackReceivedAsync(
-                normalizedTenantId, upn, domainName, marker.OffboardingHistoryRowKey);
+                normalizedTenantId, upn, domainName, marker.OffboardingHistoryRowKey, entry.FeedbackId!);
         }
         catch (Exception ex)
         {

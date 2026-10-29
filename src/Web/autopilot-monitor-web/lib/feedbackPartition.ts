@@ -46,6 +46,24 @@ export function partitionFeedback<T extends { type?: string | null }>(entries: r
 }
 
 /**
+ * Where a deep-linked entry sits: its tab and its page in that tab's unfiltered list (the order the
+ * caller passes, newest first on the page). Null when no entry of a known kind carries the id.
+ */
+export function locateFeedback<T extends { type?: string | null; feedbackId?: string | null }>(
+  entries: readonly T[],
+  feedbackId: string,
+  perPage: number,
+): { tab: FeedbackTab; page: number } | null {
+  const { general, inApp, offboarding } = partitionFeedback(entries);
+  const tabs: [FeedbackTab, T[]][] = [["General", general], ["InApp", inApp], ["Offboarding", offboarding]];
+  for (const [tab, list] of tabs) {
+    const index = list.findIndex(e => e.feedbackId === feedbackId);
+    if (index >= 0) return { tab, page: perPage > 0 ? Math.floor(index / perPage) : 0 };
+  }
+  return null;
+}
+
+/**
  * Computes the slice + total-page metadata for the active tab. Returns 0 totalPages
  * when the page list is empty so the pagination UI hides itself.
  */

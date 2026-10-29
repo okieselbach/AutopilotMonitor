@@ -1988,7 +1988,7 @@ export interface FeedbackEntryWire {
   interactedAt?: string;
   historyRowKey?: string;
   domainName?: string;
-  /** Row id of a general-feedback entry; absent on the other kinds. */
+  /** The entry's 12-character reference (lowercase hex) on every kind; absent only on a row that has none yet. */
   feedbackId?: string;
   /** Reply address a general-feedback sender entered; absent when none was given. */
   contactEmail?: string;

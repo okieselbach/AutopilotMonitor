@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import type { FeedbackEntryWire, FeedbackListResponse } from "@/lib/generated/wire-types.generated";
-import { avgRating, paginate, partitionFeedback, type FeedbackTab } from "@/lib/feedbackPartition";
+import { avgRating, locateFeedback, paginate, partitionFeedback, type FeedbackTab } from "@/lib/feedbackPartition";
+import { CopyButton } from "./CopyButton";
 
 /** One stored feedback entry — the wire shape (fields absent on dismissals). */
 type FeedbackEntry = FeedbackEntryWire;
@@ -58,6 +60,44 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
     };
     void run();
   }, [fetchFeedback]);
+
+  // Deep link from the bell and the ops alert: ?feedbackId=… opens the entry's tab and page and
+  // highlights it once the list has loaded. Adjust-during-render like SessionReportsSection, keyed
+  // on the id so a bell click while the page is open is followed as well; the miss is routed to the
+  // parent's setError by the effect below, never during this render.
+  const searchParams = useSearchParams();
+  const feedbackIdParam = searchParams?.get("feedbackId") || null;
+  const [consumedFeedbackId, setConsumedFeedbackId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [missedFeedbackId, setMissedFeedbackId] = useState<string | null>(null);
+  if (!loading && feedbackIdParam && feedbackIdParam !== consumedFeedbackId) {
+    setConsumedFeedbackId(feedbackIdParam);
+    const target = locateFeedback(entries, feedbackIdParam, entriesPerPage);
+    if (target) {
+      setActiveTab(target.tab);
+      setInAppFilter("all");
+      setCurrentPage(target.page);
+      setHighlightedId(feedbackIdParam);
+    } else {
+      setMissedFeedbackId(feedbackIdParam);
+    }
+  }
+
+  useEffect(() => {
+    if (missedFeedbackId === null) return;
+    setError(`Feedback ${missedFeedbackId} is not in the list.`);
+    // setError intentionally excluded from deps: the hint fires once per missed id and must not
+    // re-surface after dismissal just because the parent's setError identity churns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missedFeedbackId]);
+
+  useEffect(() => {
+    if (highlightedId === null) return;
+    document.getElementById(`feedback-${highlightedId}`)?.scrollIntoView({ block: "center" });
+  }, [highlightedId]);
+
+  const highlightRing = (id: string | null | undefined) =>
+    id && id === highlightedId ? " ring-2 ring-purple-400 dark:ring-purple-500" : "";
 
   // Partition by tab. Server returns mixed; client splits + filters per active tab so the
   // lists never share render code (different shapes: General carries a message + reply
@@ -256,7 +296,8 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                 {paginatedEntries.map((entry) => (
                   <div
                     key={entry.feedbackId ?? `${entry.upn}-${entry.interactedAt}`}
-                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800"
+                    id={entry.feedbackId ? `feedback-${entry.feedbackId}` : undefined}
+                    className={`border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800${highlightRing(entry.feedbackId)}`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                       <div className="flex items-center gap-2 min-w-0">
@@ -267,9 +308,10 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                           {entry.domainName || entry.tenantId?.substring(0, 8) + "…"}
                         </span>
                       </div>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        {formatTimeAgo(entry.interactedAt ?? null)}
-                      </span>
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
+                        <span>{formatTimeAgo(entry.interactedAt ?? null)}</span>
+                        <FeedbackIdTag id={entry.feedbackId} />
+                      </div>
                     </div>
                     {entry.contactEmail && (
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -292,11 +334,12 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                 {paginatedEntries.map((entry) => (
                   <div
                     key={entry.upn}
+                    id={entry.feedbackId ? `feedback-${entry.feedbackId}` : undefined}
                     className={`border rounded-lg p-3 transition-all ${
                       entry.dismissed && !entry.submitted
                         ? "bg-gray-50 dark:bg-gray-750 border-gray-200 dark:border-gray-700 opacity-60"
                         : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
-                    }`}
+                    }${highlightRing(entry.feedbackId)}`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -314,6 +357,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                         <span>{formatTimeAgo(entry.interactedAt ?? null)}</span>
+                        <FeedbackIdTag id={entry.feedbackId} />
                         <span className="hidden sm:inline">·</span>
                         <span className="hidden sm:inline" title={entry.tenantId}>
                           {entry.tenantId?.substring(0, 8)}...
@@ -333,7 +377,8 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                 {paginatedEntries.map((entry) => (
                   <div
                     key={entry.historyRowKey ?? `${entry.tenantId}-${entry.interactedAt}`}
-                    className="border border-red-200 dark:border-red-800 rounded-lg p-3 bg-red-50/30 dark:bg-red-950/20"
+                    id={entry.feedbackId ? `feedback-${entry.feedbackId}` : undefined}
+                    className={`border border-red-200 dark:border-red-800 rounded-lg p-3 bg-red-50/30 dark:bg-red-950/20${highlightRing(entry.feedbackId)}`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                       <div className="flex items-center gap-2 min-w-0">
@@ -346,6 +391,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0">
                         <span className="flex-shrink-0">{formatTimeAgo(entry.interactedAt ?? null)}</span>
+                        <FeedbackIdTag id={entry.feedbackId} />
                         <span className="hidden sm:inline flex-shrink-0">·</span>
                         <span className="hidden sm:inline truncate" title={entry.upn}>
                           {entry.upn}
@@ -388,5 +434,19 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
         )}
       </div>
     </div>
+  );
+}
+
+/** The entry's reference as people quote it (same shape as a session report id), after a separator dot. */
+function FeedbackIdTag({ id }: { id?: string | null }) {
+  if (!id) return null;
+  return (
+    <>
+      <span aria-hidden="true">·</span>
+      <span className="inline-flex items-center font-mono flex-shrink-0">
+        {id}
+        <CopyButton value={id} title="Copy feedback id" />
+      </span>
+    </>
   );
 }

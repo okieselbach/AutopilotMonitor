@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Functions.Admin;
@@ -56,6 +57,11 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
         Assert.Equal("OffboardingFeedbackReceived", ops.EventType);
         Assert.Equal(TenantId, ops.TenantId);
         Assert.Equal(Upn, ops.UserId);
+
+        // The alert links the stored entry by the id the repository gave it.
+        using var details = JsonDocument.Parse(ops.Details!);
+        Assert.Equal("0123456789ab", details.RootElement.GetProperty("feedbackId").GetString());
+        Assert.Equal("/admin/reports/user-feedback?feedbackId=0123456789ab", details.RootElement.GetProperty("portalPath").GetString());
     }
 
     [Fact]
@@ -312,6 +318,7 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
         public Task SaveOffboardingFeedbackAsync(FeedbackEntry entry)
         {
             if (ThrowOnSaveOffboardingFeedback is { } ex) throw ex;
+            entry.FeedbackId = "0123456789ab";
             PersistedOffboardingFeedback = entry;
             return Task.CompletedTask;
         }

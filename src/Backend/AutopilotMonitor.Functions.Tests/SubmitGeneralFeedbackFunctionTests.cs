@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Functions.Feedback;
 using AutopilotMonitor.Functions.Services;
@@ -54,10 +55,12 @@ public sealed class SubmitGeneralFeedbackFunctionTests
         Assert.Equal(NormalizedTenantId, ops.TenantId);
         Assert.Equal(Upn, ops.UserId);
         Assert.Contains("contoso.invalid", ops.Message);
-        Assert.Contains(row.FeedbackId!, ops.Details);
+        using var details = JsonDocument.Parse(ops.Details!);
+        Assert.Equal("0123456789ab", details.RootElement.GetProperty("feedbackId").GetString());
+        Assert.Equal("/admin/reports/user-feedback?feedbackId=0123456789ab", details.RootElement.GetProperty("portalPath").GetString());
 
         h.Bell.Verify(b => b.CreateNotificationAsync(
-            "feedback", "New Feedback", It.IsAny<string>(), "/admin/reports/user-feedback"), Times.Once);
+            "feedback", "New Feedback", It.IsAny<string>(), "/admin/reports/user-feedback?feedbackId=0123456789ab"), Times.Once);
     }
 
     [Fact]
@@ -268,7 +271,7 @@ public sealed class SubmitGeneralFeedbackFunctionTests
         {
             if (ThrowOnSave is { } ex) throw ex;
             entry.Type = FeedbackEntryType.General;
-            entry.FeedbackId = $"{DateTime.MaxValue.Ticks - entry.InteractedAt!.Value.Ticks:D19}_0123456789ab";
+            entry.FeedbackId = "0123456789ab";
             Saved.Add(entry);
             return Task.CompletedTask;
         }

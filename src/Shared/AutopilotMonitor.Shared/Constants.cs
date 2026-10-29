@@ -140,6 +140,10 @@ namespace AutopilotMonitor.Shared
         /// <summary>The Global Admin list of every feedback kind (help menu, rating bubble, offboarding).</summary>
         public const string PortalUserFeedbackPath = "/admin/reports/user-feedback";
 
+        /// <summary>Opens one feedback entry on the User Feedback page by its 12-character id.</summary>
+        public static string PortalUserFeedbackEntryPath(string feedbackId) =>
+            $"{PortalUserFeedbackPath}?feedbackId={System.Uri.EscapeDataString(feedbackId ?? string.Empty)}";
+
         /// <summary>
         /// The pairing link shown as QR code and typed into the receiver app. The code travels in the
         /// fragment (never reaches a server log); the trailing slash matches the static export.

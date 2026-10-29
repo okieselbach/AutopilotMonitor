@@ -151,7 +151,8 @@ public class SubmitGeneralFeedbackFunction
         }
 
         _ = _globalNotifications.CreateNotificationAsync(
-            "feedback", "New Feedback", $"{entry.Upn} ({domainName ?? normalizedTenantId})", href: Constants.PortalUserFeedbackPath);
+            "feedback", "New Feedback", $"{entry.Upn} ({domainName ?? normalizedTenantId})",
+            href: Constants.PortalUserFeedbackEntryPath(entry.FeedbackId!));
 
         _logger.LogInformation("General feedback {FeedbackId} stored for tenant {TenantId} ({Length} chars)",
             entry.FeedbackId, normalizedTenantId, message.Length);
