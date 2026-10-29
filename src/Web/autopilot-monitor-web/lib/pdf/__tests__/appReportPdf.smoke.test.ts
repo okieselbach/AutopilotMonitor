@@ -30,7 +30,7 @@ function makeInput(): AppReportInput {
       topFailureCodes: [
         { code: "esp_apps_install_failure", exitCode: 1618, count: 1 },
       ],
-      detectionLiesCount: 18,
+      detectionFailureCount: 18,
       deviceModelBreakdown: [
         { manufacturer: "Dell Inc.", model: "Latitude 5440", installs: 200, succeeded: 195, failed: 1, failureRate: 0.5, liftVsBaseline: 1.1 },
       ],
@@ -59,7 +59,7 @@ describe("buildAppReportDoc", () => {
       timeSeries: [],
       versionBreakdown: [],
       topFailureCodes: [],
-      detectionLiesCount: 0,
+      detectionFailureCount: 0,
       deviceModelBreakdown: [],
       versionRegressions: [],
       summary: {

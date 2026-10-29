@@ -5,6 +5,7 @@ import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../lib/eventHelpers";
 import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../lib/eventSearchQuery";
 import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/lib/errorCodeMap";
+import { humanizeKey } from "@/lib/evidenceChips";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
@@ -641,16 +642,34 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                 : "Output completed later from IME's saved result."}
             </p>
           )}
-          {/* Exit code / HRESULT badge for app install events */}
+          {/* IME checks every app before installing it: NotDetected starts the install, Detected
+              means the app is already there. detectionResult is that check (D-392). */}
+          {(event.eventType === "app_install_started" || (event.eventType === "app_install_completed" && event.data?.state === "Skipped"))
+            && typeof event.data?.detectionResult === "string" && event.data.detectionResult !== "" && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                title="Intune's detection check before the install: Not detected starts the install, Detected means the app is already installed."
+              >
+                Before install: {humanizeKey(event.data.detectionResult).toLowerCase()}
+              </span>
+            </div>
+          )}
+          {/* Exit code / HRESULT / error code badge for app install events */}
           {(event.eventType === "app_install_failed" || event.eventType === "app_install_completed") && (() => {
             const ec = (event.data?.exitCode ?? event.data?.exit_code) as string | number | undefined;
             const hr = (event.data?.hresultFromWin32 ?? event.data?.hresult_from_win32) as string | number | undefined;
-            const hasNonZero = (ec && String(ec) !== "0") || (hr && String(hr) !== "0");
+            // The failure's own code: IME's EnforcementErrorCode (0x87D1041C = its check after the
+            // install did not find the app) or the ESP HRESULT on a promoted app.
+            const err = event.eventType === "app_install_failed" ? (event.data?.errorCode as string | number | undefined) : undefined;
+            const hasErr = err != null && String(err) !== "" && String(err) !== "0";
+            const hasNonZero = (ec && String(ec) !== "0") || (hr && String(hr) !== "0") || hasErr;
             if (!hasNonZero) return null;
             // Prefer backend-enriched *Info sibling, fall back to local lookup for older
             // responses that pre-date the backend ErrorCodeEnricher.
             const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo as ErrorCodeInfo | undefined, String(ec)) : null;
             const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info as ErrorCodeInfo | undefined, String(hr)) : null;
+            const errEntry = hasErr ? getEnrichedOrLookup(event.data?.errorCodeInfo as ErrorCodeInfo | undefined, String(err)) : null;
             // A completed app also carries its exit code now (3010 "restart required" is a
             // success), so the badge is red only on the failure event — amber on completion.
             const failed = event.eventType === "app_install_failed";
@@ -685,6 +704,18 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                     {hrEntry && (
                       <span className={descColor} title={errorCodeTooltip(hrEntry)}>
                         {hrEntry.description}
+                      </span>
+                    )}
+                  </>
+                )}
+                {hasErr && (
+                  <>
+                    <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${badgeBg}`}>
+                      Error: {formatErrorCode(String(err))}
+                    </span>
+                    {errEntry && (
+                      <span className={descColor} title={errorCodeTooltip(errEntry)}>
+                        {errEntry.description}
                       </span>
                     )}
                   </>

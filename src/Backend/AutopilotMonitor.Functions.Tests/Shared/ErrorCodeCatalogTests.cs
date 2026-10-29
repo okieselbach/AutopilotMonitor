@@ -111,6 +111,36 @@ public sealed class ErrorCodeCatalogTests
         Assert.Null(ErrorCodeCatalog.TryLookupDetailed(raw));
     }
 
+    [Theory]
+    [InlineData("0x87D1041C", "0x87d1041c")]
+    [InlineData("0x0087d1041c", "0x87d1041c")]
+    [InlineData("-2016345060", "0x87d1041c")]   // the signed decimal the IME log writes
+    [InlineData(" -2147024891 ", "0x80070005")]
+    [InlineData("-2147483648", "0x80000000")]
+    [InlineData("0x0", "0x00000000")]
+    [InlineData("1603", "1603")]                // exit codes stay decimal
+    [InlineData("2147483647", "2147483647")]
+    [InlineData("-2147483649", "-2147483649")]  // outside the 32-bit range: no HRESULT
+    [InlineData("0x800706431", "0x800706431")]
+    [InlineData("esp_apps_timeout", "esp_apps_timeout")]
+    public void NormalizeCode_writes_HRESULTs_as_canonical_hex_and_keeps_other_codes(string raw, string expected)
+        => Assert.Equal(expected, ErrorCodeCatalog.NormalizeCode(raw));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void NormalizeCode_returns_null_for_blank(string? raw)
+        => Assert.Null(ErrorCodeCatalog.NormalizeCode(raw));
+
+    [Fact]
+    public void TryLookup_resolves_the_signed_decimal_of_an_HRESULT()
+    {
+        var hex = ErrorCodeCatalog.TryLookup("0x87d1041c");
+        Assert.NotNull(hex);
+        Assert.Same(hex, ErrorCodeCatalog.TryLookup("-2016345060"));
+    }
+
     [Fact]
     public void TryLookupDetailed_never_throws_for_any_short_tail_after_a_hex_prefix()
     {

@@ -391,13 +391,6 @@ namespace AutopilotMonitor.Functions.Services
                         if (existingExitCode.HasValue)
                             summary.ExitCode = existingExitCode.Value;
                     }
-                    // DetectionResult: preserve prior value.
-                    if (string.IsNullOrEmpty(summary.DetectionResult))
-                    {
-                        var existingDetection = existing.GetString("DetectionResult");
-                        if (!string.IsNullOrEmpty(existingDetection))
-                            summary.DetectionResult = existingDetection;
-                    }
 
                     // F1 PR1 — AppId identity across batches (audit Q3). First-seen appId wins
                     // (mirrors the in-batch fold rule); a later batch carrying a DIFFERENT appId
@@ -720,7 +713,7 @@ namespace AutopilotMonitor.Functions.Services
         {
             "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "Source", "AppType", "AppVersion",
             "Status", "TerminalState", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
-            "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult",
+            "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode",
             "AppId", "EspBlocking", "AppIdCollision",
             // Attempt-duration columns (2026-08): the radar's cutover gate reads the anchor,
             // the dashboard sessions table shows the pass count.
@@ -868,7 +861,6 @@ namespace AutopilotMonitor.Functions.Services
                 AttemptNumber = entity.GetInt32("AttemptNumber") ?? 0,
                 InstallerPhase = entity.GetString("InstallerPhase") ?? string.Empty,
                 ExitCode = entity.GetInt32("ExitCode"),
-                DetectionResult = entity.GetString("DetectionResult") ?? string.Empty,
                 // F1 PR1 identity/blocking columns (absent on legacy rows → sentinels)
                 AppId = entity.GetString("AppId") ?? string.Empty,
                 EspBlocking = entity.GetBoolean("EspBlocking"),
@@ -2104,8 +2096,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["AppType"] = summary.AppType ?? string.Empty,
                 ["AttemptNumber"] = summary.AttemptNumber,
                 ["InstallerPhase"] = summary.InstallerPhase ?? string.Empty,
-                ["ExitCode"] = summary.ExitCode,
-                ["DetectionResult"] = summary.DetectionResult ?? string.Empty
+                ["ExitCode"] = summary.ExitCode
             };
 
             // Sentinel-gated lifecycle columns: only write when the current batch observed them.

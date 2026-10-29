@@ -110,7 +110,6 @@ public class GeoMetricsProjectionEquivalenceTests
             // Noise the geo aggregation never reads.
             ["Status"] = "Succeeded",
             ["FailureMessage"] = new string('y', 500),
-            ["DetectionResult"] = "Detected",
         };
     }
 

@@ -1,5 +1,5 @@
 import { formatDuration } from "@/lib/formatting";
-import { getErrorCodeDescription } from "@/lib/errorCodeMap";
+import { formatErrorCode, getErrorCodeDescription } from "@/lib/errorCodeMap";
 import { humanizeKey } from "@/lib/evidenceChips";
 import { vocabularyEntry, type Prerequisite } from "./vocabulary";
 
@@ -64,7 +64,8 @@ export function formatFact(value: string, format: string): FactDisplay {
   switch (format) {
     case "errorCode": {
       const meaning = getErrorCodeDescription(value);
-      return { text: value, mono: true, hint: meaning ?? undefined };
+      // An HRESULT in the signed-decimal form the IME log writes reads as hex, the way Intune shows it.
+      return { text: /^-\d+$/.test(value.trim()) ? formatErrorCode(value) : value, mono: true, hint: meaning ?? undefined };
     }
     case "duration": {
       const seconds = Number(value);

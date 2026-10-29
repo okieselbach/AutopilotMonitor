@@ -192,8 +192,5 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Installer exit code (nullable – not every app type emits one). Emitted in app_install_completed/failed.</summary>
         public int? ExitCode { get; set; }
-
-        /// <summary>Detection rule result after install: Detected, NotDetected. Emitted in app_install_completed/failed.</summary>
-        public string DetectionResult { get; set; } = string.Empty;
     }
 }

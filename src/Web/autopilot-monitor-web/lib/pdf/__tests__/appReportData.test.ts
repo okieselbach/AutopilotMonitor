@@ -31,7 +31,7 @@ function makeAnalytics(overrides: Partial<AppReportAnalytics> = {}): AppReportAn
     ],
     versionBreakdown: [],
     topFailureCodes: [],
-    detectionLiesCount: 0,
+    detectionFailureCount: 0,
     deviceModelBreakdown: [],
     versionRegressions: [],
     ...overrides,
@@ -226,14 +226,21 @@ describe("prepareReportModel", () => {
     expect(model.versions.rows[1][6]).toBe("—");
   });
 
-  it("emits detection-lies text with singular/plural forms", () => {
-    expect(prepareReportModel(makeInput({ detectionLiesCount: 0 })).detectionLiesText).toBeNull();
-    expect(prepareReportModel(makeInput({ detectionLiesCount: 1 })).detectionLiesText).toContain(
-      "1 install was reported as Succeeded"
+  it("names installs Intune did not detect after the installer, with singular/plural forms", () => {
+    expect(prepareReportModel(makeInput({ detectionFailureCount: 0 })).detectionFailureNote).toBeNull();
+    expect(prepareReportModel(makeInput({ detectionFailureCount: 1 })).detectionFailureNote).toBe(
+      "1 install failed because Intune did not detect the app after its installer finished (0x87D1041C). Check the app's detection rule."
     );
-    expect(prepareReportModel(makeInput({ detectionLiesCount: 18 })).detectionLiesText).toContain(
-      "18 installs were reported as Succeeded"
+    expect(prepareReportModel(makeInput({ detectionFailureCount: 18 })).detectionFailureNote).toContain(
+      "18 installs failed because Intune did not detect the app"
     );
+  });
+
+  it("gives Store apps their own advice: they have no detection rule to edit", () => {
+    const note = prepareReportModel(makeInput({ appType: "WinGet", detectionFailureCount: 2 })).detectionFailureNote;
+    expect(note).toContain("2 installs failed");
+    expect(note).toContain("Store apps have no detection rule to edit");
+    expect(note).not.toContain("Check the app's detection rule");
   });
 
   it("formats regression lines and caps them at 3", () => {

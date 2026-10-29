@@ -71,6 +71,19 @@ describe("copySummary", () => {
       ].join("\n")
     );
   });
+
+  it("names a detection failure and shows IME's code as hex", () => {
+    const headline: DiagnosisHeadline = {
+      outcome: "failed",
+      cause: "esp_app_failure",
+      verdictPath: "agent:failed",
+      failedStep: { category: "DeviceSetup", subcategory: "Apps", errorCode: "0x87d1041c", at: "2026-10-13T14:44:24Z" },
+      culprits: [{ kind: "app", evidence: "install_failed", name: "Contoso Notes", errorCode: "-2016345060" }],
+    };
+    const text = copySummary({ verdict: verdictText(headline), headline, steps: null });
+    expect(text).toContain("App: Contoso Notes — error 0x87D1041C, not detected after install");
+    expect(text).toContain("It finished installing, but Intune did not detect it afterwards (0x87D1041C).");
+  });
 });
 
 describe("diagnosisFormat", () => {
@@ -87,6 +100,10 @@ describe("diagnosisFormat", () => {
     expect(formatFact("0x80d03805", "code")).toEqual({ text: "0x80d03805", mono: true });
     expect(formatFact("plain", "text")).toEqual({ text: "plain", mono: false });
     expect(formatFact("0x80070005", "errorCode").mono).toBe(true);
+    // IME writes HRESULTs as signed decimals; they read as hex, with the catalog meaning.
+    expect(formatFact("-2016345060", "errorCode").text).toBe("0x87D1041C");
+    expect(formatFact("-2016345060", "errorCode").hint).toMatch(/not detected/i);
+    expect(formatFact("1603", "errorCode").text).toBe("1603");
   });
 
   it("names what an enrollment still waits for", () => {

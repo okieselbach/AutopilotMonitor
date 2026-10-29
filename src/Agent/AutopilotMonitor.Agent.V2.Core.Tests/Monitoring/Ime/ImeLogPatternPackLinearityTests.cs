@@ -271,6 +271,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             };
             yield return new object[]
             {
+                "IME-ERROR-REPORT",
+                "[Win32App][ReportingManager] Execution state for app with id: " + Guid1 + " has been updated. Report delta: {\"EnforcementState\":{\"OldValue\":\"Success\",\"NewValue\":\"Error\"},\"EnforcementErrorCode\":{\"OldValue\":null,\"NewValue\":-2016345060}}",
+                new[] { "id=" + Guid1, "from=Success", "to=Error", "errorCode=-2016345060" }
+            };
+            yield return new object[]
+            {
                 "IME-TOKEN-FAILURE",
                 "Failed to get AAD token. len = 34 using client id fc0f3af4-6835-4174-b806-f7db311fd2f3 and resource id 26a4ae64-5862-427f-a9b0-044e62572a4f, errorCode = 3399548929",
                 new[] { "errorCode=3399548929" }

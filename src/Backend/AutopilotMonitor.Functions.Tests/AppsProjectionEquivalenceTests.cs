@@ -52,7 +52,6 @@ public class AppsProjectionEquivalenceTests
             ["FailureCode"] = "0x80070643",
             ["FailureMessage"] = "Fatal error during installation. " + new string('z', 400),
             ["ExitCode"] = 1603,
-            ["DetectionResult"] = "NotDetected",
             // DO telemetry block (dashboard-irrelevant, app-metrics-relevant).
             ["DoDownloadMode"] = 1,
             ["DoFileSize"] = 180_000_000L,
@@ -132,7 +131,6 @@ public class AppsProjectionEquivalenceTests
         Assert.Equal(fromFull.FailureCode, fromProjected.FailureCode);
         Assert.Equal(fromFull.FailureMessage, fromProjected.FailureMessage);
         Assert.Equal(fromFull.ExitCode, fromProjected.ExitCode);
-        Assert.Equal(fromFull.DetectionResult, fromProjected.DetectionResult);
         Assert.Equal(fromFull.TerminalState, fromProjected.TerminalState);
         Assert.Equal(fromFull.AppId, fromProjected.AppId);
         Assert.Equal(fromFull.EspBlocking, fromProjected.EspBlocking);

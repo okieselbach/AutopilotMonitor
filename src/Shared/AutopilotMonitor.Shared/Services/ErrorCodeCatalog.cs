@@ -44,6 +44,44 @@ namespace AutopilotMonitor.Shared.Services
         public static ErrorCodeEntry? TryLookup(string? rawCode) => TryLookupDetailed(rawCode)?.Entry;
 
         /// <summary>
+        /// Parses an HRESULT written as hex (<c>"0x87D1041C"</c>, at most 8 digits) or as the signed
+        /// decimal the IME log writes (<c>"-2016345060"</c>). A positive decimal is an exit code
+        /// (<c>"1603"</c>) and does not parse. Same rules as the web and MCP lookups. Never throws.
+        /// </summary>
+        public static bool TryParseHResult(string? rawCode, out uint code)
+        {
+            code = 0;
+            if (string.IsNullOrWhiteSpace(rawCode)) return false;
+            var raw = rawCode!.Trim();
+            if (raw.Length >= 2 && raw[0] == '0' && (raw[1] == 'x' || raw[1] == 'X'))
+            {
+                // AllowHexSpecifier admits hex digits only — no sign, no whitespace.
+                var body = raw.Substring(2).TrimStart('0');
+                if (body.Length == 0) return true;
+                return body.Length <= 8 && uint.TryParse(body, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out code);
+            }
+            if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var asLong) && asLong < 0 && asLong >= int.MinValue)
+            {
+                code = unchecked((uint)asLong);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The one stored form of a failure code: an HRESULT (see <see cref="TryParseHResult"/>) as
+        /// lowercase 8-digit hex (<c>0x87d1041c</c>); exit codes and failure types trimmed and
+        /// otherwise unchanged. Null or blank gives null.
+        /// </summary>
+        public static string? NormalizeCode(string? rawCode)
+        {
+            if (string.IsNullOrWhiteSpace(rawCode)) return null;
+            return TryParseHResult(rawCode, out var code) ? FormatHex(code) : rawCode!.Trim();
+        }
+
+        private static string FormatHex(uint code) => "0x" + code.ToString("x8", CultureInfo.InvariantCulture);
+
+        /// <summary>
         /// Same resolution as <see cref="TryLookup"/>, plus the matched key and the
         /// <c>HRESULT_FROM_WIN32</c> derivation when one was applied.
         /// </summary>
@@ -58,31 +96,18 @@ namespace AutopilotMonitor.Shared.Services
             if (all.TryGetValue(lowered, out var direct))
                 return new ErrorCodeLookupResult(direct, lowered, null);
 
-            // 2) Hex input ("0X..." → "0x...", leading zeros stripped, at most 8 hex digits).
-            //    AllowHexSpecifier admits hex digits only — no sign, no whitespace.
-            uint? code = null;
-            if (raw.Length >= 2 && raw[0] == '0' && (raw[1] == 'x' || raw[1] == 'X'))
-            {
-                var body = raw.Substring(2).TrimStart('0');
-                if (body.Length == 0) code = 0;
-                else if (body.Length <= 8 && uint.TryParse(body, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var parsed)) code = parsed;
-            }
-            // 3) Signed-decimal HRESULT → unsigned hex  (e.g. -2147024891 → 0x80070005)
-            else if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var asLong) && asLong < 0 && asLong >= int.MinValue)
-            {
-                code = unchecked((uint)asLong);
-            }
-
-            if (code == null) return null;
-            var hexKey = "0x" + code.Value.ToString("x8", CultureInfo.InvariantCulture);
+            // 2) HRESULT as hex or as a decimal outside the exit-code range → canonical hex key
+            //    (e.g. -2147024891 → 0x80070005).
+            if (!TryParseHResult(raw, out var code)) return null;
+            var hexKey = FormatHex(code);
             if (all.TryGetValue(hexKey, out var hex))
                 return new ErrorCodeLookupResult(hex, hexKey, null);
 
-            // 4) HRESULT_FROM_WIN32 derivation: facility 7, no direct entry, low word ≠ 0
+            // 3) HRESULT_FROM_WIN32 derivation: facility 7, no direct entry, low word ≠ 0
             //    (0x80070000 must not resolve to "Success"), decimal entry present.
-            if (code.Value >> 16 == 0x8007)
+            if (code >> 16 == 0x8007)
             {
-                var low = (int)(code.Value & 0xFFFF);
+                var low = (int)(code & 0xFFFF);
                 if (low != 0)
                 {
                     var decimalKey = low.ToString(CultureInfo.InvariantCulture);

@@ -3171,12 +3171,12 @@
           }
         },
         {
-          "name": "detectionLiesCount",
+          "name": "detectionFailureCount",
           "type": {
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Succeeded installs whose detection re-check reported NotDetected."
+          "doc": "Failed installs that IME did not detect after the installer finished: error 0x87D1041C, IME's own verdict after its check, or the ESP's detection failure."
         },
         {
           "name": "deviceModelBreakdown",
@@ -8210,7 +8210,7 @@
             "name": "string"
           },
           "optional": true,
-          "doc": "The error the app or package reported: decimal exit code or hex HRESULT, as sent."
+          "doc": "The error the app or package reported, as sent: a decimal exit code, a hex HRESULT, or an HRESULT in the signed decimal form the IME log writes (0x87D1041C arrives as -2016345060)."
         },
         {
           "name": "exitCode",
@@ -8220,15 +8220,6 @@
           },
           "optional": true,
           "doc": "The installer exit code (signed decimal)."
-        },
-        {
-          "name": "detectionResult",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true,
-          "doc": "The detection result after the install (Detected, NotDetected, DetectedDifferentVersion)."
         },
         {
           "name": "installStarts",

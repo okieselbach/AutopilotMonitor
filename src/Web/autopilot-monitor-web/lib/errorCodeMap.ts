@@ -79,6 +79,31 @@ const errorCodeMap: Record<string, ErrorCodeEntry> = Object.fromEntries(
   ])
 );
 
+/**
+ * Canonical key ("0x" + 8 lowercase hex digits) of an HRESULT written as hex ("0X..." too, leading
+ * zeros stripped, hex digits only) or as the signed decimal the IME log writes (-2147024891 →
+ * 0x80070005); null for anything else, such as a positive exit code.
+ */
+function hresultKey(raw: string): string | null {
+  if (/^0x/i.test(raw)) {
+    const body = raw.slice(2).toLowerCase().replace(/^0+/, "") || "0";
+    return body.length <= 8 && /^[0-9a-f]+$/.test(body) ? "0x" + body.padStart(8, "0") : null;
+  }
+  const num = /^-\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+  return !isNaN(num) && num < 0 && num >= -2147483648 ? "0x" + (num >>> 0).toString(16).padStart(8, "0") : null;
+}
+
+/**
+ * Whether an app's error code or failure type says Intune did not detect the app after its
+ * installer finished: HRESULT 0x87D1041C in any form (the IME log writes -2016345060) or the ESP
+ * promotion's `esp_apps_detection_failure`. Mirrors `Constants.AppFailureTypes.IsDetectionFailure`.
+ */
+export function isDetectionFailureCode(code: unknown): boolean {
+  if (typeof code !== "string" && typeof code !== "number") return false;
+  const raw = String(code).trim();
+  return raw.toLowerCase() === "esp_apps_detection_failure" || hresultKey(raw) === "0x87d1041c";
+}
+
 /** Look up a structured entry for a raw code; null when no mapping is found. */
 function lookup(code: string | number | null | undefined): ErrorCodeLookup | null {
   if (code == null) return null;
@@ -90,22 +115,14 @@ function lookup(code: string | number | null | undefined): ErrorCodeLookup | nul
   const direct = errorCodeMap[lowered];
   if (direct) return { entry: direct, key: lowered };
 
-  // 2) Hex input normalisation ("0X..." → "0x...", strip leading zeros, repad to 8; hex digits only)
-  let hexKey: string | null = null;
-  if (/^0x/i.test(raw)) {
-    const body = raw.slice(2).toLowerCase().replace(/^0+/, "") || "0";
-    if (body.length <= 8 && /^[0-9a-f]+$/.test(body)) hexKey = "0x" + body.padStart(8, "0");
-  } else {
-    // 3) Signed-decimal HRESULT → unsigned hex  (e.g. -2147024891 → 0x80070005)
-    const num = /^-\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
-    if (!isNaN(num) && num < 0 && num >= -2147483648) hexKey = "0x" + (num >>> 0).toString(16).padStart(8, "0");
-  }
+  // 2) HRESULT as hex or signed decimal → canonical hex key
+  const hexKey = hresultKey(raw);
   if (!hexKey) return null;
 
   const hex = errorCodeMap[hexKey];
   if (hex) return { entry: hex, key: hexKey };
 
-  // 4) HRESULT_FROM_WIN32 derivation: facility 7, no direct entry, low word ≠ 0, decimal entry present.
+  // 3) HRESULT_FROM_WIN32 derivation: facility 7, no direct entry, low word ≠ 0, decimal entry present.
   if (hexKey.startsWith("0x8007")) {
     const low = parseInt(hexKey.slice(6), 16);
     if (low !== 0) {

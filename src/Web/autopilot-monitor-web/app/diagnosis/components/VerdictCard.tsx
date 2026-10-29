@@ -8,6 +8,7 @@ import type { VerdictText, VerdictTone } from "../lib/verdictText";
 import { formatFact, phaseName, shortTime, stepName, timeOfDay, waitName } from "../lib/diagnosisFormat";
 import { vocabularyEntry, type CulpritEvidence } from "../lib/vocabulary";
 import { humanizeKey } from "@/lib/evidenceChips";
+import { isDetectionFailureCode } from "@/lib/errorCodeMap";
 
 // Literal class strings per tone (Tailwind must see them whole; dark mode comes from the global overrides).
 const BAND: Record<VerdictTone, { box: string; text: string; icon: string }> = {
@@ -129,6 +130,7 @@ export default function VerdictCard({
 
 function Culprits({ culprits }: { culprits: DiagnosisCulprit[] }) {
   const [first, ...rest] = culprits;
+  const notDetected = isDetectionFailureCode(first.errorCode);
   const tiles = [
     <Tile key="subject" label={first.kind === "app" ? "App" : first.kind === "appx_package" ? "Store package" : "Policy provider"}>
       <dd className="mt-1 break-words text-sm font-semibold text-gray-900">{first.name}</dd>
@@ -148,9 +150,9 @@ function Culprits({ culprits }: { culprits: DiagnosisCulprit[] }) {
         {first.lastStartedAt && <dd className="mt-1 text-xs tabular-nums text-gray-500">Last start {shortTime(first.lastStartedAt)}</dd>}
       </Tile>
     ),
-    (first.detectionResult || first.state) && (
-      <Tile key="state" label={first.detectionResult ? "Detection" : "State"}>
-        <dd className="mt-1 text-sm font-semibold text-gray-900">{humanizeKey(first.detectionResult ?? first.state ?? "")}</dd>
+    (notDetected || first.state) && (
+      <Tile key="state" label={notDetected ? "Detection" : "State"}>
+        <dd className="mt-1 text-sm font-semibold text-gray-900">{notDetected ? "Not detected after install" : humanizeKey(first.state ?? "")}</dd>
         {first.failedAt && <dd className="mt-1 text-xs tabular-nums text-gray-500">Failed {shortTime(first.failedAt)}</dd>}
       </Tile>
     ),

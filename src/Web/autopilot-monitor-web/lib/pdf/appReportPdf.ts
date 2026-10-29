@@ -88,8 +88,8 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
   kpiRow(ctx, kpiCells, 4);
   ctx.y += 2;
 
-  if (model.detectionLiesText) {
-    calloutBox(ctx, `Heads up: ${model.detectionLiesText}`);
+  if (model.detectionFailureNote) {
+    calloutBox(ctx, `Heads up: ${model.detectionFailureNote}`);
   }
   for (const line of model.regressionLines) {
     calloutBox(ctx, line);

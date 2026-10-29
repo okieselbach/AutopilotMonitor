@@ -1,56 +1,63 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-APP-001",
-  "title": "Win32 App Detection Script Failure",
-  "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
+  "title": "App Not Detected After Install (0x87D1041C)",
+  "description": "Detects when Intune's detection check right after an app's installer finished did not find the app, so Intune reports the install as failed (0x87D1041C).",
   "severity": "warning",
   "category": "apps",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
     "whiteglove_sealed"
   ],
-  "baseConfidence": 60,
+  "baseConfidence": 90,
   "conditions": [
     {
       "signal": "detection_failure",
       "source": "event_type",
       "eventType": "app_install_failed",
-      "dataField": "detectionResult",
-      "operator": "equals",
-      "value": "NotDetected",
-      "required": true,
-      "suppressByEvent": {
-        "eventType": "app_install_completed",
-        "joinField": "appId"
-      }
+      "dataField": "errorCode",
+      "operator": "regex",
+      "value": "^(-2016345060|0x87d1041c)$",
+      "required": true
     }
   ],
-  "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation. Detection failures that were later resolved by a successful install of the same app are suppressed and do not raise this finding.",
+  "explanation": "The Intune Management Extension runs an app's detection twice: before the install, to decide whether the install is needed, and right after the installer finishes. Here the installer finished, but the check afterwards did not find the app. Intune therefore reports the install as failed with **0x87D1041C** (*application not detected after installation completed successfully*), even though the installer itself succeeded.\n\nFor Win32 apps the detection rule does not match what the installer left on the device. Common causes:\n\n- The rule checks a path or registry key the installer does not create (wrong path, version folder or bitness, e.g. HKLM\\SOFTWARE\\... versus HKLM\\SOFTWARE\\WOW6432Node\\...).\n- The installer finishes its work later (an async task, a service, or a restart it needs but does not request with a restart return code), after the check has run.\n- A detection script exits 0 without writing to stdout, which Intune treats as not detected.\n- The installer writes to the user profile while the rule looks in system scope, or the other way round.\n\nMicrosoft Store (WinGet) apps have no detection rule to edit: Intune asks WinGet whether the package is installed in the app's install context.\n\nWhen the installer requests a restart with its return code, Intune checks again after the restart; this finding then means the app was still missing afterwards.",
   "remediation": [
     {
-      "title": "Fix detection rules",
+      "title": "Check the detection rule against an installed device",
       "steps": [
-        "Review the app's detection rules in Intune",
-        "Verify file/registry paths are correct",
-        "Test detection script manually on a device"
+        "Open the app in Intune → Properties → Detection rules and note exactly what the rule checks",
+        "Install the app on a test device outside Autopilot and confirm that the file, registry key or script result exists right after the installer exits",
+        "For registry rules, check both HKLM\\SOFTWARE\\... and HKLM\\SOFTWARE\\WOW6432Node\\... depending on the installer's bitness",
+        "For script rules, run the script as SYSTEM: it must write at least one line to stdout and exit 0 when the app is present",
+        "If the installer completes its work later, detect something it writes synchronously, such as the MSI product code under HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
       ]
+    },
+    {
+      "title": "Microsoft Store (WinGet) apps",
+      "steps": [
+        "Check the package identifier and the install behavior (System or User) of the app in Intune",
+        "Install the package manually in the same context on a test device and confirm it is reported as installed"
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Win32 app detection rules in Intune",
+      "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-add#step-4-detection-rules"
     }
   ],
   "presentation": {
     "role": "cause",
-    "summary": "{{detection_failure.appName}} was not detected after its install",
+    "summary": "{{detection_failure.appName}} was not detected after its installer finished",
     "subject": {
       "kind": "app",
       "key": "{{detection_failure.appId}}",
       "name": "{{detection_failure.appName}}"
     },
     "facts": [
-      {
-        "label": "Detection",
-        "value": "{{detection_failure.value}}"
-      },
       {
         "label": "Error",
         "value": "{{detection_failure.errorCode}}",
@@ -61,6 +68,8 @@
   "tags": [
     "apps",
     "detection",
-    "win32"
+    "win32",
+    "winget",
+    "0x87d1041c"
   ]
 }

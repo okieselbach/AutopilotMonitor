@@ -470,8 +470,8 @@ export interface AppAnalyticsResponse {
   versionBreakdown: AppVersionBreakdownItem[];
   installerPhaseBreakdown: AppInstallerPhaseCount[];
   topFailureCodes: AppAnalyticsFailureCode[];
-  /** Succeeded installs whose detection re-check reported NotDetected. */
-  detectionLiesCount: number;
+  /** Failed installs that IME did not detect after the installer finished: error 0x87D1041C, IME's own verdict after its check, or the ESP's detection failure. */
+  detectionFailureCount: number;
   deviceModelBreakdown: AppDeviceModelBreakdownItem[];
   /** Active duration-regression episodes for this app (tracker rows). */
   versionRegressions: AppVersionRegressionAlert[];
@@ -1631,12 +1631,10 @@ export interface DiagnosisCulprit {
   targeted?: string;
   /** The last install state the agent reported (Installing, Error, Downloading, NotInstalled). */
   state?: string;
-  /** The error the app or package reported: decimal exit code or hex HRESULT, as sent. */
+  /** The error the app or package reported, as sent: a decimal exit code, a hex HRESULT, or an HRESULT in the signed decimal form the IME log writes (0x87D1041C arrives as -2016345060). */
   errorCode?: string;
   /** The installer exit code (signed decimal). */
   exitCode?: string;
-  /** The detection result after the install (Detected, NotDetected, DetectedDifferentVersion). */
-  detectionResult?: string;
   /** How often the install started in this session. */
   installStarts?: number;
   /** The last install start. */

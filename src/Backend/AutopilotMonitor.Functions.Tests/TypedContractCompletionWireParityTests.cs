@@ -743,7 +743,7 @@ public class TypedContractCompletionWireParityTests
                 versionBreakdown = Array.Empty<object>(),
                 installerPhaseBreakdown = Array.Empty<object>(),
                 topFailureCodes = Array.Empty<object>(),
-                detectionLiesCount = 0,
+                detectionFailureCount = 0,
                 deviceModelBreakdown = Array.Empty<object>(),
                 versionRegressions = regressions,
             },
@@ -776,7 +776,7 @@ public class TypedContractCompletionWireParityTests
                 VersionBreakdown = Array.Empty<AppVersionBreakdownItem>(),
                 InstallerPhaseBreakdown = Array.Empty<AppInstallerPhaseCount>(),
                 TopFailureCodes = Array.Empty<AppAnalyticsFailureCode>(),
-                DetectionLiesCount = 0,
+                DetectionFailureCount = 0,
                 DeviceModelBreakdown = Array.Empty<AppDeviceModelBreakdownItem>(),
                 VersionRegressions = regressions,
             });

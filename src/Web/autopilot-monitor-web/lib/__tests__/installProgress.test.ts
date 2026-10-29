@@ -104,6 +104,21 @@ describe("buildInstallItems — state folding", () => {
     expect(items[0].state).toBe("Installed");
   });
 
+  it("turns an installed app into a detection failure when IME's check after the install did not find it", () => {
+    // IME logs "Success" right after the installer, checks, then flips to Error 0x87D1041C
+    // (written as the signed decimal -2016345060): Intune reports the install as failed.
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-10-21T16:40:00Z", { appName: "Company Portal" }),
+      evt("app_install_completed", "2026-10-21T16:42:39Z", { appName: "Company Portal", state: "Installed" }),
+      evt("app_install_failed", "2026-10-21T16:42:44Z", { appName: "Company Portal", errorCode: "-2016345060", errorPatternId: "IME-ERROR-REPORT" }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Failed");
+    expect(items[0].isDetectionFailure).toBe(true);
+    expect(items[0].isInstallFailure).toBe(false);
+  });
+
   it("maps the ESP failure types onto their badge flags", () => {
     const items = buildInstallItems([
       evt("app_install_started", "2026-07-27T10:00:00Z", { appName: "Slow App" }),

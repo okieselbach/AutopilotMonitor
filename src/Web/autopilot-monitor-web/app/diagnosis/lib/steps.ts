@@ -3,7 +3,8 @@ import type { DiagnosisHeadline } from "@/lib/generated/wire-types.generated";
 import type { RuleResult } from "@/types";
 import type { FindingGroups, FindingView } from "./findingGroups";
 import type { VerdictText } from "./verdictText";
-import { stepPath } from "./diagnosisFormat";
+import { isDetectionFailureCode } from "@/lib/errorCodeMap";
+import { formatFact, stepPath } from "./diagnosisFormat";
 
 export interface StepGroup {
   title: RuleBlock[];
@@ -50,9 +51,9 @@ export function copySummary(args: { verdict: VerdictText; headline: DiagnosisHea
   if (step) lines.push(`ESP step: ${step}${headline.failedStep?.errorCode ? ` (${headline.failedStep.errorCode})` : ""}`);
   for (const culprit of headline.culprits ?? []) {
     const facts = [
-      culprit.errorCode && `error ${culprit.errorCode}`,
+      culprit.errorCode && `error ${formatFact(culprit.errorCode, "errorCode").text}`,
       culprit.installStarts && culprit.installStarts > 1 && `${culprit.installStarts} install starts`,
-      culprit.detectionResult === "NotDetected" && "not detected",
+      isDetectionFailureCode(culprit.errorCode) && "not detected after install",
     ].filter(Boolean);
     lines.push(`${culprit.kind === "app" ? "App" : culprit.kind === "appx_package" ? "Package" : "Policy provider"}: ${culprit.name}${facts.length ? ` — ${facts.join(", ")}` : ""}`);
   }

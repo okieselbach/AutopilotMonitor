@@ -2,6 +2,7 @@ import type { Route } from "next";
 import type { GetAppFleetContextResponse } from "@/lib/generated/wire-types.generated";
 import { appDetailUrl } from "@/lib/routes";
 import { humanizeKey } from "@/lib/evidenceChips";
+import { isDetectionFailureCode } from "@/lib/errorCodeMap";
 
 /** The fleet tile of "Around the failure". */
 export interface FleetView {
@@ -14,11 +15,12 @@ export interface FleetView {
 // Failure types the agent writes instead of an error code when the ESP ended the install.
 const FAILURE_TYPES: Record<string, string> = {
   esp_apps_timeout: "ESP timeout",
-  esp_apps_detection_failure: "detection failure",
   esp_apps_install_failure: "install failure",
 };
 
 function codeText(code: string): string {
+  // IME's 0x87D1041C and the ESP's detection-failure type are the same finding.
+  if (isDetectionFailureCode(code)) return "detection failure";
   return FAILURE_TYPES[code] ?? (/^[a-z]+(_[a-z]+)+$/.test(code) ? humanizeKey(code).toLowerCase() : code);
 }
 

@@ -1,5 +1,6 @@
 import type { DiagnosisCulprit, DiagnosisHeadline } from "@/lib/generated/wire-types.generated";
-import { stepName, stepPath } from "./diagnosisFormat";
+import { isDetectionFailureCode } from "@/lib/errorCodeMap";
+import { formatFact, stepName, stepPath } from "./diagnosisFormat";
 import { vocabularyEntry, type Outcome } from "./vocabulary";
 
 /** Status-band tone; the same families as the session status badge. */
@@ -189,8 +190,8 @@ function appSentences(app: DiagnosisCulprit | undefined, stepCode: string | null
 function appOutcome(app: DiagnosisCulprit, stepCode: string | null | undefined, subject: string): string | null {
   const starts = app.installStarts && app.installStarts > 1 ? ` after ${app.installStarts} install starts` : "";
   if (app.evidence === "presumed_failed") return `${subject} was still installing when the ESP failed${stepCode ? ` with ${stepCode}` : ""}.`;
-  if (app.errorCode) return `${subject} failed with ${app.errorCode}${starts}.`;
-  if (app.detectionResult === "NotDetected") return `${subject} finished installing${starts}, but its detection rule did not find the app.`;
+  if (isDetectionFailureCode(app.errorCode)) return `${subject} finished installing${starts}, but Intune did not detect it afterwards (0x87D1041C).`;
+  if (app.errorCode) return `${subject} failed with ${formatFact(app.errorCode, "errorCode").text}${starts}.`;
   return null;
 }
 

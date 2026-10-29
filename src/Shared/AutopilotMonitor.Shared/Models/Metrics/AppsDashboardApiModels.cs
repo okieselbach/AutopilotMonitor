@@ -71,8 +71,11 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<AppVersionBreakdownItem> VersionBreakdown { get; set; } = default!;
         public IReadOnlyList<AppInstallerPhaseCount> InstallerPhaseBreakdown { get; set; } = default!;
         public IReadOnlyList<AppAnalyticsFailureCode> TopFailureCodes { get; set; } = default!;
-        /// <summary>Succeeded installs whose detection re-check reported NotDetected.</summary>
-        public int DetectionLiesCount { get; set; }
+        /// <summary>
+        /// Failed installs that IME did not detect after the installer finished: error 0x87D1041C,
+        /// IME's own verdict after its check, or the ESP's detection failure.
+        /// </summary>
+        public int DetectionFailureCount { get; set; }
         public IReadOnlyList<AppDeviceModelBreakdownItem> DeviceModelBreakdown { get; set; } = default!;
         /// <summary>Active duration-regression episodes for this app (tracker rows).</summary>
         public IReadOnlyList<AppVersionRegressionAlert> VersionRegressions { get; set; } = default!;

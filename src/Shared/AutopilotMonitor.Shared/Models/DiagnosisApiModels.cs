@@ -116,14 +116,14 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>The last install state the agent reported (Installing, Error, Downloading, NotInstalled).</summary>
         public string? State { get; set; }
 
-        /// <summary>The error the app or package reported: decimal exit code or hex HRESULT, as sent.</summary>
+        /// <summary>
+        /// The error the app or package reported, as sent: a decimal exit code, a hex HRESULT, or an
+        /// HRESULT in the signed decimal form the IME log writes (0x87D1041C arrives as -2016345060).
+        /// </summary>
         public string? ErrorCode { get; set; }
 
         /// <summary>The installer exit code (signed decimal).</summary>
         public string? ExitCode { get; set; }
-
-        /// <summary>The detection result after the install (Detected, NotDetected, DetectedDifferentVersion).</summary>
-        public string? DetectionResult { get; set; }
 
         /// <summary>How often the install started in this session.</summary>
         public int? InstallStarts { get; set; }

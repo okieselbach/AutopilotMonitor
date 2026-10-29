@@ -31,13 +31,14 @@ describe("verdictText", () => {
       headline({
         cause: "esp_app_failure",
         culprits: [
-          { kind: "app", evidence: "install_failed", name: "Contoso Notes", detectionResult: "NotDetected" },
+          // IME's own report: EnforcementErrorCode as the signed decimal of 0x87D1041C.
+          { kind: "app", evidence: "install_failed", name: "Contoso Notes", errorCode: "-2016345060" },
           { kind: "app", evidence: "presumed_failed", name: "Contoso VPN" },
         ],
       })
     );
     expect(two.summary).toBe("2 required apps failed, so the ESP ended the enrollment.");
-    expect(two.details).toContain("It finished installing, but its detection rule did not find the app.");
+    expect(two.details).toContain("It finished installing, but Intune did not detect it afterwards (0x87D1041C).");
   });
 
   it("says an app never started when the ESP timed out on it", () => {

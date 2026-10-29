@@ -3,56 +3,63 @@
   "rules": [
     {
       "ruleId": "ANALYZE-APP-001",
-      "title": "Win32 App Detection Script Failure",
-      "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
+      "title": "App Not Detected After Install (0x87D1041C)",
+      "description": "Detects when Intune's detection check right after an app's installer finished did not find the app, so Intune reports the install as failed (0x87D1041C).",
       "severity": "warning",
       "category": "apps",
-      "version": "1.3.0",
+      "version": "2.0.0",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
         "whiteglove_sealed"
       ],
-      "baseConfidence": 60,
+      "baseConfidence": 90,
       "conditions": [
         {
           "signal": "detection_failure",
           "source": "event_type",
           "eventType": "app_install_failed",
-          "dataField": "detectionResult",
-          "operator": "equals",
-          "value": "NotDetected",
-          "required": true,
-          "suppressByEvent": {
-            "eventType": "app_install_completed",
-            "joinField": "appId"
-          }
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "^(-2016345060|0x87d1041c)$",
+          "required": true
         }
       ],
-      "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation. Detection failures that were later resolved by a successful install of the same app are suppressed and do not raise this finding.",
+      "explanation": "The Intune Management Extension runs an app's detection twice: before the install, to decide whether the install is needed, and right after the installer finishes. Here the installer finished, but the check afterwards did not find the app. Intune therefore reports the install as failed with **0x87D1041C** (*application not detected after installation completed successfully*), even though the installer itself succeeded.\n\nFor Win32 apps the detection rule does not match what the installer left on the device. Common causes:\n\n- The rule checks a path or registry key the installer does not create (wrong path, version folder or bitness, e.g. HKLM\\SOFTWARE\\... versus HKLM\\SOFTWARE\\WOW6432Node\\...).\n- The installer finishes its work later (an async task, a service, or a restart it needs but does not request with a restart return code), after the check has run.\n- A detection script exits 0 without writing to stdout, which Intune treats as not detected.\n- The installer writes to the user profile while the rule looks in system scope, or the other way round.\n\nMicrosoft Store (WinGet) apps have no detection rule to edit: Intune asks WinGet whether the package is installed in the app's install context.\n\nWhen the installer requests a restart with its return code, Intune checks again after the restart; this finding then means the app was still missing afterwards.",
       "remediation": [
         {
-          "title": "Fix detection rules",
+          "title": "Check the detection rule against an installed device",
           "steps": [
-            "Review the app's detection rules in Intune",
-            "Verify file/registry paths are correct",
-            "Test detection script manually on a device"
+            "Open the app in Intune → Properties → Detection rules and note exactly what the rule checks",
+            "Install the app on a test device outside Autopilot and confirm that the file, registry key or script result exists right after the installer exits",
+            "For registry rules, check both HKLM\\SOFTWARE\\... and HKLM\\SOFTWARE\\WOW6432Node\\... depending on the installer's bitness",
+            "For script rules, run the script as SYSTEM: it must write at least one line to stdout and exit 0 when the app is present",
+            "If the installer completes its work later, detect something it writes synchronously, such as the MSI product code under HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
           ]
+        },
+        {
+          "title": "Microsoft Store (WinGet) apps",
+          "steps": [
+            "Check the package identifier and the install behavior (System or User) of the app in Intune",
+            "Install the package manually in the same context on a test device and confirm it is reported as installed"
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Win32 app detection rules in Intune",
+          "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-add#step-4-detection-rules"
         }
       ],
       "presentation": {
         "role": "cause",
-        "summary": "{{detection_failure.appName}} was not detected after its install",
+        "summary": "{{detection_failure.appName}} was not detected after its installer finished",
         "subject": {
           "kind": "app",
           "key": "{{detection_failure.appId}}",
           "name": "{{detection_failure.appName}}"
         },
         "facts": [
-          {
-            "label": "Detection",
-            "value": "{{detection_failure.value}}"
-          },
           {
             "label": "Error",
             "value": "{{detection_failure.errorCode}}",
@@ -63,7 +70,9 @@
       "tags": [
         "apps",
         "detection",
-        "win32"
+        "win32",
+        "winget",
+        "0x87d1041c"
       ]
     },
     {
@@ -542,104 +551,6 @@
       "version": "1.2.0"
     },
     {
-      "ruleId": "ANALYZE-APP-010",
-      "version": "1.1.0",
-      "title": "App Reverted to Error After Successful Install",
-      "description": "Detects when a specific app (matched by appId) was first reported as successfully installed but subsequently reported an IME enforcement error — while enrollment completed successfully. The app may be broken post-enrollment.",
-      "severity": "warning",
-      "category": "apps",
-      "enabled": true,
-      "trigger": "correlation",
-      "baseConfidence": 75,
-      "conditions": [
-        {
-          "signal": "app_regression",
-          "source": "event_correlation",
-          "eventType": "app_install_completed",
-          "correlateEventType": "app_install_failed",
-          "joinField": "appId",
-          "dataField": "errorPatternId",
-          "operator": "equals",
-          "value": "IME-ERROR-REPORT",
-          "required": true
-        },
-        {
-          "signal": "enrollment_succeeded",
-          "source": "event_type",
-          "eventType": "enrollment_complete",
-          "operator": "exists",
-          "value": "",
-          "required": true
-        }
-      ],
-      "confidenceThreshold": 70,
-      "explanation": "An app was initially reported as **successfully installed** (`app_install_completed`) but the IME (Intune Management Extension) subsequently reported an **Error** state for the same app via an `IME-ERROR-REPORT` event — while the overall enrollment completed successfully.\n\nThis pattern occurs when the IME re-evaluates enforcement state after the initial install report and detects a failure, e.g. `EnforcementState` transitions from `Success` → `Error`. The affected app and its details are captured in the matched evidence.\n\nCommon causes:\n- A post-install detection check fails (detection rule mismatch)\n- The enforcement error code `-2016345060` (0x87D13B9C) indicates the app state diverged from expected\n- The app may appear installed in the ESP summary but is in an error state on the device\n\n**The enrollment succeeded, but the affected app requires attention.**",
-      "remediation": [
-        {
-          "title": "Investigate the app's post-install enforcement state",
-          "steps": [
-            "Note the appId and appName from the rule finding — these identify the exact affected app",
-            "Check the Intune portal: Devices > [Device] > Apps — confirm the current enforcement state of the app",
-            "Review IME logs on the device: C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\IntuneManagementExtension.log",
-            "Search the log for the appId and look for 'EnforcementState' transitions (Success → Error) near the enrollment time",
-            "Error -2016345060 (0x87D13B9C) typically indicates a detection failure after install — verify the app's detection rule in Intune",
-            "Trigger a manual sync (Company Portal or Settings > Accounts > Access work or school > Sync) to force re-evaluation"
-          ]
-        },
-        {
-          "title": "Fix detection or installation issues",
-          "steps": [
-            "If detection fails: correct the detection rule (file path, registry key, or PowerShell script) in the Intune app configuration",
-            "If the app itself is broken: redeploy or reassign the app to trigger a fresh install",
-            "Consider adding a post-install validation script to catch this scenario proactively"
-          ]
-        }
-      ],
-      "relatedDocs": [
-        {
-          "title": "Troubleshoot Win32 app installations",
-          "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/app-management/troubleshoot-win32-app-install"
-        },
-        {
-          "title": "Intune Management Extension logs",
-          "url": "https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension"
-        }
-      ],
-      "presentation": {
-        "role": "cause",
-        "summary": "{{app_regression.eventA_appName}} installed, then reported an error",
-        "subject": {
-          "kind": "app",
-          "key": "{{app_regression.joinValue}}",
-          "name": "{{app_regression.eventA_appName}}"
-        },
-        "facts": [
-          {
-            "label": "Installed",
-            "value": "{{app_regression.eventA_timestamp}}",
-            "format": "timestamp"
-          },
-          {
-            "label": "Error after",
-            "value": "{{app_regression.timeDeltaSeconds}}",
-            "format": "duration"
-          },
-          {
-            "label": "Error",
-            "value": "{{app_regression.eventB_errorCode}}",
-            "format": "errorCode"
-          }
-        ]
-      },
-      "tags": [
-        "apps",
-        "win32",
-        "enforcement",
-        "post-install",
-        "correlation"
-      ]
-    },
-    {
       "ruleId": "ANALYZE-APP-012",
       "title": "Enforcement Error Resolved by Successful Detection",
       "description": "Detects when an app reported an enforcement error (unmapped exit code) but was subsequently detected as installed. The error is informational — the app installed despite the unmapped exit code.",
@@ -724,7 +635,7 @@
       "description": "Detects when the Enrollment Status Page failed because Intune could not verify an app was installed (HRESULT 0x87D1041C). The installer ran but the detection rule did not match afterwards.",
       "severity": "critical",
       "category": "apps",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
@@ -746,9 +657,9 @@
           "signal": "app_with_detection_failure",
           "source": "event_type",
           "eventType": "app_install_failed",
-          "dataField": "detectionResult",
-          "operator": "equals",
-          "value": "NotDetected",
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "^(-2016345060|0x87d1041c)$",
           "required": true
         },
         {
@@ -761,7 +672,7 @@
           "required": false
         }
       ],
-      "explanation": "App **{{appName}}** failed during the Enrollment Status Page with HRESULT **{{errorCode}}** — *Application not detected after installation completed successfully*. The installer reported success but the Intune detection rule (file/registry/script) did not find the app afterwards, so the ESP Apps subcategory failed and the device's enrollment terminated.\n\nThis is a confirmed detection-rule mismatch, NOT an install timeout — the install itself most likely completed (or the installer exited 0). Common root causes:\n\n- The detection rule looks for a registry/file path that the installer doesn't create (wrong path, wrong bitness — e.g. checking HKLM\\SOFTWARE\\... on a 32-bit installer that lands under WOW6432Node).\n- The installer writes the detection artefact AFTER the ESP's detection probe runs (e.g. async post-install task, requires reboot).\n- The detection script returns 0 with no stdout (Intune treats empty stdout as \"not detected\").\n- The installer wrote files to a user profile but the rule looks in System scope (or vice-versa).",
+      "explanation": "App **{{app_with_detection_failure.appName}}** failed during the Enrollment Status Page with HRESULT **0x87D1041C** — *Application not detected after installation completed successfully*. The installer reported success but the Intune detection rule (file/registry/script) did not find the app afterwards, so the ESP Apps subcategory failed and the device's enrollment terminated.\n\nThis is a confirmed detection-rule mismatch, NOT an install timeout — the install itself most likely completed (or the installer exited 0). Common root causes:\n\n- The detection rule looks for a registry/file path that the installer doesn't create (wrong path, wrong bitness — e.g. checking HKLM\\SOFTWARE\\... on a 32-bit installer that lands under WOW6432Node).\n- The installer finishes its work later (an async task, a service, or a restart it needs but does not request with a restart return code), after Intune's check has run.\n- The detection script returns 0 with no stdout (Intune treats empty stdout as \"not detected\").\n- The installer wrote files to a user profile but the rule looks in System scope (or vice-versa).",
       "remediation": [
         {
           "title": "Validate the detection rule against an installed device",
@@ -785,7 +696,7 @@
         {
           "title": "Cross-check the agent's per-app event",
           "steps": [
-            "Look at the app_install_failed event in this session for DataJson.detectionResult — NotDetected confirms Intune's detection probe ran and returned negative",
+            "Look at the app_install_failed event of this app: errorCode 0x87D1041C (the IME log writes it as -2016345060) is Intune's own verdict that its check right after the installer did not find the app",
             "Look at app_install_failed.bytesDownloaded vs bytesTotal — if they match, the package downloaded fully (install error vs. download error)",
             "Cross-reference DataJson.exitCode and hresultFromWin32 — these come from the installer itself and may explain why the detection artefact was not written"
           ]
@@ -814,10 +725,6 @@
             "label": "ESP error",
             "value": "{{esp_failure_errorcode.value}}",
             "format": "errorCode"
-          },
-          {
-            "label": "Detection",
-            "value": "{{app_with_detection_failure.value}}"
           }
         ]
       },

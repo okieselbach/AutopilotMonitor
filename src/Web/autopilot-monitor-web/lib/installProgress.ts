@@ -3,6 +3,7 @@
 // unit-testable without rendering.
 
 import type { ReplayInputEvent } from "./historicReplay";
+import { isDetectionFailureCode } from "./errorCodeMap";
 
 // Same minimal structural event view every replay-aware panel uses.
 export type InstallEvent = ReplayInputEvent;
@@ -79,9 +80,9 @@ export interface InstallItem {
   // Failed. Present on terminal app events from agents that forward it; SoftReboot/HardReboot
   // is the only evidence that an installer asked for a restart.
   exitCodeClass?: string;
-  // ESP-level HRESULT extracted from the failed subcategory's statusText (e.g.
-  // 0x87D1041C). Only set on `app_install_failed` events produced by the V2
-  // termination-handler promotion, where it carries the cross-app failure cause.
+  // The app's error code on `app_install_failed`: IME's EnforcementErrorCode as the signed decimal
+  // its log writes (-2016345060 = 0x87D1041C when IME's check after the install did not find the
+  // app), or the ESP-level HRESULT the V2 termination handler puts on the apps it promoted.
   // Distinct from hresultFromWin32 (per-app installer HRESULT).
   errorCode?: string;
   // c117946b debrief (2026-05-12) — when the agent promotes an app from Installing
@@ -112,7 +113,6 @@ export interface InstallItem {
 // AutopilotMonitor.Shared.Constants.AppFailureTypes (Constants.cs). Stable strings —
 // UI badges, summary buckets, and analyze rules all match on these.
 const ESP_APPS_TIMEOUT = "esp_apps_timeout";
-const ESP_APPS_DETECTION_FAILURE = "esp_apps_detection_failure";
 const ESP_APPS_INSTALL_FAILURE = "esp_apps_install_failure";
 
 const REALMJOIN_TYPES: ReadonlySet<string> = new Set([
@@ -259,8 +259,11 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         eventData: d,
       });
     } else if (isFailed) {
-      // Don't downgrade from Installed/Uninstalled to Failed.
-      if (existing?.state === "Installed" || existing?.state === "Uninstalled") continue;
+      // Don't downgrade from Installed/Uninstalled to Failed — except IME's verdict after its check
+      // following the install: its "Success" was provisional until that check, and 0x87D1041C means
+      // the check did not find the app (Intune reports the install as failed).
+      const detectionVerdict = isDetectionFailureCode(d.errorCode ?? d.error_code);
+      if ((existing?.state === "Installed" && !detectionVerdict) || existing?.state === "Uninstalled") continue;
       const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;
       const endTime = new Date(eventTs).getTime();
       const duration = startTime ? endTime - startTime : undefined;
@@ -277,7 +280,8 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         isCompleted: true,
         isError: true,
         isLikelyStuck: failureType === ESP_APPS_TIMEOUT,
-        isDetectionFailure: failureType === ESP_APPS_DETECTION_FAILURE,
+        // IME's own 0x87D1041C report or the ESP promotion's detection-failure type.
+        isDetectionFailure: isDetectionFailureCode(failureType) || isDetectionFailureCode(d.errorCode ?? d.error_code),
         isInstallFailure: failureType === ESP_APPS_INSTALL_FAILURE,
         failureType,
         confidence,

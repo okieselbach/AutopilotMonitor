@@ -1189,6 +1189,15 @@ namespace AutopilotMonitor.Shared
             public const string DetectionFailureHResult = "0x87d1041c";
 
             /// <summary>
+            /// Whether an app failure code says IME did not detect the app after its installer
+            /// finished: HRESULT <c>0x87D1041C</c> in any form (the IME log writes
+            /// <c>-2016345060</c>) or the ESP promotion's <see cref="EspAppsDetectionFailure"/>.
+            /// </summary>
+            public static bool IsDetectionFailure(string? failureCode)
+                => string.Equals(failureCode?.Trim(), EspAppsDetectionFailure, System.StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(Services.ErrorCodeCatalog.NormalizeCode(failureCode), DetectionFailureHResult, System.StringComparison.Ordinal);
+
+            /// <summary>
             /// Maps an ESP Apps-subcategory failure to a canonical <see cref="AppFailureTypes"/>
             /// identifier + a human-readable app-install message based on the HRESULT carried
             /// by the failed subcategory.

@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Threading;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 
@@ -291,7 +292,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     VersionBreakdown = Array.Empty<AppVersionBreakdownItem>(),
                     InstallerPhaseBreakdown = Array.Empty<AppInstallerPhaseCount>(),
                     TopFailureCodes = Array.Empty<AppAnalyticsFailureCode>(),
-                    DetectionLiesCount = 0,
+                    DetectionFailureCount = 0,
                     DeviceModelBreakdown = Array.Empty<AppDeviceModelBreakdownItem>(),
                     // Lockstep with the full response: episodes can outlive the window's data
                     // (e.g. a shrunk days= selection), so the block is still surfaced here.
@@ -366,9 +367,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             var topFailureCodes = TopFailureCodes(summaries, 5);
 
-            var detectionLiesCount = summaries.Count(s =>
-                s.Status == "Succeeded" &&
-                string.Equals(s.DetectionResult, "NotDetected", StringComparison.OrdinalIgnoreCase));
+            var detectionFailureCount = summaries.Count(s =>
+                s.Status == "Failed" && Constants.AppFailureTypes.IsDetectionFailure(s.FailureCode));
 
             // Device-model correlation: join via session lookup.
             // Global-admin (no tenant filter) summaries may span multiple tenants, so we use
@@ -447,7 +447,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 VersionBreakdown = versionBreakdown,
                 InstallerPhaseBreakdown = installerPhaseBreakdown,
                 TopFailureCodes = topFailureCodes,
-                DetectionLiesCount = detectionLiesCount,
+                DetectionFailureCount = detectionFailureCount,
                 DeviceModelBreakdown = deviceModelBreakdown,
                 VersionRegressions = appVersionRegressions
             };

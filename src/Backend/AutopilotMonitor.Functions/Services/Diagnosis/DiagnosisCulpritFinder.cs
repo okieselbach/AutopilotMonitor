@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Services;
 
 namespace AutopilotMonitor.Functions.Services.Diagnosis;
 
@@ -178,7 +179,6 @@ internal static class DiagnosisCulpritFinder
         State = app.State,
         ErrorCode = app.Failure != null ? app.ErrorCode : null,
         ExitCode = app.Failure != null ? app.ExitCode : null,
-        DetectionResult = app.DetectionResult,
         InstallStarts = app.Starts > 0 ? app.Starts : null,
         LastStartedAt = app.LastStartedAt,
         FailedAt = app.Failure?.Timestamp,
@@ -200,35 +200,16 @@ internal static class DiagnosisCulpritFinder
         || string.Equals(intent, "Unknown", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The app's failure is the one the ESP reports: the same code (hex HRESULT on both sides, or the
-    /// same number in hex and decimal), or a detection failure for the ESP's "not detected" HRESULT —
-    /// IME reports those without a code of its own.
+    /// The app's failure is the one the ESP reports: the same code, as hex on both sides or the same
+    /// HRESULT in hex and in the signed decimal the IME log writes (IME's own 0x87D1041C report
+    /// arrives as -2016345060). <c>detectionResult</c> is IME's check BEFORE the install and never
+    /// matches a detection failure (D-392).
     /// </summary>
-    private static bool MatchesEspError(AppTrack app, string? espCode) =>
-        SameCode(app.ErrorCode, espCode)
-        || (string.Equals(espCode, Constants.AppFailureTypes.DetectionFailureHResult, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(app.DetectionResult, "NotDetected", StringComparison.OrdinalIgnoreCase));
-
-    private static bool SameCode(string? appCode, string? espCode)
+    private static bool MatchesEspError(AppTrack app, string? espCode)
     {
-        if (string.IsNullOrEmpty(appCode) || string.IsNullOrEmpty(espCode)) return false;
-        if (string.Equals(appCode, espCode, StringComparison.OrdinalIgnoreCase)) return true;
-        return TryParseCode(appCode!, out var a) && TryParseCode(espCode!, out var b) && a == b;
-    }
-
-    private static bool TryParseCode(string code, out uint value)
-    {
-        var s = code.Trim();
-        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return uint.TryParse(s.Substring(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out value);
-        if (long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var signed)
-            && signed >= int.MinValue && signed <= uint.MaxValue)
-        {
-            value = unchecked((uint)signed);
-            return true;
-        }
-        value = 0;
-        return false;
+        if (string.IsNullOrEmpty(app.ErrorCode) || string.IsNullOrEmpty(espCode)) return false;
+        if (string.Equals(app.ErrorCode, espCode, StringComparison.OrdinalIgnoreCase)) return true;
+        return ErrorCodeCatalog.TryParseHResult(app.ErrorCode, out var a) && ErrorCodeCatalog.TryParseHResult(espCode, out var b) && a == b;
     }
 
     private static AppTrack? Lookup(Dictionary<string, AppTrack> apps, string? appId, string name) =>
@@ -241,7 +222,7 @@ internal static class DiagnosisCulpritFinder
         public AppTrack(string? appId, string name) { AppId = appId; Name = name; }
         public string? AppId { get; }
         public string Name { get; set; }
-        public string? AppType, Intent, Targeted, State, DetectionResult, ErrorCode, ExitCode, FailureType;
+        public string? AppType, Intent, Targeted, State, ErrorCode, ExitCode, FailureType;
         public int Starts;
         public DateTime? LastStartedAt;
         public EnrollmentEvent? Failure;
@@ -272,7 +253,6 @@ internal static class DiagnosisCulpritFinder
             app.AppType = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "appType")) ?? app.AppType;
             app.Intent = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "intent")) ?? app.Intent;
             app.Targeted = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "targeted")) ?? app.Targeted;
-            app.DetectionResult = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "detectionResult")) ?? app.DetectionResult;
 
             if (type == Constants.EventTypes.AppInstallStart)
             {
@@ -325,8 +305,13 @@ internal static class DiagnosisCulpritFinder
     private static string? ErrorCode(string? raw)
     {
         var code = DiagnosisEspEvidence.NonEmpty(raw);
-        return code == null || (TryParseCode(code, out var value) && value == 0) ? null : code;
+        return code == null || IsZero(code) ? null : code;
     }
+
+    private static bool IsZero(string code) =>
+        long.TryParse(code, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var number)
+            ? number == 0
+            : ErrorCodeCatalog.TryParseHResult(code, out var hresult) && hresult == 0;
 
     private static void RecordFailure(AppTrack app, EnrollmentEvent evt, string? errorCode, string? exitCode)
     {

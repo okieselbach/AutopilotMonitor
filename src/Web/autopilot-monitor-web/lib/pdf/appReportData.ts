@@ -4,9 +4,9 @@
 
 import { getErrorCodeEntry, formatErrorCode } from "@/lib/errorCodeMap";
 
-// Structural mirror of the fields the report uses from the page's module-local
-// AnalyticsResponse. A field rename on the page surfaces as a compile error at
-// the generateAppReportPdf call site — intentional, cheap coupling.
+// Structural mirror of the fields the report reads from the generated AppAnalyticsResponse
+// the page fetches. A wire rename surfaces as a compile error at the generateAppReportPdf call
+// site — intentional, cheap coupling that keeps test fixtures small.
 export interface ReportTimeSeriesPoint {
   bucketStart: string;
   installs: number;
@@ -21,7 +21,8 @@ export interface AppReportAnalytics {
   /** Install channel; absent on responses from before channels existed (Intune). */
   source?: string;
   windowDays: number;
-  bucket: "day" | "week";
+  /** "day" or "week". */
+  bucket: string;
   summary: {
     totalInstalls: number;
     succeeded: number;
@@ -31,8 +32,9 @@ export interface AppReportAnalytics {
     failureRate: number;
     avgDurationSeconds: number;
     p95DurationSeconds: number;
-    trend: "improving" | "worsening" | "stable";
-    trendDelta: number | null;
+    /** "improving", "worsening" or "stable". */
+    trend: string;
+    trendDelta?: number | null;
     flakinessScore: number;
   };
   timeSeries: ReportTimeSeriesPoint[];
@@ -48,10 +50,10 @@ export interface AppReportAnalytics {
   }>;
   topFailureCodes: Array<{
     code: string;
-    exitCode: number | null;
+    exitCode?: number | null;
     count: number;
   }>;
-  detectionLiesCount: number;
+  detectionFailureCount: number;
   deviceModelBreakdown: Array<{
     manufacturer: string;
     model: string;
@@ -70,6 +72,19 @@ export interface AppReportAnalytics {
     previousMeasuredCount: number;
     lift: number;
   }>;
+}
+
+/**
+ * The apps-page banner and the PDF callout for failed installs Intune did not detect after the
+ * installer finished (0x87D1041C); null when there were none. Store (WinGet) apps have no
+ * detection rule to edit, so they get their own advice.
+ */
+export function detectionFailureText(count: number, appType: string | null | undefined): string | null {
+  if (count <= 0) return null;
+  const advice = appType?.toLowerCase() === "winget"
+    ? "Store apps have no detection rule to edit: check the package and its install behavior (System or User) in Intune."
+    : "Check the app's detection rule.";
+  return `${count} install${count === 1 ? "" : "s"} failed because Intune did not detect the app after its installer finished (0x87D1041C). ${advice}`;
 }
 
 export interface AppReportInput {
@@ -101,7 +116,7 @@ export interface AppReportModel {
   metaLine: string;
   fileName: string;
   kpis: ReportKpi[];
-  detectionLiesText: string | null;
+  detectionFailureNote: string | null;
   regressionLines: string[];
   bucket: "day" | "week";
   timeSeries: ReportTimeSeriesPoint[];
@@ -176,7 +191,7 @@ function formatDuration(s: number): string {
 
 // PDF variant of the page's trendText: built-in Helvetica (WinAnsi) has no
 // arrow glyphs, so improving/worsening render as signed deltas instead.
-function trendText(trend: string, delta: number | null): string {
+function trendText(trend: string, delta: number | null | undefined): string {
   if (delta == null) return "—";
   if (trend === "improving") return `-${Math.abs(delta).toFixed(1)} pp`;
   if (trend === "worsening") return `+${Math.abs(delta).toFixed(1)} pp`;
@@ -298,11 +313,6 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
         `(${reg.currentMeasuredCount} measured installs vs ${reg.previousMeasuredCount} on ${reg.previousVersion} — lift ${reg.lift}x)`
     );
 
-  const detectionLiesText =
-    analytics.detectionLiesCount > 0
-      ? `${analytics.detectionLiesCount} install${analytics.detectionLiesCount === 1 ? " was" : "s were"} ` +
-        "reported as Succeeded but the detection rule did not find the app afterwards. Check the detection rule."
-      : null;
 
   return {
     appName,
@@ -313,9 +323,9 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
       `${input.scopeLabel} · Generated ${formatReportDate(generatedAt)}`,
     fileName: appReportFileName(appName, days, generatedAt),
     kpis,
-    detectionLiesText,
+    detectionFailureNote: detectionFailureText(analytics.detectionFailureCount, analytics.appType),
     regressionLines,
-    bucket: analytics.bucket,
+    bucket: analytics.bucket === "day" ? "day" : "week",
     timeSeries: analytics.timeSeries,
     failureCodes: {
       rows: failureCodeRows,

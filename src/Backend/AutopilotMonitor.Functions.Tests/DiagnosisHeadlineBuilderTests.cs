@@ -156,7 +156,6 @@ public class DiagnosisHeadlineBuilderTests
         Assert.Equal("User", culprit.Targeted);
         Assert.Equal("WinGet", culprit.AppType);
         Assert.Equal("0x80d03805", culprit.ErrorCode);
-        Assert.Equal("NotDetected", culprit.DetectionResult);
         Assert.True(culprit.EspBlocking);
 
         // Phases in ESP order; the failed step carries the code.
@@ -236,12 +235,13 @@ public class DiagnosisHeadlineBuilderTests
     }
 
     [Fact]
-    public void A_detection_failure_without_an_app_code_matches_the_esp_not_detected_error()
+    public void IMEs_own_detection_failure_report_matches_the_esp_not_detected_error()
     {
-        // The IME shape of a detection failure: no errorCode, hresultFromWin32 and exitCode "0".
+        // IME's report delta carries EnforcementErrorCode as the signed decimal of 0x87D1041C;
+        // hresultFromWin32 and exitCode stay "0".
         var events = new Timeline()
             .Add("app_install_failed", App(VpnId, "Contoso VPN", ("errorCode", "1603")))
-            .Add("app_install_failed", App(NotesId, "Contoso Notes", ("state", "Error"), ("detectionResult", "NotDetected"), ("exitCode", "0"), ("hresultFromWin32", "0")))
+            .Add("app_install_failed", App(NotesId, "Contoso Notes", ("state", "Error"), ("errorCode", "-2016345060"), ("detectionResult", "NotDetected"), ("exitCode", "0"), ("hresultFromWin32", "0")))
             .Add("app_install_failed", App(PortalId, "Contoso Portal", ("errorCode", "1618")))
             .Add("enrollment_failed", Failed("AccountSetup", "Apps", "0x87d1041c"));
 
@@ -250,9 +250,24 @@ public class DiagnosisHeadlineBuilderTests
         Assert.Equal(DiagnosisCauses.EspAppFailure, h.Cause);
         var first = h.Culprits![0];
         Assert.Equal(NotesId, first.Key);
-        Assert.Null(first.ErrorCode);
+        Assert.Equal("-2016345060", first.ErrorCode);
         Assert.Equal("0", first.ExitCode);
-        Assert.Equal("NotDetected", first.DetectionResult);
+    }
+
+    [Fact]
+    public void The_check_before_the_install_does_not_match_the_esp_not_detected_error()
+    {
+        // detectionResult NotDetected is IME's check BEFORE the install: every failed app carries
+        // it. A download error must not be ranked as the ESP's detection failure (D-392).
+        var events = new Timeline()
+            .Add("app_install_failed", App(NotesId, "Contoso Notes", ("state", "Error"), ("errorCode", "-2145091577"), ("detectionResult", "NotDetected")))
+            .Add("app_install_failed", App(PortalId, "Contoso Portal", ("errorCode", "1618")))
+            .Add("enrollment_failed", Failed("AccountSetup", "Apps", "0x87d1041c"));
+
+        var h = DiagnosisHeadlineBuilder.Build(Session(SessionStatus.Failed, VerdictPaths.AgentFailed), events.Events);
+
+        // No app carries the ESP's code, so the latest failure leads.
+        Assert.Equal(new[] { PortalId, NotesId }, h.Culprits!.Select(c => c.Key));
     }
 
     [Fact]

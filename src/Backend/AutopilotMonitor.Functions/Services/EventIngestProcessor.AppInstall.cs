@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Services;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -105,12 +106,6 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     summary.ExitCode = exitCode;
                 }
-                if (evt.Data.TryGetValue("detectionResult", out var detectionObj))
-                {
-                    var detection = detectionObj?.ToString();
-                    if (!string.IsNullOrWhiteSpace(detection))
-                        summary.DetectionResult = detection.Trim();
-                }
             }
 
             switch (evt.EventType)
@@ -184,17 +179,19 @@ namespace AutopilotMonitor.Functions.Services
                         ?? (summary.StartedAt != DateTime.MinValue ? summary.StartedAt : (DateTime?)null);
                     if (failedAttemptStart.HasValue)
                         summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(failedAttemptStart.Value, evt.Timestamp));
-                    // FailureCode preference: canonical `failureType` > raw `errorCode` > empty.
+                    // FailureCode preference: canonical `failureType` > `errorCode` > empty.
                     // c117946b debrief (2026-05-12): the V2 termination handler tags promoted
                     // "likely stuck" apps with failureType=esp_apps_timeout so the UI can
                     // distinguish confirmed failures from ESP-timeout-induced presumptions.
+                    // The code is stored canonical: IME logs an HRESULT as a signed decimal
+                    // (-2016345060), the ESP path as hex, and the rankings group by the string.
                     var failureType = evt.Data?.ContainsKey("failureType") == true
                         ? evt.Data["failureType"]?.ToString() : null;
                     var errorCodeRaw = evt.Data?.ContainsKey("errorCode") == true
                         ? evt.Data["errorCode"]?.ToString() : null;
                     summary.FailureCode = !string.IsNullOrWhiteSpace(failureType)
                         ? failureType!
-                        : (errorCodeRaw ?? string.Empty);
+                        : (ErrorCodeCatalog.NormalizeCode(errorCodeRaw) ?? string.Empty);
                     // FailureMessage preference: explicit `errorMessage` > `errorDetail` > evt.Message.
                     var errorMessage = evt.Data?.ContainsKey("errorMessage") == true
                         ? evt.Data["errorMessage"]?.ToString() : null;

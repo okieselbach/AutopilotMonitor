@@ -13,7 +13,7 @@ import { getErrorCodeEntry, formatErrorCode, formatErrorCodeSource } from "@/lib
 import { trackEvent } from "@/lib/appInsights";
 // Static import is safe: appReportData is pure data prep with no jsPDF dependency —
 // jsPDF itself only loads with the dynamic import inside handleExportPdf.
-import { NOT_COUNTED_HINT, rateBase, scopeLabel } from "@/lib/pdf/appReportData";
+import { NOT_COUNTED_HINT, detectionFailureText, rateBase, scopeLabel } from "@/lib/pdf/appReportData";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -26,6 +26,7 @@ import { chartColors } from "../../../components/charts/chartTheme";
 import { fetchJson } from "@/lib/apiClient";
 import { parseAppInstallSource } from "@/lib/appInstallSources";
 import { InstallSourcePill } from "@/components/InstallSourcePill";
+import type { AppAnalyticsResponse } from "@/lib/generated/wire-types.generated";
 
 // A cross-tenant analytics aggregation can take tens of seconds server-side; the default 30s
 // fetch timeout would abort it client-side while the server keeps computing.
@@ -45,98 +46,6 @@ const AppStackedBarChart = dynamic(() => import("../../../components/charts/AppS
   ssr: false,
   loading: () => <div className="h-64 flex items-center justify-center text-gray-400 text-sm">Loading chart…</div>,
 });
-
-interface TimeSeriesPoint {
-  bucketStart: string;
-  installs: number;
-  succeeded: number;
-  failed: number;
-  failureRate: number;
-  avgDurationSeconds: number;
-}
-
-interface VersionRow {
-  appVersion: string;
-  installs: number;
-  /** Succeeded, not a skip — with failed the base of failureRate. */
-  succeeded: number;
-  failed: number;
-  failureRate: number;
-  /** Succeeded installs with a plausible observed duration — the basis of the median/p95 below. */
-  measuredInstalls: number;
-  medianDurationSeconds: number;
-  p95DurationSeconds: number;
-}
-
-/** Active duration-regression episode from the radar (tracker row, camelCase on the wire). */
-interface AppVersionRegressionRow {
-  tenantId: string;
-  appName: string;
-  currentVersion: string;
-  previousVersion: string;
-  currentMedianSeconds: number;
-  previousMedianSeconds: number;
-  currentMeasuredCount: number;
-  previousMeasuredCount: number;
-  lift: number;
-  firstNotifiedAt: string;
-  lastEvaluatedAt: string;
-}
-
-interface PhaseRow {
-  phase: string;
-  failed: number;
-}
-
-interface FailureCodeRow {
-  code: string;
-  exitCode: number | null;
-  count: number;
-  sampleMessage: string;
-}
-
-interface DeviceModelRow {
-  manufacturer: string;
-  model: string;
-  installs: number;
-  /** Succeeded, not a skip — with failed the base of failureRate. */
-  succeeded: number;
-  failed: number;
-  failureRate: number;
-  liftVsBaseline: number;
-}
-
-interface AnalyticsResponse {
-  success: boolean;
-  appName: string;
-  source?: string;
-  appType: string;
-  windowDays: number;
-  bucket: "day" | "week";
-  summary: {
-    totalInstalls: number;
-    succeeded: number;
-    /** Not-applicable no-ops (TerminalState Skipped/Postponed) — not attempts, excluded from rate + durations. */
-    skipped: number;
-    /** Real installs whose start was never observed — duration unknown, excluded from duration stats. */
-    unmeasured: number;
-    failed: number;
-    failureRate: number;
-    avgDurationSeconds: number;
-    p95DurationSeconds: number;
-    avgDownloadBytes: number;
-    trend: "improving" | "worsening" | "stable";
-    trendDelta: number | null;
-    flakinessScore: number;
-  };
-  timeSeries: TimeSeriesPoint[];
-  versionBreakdown: VersionRow[];
-  installerPhaseBreakdown: PhaseRow[];
-  topFailureCodes: FailureCodeRow[];
-  detectionLiesCount: number;
-  deviceModelBreakdown: DeviceModelRow[];
-  versionRegressions: AppVersionRegressionRow[];
-}
 
 interface SessionRow {
   sessionId: string;
@@ -225,7 +134,7 @@ function AppDetailContent() {
   // The selection otherwise comes from the tab-persisted scope (sessionStorage, via useAggregatedAdminScope).
   const urlTenantId = searchParams?.get("tenantId") ?? "";
 
-  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [analytics, setAnalytics] = useState<AppAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
@@ -334,7 +243,7 @@ function AppDetailContent() {
       setLoading(true);
       progressBegin();
       const url = scopedApi.appAnalytics(scope, appName, days, { source });
-      setAnalytics(await fetchJson<AnalyticsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
+      setAnalytics(await fetchJson<AppAnalyticsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
       succeeded = true;
     } catch (err) {
       console.error("Failed to fetch app analytics", err);
@@ -574,13 +483,11 @@ function AppDetailContent() {
                 />
               </div>
 
-              {/* Detection lies warning */}
-              {analytics.detectionLiesCount > 0 && (
+              {/* Installs Intune did not detect after the installer finished (0x87D1041C) */}
+              {analytics.detectionFailureCount > 0 && (
                 <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded">
                   <p className="text-sm text-amber-800">
-                    <strong>Heads up:</strong> {analytics.detectionLiesCount} install
-                    {analytics.detectionLiesCount === 1 ? " was" : "s were"} reported as Succeeded
-                    but the detection rule did not find the app afterwards. Check the detection rule.
+                    <strong>Heads up:</strong> {detectionFailureText(analytics.detectionFailureCount, analytics.appType)}
                   </p>
                 </div>
               )}
@@ -1101,7 +1008,7 @@ function EmptyState({ text = "No data" }: { text?: string }) {
   return <div className="h-32 flex items-center justify-center text-gray-400 text-sm">{text}</div>;
 }
 
-function trendText(trend: string, delta: number | null) {
+function trendText(trend: string, delta: number | null | undefined) {
   if (delta == null) return "—";
   if (trend === "improving") return `↓ ${Math.abs(delta).toFixed(1)} pp`;
   if (trend === "worsening") return `↑ ${Math.abs(delta).toFixed(1)} pp`;
