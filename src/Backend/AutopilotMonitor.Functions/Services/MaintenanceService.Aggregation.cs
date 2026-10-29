@@ -334,6 +334,8 @@ namespace AutopilotMonitor.Functions.Services
                             // Same late-batch reasoning: an app row opened after the agent's
                             // shutdown batch was never closed — the sweep is its self-heal.
                             await _metricsRepo.CloseOpenAppInstallsForSessionAsync(session.TenantId, session.SessionId);
+                            // And a registry failure code (D-393) that arrived with a late batch.
+                            await _metricsRepo.ResolveRegistryFailureCodesForSessionAsync(session.TenantId, session.SessionId);
                         }
                     }
 

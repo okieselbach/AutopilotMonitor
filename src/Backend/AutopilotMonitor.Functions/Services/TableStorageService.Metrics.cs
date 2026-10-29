@@ -10,6 +10,7 @@ using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Services;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -210,6 +211,13 @@ namespace AutopilotMonitor.Functions.Services
                 ? $"{summary.SessionId}_{summary.AppName}"
                 : $"{summary.SessionId}_{source}|{summary.InstallScope}|{summary.AppId}");
         }
+
+        /// <summary>
+        /// OData range over one session's AppInstallSummaries rows: every RowKey starts with
+        /// "{SessionId}_", and '`' is the character after '_'. Both ids are validated GUIDs.
+        /// </summary>
+        private static string SessionAppRowsFilter(string tenantId, string sessionId)
+            => $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
 
         /// <summary>
         /// Reconciles an incoming per-batch <see cref="AppInstallSummary"/> against the stored row
@@ -453,7 +461,7 @@ namespace AutopilotMonitor.Functions.Services
                     return 0;
 
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
+                var filter = SessionAppRowsFilter(tenantId, sessionId);
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,
                     select: new[] { "PartitionKey", "RowKey", "Source", "AppId", "EspBlocking", "AppIdCollision" });
@@ -502,6 +510,124 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Fills an empty <see cref="AppInstallSummary.FailureCode"/> on the session's failed IME
+        /// rows with IME's own code from the registry (D-393). The log line that first marks a
+        /// failure can carry no code ("Installation is timeout"); IME's code follows seconds later,
+        /// but the app is already Error, so the agent sends no second event. The registry observer
+        /// (<c>registry_app_state</c>) reads IME's authoritative per-app state including that code,
+        /// keyed by appId — joined against the rows' <c>AppId</c> like the ESP-blocking resolution.
+        /// Fill only: a code or failureType from the failed event always stays. Runs at the
+        /// terminal seam, after the agent's shutdown batch (the registry event often lands after
+        /// the verdict batch) and from the sweep. Idempotent and fail-soft.
+        /// </summary>
+        /// <returns>Number of rows filled (0 on no candidates / no registry code / error).</returns>
+        public async Task<int> ResolveRegistryFailureCodesForSessionAsync(string tenantId, string sessionId)
+        {
+            try
+            {
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+                SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+                var filter = SessionAppRowsFilter(tenantId, sessionId);
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: filter,
+                    select: new[] { "PartitionKey", "RowKey", "Source", "AppId", "AppIdCollision", "Status", "FailureCode", "LastAttemptStartedAt", "StartedAt" });
+
+                var candidates = new List<TableEntity>();
+                await foreach (var row in query)
+                {
+                    if (IsRegistryFailureCodeCandidate(row))
+                        candidates.Add(row);
+                }
+                // Nearly every session has no failed row without a code — no event scan then.
+                if (candidates.Count == 0)
+                    return 0;
+
+                var codes = LatestRegistryErrorCodes(await GetSessionEventsByTypeAsync(
+                    tenantId, sessionId, Constants.EventTypes.RegistryAppState));
+                if (codes.Count == 0)
+                    return 0;
+
+                var filled = 0;
+                foreach (var row in candidates)
+                {
+                    var code = RegistryFailureCodeFor(row, codes);
+                    if (code == null) continue;
+
+                    var update = new TableEntity(row.PartitionKey, row.RowKey)
+                    {
+                        ["FailureCode"] = code
+                    };
+                    await tableClient.UpsertEntityAsync(update, TableUpdateMode.Merge);
+                    filled++;
+                }
+
+                if (filled > 0)
+                    _logger.LogInformation(
+                        "Session {SessionId}: filled FailureCode from the registry on {Count} failed app rows",
+                        sessionId, filled);
+                return filled;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Registry failure-code resolution failed for session {SessionId} (fail-soft)", sessionId);
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Rows <see cref="ResolveRegistryFailureCodesForSessionAsync"/> may fill: failed IME rows
+        /// with an AppId, no identity collision and no code yet. The registry holds Intune
+        /// identities only, and a collision row mixes two apps.
+        /// </summary>
+        internal static bool IsRegistryFailureCodeCandidate(TableEntity row)
+        {
+            if (AppInstallSources.Normalize(row.GetString("Source")) != AppInstallSources.Ime) return false;
+            if (row.GetString("Status") != "Failed") return false;
+            if (!string.IsNullOrEmpty(row.GetString("FailureCode"))) return false;
+            if (string.IsNullOrEmpty(row.GetString("AppId"))) return false;
+            return !(row.GetBoolean("AppIdCollision") ?? false);
+        }
+
+        /// <summary>
+        /// IME's latest error code per app from the session's <c>registry_app_state</c> events.
+        /// Only error states (<c>enforcementClass</c> "error", IME 5000–5999) with a non-zero code
+        /// count; the latest by time, then sequence, wins. Codes are canonical like the event codes:
+        /// IME writes the HRESULT as a signed decimal (-2016214839 → 0x87d300c9).
+        /// </summary>
+        internal static Dictionary<string, (string Code, DateTime At)> LatestRegistryErrorCodes(IEnumerable<EnrollmentEvent> events)
+        {
+            var latest = new Dictionary<string, (string Code, DateTime At)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var evt in events.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence))
+            {
+                if (EventDataReader.String(evt, "enforcementClass") != "error") continue;
+                var appId = EventDataReader.String(evt, "appId")?.Trim();
+                if (string.IsNullOrEmpty(appId)) continue;
+                var errorCode = EventDataReader.Long(evt.Data, "errorCode");
+                if (errorCode is null or 0) continue;
+
+                latest[appId] = (ErrorCodeCatalog.NormalizeCode(errorCode.Value.ToString(CultureInfo.InvariantCulture))!, evt.Timestamp);
+            }
+            return latest;
+        }
+
+        /// <summary>
+        /// The registry code for one row, or null. The registry error must not predate the row's
+        /// last install attempt (LastAttemptStartedAt, else StartedAt): a code from an earlier
+        /// attempt never describes a later failure.
+        /// </summary>
+        internal static string? RegistryFailureCodeFor(TableEntity row, IReadOnlyDictionary<string, (string Code, DateTime At)> codes)
+        {
+            if (!IsRegistryFailureCodeCandidate(row)) return null;
+            if (!codes.TryGetValue(row.GetString("AppId")!, out var registry)) return null;
+
+            var attemptStart = (row.GetDateTimeOffset("LastAttemptStartedAt") ?? row.GetDateTimeOffset("StartedAt"))?.UtcDateTime;
+            if (attemptStart.HasValue && registry.At < attemptStart.Value) return null;
+            return registry.Code;
+        }
+
+        /// <summary>
         /// Closes the session's app rows that never reached a terminal state: Status
         /// "InProgress" (or missing) with no CompletedAt becomes "Incomplete" — terminal,
         /// non-failure, outcome unknown. Runs at the terminal seam, again after the batch that
@@ -517,7 +643,7 @@ namespace AutopilotMonitor.Functions.Services
                 SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
 
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
+                var filter = SessionAppRowsFilter(tenantId, sessionId);
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,
                     select: new[] { "PartitionKey", "RowKey", "Status", "CompletedAt" });

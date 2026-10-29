@@ -277,6 +277,8 @@ namespace AutopilotMonitor.Functions.Services
             // batch; this re-run catches rows opened after the verdict (the IME keeps installing
             // and the agent keeps watching after enrollment_complete). Non-terminal sessions
             // (reboot shutdown, WhiteGlove part 1) keep their rows open. Idempotent + fail-soft.
+            // Same re-run for the registry failure codes (D-393): IME's registry code follows a
+            // codeless failure by seconds and often lands after the verdict batch.
             if (classification.AgentShutdownEvent != null
                 && snapshot != null
                 && (snapshot.Status == SessionStatus.Succeeded
@@ -284,6 +286,7 @@ namespace AutopilotMonitor.Functions.Services
                     || snapshot.Status == SessionStatus.Incomplete))
             {
                 await _metricsRepo.CloseOpenAppInstallsForSessionAsync(request.TenantId, request.SessionId);
+                await _metricsRepo.ResolveRegistryFailureCodesForSessionAsync(request.TenantId, request.SessionId);
             }
 
             // Auto-analyze fan-out: enqueue a queue message instead of running fire-and-forget

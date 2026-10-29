@@ -149,6 +149,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task ResolveEspBlockingForSessionAsync(string tenantId, string sessionId)
             => _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
 
+        public Task<int> ResolveRegistryFailureCodesForSessionAsync(string tenantId, string sessionId)
+            => _storage.ResolveRegistryFailureCodesForSessionAsync(tenantId, sessionId);
+
         public Task<int> CloseOpenAppInstallsForSessionAsync(string tenantId, string sessionId)
             => _storage.CloseOpenAppInstallsForSessionAsync(tenantId, sessionId);
 

@@ -111,6 +111,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // complete. Positive evidence only (listed ⇒ EspBlocking=true, absent ⇒ stays
                 // unknown). Idempotent + fail-soft like the counter reconcile above.
                 await _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
+                // D-393: a failed app row whose failure event carried no code takes IME's code
+                // from the registry (same AppId join). Fill only; the shutdown batch and the
+                // sweep re-run it for registry events that land after the verdict.
+                await _storage.ResolveRegistryFailureCodesForSessionAsync(tenantId, sessionId);
                 // Observation end: app rows still InProgress on a terminal session never get a
                 // terminal event — close them as Incomplete (outcome unknown, not a failure).
                 // Early for the ingest path (verdict batch, the agent may still be watching),
