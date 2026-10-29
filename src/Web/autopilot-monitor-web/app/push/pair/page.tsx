@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   APP_VERSION,
   cleanLabel,
@@ -31,6 +31,7 @@ import {
   wipeLocalDevice,
   writePairCookie,
 } from "@/lib/push/pushClient";
+import { pairErrorCode, reportAppLoad, setReceiverToken, trackPairStep } from "@/lib/push/pushTelemetry";
 import {
   notifyEnvironmentChange,
   useIsAndroid,
@@ -123,6 +124,21 @@ export default function PushPairPage() {
   const iosInstallNeeded = isClient && isIos && !standalone;
   const canPrepare = supported && !iosInstallNeeded;
 
+  useEffect(() => {
+    reportAppLoad(fragmentCode ? "pair_link" : "direct");
+  }, [fragmentCode]);
+
+  // What the page offers on arrival (install steps, "not available" or the form) and where the code came from.
+  const shownReported = useRef(false);
+  useEffect(() => {
+    if (!isClient || shownReported.current) return;
+    shownReported.current = true;
+    trackPairStep("shown", {
+      state: iosInstallNeeded ? "install_needed" : supported ? "form" : "unsupported",
+      code: fragmentCode ? "link" : cookieCode ? "cookie" : "none",
+    });
+  }, [isClient, iosInstallNeeded, supported, fragmentCode, cookieCode]);
+
   // Safari tab on iOS with a QR link: hand the code to the home-screen app through the cookie.
   useEffect(() => {
     if (iosInstallNeeded && fragmentCode) {
@@ -164,7 +180,9 @@ export default function PushPairPage() {
         },
         (error: unknown) => {
           if (cancelled) return;
-          setBeginState(isCodeInvalid(error) ? { kind: "invalid", code, message: describePushError(error) } : { kind: "failed", code });
+          const invalid = isCodeInvalid(error);
+          if (invalid) trackPairStep("code_invalid");
+          setBeginState(invalid ? { kind: "invalid", code, message: describePushError(error) } : { kind: "failed", code });
         },
       );
     }, BEGIN_PREFETCH_DEBOUNCE_MS);
@@ -181,11 +199,13 @@ export default function PushPairPage() {
     if (!waitingToken) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let waited = 0;
     const tick = async () => {
       try {
         const device = await getDevice(waitingToken);
         if (cancelled) return;
         if (device.status === "Active") {
+          trackPairStep("confirmed", { waitedSeconds: waited });
           setPhase({ kind: "done" });
           return;
         }
@@ -194,6 +214,8 @@ export default function PushPairPage() {
         if (error instanceof PushApiError && (error.status === 404 || error.status === 401)) {
           // A rejection deletes the Pending row on the server, so it answers 401; expiry
           // removes it too. Either way the local device is gone.
+          trackPairStep("rejected");
+          setReceiverToken(null);
           await wipeLocalDevice().catch(() => {});
           if (cancelled) return;
           setPhase({ kind: "error", message: "The pairing was rejected or expired on your computer. Start again with a new code." });
@@ -202,6 +224,7 @@ export default function PushPairPage() {
         // Network hiccup: keep polling.
       }
       if (cancelled) return;
+      waited += pollSeconds;
       setWaitedSeconds((s) => s + pollSeconds);
       timer = setTimeout(() => void tick(), pollSeconds * 1000);
     };
@@ -215,6 +238,7 @@ export default function PushPairPage() {
   const start = async () => {
     const code = normalizedCode;
     if (!code) {
+      trackPairStep("failed", { error: "no_code" });
       setPhase({ kind: "error", message: `Enter the ${PAIRING_CODE_LENGTH}-character code shown in the portal.` });
       return;
     }
@@ -241,6 +265,7 @@ export default function PushPairPage() {
       setPhase({ kind: "working", step: "Asking for permission…" });
       const granted = await Notification.requestPermission();
       notifyEnvironmentChange();
+      trackPairStep("permission", { result: granted });
       if (granted !== "granted") {
         setPhase({ kind: "error", message: "Notifications were not allowed. Allow them for this app in the browser settings and try again." });
         return;
@@ -249,6 +274,7 @@ export default function PushPairPage() {
       try {
         subscription = await subscribeToPush(ready, begin.vapidPublicKey);
       } catch {
+        trackPairStep("subscribe_failed");
         setPhase({ kind: "error", message: "The browser refused to create a push subscription. Check that notifications are allowed for this app and try again." });
         return;
       }
@@ -269,11 +295,15 @@ export default function PushPairPage() {
       );
       clearPairCookie();
       notifyEnvironmentChange();
+      setReceiverToken(result.deviceToken);
+      if (result.status === "Active") trackPairStep("confirmed", { waitedSeconds: 0 });
+      else trackPairStep("waiting");
       setStoragePersisted(await requestPersistentStorage());
       setWaitedSeconds(0);
       const poll = Math.min(Math.max(result.pollSeconds || 3, 2), 30);
       setPhase(result.status === "Active" ? { kind: "done" } : { kind: "waiting", token: result.deviceToken, pollSeconds: poll });
     } catch (error) {
+      trackPairStep("failed", { error: pairErrorCode(error) });
       setPhase({ kind: "error", message: describePushError(error) });
     }
   };

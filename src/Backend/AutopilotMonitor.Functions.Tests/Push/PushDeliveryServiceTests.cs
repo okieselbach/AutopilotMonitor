@@ -367,6 +367,7 @@ public class PushDeliveryServiceTests
         Assert.Equal("paused", e.Properties["action"]);
         Assert.Equal("owner_inactive", e.Properties["reason"]);
         Assert.Equal("tenant", e.Properties["scope"]);
+        Assert.Equal(TenantId, e.Properties["tenantId"]);
     }
 
     [Fact]
@@ -383,6 +384,7 @@ public class PushDeliveryServiceTests
         Assert.Equal("resumed", e.Properties["action"]);
         Assert.Equal("owner_inactive", e.Properties["reason"]);
         Assert.Equal("tenant", e.Properties["scope"]);
+        Assert.Equal(TenantId, e.Properties["tenantId"]);
     }
 
     [Fact]
@@ -398,7 +400,54 @@ public class PushDeliveryServiceTests
         Assert.Equal("revoked", e.Properties["action"]);
         Assert.Equal("member_removed", e.Properties["reason"]);
         Assert.Equal("tenant", e.Properties["scope"]);
+        Assert.Equal(TenantId, e.Properties["tenantId"]);
         Assert.False(h.Repo.Devices.ContainsKey((TenantId, "d1")));
+    }
+
+    // ── Telemetry: PushDelivery and the inventory ────────────────────────────
+
+    [Fact]
+    public async Task Delivery_events_name_the_tenant_of_a_tenant_device_and_none_for_a_platform_device()
+    {
+        var channel = new CapturingChannel();
+        var h = new Harness(Telemetry(channel));
+        h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
+        h.AddDevice("ga", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope);
+
+        await h.Sut.SendCoreAsync(Tenant, Alert());
+
+        var deliveries = channel.Items.OfType<EventTelemetry>().Where(e => e.Name == "PushDelivery").ToList();
+        Assert.Equal(2, deliveries.Count);
+        var tenantEvent = Assert.Single(deliveries, e => e.Properties["scope"] == "tenant");
+        Assert.Equal(TenantId, tenantEvent.Properties["tenantId"]);
+        Assert.Equal("delivered", tenantEvent.Properties["outcome"]);
+        var platformEvent = Assert.Single(deliveries, e => e.Properties["scope"] == "platform");
+        Assert.Equal(string.Empty, platformEvent.Properties["tenantId"]);
+    }
+
+    [Fact]
+    public async Task Maintenance_reports_the_inventory_it_found_before_sweeping()
+    {
+        var channel = new CapturingChannel();
+        var h = new Harness(Telemetry(channel));
+        var now = DateTime.UtcNow;
+        h.SignIn("admin@contoso.invalid", now.AddDays(-1));
+        h.AddDevice("d1", Constants.Push.DeviceStatus.Active).LastOpenedUtc = now.AddDays(-2);
+        h.AddDevice("pending-old", Constants.Push.DeviceStatus.Pending, pairedUtc: now.AddMinutes(-30));
+        h.AddDevice("ga", Constants.Push.DeviceStatus.Active, upn: "ga@contoso.invalid", scope: Constants.Push.PlatformScope);
+
+        var result = await h.Maintenance.RunAsync(now);
+
+        Assert.Equal(1, result.PendingDevicesDeleted);
+        var e = Assert.Single(channel.Items.OfType<EventTelemetry>(), i => i.Name == PushDeviceInventory.EventName);
+        Assert.Equal(1, e.Metrics["tenants"]);
+        Assert.Equal(2, e.Metrics["devices"]);      // the Pending row still counts: the state the run found
+        Assert.Equal(1, e.Metrics["active"]);
+        Assert.Equal(1, e.Metrics["pending"]);
+        Assert.Equal(1, e.Metrics["opened7d"]);
+        Assert.Equal(1, e.Metrics["ios"]);
+        Assert.Equal(1, e.Metrics["platformDevices"]);
+        Assert.Empty(e.Properties);                  // counts only, no ids
     }
 
     // ── SendSystemToOwnerAsync: the session-watch fan-out ────────────────────
@@ -490,20 +539,24 @@ public class PushDeliveryServiceTests
     private static PushPayload SessionFinished()
         => PushAlertProjector.SystemMessage("session_watch", "Session finished", "DESKTOP-4711 finished enrollment.", "success", Tenant, DateTime.UtcNow);
 
-    private static TelemetryClient Telemetry(CapturingChannel channel)
+    internal static TelemetryClient Telemetry(CapturingChannel channel)
         => new(new TelemetryConfiguration { TelemetryChannel = channel, ConnectionString = "InstrumentationKey=00000000-0000-0000-0000-000000000000" });
 
     /// <summary>The PushPairing lifecycle events only — every send also tracks a PushDelivery event.</summary>
     private static List<EventTelemetry> PairingEvents(CapturingChannel channel)
         => channel.Items.OfType<EventTelemetry>().Where(e => e.Name == "PushPairing").ToList();
 
-    /// <summary>Captures what the service tracks (the startup-telemetry test keeps its own copy private).</summary>
-    private sealed class CapturingChannel : ITelemetryChannel
+    /// <summary>
+    /// Captures what the service tracks (the startup-telemetry test keeps its own copy private). The fan-out
+    /// sends to several devices in parallel, each tracking from its own thread: writes lock, reads get a snapshot.
+    /// </summary>
+    internal sealed class CapturingChannel : ITelemetryChannel
     {
-        public List<ITelemetry> Items { get; } = new();
+        private readonly List<ITelemetry> _items = new();
+        public List<ITelemetry> Items { get { lock (_items) return _items.ToList(); } }
         public bool? DeveloperMode { get; set; }
         public string EndpointAddress { get; set; } = "";
-        public void Send(ITelemetry item) => Items.Add(item);
+        public void Send(ITelemetry item) { lock (_items) _items.Add(item); }
         public void Flush() { }
         public void Dispose() { }
     }
@@ -599,7 +652,7 @@ public class PushDeliveryServiceTests
             Sut = new PushDeliveryService(Repo, Eligibility.Object, Settings, new WebPushSender(new HttpClient(Http)),
                 new Lazy<OpsEventService>(() => OpsEvents.Object), new MemoryCache(new MemoryCacheOptions()),
                 NullLogger<PushDeliveryService>.Instance, telemetry);
-            Maintenance = new PushMaintenanceService(Repo, Settings, Sut, NullLogger<PushMaintenanceService>.Instance);
+            Maintenance = new PushMaintenanceService(Repo, Settings, Sut, NullLogger<PushMaintenanceService>.Instance, telemetry);
 
             using var ua = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var p = ua.ExportParameters(false);

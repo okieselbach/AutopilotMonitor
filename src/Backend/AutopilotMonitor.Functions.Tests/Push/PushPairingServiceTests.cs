@@ -7,6 +7,8 @@ using AutopilotMonitor.Push;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -71,6 +73,24 @@ public class PushPairingServiceTests
         var listed = Assert.Single((await h.Sut.ListAsync(Tenant, Admin)).Devices);
         Assert.True(listed.IsOwn);
         Assert.Equal("My iPhone", listed.Label);
+    }
+
+    [Fact]
+    public async Task Pairing_events_name_the_tenant_and_a_platform_pairing_none()
+    {
+        var channel = new PushDeliveryServiceTests.CapturingChannel();
+        var h = new Harness(telemetry: PushDeliveryServiceTests.Telemetry(channel));
+
+        var created = await h.Sut.CreateAsync(Tenant, Admin);
+        await h.Sut.RedeemAsync(h.RedeemRequest(created.Value!.Code));
+        await h.Sut.ConfirmAsync(Tenant, created.Value.PairingId, Admin);
+        await h.Sut.CreateAsync(NotificationScope.Platform, Admin);
+
+        var events = channel.Items.OfType<EventTelemetry>().Where(e => e.Name == "PushPairing").ToList();
+        Assert.Equal(new[] { "created", "redeemed", "confirmed", "created" }, events.Select(e => e.Properties["action"]));
+        Assert.All(events.Take(3), e => Assert.Equal(TenantId, e.Properties["tenantId"]));
+        Assert.Equal("platform", events[3].Properties["scope"]);
+        Assert.Equal(string.Empty, events[3].Properties["tenantId"]);
     }
 
     [Fact]
@@ -454,7 +474,8 @@ public class PushPairingServiceTests
 
         /// <param name="keys">The platform's key ring; a rotated ring for the key-migration tests.</param>
         /// <param name="repo">A repository shared with another harness: the same device rows seen under a new ring.</param>
-        public Harness(VapidKeyRing? keys = null, InMemoryPushDeviceRepository? repo = null)
+        /// <param name="telemetry">Optional: a client over a capturing channel to observe what the pairing service tracks.</param>
+        public Harness(VapidKeyRing? keys = null, InMemoryPushDeviceRepository? repo = null, TelemetryClient? telemetry = null)
         {
             Keys = keys ?? new VapidKeyRing(VapidKey.Generate());
             Repo = repo ?? new InMemoryPushDeviceRepository();
@@ -478,7 +499,7 @@ public class PushPairingServiceTests
                 .ReturnsAsync((new AutopilotMonitor.Shared.Models.TenantConfiguration { TenantId = TenantId, CompanyName = "Contoso" }, true));
 
             Sut = new PushPairingService(Repo, Eligibility.Object, settings, Delivery, OpsEvents.Object,
-                Mock.Of<IMaintenanceRepository>(), tenantConfig.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<PushPairingService>.Instance);
+                Mock.Of<IMaintenanceRepository>(), tenantConfig.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<PushPairingService>.Instance, telemetry);
 
             // A browser-shaped subscription: a fresh P-256 point + 16-byte auth secret.
             using var ua = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);

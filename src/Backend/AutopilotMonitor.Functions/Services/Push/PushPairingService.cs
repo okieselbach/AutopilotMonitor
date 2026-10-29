@@ -581,6 +581,7 @@ public class PushPairingService
             {
                 ["action"] = action,
                 ["scope"] = scope.IsPlatform ? "platform" : "tenant",
+                ["tenantId"] = scope.IsPlatform ? string.Empty : scope.Key,
                 ["platform"] = platform ?? string.Empty,
                 ["reason"] = reason ?? string.Empty,
             });

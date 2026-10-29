@@ -29,10 +29,12 @@ import {
   type PushDeviceResponse,
 } from "./pushApi";
 import { describeNotificationData } from "./pushFormat";
-import { decideReconcileAction } from "./pushReconcile";
+import { decideReconcileAction, type ReconcileAction } from "./pushReconcile";
 
 export const SW_URL = "/push/sw.js";
 export const SW_SCOPE = "/push/";
+/** The channel of the worker's postMessage calls to the pages (sw.js keeps its own copy). */
+export const WORKER_CHANNEL = "am-push";
 
 export function isPushSupported(): boolean {
   return (
@@ -289,6 +291,8 @@ export type ReconcileResult =
       device: PushDeviceResponse;
       meta: Record<string, string>;
       subscriptionPresent: boolean;
+      /** What this open did to the subscription ("none" also without a worker). */
+      repair: ReconcileAction;
       /** Why the subscription repair (subscribe or PUT) failed on this open, or null — the status page shows it; it is retried on the next open. */
       repairError: string | null;
     }
@@ -321,6 +325,7 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
   }
 
   let subscriptionPresent = false;
+  let repair: ReconcileAction = "none";
   let repairError: string | null = null;
   try {
     const registration = (await getPushRegistration()) ?? (isPushSupported() ? await registerPushWorker() : null);
@@ -341,6 +346,7 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
         activeKid: device.activeKid || null,
         canRekey: Boolean(activeVapidPublicKey) && permission === "granted",
       });
+      repair = action;
       // A fresh subscription uses the server's active key after a rotation, and also when the
       // stored key is lost; otherwise the stored key, which is what the server's row expects.
       const useActiveKey = action === "rekey" || (action === "resubscribe" && !vapidPublicKey);
@@ -376,7 +382,7 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
     // and the status page names the failure so a wrong key or a refused endpoint is not silent.
     repairError = describePushError(error);
   }
-  return { state: "ok", device, meta, subscriptionPresent, repairError };
+  return { state: "ok", device, meta, subscriptionPresent, repair, repairError };
 }
 
 function isGone(error: unknown): boolean {

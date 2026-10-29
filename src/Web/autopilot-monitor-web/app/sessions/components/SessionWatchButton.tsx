@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type AddNotification, notifyApiError } from "@/contexts/NotificationContext";
+import { trackEvent } from "@/lib/appInsights";
 import { getSessionWatch, isPushChannelRequired, setSessionWatch } from "@/lib/pushPortalApi";
 
 /** Terminal statuses: the session has ended, there is nothing left to be notified about. */
@@ -62,9 +63,10 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
   const toggle = async () => {
     if (busy || watching === null) return;
     setBusy(true);
+    const next = !watching;
     try {
-      const next = !watching;
       const result = await setSessionWatch(sessionId, effectiveTenantId, next, getAccessToken);
+      trackEvent("session_watch_toggled", { enabled: next, result: "ok" });
       setWatching(result.watching);
       if (result.watching) {
         addNotification("success", TOAST_TITLE, `Your paired devices will be notified when ${until}.`, TOAST_KEY);
@@ -72,7 +74,9 @@ export default function SessionWatchButton({ sessionId, effectiveTenantId, sessi
         addNotification("info", TOAST_TITLE, "You will not be notified for this session.", TOAST_KEY);
       }
     } catch (err) {
-      if (isPushChannelRequired(err)) {
+      const channelRequired = isPushChannelRequired(err);
+      trackEvent("session_watch_toggled", { enabled: next, result: channelRequired ? "channel_required" : "failed" });
+      if (channelRequired) {
         addNotification("warning", TOAST_TITLE, "Enable a Push channel under Settings › Notifications first.", TOAST_KEY);
       } else {
         notifyApiError(addNotification, TOAST_TITLE, err, TOAST_KEY);

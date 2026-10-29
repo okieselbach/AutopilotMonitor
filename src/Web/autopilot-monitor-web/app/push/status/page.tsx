@@ -14,6 +14,7 @@ import {
   type ReconcileResult,
 } from "@/lib/push/pushClient";
 import { describeDeviceStatus, formatDateTime, formatTraceRecord } from "@/lib/push/pushFormat";
+import { reportAppLoad, reportDeviceCheck, setReceiverToken, trackStatusAction } from "@/lib/push/pushTelemetry";
 import { describeRetention, parseRetentionInput } from "@/lib/push/retentionInput";
 import { useIsClient, useNotificationPermission } from "../pushEnvironment";
 import { DEVICE_STATUS_CHIP, NEUTRAL_CHIP } from "../pushStyles";
@@ -47,6 +48,10 @@ export default function PushStatusPage() {
   const [importNote, setImportNote] = useState<string | null>(null);
 
   useEffect(() => {
+    reportAppLoad("direct");
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     const run = async () => {
       const [reconciled, storage, days] = await Promise.all([
@@ -55,6 +60,7 @@ export default function PushStatusPage() {
         readRetentionDays().catch(() => null),
       ]);
       if (cancelled) return;
+      reportDeviceCheck(reconciled);
       setResult(reconciled);
       setPersisted(storage);
       setRetention(days);
@@ -99,6 +105,7 @@ export default function PushStatusPage() {
     try {
       // Stores and prunes at once; the stored value is what the field shows from now on.
       const stored = await writeRetentionDays(parsed.days);
+      trackStatusAction("retention_saved", { days: stored });
       setRetention(stored);
       setRetentionInput(null);
       setRetentionNote({ kind: "saved", at: Date.now() });
@@ -111,9 +118,12 @@ export default function PushStatusPage() {
     setUnpair({ kind: "working" });
     try {
       await unpairDevice();
+      trackStatusAction("unpaired");
+      setReceiverToken(null);
       setUnpair({ kind: "done" });
       setResult({ state: "unpaired" });
     } catch (error) {
+      trackStatusAction("unpair_failed");
       setUnpair({ kind: "error", message: describePushError(error) });
     }
   };
@@ -125,6 +135,7 @@ export default function PushStatusPage() {
   // The same import the history page runs on every load, here on demand and with its count shown.
   const importDisplayed = async () => {
     const added = await importDisplayedNotifications().catch(() => 0);
+    trackStatusAction("notifications_imported", { imported: added });
     setImportNote(added === 1 ? "1 entry imported." : `${added} entries imported.`);
     await refreshDiagnostics();
   };
@@ -271,7 +282,10 @@ export default function PushStatusPage() {
             <h2 className="text-base font-semibold text-gray-900">
               <button
                 type="button"
-                onClick={() => setDiagOpen((open) => !open)}
+                onClick={() => {
+                  if (!diagOpen) trackStatusAction("diagnostics_opened");
+                  setDiagOpen(!diagOpen);
+                }}
                 aria-expanded={diagOpen}
                 aria-controls="push-diagnostics"
                 className="inline-flex items-center gap-2"

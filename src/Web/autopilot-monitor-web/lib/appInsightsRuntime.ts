@@ -5,7 +5,7 @@ import {
 } from "@microsoft/applicationinsights-web";
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from "web-vitals";
 import { API_BASE_URL, PORTAL_URL, SITE_URL } from "@/lib/config";
-import type { TelemetryContext } from "./appInsights";
+import { contextProperties, type TelemetryContext } from "./appInsights";
 import { readEntryAttribution, stampEntryAttribution } from "./entryAttribution";
 import { isOnPublicHost } from "./hostRouting";
 import { normalizeRoute, toWebVitalTelemetry } from "./webVitals";
@@ -24,7 +24,8 @@ const CFG_SYNC_PLUGIN_IDENTIFIER = "AppInsightsCfgSyncPlugin";
  * The plugin otherwise fetches https://js.monitor.azure.com/scripts/b/ai.config.1.cfg.json on every
  * page load; that remote config only tunes the throttling of the SDK's own deprecation notices, so
  * blocking it costs nothing and saves a request on the critical path. Everything else keeps the
- * SDK's built-in defaults.
+ * SDK's built-in defaults. With it the ingestion endpoint is the SDK's only host: the CSP and the
+ * customer endpoint list name no other, so dropping this setting yields a blocked request, not a new host.
  */
 const cfgSyncConfig: ICfgSyncConfig = { blkCdnCfg: true };
 
@@ -67,12 +68,7 @@ export function createAppInsights(connectionString: string, context: TelemetryCo
   });
 
   appInsights.addTelemetryInitializer((envelope) => {
-    envelope.data = envelope.data ?? {};
-    if (context.tenantId) envelope.data["tenantId"] = context.tenantId;
-    envelope.data["isAdmin"] = context.isAdmin;
-    envelope.data["isGlobalAdmin"] = context.isGlobalAdmin;
-    envelope.data["theme"] = context.theme;
-    envelope.data["sidebarState"] = context.sidebarState;
+    envelope.data = Object.assign(envelope.data ?? {}, contextProperties(context));
   });
   // Page views and page-load timings copy location.href including the fragment; the push
   // receiver's pairing code travels there (/push/pair/#p=<code>), so the fragment is cut off

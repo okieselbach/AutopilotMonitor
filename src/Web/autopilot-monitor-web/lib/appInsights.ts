@@ -19,10 +19,31 @@ const telemetryConfig = {
   isGlobalAdmin: false,
   theme: "light" as "light" | "dark",
   sidebarState: "full" as "full" | "icons" | "hidden",
+  /** The push receiver's pairing scope (it has no sign-in); null everywhere else. */
+  pushScope: null as "tenant" | "platform" | null,
+  pushTenantId: null as string | null,
 };
 
 /** Live context the runtime's telemetry initializer reads at send time. */
 export type TelemetryContext = typeof telemetryConfig;
+
+/**
+ * The properties the initializer stamps on every item. On the push receiver the pairing scope names
+ * the tenant, and only a Global Admin can pair a device to the platform scope — such a receiver counts
+ * as one, so the reports' operator filter (`isGlobalAdmin`) leaves the operators' own phones out.
+ */
+export function contextProperties(context: TelemetryContext): Record<string, string | boolean> {
+  const properties: Record<string, string | boolean> = {
+    isAdmin: context.isAdmin,
+    isGlobalAdmin: context.isGlobalAdmin || context.pushScope === "platform",
+    theme: context.theme,
+    sidebarState: context.sidebarState,
+  };
+  const tenantId = context.pushTenantId ?? context.tenantId;
+  if (tenantId) properties.tenantId = tenantId;
+  if (context.pushScope) properties.pushScope = context.pushScope;
+  return properties;
+}
 
 type Runtime = typeof import("./appInsightsRuntime");
 let runtime: Promise<Runtime> | null = null;
@@ -81,6 +102,12 @@ export function setTelemetryContext(
 
 export function setSidebarStateContext(state: "full" | "icons" | "hidden") {
   telemetryConfig.sidebarState = state;
+}
+
+/** Set by the push receiver once it knows its pairing scope; null clears it (unpaired). */
+export function setPushReceiverContext(scope: "tenant" | "platform" | null, tenantId: string | null) {
+  telemetryConfig.pushScope = scope;
+  telemetryConfig.pushTenantId = scope === "tenant" ? tenantId : null;
 }
 
 export function trackEvent(

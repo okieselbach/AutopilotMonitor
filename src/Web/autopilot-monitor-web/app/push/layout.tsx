@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PushAppEvents } from "./PushAppEvents";
 import { PushNav } from "./PushNav";
 
 /**
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
 export default function PushLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50">
+      <PushAppEvents />
       <PushNav />
       <main className="max-w-md mx-auto px-4 py-4 text-gray-900">{children}</main>
     </div>

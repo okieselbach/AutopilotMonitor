@@ -39,7 +39,6 @@ const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8")) as SwaConfig;
 const ALLOWED_THIRD_PARTY_HOSTS = [
   "*.tile.openstreetmap.org",
   "*.service.signalr.net",
-  "js.monitor.azure.com",
   "*.in.applicationinsights.azure.com",
 ];
 

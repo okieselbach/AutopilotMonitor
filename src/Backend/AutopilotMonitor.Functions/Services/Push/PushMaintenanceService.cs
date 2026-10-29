@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services.Push;
@@ -15,7 +16,8 @@ namespace AutopilotMonitor.Functions.Services.Push;
 /// devices are deleted <see cref="PushSettings.PausedDeviceRetentionDays"/> after the owner's
 /// last sign-in (without an owner row: after the pause itself); expired session watches go.
 /// Nothing here deletes a device a sign-in could still resume. Every step is fail-soft and
-/// reports counts; nothing here is a hot path.
+/// reports counts; nothing here is a hot path. The device sweep also reports the inventory it
+/// found (<see cref="PushDeviceInventory"/>), the one usage figure the credential table gives.
 /// </summary>
 public class PushMaintenanceService
 {
@@ -23,17 +25,20 @@ public class PushMaintenanceService
     private readonly PushSettings _settings;
     private readonly PushDeliveryService _delivery;
     private readonly ILogger<PushMaintenanceService> _logger;
+    private readonly TelemetryClient? _telemetry;
 
     public PushMaintenanceService(
         IPushDeviceRepository repo,
         PushSettings settings,
         PushDeliveryService delivery,
-        ILogger<PushMaintenanceService> logger)
+        ILogger<PushMaintenanceService> logger,
+        TelemetryClient? telemetry = null)
     {
         _repo = repo;
         _settings = settings;
         _delivery = delivery;
         _logger = logger;
+        _telemetry = telemetry;
     }
 
     public async Task<PushMaintenanceResult> RunAsync(DateTime? nowUtc = null)
@@ -66,7 +71,9 @@ public class PushMaintenanceService
         try
         {
             var lastSignIns = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var device in await _repo.GetAllDevicesAsync().ConfigureAwait(false))
+            var devices = await _repo.GetAllDevicesAsync().ConfigureAwait(false);
+            TrackInventory(PushDeviceInventory.Count(devices, now));
+            foreach (var device in devices)
             {
                 switch (device.Status)
                 {
@@ -132,6 +139,18 @@ public class PushMaintenanceService
         if (result.Any)
             _logger.LogWarning("Push maintenance: {Result}", result);
         return result;
+    }
+
+    private void TrackInventory(PushDeviceInventory inventory)
+    {
+        try
+        {
+            _telemetry?.TrackEvent(PushDeviceInventory.EventName, metrics: inventory.ToMeasurements());
+        }
+        catch
+        {
+            // Telemetry never fails the maintenance run.
+        }
     }
 
     private async Task<DateTime?> LastSignInAsync(PushDevice device, Dictionary<string, DateTime?> cache)

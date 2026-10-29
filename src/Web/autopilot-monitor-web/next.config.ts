@@ -76,7 +76,7 @@ const nextConfig: NextConfig = {
                     "font-src 'self'",
                     "worker-src 'self'",
                     "manifest-src 'self'",
-                    `connect-src 'self' ${API_URL_PROD} ${BLOB_URL_PROD} ${ENTRA_LOGIN_URL} ${GRAPH_URL} https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com`,
+                    `connect-src 'self' ${API_URL_PROD} ${BLOB_URL_PROD} ${ENTRA_LOGIN_URL} ${GRAPH_URL} https://*.service.signalr.net wss://*.service.signalr.net https://*.in.applicationinsights.azure.com`,
                     "frame-ancestors 'none'",
                   ].join("; "),
                 },

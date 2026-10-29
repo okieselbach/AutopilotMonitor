@@ -271,9 +271,9 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
             await SendSystemAsync(device, wipe).ConfigureAwait(false);
         }
         await _repo.DeleteDeviceAsync(device.Scope, device.DeviceId).ConfigureAwait(false);
-        Track("PushPairing", new Dictionary<string, string>
+        Track("PushPairing", device.Scope, new Dictionary<string, string>
         {
-            ["action"] = "revoked", ["reason"] = reason, ["scope"] = scope.IsPlatform ? "platform" : "tenant", ["platform"] = device.Platform,
+            ["action"] = "revoked", ["reason"] = reason, ["platform"] = device.Platform,
         });
     }
 
@@ -334,13 +334,12 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
                 ["StatusReason"] = reason,
                 ["StatusChangedUtc"] = now,
             }).ConfigureAwait(false);
-        Track("PushPairing", new Dictionary<string, string> { ["action"] = "paused", ["reason"] = reason, ["scope"] = scope.IsPlatform ? "platform" : "tenant", ["platform"] = device.Platform });
+        Track("PushPairing", device.Scope, new Dictionary<string, string> { ["action"] = "paused", ["reason"] = reason, ["platform"] = device.Platform });
     }
 
     /// <summary>An owner-inactivity pause lifts itself once the owner signs in again (at the sign-in, the maintenance run as fallback) — no re-pairing.</summary>
     public async Task ResumeAsync(PushDevice device, DateTime now)
     {
-        var scope = NotificationScope.FromKey(device.Scope);
         var reason = device.StatusReason ?? string.Empty;
         var landed = await _repo.MutateDeviceAsync(device.Scope, device.DeviceId, current =>
             current.Status != Constants.Push.DeviceStatus.Paused ? null : new Dictionary<string, object?>
@@ -350,7 +349,7 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
                 ["StatusChangedUtc"] = now,
             }).ConfigureAwait(false);
         if (landed)
-            Track("PushPairing", new Dictionary<string, string> { ["action"] = "resumed", ["reason"] = reason, ["scope"] = scope.IsPlatform ? "platform" : "tenant", ["platform"] = device.Platform });
+            Track("PushPairing", device.Scope, new Dictionary<string, string> { ["action"] = "resumed", ["reason"] = reason, ["platform"] = device.Platform });
     }
 
     // ── Flood control (K19): the window lives on the row, merged under CAS ────
@@ -401,14 +400,13 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
     {
         var keys = _settings.Keys!;
         var service = ClassifyService(device.Endpoint);
-        var scopeKind = device.Scope == Constants.Push.PlatformScope ? "platform" : "tenant";
 
         var key = keys.Resolve(device.VapidKid);
         if (key == null)
         {
             await MarkStaleAsync(device, "vapid_key_mismatch", null).ConfigureAwait(false);
             await RaiseDeliveryFailedAsync(service, null, device.VapidKid, "vapid_key_mismatch", alertEventType).ConfigureAwait(false);
-            Track(DeliveryEventName, new Dictionary<string, string> { ["service"] = service, ["outcome"] = "config_error", ["statusCode"] = "", ["scope"] = scopeKind, ["kid"] = device.VapidKid });
+            Track(DeliveryEventName, device.Scope, new Dictionary<string, string> { ["service"] = service, ["outcome"] = "config_error", ["statusCode"] = "", ["kid"] = device.VapidKid });
             return PushOutcome.ConfigError;
         }
 
@@ -431,12 +429,11 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         }
 
         await ApplyOutcomeAsync(device, result, service, alertEventType).ConfigureAwait(false);
-        Track(DeliveryEventName, new Dictionary<string, string>
+        Track(DeliveryEventName, device.Scope, new Dictionary<string, string>
         {
             ["service"] = service,
             ["outcome"] = OutcomeName(result.Outcome),
             ["statusCode"] = result.StatusCode?.ToString() ?? string.Empty,
-            ["scope"] = scopeKind,
             ["kid"] = device.VapidKid,
             ["type"] = payload.Type,
         });
@@ -552,10 +549,14 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
         return "other";
     }
 
-    private void Track(string name, Dictionary<string, string> properties)
+    /// <summary>Every event names the device's scope kind and, for a tenant scope, the tenant — never the device.</summary>
+    private void Track(string name, string scopeKey, Dictionary<string, string> properties)
     {
         try
         {
+            var platform = scopeKey == Constants.Push.PlatformScope;
+            properties["scope"] = platform ? "platform" : "tenant";
+            properties["tenantId"] = platform ? string.Empty : scopeKey;
             _telemetry?.TrackEvent(name, properties);
         }
         catch

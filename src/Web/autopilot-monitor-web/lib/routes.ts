@@ -103,6 +103,11 @@ export function customsArchiveUrl(tenantId: string, historyRowKey: string): Rout
   });
 }
 
+/** The push receiver's history; `fragment` is pushCore's entryFragment(id) to open one entry. */
+export function pushHistoryUrl(fragment?: string): Route {
+  return withQuery("/push", {}, fragment);
+}
+
 /**
  * Compile-time validates a route literal that targets a DYNAMIC route (e.g.
  * `/admin/settings/[section]`): the bare `Route` type only covers static

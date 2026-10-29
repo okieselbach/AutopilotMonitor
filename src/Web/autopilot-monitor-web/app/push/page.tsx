@@ -11,7 +11,6 @@ import { createPullToRefresh, type PullState } from "@/lib/push/pullToRefresh";
 import {
   applyBadge,
   deleteHistoryEntry,
-  entryFragment,
   markAllRead,
   META_KEYS,
   parseFragment,
@@ -21,8 +20,16 @@ import {
   writeMeta,
   type HistoryEntry,
 } from "@/lib/push/pushCore";
-import { closeReadNotifications, importDisplayedNotifications, readPairCookie, reconcileDevice, type ReconcileResult } from "@/lib/push/pushClient";
+import {
+  closeReadNotifications,
+  importDisplayedNotifications,
+  readPairCookie,
+  reconcileDevice,
+  WORKER_CHANNEL,
+  type ReconcileResult,
+} from "@/lib/push/pushClient";
 import { formatDateTime, formatRelativeTime } from "@/lib/push/pushFormat";
+import { reportAppLoad, reportDeviceCheck, trackHistoryAction } from "@/lib/push/pushTelemetry";
 import { EntryActionSheet } from "./EntryActionSheet";
 import { useIsClient, useLocationHash } from "./pushEnvironment";
 import { DANGER_CHIP, DEVICE_STATUS_CHIP, NEUTRAL_CHIP, NEW_CHIP, SEVERITY_ACCENT } from "./pushStyles";
@@ -102,13 +109,17 @@ export default function PushHistoryPage() {
     void run();
   }, [historyKey, loadHistory]);
 
+  // A load from a notification tap carries the entry's fragment (the worker's openWindow, or the
+  // platform's navigate URL); taps that reach an open app are counted by the layout's listeners.
+  useEffect(() => {
+    reportAppLoad(parseFragment(window.location.hash)?.kind === "entry" ? "notification" : "direct");
+  }, []);
+
   // Keep in step with the worker, with the tab or app coming back, and — while visible — with a poll.
+  // The "open" message itself (show that entry) is the layout's, which also serves the other pages.
   useEffect(() => {
     const onMessage = (event: MessageEvent<WorkerMessage>) => {
-      if (event.data?.channel !== "am-push") return;
-      if (event.data.type === "open" && typeof event.data.id === "string") {
-        window.location.hash = entryFragment(event.data.id);
-      }
+      if (event.data?.channel !== WORKER_CHANNEL) return;
       setHistoryKey((k) => k + 1);
       if (event.data.type === "wiped") setReloadKey((k) => k + 1);
     };
@@ -142,6 +153,7 @@ export default function PushHistoryPage() {
   // indicator stays visible for a moment so a fast read still reads as "done".
   const refresh = useLatest(async () => {
     const started = Date.now();
+    trackHistoryAction("refresh");
     setReloadKey((k) => k + 1);
     await loadHistory();
     const remaining = REFRESH_MIN_MS - (Date.now() - started);
@@ -186,6 +198,11 @@ export default function PushHistoryPage() {
     setFilter(key);
     writeMeta({ [META_KEYS.historyFilter]: key }).catch(() => {});
   };
+  // Only a choice the user makes is tracked, not the reset a deep link forces below.
+  const pickFilter = (key: string) => {
+    trackHistoryAction("filter", { filter: key });
+    chooseFilter(key);
+  };
 
   const groups = buildFilterOptions(entries ?? []);
   const filterShown = isFilterUseful(groups);
@@ -213,6 +230,7 @@ export default function PushHistoryPage() {
     const run = async () => {
       const result = await reconcileDevice();
       if (cancelled) return;
+      reportDeviceCheck(result);
       if (result.state === "unpaired" && readPairCookie()) {
         router.replace("/push/pair");
         return;
@@ -231,7 +249,15 @@ export default function PushHistoryPage() {
     document.getElementById(`entry-${focusId}`)?.scrollIntoView({ block: "center" });
   }, [focusId, entries]);
 
-  const toggle = (id: string) => setExpanded((prev) => ({ ...prev, id: prev.id === id ? null : id }));
+  const toggle = (entry: HistoryEntry) => {
+    if (expanded.id !== entry.id) trackHistoryAction("expand", { type: entry.type, severity: entry.severity });
+    setExpanded((prev) => ({ ...prev, id: prev.id === entry.id ? null : entry.id }));
+  };
+
+  const openSheet = (entry: HistoryEntry, via: "press" | "context") => {
+    trackHistoryAction("sheet", { via });
+    setSheet(entry);
+  };
 
   // The delete never leaves the device. IndexedDB may refuse (private mode): the entry just stays.
   const deleteEntry = async (entry: HistoryEntry) => {
@@ -241,6 +267,7 @@ export default function PushHistoryPage() {
     } catch {
       return;
     }
+    trackHistoryAction("delete", { type: entry.type });
     setExpanded((prev) => (prev.id === entry.id ? { ...prev, id: null } : prev));
     if (focusId === entry.id) window.location.hash = "";
     setHistoryKey((k) => k + 1);
@@ -290,7 +317,7 @@ export default function PushHistoryPage() {
             <select
               id="history-filter"
               value={selected}
-              onChange={(event) => chooseFilter(event.target.value)}
+              onChange={(event) => pickFilter(event.target.value)}
               className="flex-1 min-w-0 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
             >
               <option value={ALL_FILTER}>All alerts ({entries.length})</option>
@@ -311,7 +338,7 @@ export default function PushHistoryPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => chooseFilter(ALL_FILTER)}
+                  onClick={() => pickFilter(ALL_FILTER)}
                   aria-label="Clear filter"
                   title="Show all alerts"
                   className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:text-gray-900"
@@ -326,7 +353,7 @@ export default function PushHistoryPage() {
         {entries && visible && entries.length > 0 && visible.length === 0 && (
           <div className="bg-white rounded-lg shadow p-6 text-center">
             <p className="text-sm text-gray-600">No alerts match this filter.</p>
-            <button type="button" onClick={() => chooseFilter(ALL_FILTER)} className="mt-2 text-sm font-medium text-green-700 hover:underline">
+            <button type="button" onClick={() => pickFilter(ALL_FILTER)} className="mt-2 text-sm font-medium text-green-700 hover:underline">
               Show all alerts
             </button>
           </div>
@@ -359,7 +386,7 @@ export default function PushHistoryPage() {
                 fresh={fresh.has(entry.id)}
                 now={now}
                 onToggle={toggle}
-                onActions={setSheet}
+                onActions={openSheet}
               />
             ))}
           </ul>
@@ -378,8 +405,8 @@ interface EntryCardProps {
   /** Arrived since the history was last on screen. */
   fresh: boolean;
   now: number;
-  onToggle: (id: string) => void;
-  onActions: (entry: HistoryEntry) => void;
+  onToggle: (entry: HistoryEntry) => void;
+  onActions: (entry: HistoryEntry, via: "press" | "context") => void;
 }
 
 /**
@@ -388,7 +415,7 @@ interface EntryCardProps {
  * a press, and it ignores the click that the release after a long press may produce.
  */
 function EntryCard({ entry, open, focused, fresh, now, onToggle, onActions }: EntryCardProps) {
-  const openActions = useLatest(() => onActions(entry));
+  const openActions = useLatest(() => onActions(entry, "press"));
   const [press] = useState(() => createLongPress({ onLongPress: () => openActions.current() }));
   useEffect(() => () => press.dispose(), [press]);
 
@@ -406,13 +433,13 @@ function EntryCard({ entry, open, focused, fresh, now, onToggle, onActions }: En
       onPointerLeave={press.onPointerLeave}
       onContextMenu={(event) => {
         event.preventDefault();
-        onActions(entry);
+        onActions(entry, "context");
       }}
     >
       <button
         type="button"
         onClick={() => {
-          if (!press.shouldSuppressClick()) onToggle(entry.id);
+          if (!press.shouldSuppressClick()) onToggle(entry);
         }}
         aria-expanded={open}
         className="w-full text-left px-3 py-2.5"
@@ -451,6 +478,7 @@ function EntryCard({ entry, open, focused, fresh, now, onToggle, onActions }: En
               rel="noopener noreferrer"
               onClick={(event) => {
                 if (press.shouldSuppressClick()) event.preventDefault();
+                else trackHistoryAction("portal", { type: entry.type, severity: entry.severity });
               }}
               className="inline-block text-sm font-medium text-sky-700 dark:text-sky-400 hover:underline"
             >
