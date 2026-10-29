@@ -93,6 +93,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void Stale_post_install_detection_is_suppressed_fresh_emits()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(ClockNow);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = new AppPackageState("app-check", 0);
+
+            adapter.TriggerPostInstallDetectionFromTest(app, "Detected", afterReboot: false, ClockNow.AddDays(-7));
+            Assert.Empty(f.InfoEvents(SharedEventTypes.AppPostInstallDetection));
+
+            adapter.TriggerPostInstallDetectionFromTest(app, "Detected", afterReboot: false, ClockNow.AddMinutes(-1));
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.AppPostInstallDetection));
+            Assert.Equal(ClockNow.AddMinutes(-1), info.OccurredAtUtc);
+        }
+
+        [Fact]
         public void Poll_driven_do_telemetry_stamps_clock_ignoring_unrelated_last_matched_line()
         {
             // Session df1fcf47: the DO collector observed the completion live, but the event

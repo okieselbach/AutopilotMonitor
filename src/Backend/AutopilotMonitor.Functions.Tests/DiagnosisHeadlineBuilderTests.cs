@@ -241,6 +241,8 @@ public class DiagnosisHeadlineBuilderTests
         // hresultFromWin32 and exitCode stay "0".
         var events = new Timeline()
             .Add("app_install_failed", App(VpnId, "Contoso VPN", ("errorCode", "1603")))
+            .Add("app_install_completed", App(NotesId, "Contoso Notes", ("state", "Installed"), ("detectionResult", "NotDetected")))
+            .Add("app_post_install_detection", App(NotesId, "Contoso Notes", ("postInstallDetection", "NotDetected"), ("afterReboot", "false")))
             .Add("app_install_failed", App(NotesId, "Contoso Notes", ("state", "Error"), ("errorCode", "-2016345060"), ("detectionResult", "NotDetected"), ("exitCode", "0"), ("hresultFromWin32", "0")))
             .Add("app_install_failed", App(PortalId, "Contoso Portal", ("errorCode", "1618")))
             .Add("enrollment_failed", Failed("AccountSetup", "Apps", "0x87d1041c"));
@@ -252,6 +254,7 @@ public class DiagnosisHeadlineBuilderTests
         Assert.Equal(NotesId, first.Key);
         Assert.Equal("-2016345060", first.ErrorCode);
         Assert.Equal("0", first.ExitCode);
+        Assert.Equal("NotDetected", first.PostInstallDetection);
     }
 
     [Fact]

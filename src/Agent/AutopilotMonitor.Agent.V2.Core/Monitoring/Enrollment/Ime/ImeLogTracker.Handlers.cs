@@ -117,6 +117,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
         }
 
+        /// <summary>
+        /// Result of IME's check right after an install (D-392). After an exit code that asked for a
+        /// restart that check decides nothing: IME sets no error then and checks again after the
+        /// restart (IME-POST-REBOOT-DETECTION marks that check), so it is not reported.
+        /// </summary>
+        private void HandlePostInstallDetection(string appId, string detection, bool afterReboot)
+        {
+            var pkg = _packageStates.GetPackage(appId);
+            if (pkg == null) return;
+            if (!afterReboot
+                && (string.Equals(pkg.ExitCodeClass, "SoftReboot", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(pkg.ExitCodeClass, "HardReboot", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.Debug($"ImeLogTracker: check after the install of {pkg.Name ?? appId} precedes the requested restart ({detection}), IME decides after it");
+                return;
+            }
+
+            _logger.Info($"ImeLogTracker: check after the install of {pkg.Name ?? appId}: {detection}{(afterReboot ? " (after the restart)" : string.Empty)}");
+            try { OnPostInstallDetection?.Invoke(pkg, detection, afterReboot, LastMatchedLogTimestamp); }
+            catch (Exception ex) { _logger.Warning($"OnPostInstallDetection handler threw: {ex.Message}"); }
+        }
+
         private void HandleDoTelemetry(string json)
         {
             try

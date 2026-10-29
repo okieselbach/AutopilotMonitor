@@ -516,7 +516,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "updatestateskipped", "updatestateerror", "updatestatepostponed",
             "captureexitcode", "capturehresult", "captureexitcodeclass", "captureappversion",
             "captureapptypewinget", "captureapptypemsi", "captureattemptnumber",
-            "capturedetectionresult", "esptrackstatus", "policiesdiscovered",
+            "capturedetectionresult", "markpostinstalldetection", "esptrackstatus", "policiesdiscovered",
             "ignorecompletedapp", "updatename", "updatewin32appstate",
             "cancelstuckandsetcurrent", "updatedotelemetry",
             // Not app-mutating, but a stale token-failure replayed from a previous
@@ -790,10 +790,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         }
                         break;
 
+                    case "markpostinstalldetection":
+                        // The check right after an install starts (D-392); its result line follows.
+                        if (!string.IsNullOrEmpty(id))
+                            _postInstallCheckPending[id] = pattern.Parameters.ContainsKey("afterReboot")
+                                && pattern.Parameters["afterReboot"] == "true";
+                        break;
+
                     case "capturedetectionresult":
                         var detectionVal = match.Groups["detection"]?.Value;
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(detectionVal))
+                        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(detectionVal))
+                            break;
+                        bool afterReboot;
+                        if (_postInstallCheckPending.TryGetValue(id, out afterReboot))
+                        {
+                            // detectionResult stays the check before the install.
+                            _postInstallCheckPending.Remove(id);
+                            HandlePostInstallDetection(id, detectionVal, afterReboot);
+                        }
+                        else
+                        {
                             _packageStates.GetPackage(id)?.UpdateDetectionResult(detectionVal);
+                        }
                         break;
 
                     case "updatestatepostponed":

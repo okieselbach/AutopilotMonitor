@@ -130,7 +130,8 @@ export default function VerdictCard({
 
 function Culprits({ culprits }: { culprits: DiagnosisCulprit[] }) {
   const [first, ...rest] = culprits;
-  const notDetected = isDetectionFailureCode(first.errorCode);
+  // IME's check after the install: the agent's own event, or for older agents the 0x87D1041C verdict.
+  const afterInstall = first.postInstallDetection ?? (isDetectionFailureCode(first.errorCode) ? "NotDetected" : undefined);
   const tiles = [
     <Tile key="subject" label={first.kind === "app" ? "App" : first.kind === "appx_package" ? "Store package" : "Policy provider"}>
       <dd className="mt-1 break-words text-sm font-semibold text-gray-900">{first.name}</dd>
@@ -150,9 +151,9 @@ function Culprits({ culprits }: { culprits: DiagnosisCulprit[] }) {
         {first.lastStartedAt && <dd className="mt-1 text-xs tabular-nums text-gray-500">Last start {shortTime(first.lastStartedAt)}</dd>}
       </Tile>
     ),
-    (notDetected || first.state) && (
-      <Tile key="state" label={notDetected ? "Detection" : "State"}>
-        <dd className="mt-1 text-sm font-semibold text-gray-900">{notDetected ? "Not detected after install" : humanizeKey(first.state ?? "")}</dd>
+    (afterInstall || first.state) && (
+      <Tile key="state" label={afterInstall ? "Detection after install" : "State"}>
+        <dd className="mt-1 text-sm font-semibold text-gray-900">{humanizeKey(afterInstall ?? first.state ?? "")}</dd>
         {first.failedAt && <dd className="mt-1 text-xs tabular-nums text-gray-500">Failed {shortTime(first.failedAt)}</dd>}
       </Tile>
     ),

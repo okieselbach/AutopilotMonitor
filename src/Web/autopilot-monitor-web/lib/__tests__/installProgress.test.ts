@@ -119,6 +119,32 @@ describe("buildInstallItems — state folding", () => {
     expect(items[0].isInstallFailure).toBe(false);
   });
 
+  it("annotates the row with IME's check after the install without changing its state", () => {
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-10-21T16:40:00Z", { appName: "Contoso VPN" }),
+      evt("app_install_completed", "2026-10-21T16:42:39Z", { appName: "Contoso VPN", state: "Installed" }),
+      evt("app_post_install_detection", "2026-10-21T16:42:41Z", { appName: "Contoso VPN", postInstallDetection: "Detected", afterReboot: "false" }),
+      // A check for an app without a row (e.g. replayed) adds none.
+      evt("app_post_install_detection", "2026-10-21T16:42:42Z", { appName: "Unknown App", postInstallDetection: "Detected", afterReboot: "false" }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Installed");
+    expect(items[0].postInstallDetection).toBe("Detected");
+    expect(items[0].postInstallAfterReboot).toBe(false);
+  });
+
+  it("keeps the check after the restart on the row", () => {
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-10-21T16:40:00Z", { appName: "Contoso Driver" }),
+      evt("app_install_completed", "2026-10-21T16:55:00Z", { appName: "Contoso Driver", state: "Installed", exitCodeClass: "SoftReboot" }),
+      evt("app_post_install_detection", "2026-10-21T16:55:02Z", { appName: "Contoso Driver", postInstallDetection: "DetectedDifferentVersion", afterReboot: "true" }),
+    ]);
+
+    expect(items[0].postInstallDetection).toBe("DetectedDifferentVersion");
+    expect(items[0].postInstallAfterReboot).toBe(true);
+  });
+
   it("maps the ESP failure types onto their badge flags", () => {
     const items = buildInstallItems([
       evt("app_install_started", "2026-07-27T10:00:00Z", { appName: "Slow App" }),

@@ -1,0 +1,12 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-POST-REBOOT-DETECTION",
+  "category": "always",
+  "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgressPendingReboot\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}Success\"{1,2}",
+  "action": "markPostInstallDetection",
+  "parameters": {
+    "afterReboot": "true"
+  },
+  "description": "Marks IME's check after the restart an installer requested. After an exit code mapped to SoftReboot or HardReboot the check right after the install decides nothing; after the restart IME moves the app from InProgressPendingReboot to Success (held back like after a clean install) and checks again without the IME-POST-INSTALL-DETECTION line. That check's result is reported as app_post_install_detection with afterReboot=true. Quote-flexible like IME-ENFORCEMENT-SUCCESS.",
+  "enabled": true
+}

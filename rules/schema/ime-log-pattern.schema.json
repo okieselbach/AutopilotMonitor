@@ -82,7 +82,8 @@
             "captureAppTypeMsi",
             "captureAttemptNumber",
             "captureDetectionResult",
-            "captureExitCodeClass"
+            "captureExitCodeClass",
+            "markPostInstallDetection"
           ]
         },
         "parameters": {

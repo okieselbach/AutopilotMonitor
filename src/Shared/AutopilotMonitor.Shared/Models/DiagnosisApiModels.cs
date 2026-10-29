@@ -125,6 +125,13 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>The installer exit code (signed decimal).</summary>
         public string? ExitCode { get; set; }
 
+        /// <summary>
+        /// IME's check right after the install, or after the restart the installer requested:
+        /// Detected, NotDetected or DetectedDifferentVersion. Null when the agent did not see it
+        /// (older agent, restart still pending).
+        /// </summary>
+        public string? PostInstallDetection { get; set; }
+
         /// <summary>How often the install started in this session.</summary>
         public int? InstallStarts { get; set; }
 

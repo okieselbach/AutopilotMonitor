@@ -27,7 +27,7 @@ const KEY_TYPES = new Set([
   "hello_provisioning_completed",
 ]);
 
-const APP_TYPES = new Set(["app_install_started", "app_install_failed", "app_install_completed"]);
+const APP_TYPES = new Set(["app_install_started", "app_install_failed", "app_install_completed", "app_post_install_detection"]);
 const DONE_TYPES = new Set(["enrollment_complete", "whiteglove_complete", "hello_provisioning_completed", "desktop_arrived"]);
 
 /**

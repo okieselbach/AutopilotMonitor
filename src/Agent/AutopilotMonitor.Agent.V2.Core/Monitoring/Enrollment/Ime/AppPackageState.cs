@@ -114,7 +114,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public string AppType { get; private set; }
         /// <summary>Install attempt number (1 = first try). Increments on each "Execute retry N" line per check-in cycle.</summary>
         public int AttemptNumber { get; private set; }
-        /// <summary>Detection rule result: "Detected" or "NotDetected". From DetectionActionHandler log lines.</summary>
+        /// <summary>
+        /// IME's detection check outside the check right after an install: Detected, NotDetected or
+        /// DetectedDifferentVersion — for an app being installed, the check before the install. The
+        /// check after the install is reported through OnPostInstallDetection instead (D-392).
+        /// </summary>
         public string DetectionResult { get; private set; }
 
         // Delivery Optimization telemetry (populated from [DO TEL] log entries OR Get-DeliveryOptimizationStatus poll)

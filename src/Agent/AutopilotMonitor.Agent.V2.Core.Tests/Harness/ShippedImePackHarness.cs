@@ -51,9 +51,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
             return tracker;
         }
 
-        public void Append(params string[] messages)
+        public void Append(params string[] messages) => AppendAt(Now.AddSeconds(-60), messages);
+
+        /// <summary>Entries one second apart from <paramref name="firstUtc"/> (an older instant replays a previous enrollment).</summary>
+        public void AppendAt(DateTime firstUtc, params string[] messages)
         {
-            var lines = messages.Select((m, i) => Entry(m, Now.AddSeconds(-60 + i)));
+            var lines = messages.Select((m, i) => Entry(m, firstUtc.AddSeconds(i)));
             File.AppendAllText(Path.Combine(_tmp.Path, "IntuneManagementExtension.log"),
                 string.Join(Environment.NewLine, lines) + Environment.NewLine);
         }

@@ -50,6 +50,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // because setcurrentapp, esptrackstatus etc. see IDs that never enter packageStates.
         private readonly HashSet<string> _seenAppIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // IME's check right after an install (D-392): app id → "after the restart the installer
+        // requested". Set by IME-POST-INSTALL-DETECTION / IME-POST-REBOOT-DETECTION, consumed by
+        // the app's next detection result line, which IME always logs last in that check.
+        // Transient on purpose: a marker whose result line was never read must not survive an
+        // agent restart and turn a later ordinary check into a post-install result.
+        private readonly Dictionary<string, bool> _postInstallCheckPending = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
         // Forward-only phase progression: prevents accidental phase bounce (e.g. DeviceSetup
         // re-detected during AccountSetup if IME re-evaluates device apps and logs the old phase).
         private static readonly Dictionary<string, int> EspPhaseOrder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -513,6 +520,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // consumer must stamp poll-driven telemetry with the clock — inheriting an unrelated
         // line's LastMatchedLogTimestamp put a tz-skewed time on the event (session df1fcf47).
         public Action<AppPackageState, DateTime?> OnDoTelemetryReceived { get; set; }
+
+        /// <summary>
+        /// IME's check right after an install found its result (D-392): the package, the detection
+        /// state (Detected, NotDetected, DetectedDifferentVersion), whether the check followed the
+        /// restart the installer requested, and the result line's timestamp. Not raised for the
+        /// check before a requested restart: IME decides only after it.
+        /// </summary>
+        public Action<AppPackageState, string, bool, DateTime?> OnPostInstallDetection { get; set; }
         public Action<ScriptExecutionState> OnScriptCompleted { get; set; }
 
         /// <summary>

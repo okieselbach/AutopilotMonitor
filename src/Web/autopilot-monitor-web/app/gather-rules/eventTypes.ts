@@ -126,6 +126,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "An application installation failed." },
   { value: "app_install_skipped", label: "app_install_skipped", category: "app",
     description: "An application installation was skipped." },
+  { value: "app_post_install_detection", label: "app_post_install_detection", category: "app",
+    description: "Intune's detection check right after an install, or after the restart the installer requested: postInstallDetection is Detected, NotDetected or DetectedDifferentVersion; afterReboot marks the check after the restart." },
   { value: "app_install_starved", label: "app_install_starved", category: "app",
     description: "A required user-ESP app never started installing while the AccountSetup apps gate waited on it (one-shot per app)." },
   { value: "app_download_started", label: "app_download_started", category: "app",

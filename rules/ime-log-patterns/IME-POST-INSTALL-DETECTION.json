@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-POST-INSTALL-DETECTION",
+  "category": "always",
+  "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Policy with id: {GUID} is expected to have enforcement state: Detected\\.",
+  "action": "markPostInstallDetection",
+  "description": "Marks IME's check right after an install. IME logs this line only for the app it has just installed, before that check's result line; the agent reports that result (IME-DETECTION-RESULT) as app_post_install_detection and keeps detectionResult as the check before the install. Other apps of the same dependency chain are checked in the same run without this line. A failed check is IME's error 0x87D1041C (IME-ERROR-REPORT).",
+  "enabled": true
+}

@@ -85,6 +85,10 @@ export interface InstallItem {
   // app), or the ESP-level HRESULT the V2 termination handler puts on the apps it promoted.
   // Distinct from hresultFromWin32 (per-app installer HRESULT).
   errorCode?: string;
+  // IME's check right after the install, or after the restart the installer requested
+  // (app_post_install_detection, D-392): Detected, NotDetected or DetectedDifferentVersion.
+  postInstallDetection?: string;
+  postInstallAfterReboot?: boolean;
   // c117946b debrief (2026-05-12) — when the agent promotes an app from Installing
   // to Error on terminal ESP-Apps-failure, it tags the event with `failureType`.
   // Session 080edee9 follow-up (2026-05-28) — three flavours:
@@ -194,6 +198,15 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
     const isStarted = type === "app_install_started" || type === "office_install_started" || type === "realmjoin_package_started";
     const isCompleted = (type === "app_install_completed" && !isSkippedCompletion) || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
     const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
+
+    // IME's check after the install annotates the app's current row; it never changes the state.
+    if (type === "app_post_install_detection") {
+      if (existing && typeof d.postInstallDetection === "string") {
+        existing.postInstallDetection = d.postInstallDetection;
+        existing.postInstallAfterReboot = d.afterReboot === "true";
+      }
+      continue;
+    }
 
     const targeted = typeof d.targeted === "string" ? d.targeted : undefined;
     const base = {

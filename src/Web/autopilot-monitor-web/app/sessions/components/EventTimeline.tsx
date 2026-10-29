@@ -655,6 +655,22 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
               </span>
             </div>
           )}
+          {/* IME's check right after the install, or after the restart the installer requested
+              (D-392): the check whose result Intune reports. */}
+          {event.eventType === "app_post_install_detection" && typeof event.data?.postInstallDetection === "string" && (() => {
+            const result = event.data.postInstallDetection as string;
+            const tone = result === "Detected" ? "bg-green-100 text-green-800" : result === "NotDetected" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800";
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={`px-1.5 py-0.5 rounded font-medium ${tone}`}
+                  title="Intune's detection check right after the installer finished. Not detected means Intune counts the install as failed (0x87D1041C)."
+                >
+                  {event.data?.afterReboot === "true" ? "After restart" : "After install"}: {humanizeKey(result).toLowerCase()}
+                </span>
+              </div>
+            );
+          })()}
           {/* Exit code / HRESULT / error code badge for app install events */}
           {(event.eventType === "app_install_failed" || event.eventType === "app_install_completed") && (() => {
             const ec = (event.data?.exitCode ?? event.data?.exit_code) as string | number | undefined;

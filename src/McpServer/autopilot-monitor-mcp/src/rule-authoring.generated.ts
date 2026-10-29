@@ -1181,6 +1181,7 @@ export const RULE_GUARDRAILS = {
     "app_install_completed",
     "app_install_failed",
     "app_install_skipped",
+    "app_post_install_detection",
     "app_download_started",
     "app_tracking_summary",
     "download_progress",

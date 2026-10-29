@@ -626,6 +626,11 @@ namespace AutopilotMonitor.Shared
             public const string AppInstallFailed    = "app_install_failed";
             public const string AppDownloadStarted  = "app_download_started";
             public const string AppInstallSkipped   = "app_install_skipped";
+            // D-392 — IME's check right after an install, or after the restart its installer
+            // requested: data.postInstallDetection = Detected | NotDetected | DetectedDifferentVersion,
+            // data.afterReboot. Informational; on failure IME's verdict stays app_install_failed
+            // with 0x87D1041C.
+            public const string AppPostInstallDetection = "app_post_install_detection";
             // Liveness plan PR3 — one-shot Warning per app naming a required user-ESP app that
             // NEVER started installing (no download/install activity seen) while the ESP
             // AccountSetup apps gate waited on it. Emitted when the user-apps-settled probe

@@ -179,6 +179,7 @@ internal static class DiagnosisCulpritFinder
         State = app.State,
         ErrorCode = app.Failure != null ? app.ErrorCode : null,
         ExitCode = app.Failure != null ? app.ExitCode : null,
+        PostInstallDetection = app.PostInstallDetection,
         InstallStarts = app.Starts > 0 ? app.Starts : null,
         LastStartedAt = app.LastStartedAt,
         FailedAt = app.Failure?.Timestamp,
@@ -222,7 +223,7 @@ internal static class DiagnosisCulpritFinder
         public AppTrack(string? appId, string name) { AppId = appId; Name = name; }
         public string? AppId { get; }
         public string Name { get; set; }
-        public string? AppType, Intent, Targeted, State, ErrorCode, ExitCode, FailureType;
+        public string? AppType, Intent, Targeted, State, ErrorCode, ExitCode, FailureType, PostInstallDetection;
         public int Starts;
         public DateTime? LastStartedAt;
         public EnrollmentEvent? Failure;
@@ -238,7 +239,8 @@ internal static class DiagnosisCulpritFinder
         {
             var type = evt.EventType;
             if (type != Constants.EventTypes.AppInstallStart && type != Constants.EventTypes.AppInstallComplete
-                && type != Constants.EventTypes.AppInstallFailed && type != Constants.EventTypes.AppStateReconciliation)
+                && type != Constants.EventTypes.AppInstallFailed && type != Constants.EventTypes.AppStateReconciliation
+                && type != Constants.EventTypes.AppPostInstallDetection)
                 continue;
 
             var appId = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "appId"));
@@ -253,6 +255,12 @@ internal static class DiagnosisCulpritFinder
             app.AppType = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "appType")) ?? app.AppType;
             app.Intent = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "intent")) ?? app.Intent;
             app.Targeted = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "targeted")) ?? app.Targeted;
+            // IME's check right after the install; the latest wins (the one after a restart).
+            if (type == Constants.EventTypes.AppPostInstallDetection)
+            {
+                app.PostInstallDetection = DiagnosisEspEvidence.NonEmpty(EventDataReader.String(evt, "postInstallDetection")) ?? app.PostInstallDetection;
+                continue;
+            }
 
             if (type == Constants.EventTypes.AppInstallStart)
             {

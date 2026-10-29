@@ -179,7 +179,8 @@ public class BuiltInRulesTests
             "healthScriptResult", "healthScriptDetectionResult",
             "captureExitCode", "captureHResult",
             "captureAppVersion", "captureAppTypeWinGet", "captureAppTypeMsi",
-            "captureAttemptNumber", "captureDetectionResult", "captureExitCodeClass"
+            "captureAttemptNumber", "captureDetectionResult", "captureExitCodeClass",
+            "markPostInstallDetection"
         };
 
         var patterns = BuiltInImeLogPatterns.GetAll();

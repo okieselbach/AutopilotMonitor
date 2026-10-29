@@ -343,6 +343,31 @@ function InstallItemRow({ item }: { item: InstallItem }) {
               Uninstall
             </span>
           )}
+          {item.postInstallDetection && !(item.state === "Failed" && item.postInstallDetection === "NotDetected") && (
+            // IME's check right after the install (D-392); a failed row already says "Detection failed".
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
+                item.postInstallDetection === "Detected"
+                  ? "bg-green-100 text-green-700"
+                  : item.postInstallDetection === "NotDetected"
+                    ? "bg-red-200 text-red-800"
+                    : "bg-amber-200 text-amber-700"
+              }`}
+              title={`Intune's detection check right after the ${item.postInstallAfterReboot ? "restart the installer requested" : "installer finished"}: ${
+                item.postInstallDetection === "Detected"
+                  ? "the app was found."
+                  : item.postInstallDetection === "NotDetected"
+                    ? "the app was not found, so Intune counts the install as failed (0x87D1041C)."
+                    : "a different version was found; Intune counts the app as installed."
+              }`}
+            >
+              {item.postInstallDetection === "Detected"
+                ? "Detected after install"
+                : item.postInstallDetection === "NotDetected"
+                  ? "Not detected after install"
+                  : "Different version detected"}
+            </span>
+          )}
           {item.state === "Failed" && item.isLikelyStuck && (
             <span
               className="text-xs px-2 py-0.5 rounded-full bg-orange-200 text-orange-800 font-medium"

@@ -1027,6 +1027,7 @@
     "app_install_skipped",
     "app_install_started",
     "app_install_starved",
+    "app_post_install_detection",
     "app_state_reconciliation",
     "app_tracking_summary",
     "autologon_analysis",
@@ -8220,6 +8221,15 @@
           },
           "optional": true,
           "doc": "The installer exit code (signed decimal)."
+        },
+        {
+          "name": "postInstallDetection",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "IME's check right after the install, or after the restart the installer requested: Detected, NotDetected or DetectedDifferentVersion. Null when the agent did not see it (older agent, restart still pending)."
         },
         {
           "name": "installStarts",

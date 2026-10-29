@@ -40,8 +40,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     ///     "Completed user session" line fires per processing pass, see
     ///     <see cref="ImeLogTracker.GetPendingRequiredUserEspInstallApps"/>).</item>
     ///   <item><c>OnAppStateChanged(app, old, new)</c> → <see cref="DecisionSignalKind.AppInstallCompleted"/>
-    ///     (state=Installed/Skipped/Postponed) oder <see cref="DecisionSignalKind.AppInstallFailed"/> (state=Error).
-    ///     Dedup pro (AppId, terminal-state-tuple).</item>
+    ///     (state=Installed/Skipped/Postponed) or <see cref="DecisionSignalKind.AppInstallFailed"/> (state=Error).
+    ///     Once per app: the first terminal state wins. A later IME flip Installed → Error (0x87D1041C after
+    ///     the check right after the install, D-392) still emits app_install_failed, but no second signal.</item>
     /// </list>
     /// </para>
     /// <para>
@@ -81,6 +82,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<string>? _prevOnPatternMatched;
         private readonly Action<string>? _prevOnImeAgentVersion;
         private readonly Action<AppPackageState, DateTime?>? _prevOnDoTelemetryReceived;
+        private readonly Action<AppPackageState, string, bool, DateTime?>? _prevOnPostInstallDetection;
         private readonly Action<ScriptExecutionState>? _prevOnScriptCompleted;
         private readonly Action<ScriptStartedInfo>? _prevOnScriptStarted;
         private readonly Action<string, string>? _prevOnImeTokenFailure;
@@ -92,6 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<string> _ourOnPatternMatched;
         private readonly Action<string> _ourOnImeAgentVersion;
         private readonly Action<AppPackageState, DateTime?> _ourOnDoTelemetryReceived;
+        private readonly Action<AppPackageState, string, bool, DateTime?> _ourOnPostInstallDetection;
         private readonly Action<ScriptExecutionState> _ourOnScriptCompleted;
         private readonly Action<ScriptStartedInfo> _ourOnScriptStarted;
         private readonly Action<ScriptRecurrenceSummary>? _prevOnScriptRecurrenceSummary;
@@ -195,6 +198,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _prevOnPatternMatched = _tracker.OnPatternMatched;
             _prevOnImeAgentVersion = _tracker.OnImeAgentVersion;
             _prevOnDoTelemetryReceived = _tracker.OnDoTelemetryReceived;
+            _prevOnPostInstallDetection = _tracker.OnPostInstallDetection;
             _prevOnScriptCompleted = _tracker.OnScriptCompleted;
             _prevOnScriptStarted = _tracker.OnScriptStarted;
             _prevOnScriptRecurrenceSummary = _tracker.OnScriptRecurrenceSummary;
@@ -210,6 +214,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _ourOnPatternMatched = OnPatternMatched;
             _ourOnImeAgentVersion = OnImeAgentVersion;
             _ourOnDoTelemetryReceived = OnDoTelemetryReceived;
+            _ourOnPostInstallDetection = OnPostInstallDetection;
             _ourOnScriptCompleted = OnScriptCompleted;
             _ourOnScriptStarted = OnScriptStarted;
             _ourOnScriptRecurrenceSummary = OnScriptRecurrenceSummary;
@@ -221,6 +226,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _tracker.OnPatternMatched = _ourOnPatternMatched;
             _tracker.OnImeAgentVersion = _ourOnImeAgentVersion;
             _tracker.OnDoTelemetryReceived = _ourOnDoTelemetryReceived;
+            _tracker.OnPostInstallDetection = _ourOnPostInstallDetection;
             _tracker.OnScriptCompleted = _ourOnScriptCompleted;
             _tracker.OnScriptStarted = _ourOnScriptStarted;
             _tracker.OnScriptRecurrenceSummary = _ourOnScriptRecurrenceSummary;
@@ -246,6 +252,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _tracker.OnImeAgentVersion = _prevOnImeAgentVersion;
             if (ReferenceEquals(_tracker.OnDoTelemetryReceived, _ourOnDoTelemetryReceived))
                 _tracker.OnDoTelemetryReceived = _prevOnDoTelemetryReceived;
+            if (ReferenceEquals(_tracker.OnPostInstallDetection, _ourOnPostInstallDetection))
+                _tracker.OnPostInstallDetection = _prevOnPostInstallDetection;
             if (ReferenceEquals(_tracker.OnScriptCompleted, _ourOnScriptCompleted))
                 _tracker.OnScriptCompleted = _prevOnScriptCompleted;
             if (ReferenceEquals(_tracker.OnScriptStarted, _ourOnScriptStarted))
@@ -290,6 +298,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             _prevOnDoTelemetryReceived?.Invoke(app, sourceTimestampUtc);
             EmitDoTelemetry(app, sourceTimestampUtc);
+        }
+
+        private void OnPostInstallDetection(AppPackageState app, string detection, bool afterReboot, DateTime? sourceTimestampUtc)
+        {
+            _prevOnPostInstallDetection?.Invoke(app, detection, afterReboot, sourceTimestampUtc);
+            EmitPostInstallDetection(app, detection, afterReboot, sourceTimestampUtc);
         }
 
         private void OnScriptCompleted(ScriptExecutionState script)
@@ -368,6 +382,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerImeAgentVersionFromTest(string version) => EmitImeAgentVersion(version);
         internal void TriggerDoTelemetryFromTest(AppPackageState app, DateTime? sourceTimestampUtc = null) =>
             EmitDoTelemetry(app, sourceTimestampUtc);
+        internal void TriggerPostInstallDetectionFromTest(AppPackageState app, string detection, bool afterReboot, DateTime? sourceTimestampUtc = null) =>
+            EmitPostInstallDetection(app, detection, afterReboot, sourceTimestampUtc);
         internal void TriggerScriptCompletedFromTest(ScriptExecutionState script) => EmitScriptCompleted(script);
         internal void TriggerScriptStartedFromTest(ScriptStartedInfo info) => EmitScriptStarted(info);
         internal void TriggerImeTokenFailureFromTest(string errorCode, string message) => EmitImeTokenFailure(errorCode, message);
@@ -1215,6 +1231,45 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // PR3-D4: per-app DO summary at DEBUG with the headline metrics.
             _logger?.Debug(
                 $"ImeAdapter: DO telemetry app='{app.Name ?? "?"}' total={app.DoFileSize} peers={app.DoBytesFromPeers} http={app.DoBytesFromHttp} mode={app.DoDownloadMode}");
+        }
+
+        /// <summary>
+        /// IME's check right after an install (D-392), or after the restart the installer requested.
+        /// Informational: completion and app state stay with the state events; a NotDetected here is
+        /// followed by IME's app_install_failed with 0x87D1041C.
+        /// </summary>
+        private void EmitPostInstallDetection(AppPackageState app, string detection, bool afterReboot, DateTime? sourceTimestampUtc)
+        {
+            if (app == null || string.IsNullOrEmpty(app.Id) || string.IsNullOrEmpty(detection)) return;
+
+            var now = ResolveOccurredAt(sourceTimestampUtc, out var derivedFromClock, out var rawSourceTs);
+            // Historic replay — a check from a previous enrollment's log is not this install's.
+            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, SharedEventTypes.AppPostInstallDetection, app.Id))
+                return;
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["appId"] = app.Id,
+                ["appName"] = app.Name ?? string.Empty,
+                ["postInstallDetection"] = detection,
+                ["afterReboot"] = afterReboot ? "true" : "false",
+            };
+            if (!string.IsNullOrEmpty(app.AppVersion)) data["appVersion"] = app.AppVersion!;
+            if (!string.IsNullOrEmpty(app.AppType)) data["appType"] = app.AppType!;
+            if (app.AttemptNumber > 0) data["attemptNumber"] = app.AttemptNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (!string.IsNullOrEmpty(app.ExitCodeClass)) data["exitCodeClass"] = app.ExitCodeClass!;
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
+            var label = string.IsNullOrEmpty(app.Name) ? app.Id : app.Name;
+            _post.Emit(
+                eventType: SharedEventTypes.AppPostInstallDetection,
+                source: SourceLabel,
+                message: $"{label}: detection {(afterReboot ? "after the restart" : "after install")} - {detection}",
+                severity: string.Equals(detection, "NotDetected", StringComparison.OrdinalIgnoreCase) ? EventSeverity.Warning : EventSeverity.Info,
+                // One per install, part of the app's story: flush with the state events.
+                immediateUpload: true,
+                data: data,
+                occurredAtUtc: now);
         }
 
         private void EmitScriptCompleted(ScriptExecutionState script)

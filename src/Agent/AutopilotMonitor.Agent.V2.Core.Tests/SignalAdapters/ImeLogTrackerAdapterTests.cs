@@ -664,6 +664,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void PostInstallDetection_emits_the_check_after_the_install_as_its_own_info_event()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = AppPackageState.Restore(
+                "0e3be4ce-790b-4081-831c-d72d92f3cc9b", 0, "Contoso VPN",
+                AppRunAs.System, AppIntent.Install, AppTargeted.Device,
+                new HashSet<string>(),
+                AppInstallationState.Installed, true, 100, 0, 0,
+                exitCode: "0", exitCodeClass: "Success");
+
+            adapter.TriggerPostInstallDetectionFromTest(app, "Detected", afterReboot: false, f.Clock.UtcNow.AddSeconds(-5));
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.AppPostInstallDetection));
+            Assert.Equal("ImeLogTracker", info.Payload![SignalPayloadKeys.Source]);
+            Assert.Equal(EventSeverity.Info.ToString(), info.Payload[SignalPayloadKeys.Severity]);
+            Assert.Equal(app.Id, info.Payload["appId"]);
+            Assert.Equal("Contoso VPN", info.Payload["appName"]);
+            Assert.Equal("Detected", info.Payload["postInstallDetection"]);
+            Assert.Equal("false", info.Payload["afterReboot"]);
+            Assert.Equal("Success", info.Payload["exitCodeClass"]);
+            // detectionResult is the check before the install; this event never carries it.
+            Assert.False(info.Payload.ContainsKey("detectionResult"));
+            // Informational only: no app state signal.
+            Assert.Empty(f.DecisionSignals(DecisionSignalKind.AppInstallCompleted));
+        }
+
+        [Fact]
+        public void PostInstallDetection_not_detected_is_a_warning_and_the_check_after_a_restart_says_so()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = new AppPackageState("8a1c2f6e-5b7d-4e93-9c4a-0f2d6b8e1a37", 0);
+
+            adapter.TriggerPostInstallDetectionFromTest(app, "NotDetected", afterReboot: true, f.Clock.UtcNow.AddSeconds(-5));
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.AppPostInstallDetection));
+            Assert.Equal(EventSeverity.Warning.ToString(), info.Payload![SignalPayloadKeys.Severity]);
+            Assert.Equal("NotDetected", info.Payload["postInstallDetection"]);
+            Assert.Equal("true", info.Payload["afterReboot"]);
+            Assert.Contains("after the restart", info.Payload[SignalPayloadKeys.Message]);
+        }
+
+        [Fact]
         public void DoTelemetry_null_app_or_empty_id_is_ignored()
         {
             using var f = new ImeLogTrackerAdapterFixture();

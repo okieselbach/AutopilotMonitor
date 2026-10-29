@@ -1031,6 +1031,7 @@ export const SHARED_MANIFEST = {
     "app_install_skipped",
     "app_install_started",
     "app_install_starved",
+    "app_post_install_detection",
     "app_state_reconciliation",
     "app_tracking_summary",
     "autologon_analysis",

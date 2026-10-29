@@ -1635,6 +1635,8 @@ export interface DiagnosisCulprit {
   errorCode?: string;
   /** The installer exit code (signed decimal). */
   exitCode?: string;
+  /** IME's check right after the install, or after the restart the installer requested: Detected, NotDetected or DetectedDifferentVersion. Null when the agent did not see it (older agent, restart still pending). */
+  postInstallDetection?: string;
   /** How often the install started in this session. */
   installStarts?: number;
   /** The last install start. */
