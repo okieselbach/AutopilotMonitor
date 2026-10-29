@@ -2752,9 +2752,14 @@ export interface GrowthTenantSegments {
   dormant: number;
 }
 
+/** One manufacturer or model in the window. The lists rank by sessions: a device that was reset and enrolled again adds one session per enrollment but stays one device. */
 export interface HardwareCount {
   name: string;
+  /** Enrollment sessions in the window. */
   count: number;
+  /** Distinct devices behind those sessions, told apart by serial number per tenant. A session without a usable serial number counts as its own device, so this never exceeds Count. */
+  deviceCount: number;
+  /** Share of all sessions in the window. */
   percentage: number;
 }
 

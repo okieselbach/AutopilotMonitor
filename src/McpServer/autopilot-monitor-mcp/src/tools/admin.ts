@@ -720,10 +720,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Usage Metrics',
       description:
-        'Usage statistics: session volumes, feature adoption, success rate, active users' +
+        'Usage statistics: session volumes, success rate, durations, hardware, active users' +
         (ga ? ' — platform-wide or for one tenant. ' : ' for your tenant. ') +
-        'Tenant-scoped responses also carry sessions.totalAllTime — the cumulative enrollment count since the ' +
-        'tenant signed up (retention-independent, unaffected by days); all other session counts are window-bound.',
+        'Tenant scope adds sessions.totalAllTime (enrollments since signup, unaffected by days); all other counts ' +
+        'are window-bound. Hardware lists rank by sessions; deviceCount = the distinct devices behind them.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, undefined, 'Ignored — usage is scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)

@@ -538,7 +538,8 @@ namespace AutopilotMonitor.Functions.Services
         /// structural PartitionKey (TenantId) / RowKey (SessionId). CompletedAt / IsPreProvisioned /
         /// ResumedAt must stay in the set for ComputeEffectiveDuration parity (WhiteGlove Part-2
         /// branch and the completed-at fallback); EnrollmentType / IsSelfDeployingProfile /
-        /// IsHybridJoin feed the deployment-type breakdown. Everything else on the wide Sessions row — most
+        /// IsHybridJoin feed the deployment-type breakdown; SerialNumber feeds the hardware lists'
+        /// device count. Everything else on the wide Sessions row — most
         /// notably FailureSnapshotJson — is never read by the compute, so the projected scan skips
         /// it. Non-projected columns map to null/default via the Safe*/`?? ` getters in
         /// MapToSessionSummary. internal so UsageMetricsProjectionEquivalenceTests derives its
@@ -547,7 +548,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly string[] UsageMetricsSessionProjection =
         {
             "PartitionKey", "RowKey", "StartedAt", "CompletedAt", "Status", "DurationSeconds",
-            "Manufacturer", "Model", "IsPreProvisioned", "ResumedAt",
+            "Manufacturer", "Model", "SerialNumber", "IsPreProvisioned", "ResumedAt",
             "EnrollmentType", "IsSelfDeployingProfile", "IsHybridJoin",
             "PlatformScriptCount", "RemediationScriptCount"
         };

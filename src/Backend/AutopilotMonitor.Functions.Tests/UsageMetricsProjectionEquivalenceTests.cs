@@ -39,6 +39,7 @@ public class UsageMetricsProjectionEquivalenceTests
             ["StartedAt"] = new DateTimeOffset(startedAt),
             ["Manufacturer"] = "Contoso",
             ["Model"] = "Model-X",
+            ["SerialNumber"] = "SN-FULL",
             ["IsUserDriven"] = true,
             ["IsPreProvisioned"] = isPreProvisioned,
             ["EnrollmentType"] = enrollmentType,
@@ -48,7 +49,6 @@ public class UsageMetricsProjectionEquivalenceTests
             ["RemediationScriptCount"] = 2,
             // Representative noise the usage compute never reads — present on a real wide row,
             // absent on the projected one. Proves the projection drops it without changing results.
-            ["SerialNumber"] = "SN-FULL",
             ["DeviceName"] = "PC-FULL",
             ["OsName"] = "Windows 11",
             ["GeoCountry"] = "DE",
@@ -88,6 +88,7 @@ public class UsageMetricsProjectionEquivalenceTests
         Assert.Equal(fromFull.Status, fromProjected.Status);
         Assert.Equal(fromFull.Manufacturer, fromProjected.Manufacturer);
         Assert.Equal(fromFull.Model, fromProjected.Model);
+        Assert.Equal(fromFull.SerialNumber, fromProjected.SerialNumber);
         Assert.Equal(fromFull.IsPreProvisioned, fromProjected.IsPreProvisioned);
         Assert.Equal(fromFull.EnrollmentType, fromProjected.EnrollmentType);
         Assert.Equal(fromFull.IsHybridJoin, fromProjected.IsHybridJoin);

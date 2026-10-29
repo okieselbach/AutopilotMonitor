@@ -314,24 +314,32 @@ namespace AutopilotMonitor.Functions.Services
             return performanceMetrics;
         }
 
-        private static HardwareMetrics BuildHardwareMetrics(List<SessionSummary> sessions) => new()
+        internal static HardwareMetrics BuildHardwareMetrics(IReadOnlyCollection<SessionSummary> sessions) => new()
         {
             TopManufacturers = TopHardware(sessions, s => s.Manufacturer),
             TopModels = TopHardware(sessions, s => s.Model)
         };
 
-        private static List<HardwareCount> TopHardware(List<SessionSummary> sessions, Func<SessionSummary, string> key)
+        private static List<HardwareCount> TopHardware(IReadOnlyCollection<SessionSummary> sessions, Func<SessionSummary, string> key)
             => sessions
                 .GroupBy(key)
                 .Select(g => new HardwareCount
                 {
                     Name = g.Key,
                     Count = g.Count(),
+                    DeviceCount = g.Select(DeviceKey).Distinct().Count(),
                     Percentage = MetricsMath.SharePct(g.Count(), sessions.Count)
                 })
                 .OrderByDescending(x => x.Count)
                 .Take(10)
                 .ToList();
+
+        /// <summary>
+        /// The device-journey key (normalized serial) per tenant; a session without a usable serial
+        /// keys on itself, so it counts as one device and DeviceCount never exceeds Count.
+        /// </summary>
+        private static (string TenantId, string Key) DeviceKey(SessionSummary session)
+            => (session.TenantId, DeviceJourneyCalculator.NormalizeSerial(session.SerialNumber) ?? "session:" + session.SessionId);
 
         /// <summary>
         /// Splits the window by the fleet enrollment class (<see cref="TimeAttributionCalculator.GetEnrollmentClass"/>),

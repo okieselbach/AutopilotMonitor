@@ -154,10 +154,24 @@ namespace AutopilotMonitor.Shared.Models
         public List<HardwareCount> TopModels { get; set; } = new();
     }
 
+    /// <summary>
+    /// One manufacturer or model in the window. The lists rank by sessions: a device that was
+    /// reset and enrolled again adds one session per enrollment but stays one device.
+    /// </summary>
     public class HardwareCount
     {
         public string Name { get; set; } = string.Empty;
+
+        /// <summary>Enrollment sessions in the window.</summary>
         public int Count { get; set; }
+
+        /// <summary>
+        /// Distinct devices behind those sessions, told apart by serial number per tenant. A session
+        /// without a usable serial number counts as its own device, so this never exceeds <see cref="Count"/>.
+        /// </summary>
+        public int DeviceCount { get; set; }
+
+        /// <summary>Share of all sessions in the window.</summary>
         public double Percentage { get; set; }
     }
 

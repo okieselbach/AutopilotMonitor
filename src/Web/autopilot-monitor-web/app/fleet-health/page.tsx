@@ -732,7 +732,7 @@ function FleetHealthContent() {
                       <div className="flex items-baseline justify-between mb-1">
                         <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.label}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
-                          {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
+                          {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} enrollments)</span>
                         </span>
                       </div>
                       <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">

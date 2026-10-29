@@ -56,19 +56,26 @@ export function SessionOutcomeCards({ sessions }: { sessions: SessionMetrics }) 
   );
 }
 
-function ShareRow({ label, count, percentage, barClass }: {
+function ShareRow({ label, count, percentage, barClass, devices }: {
   label: string;
   count: number;
   percentage: number;
   barClass: string;
+  /** Hardware rows: the count then reads as sessions, followed by the distinct devices behind them. */
+  devices?: number;
 }) {
   return (
     <div className="p-4 hover:bg-gray-50 transition-colors">
       <div className="flex items-center justify-between gap-3 mb-2">
         <span className="font-medium text-gray-900">{label}</span>
         <div className="text-right whitespace-nowrap">
-          <span className="text-sm font-semibold text-gray-900">{count.toLocaleString()}</span>
+          <span className="text-sm font-semibold text-gray-900">
+            {devices == null ? count.toLocaleString() : `${count.toLocaleString()} ${count === 1 ? "session" : "sessions"}`}
+          </span>
           <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
+          {devices != null && (
+            <span className="text-xs text-gray-500 ml-2">{`· ${devices.toLocaleString()} ${devices === 1 ? "device" : "devices"}`}</span>
+          )}
         </div>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -198,24 +205,23 @@ export function PerformanceBlock({ performance }: { performance: PerformanceMetr
 
 function TopHardwareList({ title, items, barClass }: { title: string; items: HardwareCount[]; barClass: string }) {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-4">{title}</h2>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="divide-y divide-gray-200">
-          {items.length > 0 ? (
-            items.map((item, index) => (
-              <ShareRow
-                key={index}
-                label={item.name || "Unknown"}
-                count={item.count}
-                percentage={item.percentage}
-                barClass={barClass}
-              />
-            ))
-          ) : (
-            <div className="p-8 text-center text-gray-500">No data available</div>
-          )}
-        </div>
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="px-4 pt-4 text-sm text-gray-500">{title}</div>
+      <div className="divide-y divide-gray-200">
+        {items.length > 0 ? (
+          items.map((item, index) => (
+            <ShareRow
+              key={index}
+              label={item.name || "Unknown"}
+              count={item.count}
+              percentage={item.percentage}
+              barClass={barClass}
+              devices={item.deviceCount}
+            />
+          ))
+        ) : (
+          <div className="p-8 text-center text-gray-500">No data available</div>
+        )}
       </div>
     </div>
   );
@@ -223,9 +229,15 @@ function TopHardwareList({ title, items, barClass }: { title: string; items: Har
 
 export function HardwareBlock({ hardware }: { hardware: HardwareMetrics }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <TopHardwareList title="Top Manufacturers" items={hardware.topManufacturers} barClass="bg-blue-600" />
-      <TopHardwareList title="Top Models" items={hardware.topModels} barClass="bg-indigo-600" />
+    <div>
+      <h2 className="text-xl font-semibold text-gray-900 mb-1">Hardware</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Ranked by enrollment sessions. A device that was reset and enrolled again adds a session each time but counts as one device.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <TopHardwareList title="Top Manufacturers" items={hardware.topManufacturers} barClass="bg-blue-600" />
+        <TopHardwareList title="Top Models" items={hardware.topModels} barClass="bg-indigo-600" />
+      </div>
     </div>
   );
 }
