@@ -153,7 +153,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // memory + deserialising (same tenant-config knob the removed V1 NDJSON path
                 // used). Request body here is already gzip-decompressed by
                 // UseRequestDecompression — so the cap is on the actual JSON bytes we'll feed
-                // to the parser.
+                // to the parser. Above RequestBody.WorkerMaxBytes the worker's own limit refuses
+                // the body first, whatever the tenant knob says.
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantIdHeader);
                 var maxPayloadBytes = (tenantConfig?.MaxNdjsonPayloadSizeMB ?? 5) * 1024 * 1024;
 
@@ -667,10 +668,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// Buffers the request body under a strict byte cap, then deserialises the telemetry batch
-        /// directly off the buffered bytes. Returns <c>(true, null)</c> as soon as the cap would be
-        /// exceeded — the stream isn't fully drained, which bounds memory use even for a malicious
-        /// sender (strict greater-than, so a payload equal to the cap is accepted).
+        /// Buffers the request body under a strict byte cap (<see cref="RequestBody.ReadWithinAsync"/>,
+        /// the counting every body read shares), then deserialises the telemetry batch directly off the
+        /// buffered bytes. Returns <c>(true, null)</c> as soon as the cap is exceeded — at most one byte
+        /// past it is read, which bounds memory use even for a malicious sender (strict greater-than, so
+        /// a payload equal to the cap is accepted) — and when the worker's own body limit refused the
+        /// body first, so that case is the same 413 and not a 500.
         /// <para>
         /// Hot-path note: this deserialises through a <see cref="JsonTextReader"/> over the buffered
         /// <see cref="MemoryStream"/> rather than materialising a full UTF-16 <c>string</c> + a
@@ -686,18 +689,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         internal static async Task<(bool exceeded, List<TelemetryItemDto>? items)> ReadBodyWithSizeCapAsync(
             Stream source, int maxBytes)
         {
-            using var buffered = new MemoryStream();
-            var buffer = new byte[8192];
-            int read;
-            long total = 0;
-            while ((read = await source.ReadAsync(buffer, 0, buffer.Length)) > 0)
-            {
-                total += read;
-                if (total > maxBytes) return (true, null);
-                await buffered.WriteAsync(buffer, 0, read);
-            }
+            using var buffered = await RequestBody.ReadWithinAsync(source, maxBytes);
+            if (buffered == null) return (true, null);
 
-            buffered.Position = 0;
             using var textReader = new StreamReader(buffered, System.Text.Encoding.UTF8);
             using var jsonReader = new JsonTextReader(textReader);
             var items = JsonSerializer.CreateDefault().Deserialize<List<TelemetryItemDto>>(jsonReader);

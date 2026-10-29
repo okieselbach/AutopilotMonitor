@@ -497,6 +497,17 @@ namespace AutopilotMonitor.Functions.Services
                 new { applicationId, oid = objectId, tid = tenantId, accessGrant });
 
         /// <summary>
+        /// Every report-upload slot of this instance was taken and a caller got 429
+        /// (<c>ReportUploadGate</c>). Raised for the first refusal of a window only; the gate keeps the
+        /// rest in the Warning trace. Recorded against the refused caller's tenant.
+        /// </summary>
+        public Task RecordReportUploadLimitReachedAsync(string route, int limit, TimeSpan window, string? tenantId, string? upn)
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.ReportUploadLimitReached, OpsEventSeverity.Warning,
+                $"Report upload limit reached: {limit} uploads in progress on this instance, a caller on {route} got 429; further refusals in the next {window.TotalMinutes:0} min stay in the Warning trace",
+                tenantId, upn ?? "System.ReportUploadGate",
+                new { route, limit, windowMinutes = (int)window.TotalMinutes, upn });
+
+        /// <summary>
         /// The reporter's per-instance budget is spent: one Critical marker (same event type, so the same
         /// alert rule pushes it) that says further denials this window are trace-only. A storm is a
         /// stronger signal than any single denial — either someone is sweeping the GA surface with a

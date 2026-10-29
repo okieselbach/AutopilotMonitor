@@ -20,6 +20,8 @@ namespace AutopilotMonitor.Functions.Tests;
 ///   B: the Newtonsoft branch (<c>ReadNewtonsoftAsync</c>) only where the downstream is
 ///      Newtonsoft-bound — a frozen per-file baseline that may only shrink,
 ///   C: no request DTO declared in the Functions assembly (reflection).
+/// E keeps every body read inside RequestBody's counted cap (the body size is counted after
+/// decompression, whatever Content-Length claims) and the worker's body limit in one place.
 /// </summary>
 public class TypedRequestGuardTests
 {
@@ -171,18 +173,88 @@ public class TypedRequestGuardTests
         => (type == typeof(PatchTenantConfigurationFieldsRequest) && property.Name == nameof(PatchTenantConfigurationFieldsRequest.Fields))
            || (type == typeof(PatchAdminConfigurationRequest) && property.Name == nameof(PatchAdminConfigurationRequest.Fields));
 
+    [Fact]
+    public void E_EveryBodyReadIsCounted()
+    {
+        // The whole project, not only Functions/: a middleware that buffers the body is the same exposure.
+        var violations = new List<string>();
+        var allowedSeen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (relative, original) in ProjectSources())
+        {
+            if (relative.Equals(BodyReaderFile, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var text = original;
+            foreach (var shape in AllowedBodyReads.Where(s => original.Contains(s, StringComparison.Ordinal)))
+            {
+                allowedSeen.Add(shape);
+                text = text.Replace(shape, string.Empty, StringComparison.Ordinal);
+            }
+
+            var requestNames = RequestDeclaration.Matches(text).Select(m => m.Groups["name"].Value).Distinct(StringComparer.Ordinal);
+            foreach (var name in requestNames)
+            {
+                var direct = Regex.Matches(text, $@"\b{Regex.Escape(name)}\.(Body|BodyReader)\b").Count;
+                if (direct > 0)
+                    violations.Add($"{relative}: {direct}× {name}.Body — read it through RequestBody (ReadAsync<T>, or ReadCappedAsync for a foreign parser).");
+            }
+            foreach (Match raw in RawBodyRead.Matches(text))
+                violations.Add($"{relative}: '{raw.Value}' reads a body outside RequestBody's counted cap.");
+            if (!relative.Equals(BodyLimitFile, StringComparison.OrdinalIgnoreCase) && text.Contains("MaxRequestBodySize", StringComparison.Ordinal))
+                violations.Add($"{relative}: MaxRequestBodySize is set only in {BodyLimitFile} (RequestBody.WorkerMaxBytes).");
+        }
+
+        Assert.True(violations.Count == 0, "Request bodies read outside the counted reader:\n  " + string.Join("\n  ", violations));
+
+        var stale = AllowedBodyReads.Where(s => !allowedSeen.Contains(s)).ToList();
+        Assert.True(stale.Count == 0, "Stale allowed body reads (remove them):\n  " + string.Join("\n  ", stale));
+    }
+
+    /// <summary>The counted reader itself, and the one place that sets the worker's body limit.</summary>
+    private const string BodyReaderFile = "Helpers/RequestBody.cs";
+    private const string BodyLimitFile = "Middleware/HttpCompressionStartupFilter.cs";
+
+    /// <summary>
+    /// Body reads with their own counted cap, allowed by call shape so the rest of their file stays
+    /// scanned. Each entry names why.
+    /// </summary>
+    private static readonly string[] AllowedBodyReads =
+    {
+        // Telemetry ingest: buffers through RequestBody.ReadWithinAsync under the tenant's payload cap.
+        "ReadBodyWithSizeCapAsync(req.Body",
+    };
+
+    /// <summary>A name declared as a request: a handler parameter, a typed local, a middleware lookup.</summary>
+    private static readonly Regex RequestDeclaration = new(
+        @"\bHttpRequest(?:Data)?\??\s+(?<name>\w+)\b|\bvar\s+(?<name>\w+)\s*=\s*await\s+[\w.]+GetHttpRequestDataAsync\(",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Body reads that need no declared name: the HttpRequestData string/JSON readers (an HttpClient
+    /// response's Content is fine), the ASP.NET request stream, form and buffering, and MVC body binding,
+    /// which the Functions extension supports and which only Kestrel's limit would bound.
+    /// </summary>
+    private static readonly Regex RawBodyRead = new(
+        @"(?<!Content)\.ReadAsStringAsync\(|(?<!Content)\.ReadFromJsonAsync\b|\.Request\.Body(Reader)?\b|\bReadFormAsync\(|\bEnableBuffering\(|\[FromBody\]",
+        RegexOptions.Compiled);
+
     private static IEnumerable<(string Relative, string Text)> HandlerSources()
+        => ProjectSources().Where(s => s.Relative.StartsWith("Functions/", StringComparison.OrdinalIgnoreCase));
+
+    private static IEnumerable<(string Relative, string Text)> ProjectSources()
     {
         var functionsRoot = Path.Combine(FindRepoRoot(), "src", "Backend", "AutopilotMonitor.Functions");
-        var handlers = Path.Combine(functionsRoot, "Functions");
-        foreach (var file in Directory.EnumerateFiles(handlers, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in Directory.EnumerateFiles(functionsRoot, "*.cs", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(functionsRoot, file).Replace(Path.DirectorySeparatorChar, '/');
-            if (relative.Contains("/bin/", StringComparison.OrdinalIgnoreCase) || relative.Contains("/obj/", StringComparison.OrdinalIgnoreCase))
+            if (IsBuildOutput(relative))
                 continue;
             yield return (relative, File.ReadAllText(file));
         }
     }
+
+    private static bool IsBuildOutput(string relative)
+        => relative.StartsWith("bin/", StringComparison.OrdinalIgnoreCase) || relative.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
+           || relative.Contains("/bin/", StringComparison.OrdinalIgnoreCase) || relative.Contains("/obj/", StringComparison.OrdinalIgnoreCase);
 
     private static string FindRepoRoot()
     {

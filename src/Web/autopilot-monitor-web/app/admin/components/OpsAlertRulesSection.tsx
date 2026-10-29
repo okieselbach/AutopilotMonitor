@@ -130,6 +130,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // A service principal (app-only token, key app:<client-id>) opened its first MCP session — once per
     // application and home tenant, so new automation is visible the moment it starts.
     "McpServicePrincipalFirstSeen",
+    // Every report-upload slot of an instance was taken (ReportUploadGate) and a caller got 429.
+    // Warning, at most one per instance and hour; route it to a push channel to be told.
+    "ReportUploadLimitReached",
     "VersionBlocked",
     // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or
     // telemetry channel) — as opposed to DeviceBlocked/VersionBlocked which fire on rule

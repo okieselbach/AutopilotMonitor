@@ -24,6 +24,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly TelegramNotificationService _telegramNotificationService;
         private readonly GlobalNotificationService _globalNotificationService;
+        private readonly ReportUploadGate _uploadGate;
         private readonly OpsEventService? _opsEvents;
 
         public SubmitDiagFilesReportFunction(
@@ -32,6 +33,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             IMaintenanceRepository maintenanceRepo,
             TelegramNotificationService telegramNotificationService,
             GlobalNotificationService globalNotificationService,
+            ReportUploadGate uploadGate,
             OpsEventService? opsEvents = null)
         {
             _logger = logger;
@@ -39,6 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             _maintenanceRepo = maintenanceRepo;
             _telegramNotificationService = telegramNotificationService;
             _globalNotificationService = globalNotificationService;
+            _uploadGate = uploadGate;
             _opsEvents = opsEvents;
         }
 
@@ -54,6 +57,11 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var requestCtx = req.GetRequestContext();
                 var tenantId = requestCtx.TenantId;
                 var userIdentifier = requestCtx.UserPrincipalName;
+
+                // The same upload slots as SubmitSessionReport, taken before the body is read.
+                using var uploadSlot = _uploadGate.TryEnter();
+                if (uploadSlot == null)
+                    return await _uploadGate.RefuseAsync(req, "diagnostics/files", tenantId, userIdentifier);
 
                 // Same body cap as SubmitSessionReport; the portal sizes its attachment budget from it.
                 var read = await req.ReadAsync<SubmitDiagFilesReportRequest>(Constants.SubmissionLimits.ReportRequestMaxBytes);

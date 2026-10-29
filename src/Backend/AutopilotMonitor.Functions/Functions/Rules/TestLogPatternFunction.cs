@@ -306,42 +306,20 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// <summary>
     /// Process-wide cap on concurrent pattern tests (singleton). A slot is held from the regex
     /// construction to the end of the evaluation; a caller finding no free slot is answered 429
-    /// at once — no queueing — so this endpoint can never occupy more than <see cref="Limit"/>
-    /// worker threads of an instance, whatever the request rate. Deliberately local to this one
-    /// endpoint: D-203 refuses a process-wide semaphore in front of storage I/O because it would
-    /// queue the ingest behind portal scans; nothing but this test waits on this gate.
+    /// at once, so this endpoint can never occupy more than <see cref="ConcurrencyGate.Limit"/>
+    /// worker threads of an instance, whatever the request rate. Nothing but this test waits on
+    /// this gate.
     /// </summary>
-    public sealed class TestLogPatternGate
+    public sealed class TestLogPatternGate : ConcurrencyGate
     {
         internal const int DefaultLimit = 2;
-
-        private readonly SemaphoreSlim _slots;
 
         public TestLogPatternGate() : this(DefaultLimit)
         {
         }
 
-        internal TestLogPatternGate(int limit)
+        internal TestLogPatternGate(int limit) : base(limit)
         {
-            Limit = limit;
-            _slots = new SemaphoreSlim(limit, limit);
-        }
-
-        public int Limit { get; }
-
-        /// <summary>A slot to dispose when the test ends, or null when every slot is taken.</summary>
-        public IDisposable? TryEnter() => _slots.Wait(0) ? new Slot(_slots) : null;
-
-        private sealed class Slot : IDisposable
-        {
-            private SemaphoreSlim? _slots;
-
-            public Slot(SemaphoreSlim slots)
-            {
-                _slots = slots;
-            }
-
-            public void Dispose() => Interlocked.Exchange(ref _slots, null)?.Release();
         }
     }
 

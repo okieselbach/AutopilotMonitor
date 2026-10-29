@@ -25,10 +25,7 @@ public class QueryParamGuardTests
         ["Functions/Diagnostics/GetDiagnosticsUploadUrlFunction.cs"] = "se= expiry inside the tenant's stored SAS URL",
         // Content-Length header guard on body-taking routes (long.TryParse on the header value).
         ["Functions/Admin/SubmitOffboardingFeedbackFunction.cs"] = "Content-Length header",
-        ["Functions/Bootstrap/BootstrapRegisterSessionFunction.cs"] = "Content-Length header",
-        ["Functions/Ingest/ReportAgentErrorFunction.cs"] = "Content-Length header",
         ["Functions/Ingest/ReportDistressFunction.cs"] = "Content-Length header",
-        ["Functions/Sessions/RegisterSessionFunction.cs"] = "Content-Length header",
     };
 
     private static string FunctionsRoot()

@@ -653,6 +653,7 @@
     "ExcessiveSessionEventsAutoActioned",
     "PrivilegedRouteDenied",
     "McpServicePrincipalFirstSeen",
+    "ReportUploadLimitReached",
     "OffboardingFeedbackReceived",
     "FeedbackReceived",
     "FeedbackRatingReceived",

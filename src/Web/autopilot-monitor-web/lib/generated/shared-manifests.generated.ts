@@ -657,6 +657,7 @@ export const SHARED_MANIFEST = {
     "ExcessiveSessionEventsAutoActioned",
     "PrivilegedRouteDenied",
     "McpServicePrincipalFirstSeen",
+    "ReportUploadLimitReached",
     "OffboardingFeedbackReceived",
     "FeedbackReceived",
     "FeedbackRatingReceived",

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
@@ -117,7 +118,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             // All validation failures return 200 OK — zero information leakage.
             try
             {
-                // Gate 1: Content-Length
+                // Gate 1: Content-Length — a cheap header filter; Gate 6 counts the bytes actually read
                 if (req.Headers.TryGetValues("Content-Length", out var clValues)
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > MaxContentLength)
@@ -156,8 +157,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 DistressReport? report;
                 try
                 {
+                    using var body = await req.ReadCappedAsync(MaxContentLength);
+                    if (body == null)
+                        return req.CreateResponse(HttpStatusCode.OK);
+
                     report = await JsonSerializer.DeserializeAsync<DistressReport>(
-                        req.Body,
+                        body,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 }
                 catch

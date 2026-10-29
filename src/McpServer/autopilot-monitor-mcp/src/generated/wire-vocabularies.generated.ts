@@ -109,6 +109,7 @@ export const OPS_EVENT_TYPES = [
   "ExcessiveSessionEventsAutoActioned",
   "PrivilegedRouteDenied",
   "McpServicePrincipalFirstSeen",
+  "ReportUploadLimitReached",
   "OffboardingFeedbackReceived",
   "FeedbackReceived",
   "FeedbackRatingReceived",

@@ -103,8 +103,12 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 GetDiagnosticsUploadUrlRequest? requestBody;
                 try
                 {
+                    // Read before the device is validated (the tenant id is in the body): an oversized
+                    // body is an invalid one.
+                    using var body = await req.ReadCappedAsync(RequestBody.DefaultMaxBytes)
+                        ?? throw new InvalidDataException("Request body too large");
                     requestBody = await System.Text.Json.JsonSerializer.DeserializeAsync<GetDiagnosticsUploadUrlRequest>(
-                        req.Body,
+                        body,
                         new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 }
                 catch

@@ -1,5 +1,4 @@
-﻿using System.IO.Compression;
-using System.Text.Json;
+﻿using System.Text.Json;
 using AutopilotMonitor.Functions.DataAccess;
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Functions.Ingest;
@@ -11,8 +10,6 @@ using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Push;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -152,21 +149,9 @@ builder.Services.AddAuthorization();
 // Enable ASP.NET Core integration for authentication
 builder.Services.AddHttpContextAccessor();
 
-// HTTP compression — bidirectional gzip for bandwidth-sensitive agent links.
-// UseResponseCompression: backend → agent (config, ingest ack, ...). Triggered by Accept-Encoding.
-// UseRequestDecompression: agent → backend (ingest NDJSON). Triggered by Content-Encoding.
-// Registered via IStartupFilter because FunctionsApplication.CreateBuilder's Build() returns IHost,
-// not WebApplication — we can't call app.UseXxx() directly.
-builder.Services.AddResponseCompression(options =>
-{
-    options.EnableForHttps = true;
-    options.Providers.Add<GzipCompressionProvider>();
-    options.MimeTypes = ResponseCompressionDefaults.MimeTypes
-        .Concat(new[] { "application/json", "application/x-ndjson" });
-});
-builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
-builder.Services.AddRequestDecompression();
-builder.Services.AddTransient<IStartupFilter, HttpCompressionStartupFilter>();
+// HTTP compression — bidirectional gzip for bandwidth-sensitive agent links — and the worker's
+// request body limit (RequestBody.WorkerMaxBytes), which also bounds what a gzip body inflates to.
+builder.Services.AddWorkerHttpPipeline();
 
 // Register our services
 builder.Services.AddMemoryCache();
@@ -175,6 +160,8 @@ builder.Services.AddSingleton<ResiliencePolicies>();
 builder.Services.AddSingleton<TableStorageService>();
 // Per-instance cap on concurrent logparser pattern tests (caller-controlled regex work, D-379).
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Rules.TestLogPatternGate>();
+// Per-instance cap on concurrent report uploads (20 MiB bodies), with an ops event when it is hit.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Reports.ReportUploadGate>();
 // Shared QueueClient bootstrap (code-quality audit D2): single Managed-Identity/connection-string
 // resolution consumed by every queue producer / worker / probe.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Queueing.QueueClientFactory>();
