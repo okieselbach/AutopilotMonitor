@@ -91,7 +91,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             }
             catch (Exception ex)
             {
-                _logger.Debug($"[{SourceName}] failed to save state: {ex.Message}");
+                _logger.Debug($"[{SourceName}] failed to save state: {ex.Message}", repeatKey: "GatherRuleStatePersistence.save:" + SourceName);
                 return false;
             }
         }

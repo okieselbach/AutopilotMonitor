@@ -130,7 +130,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             var resolvedPaths = ResolveLogPaths(filePath, rule.RuleId, context);
             if (resolvedPaths.Count == 0)
             {
-                context.Logger.Debug($"LogParser rule {rule.RuleId}: no files found for: {filePath}");
+                context.Logger.Debug($"LogParser rule {rule.RuleId}: no files found for: {filePath}", repeatKey: "LogParserCollector.noFiles:" + rule.RuleId + "|" + filePath);
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
                     $"no files matched target {filePath}" + (HasWildcard(Path.GetFileName(filePath)) ? " (wildcard)" : "") + " — nothing to parse");
                 return null;
@@ -456,7 +456,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                     state.CommitLogPosition(rule.RuleId, filePath, endPosition, lineNumberBase + committedLines, head, heldTailStart);
 
                 if (matchCount > 0)
-                    context.Logger.Debug($"LogParser rule {rule.RuleId}: {matchCount} matches from {linesRead} lines in {fileName}");
+                    context.Logger.Verbose($"LogParser rule {rule.RuleId}: {matchCount} matches from {linesRead} lines in {fileName}");
 
                 // Per-file outcome — always written so a "matched 0" run is visible too.
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
@@ -496,7 +496,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             }
             else if (start == LogReadStart.Replaced)
             {
-                context.Logger.Info($"LogParser rule {rule.RuleId}: {fileName} was replaced since the last read — reading it from the beginning");
+                context.Logger.Debug($"LogParser rule {rule.RuleId}: {fileName} was replaced since the last read — reading it from the beginning");
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
                     $"{fileName}: file start changed since the last read (replaced or rewritten) — saved position {known.Position} discarded, reading from the beginning");
             }

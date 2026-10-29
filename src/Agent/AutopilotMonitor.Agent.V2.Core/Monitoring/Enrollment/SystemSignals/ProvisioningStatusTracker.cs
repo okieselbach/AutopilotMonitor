@@ -514,13 +514,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             changedCount++;
                             bool isNew = !_lastProvisioningJson.ContainsKey(categoryName);
                             // Guard: the raw-JSON interpolation is materialized regardless of log
-                            // level (Trace() only drops the string after it is built), and this runs
-                            // per changed category every poll — skip the alloc when Trace is off.
-                            if (_logger.LogLevel >= AgentLogLevel.Trace)
-                            {
-                                _logger.Trace($"CheckProvisioningStatus: {categoryName} — {(isNew ? "NEW" : "CHANGED")} (json length={jsonValue.Length})");
-                                _logger.Trace($"CheckProvisioningStatus: {categoryName} — raw JSON: {jsonValue}");
-                            }
+                            // level (Verbose() only drops the string after it is built), and this runs
+                            // per changed category every poll — skip the alloc when Verbose is off.
+                            if (_logger.LogLevel >= AgentLogLevel.Verbose)
+                                _logger.Verbose($"CheckProvisioningStatus: {categoryName} {(isNew ? "new" : "changed")}, raw JSON: {jsonValue}");
 
                             _lastProvisioningJson[categoryName] = jsonValue;
                             // TryFireProvisioningFailure (inside ProcessCategoryStatus) arms the
@@ -1007,7 +1004,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     bool isFirstSeen = !_provisioningCategorySeen.Contains(categoryName);
                     bool categorySucceededChanged = HasCategorySucceededChanged(categoryName, categorySucceeded);
 
-                    _logger.Trace($"ProcessCategory: {categoryLabel} — succeeded={categorySucceeded?.ToString() ?? "null"}, " +
+                    _logger.Verbose($"ProcessCategory: {categoryLabel} — succeeded={categorySucceeded?.ToString() ?? "null"}, " +
                                  $"isFirstSeen={isFirstSeen}, succeededChanged={categorySucceededChanged}, " +
                                  $"subcategories={subcategories.Count} [{string.Join(", ", subcategories.Select(s => $"{s.Name}={s.State}"))}]");
 
@@ -1050,7 +1047,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         var failureTransitions = transitions.Where(t => t.IsFailure).ToList();
                         if (transitions.Count > 0)
                         {
-                            _logger.Trace($"ProcessCategory: {categoryLabel} — subcategory transitions: " +
+                            _logger.Debug($"ProcessCategory: {categoryLabel} — subcategory transitions: " +
                                          string.Join(", ", transitions.Select(t => $"{t.SubcategoryName}: {t.OldState}→{t.NewState} (failure={t.IsFailure})")));
                         }
 
@@ -1115,7 +1112,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             var errorCode = TryExtractErrorCode(failedSubcategoryInfo?.StatusText);
 
-            _logger.Info(
+            _logger.Debug(
                 $"Provisioning subcategory failure: {categoryLabel}/{failedSubcategoryName ?? "category-level"} — " +
                 $"escalating as {failureTypeName} (errorCode={errorCode ?? "n/a"})");
             _logger.Warning($"Provisioning failure detected: {failureTypeName}");
@@ -1886,7 +1883,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Data = eventData
             });
 
-            _logger.Info($"Provisioning status event: {categoryLabel} — {statusText} (succeeded={succeeded?.ToString() ?? "in_progress"})");
+            _logger.Info($"Provisioning status event: {categoryLabel} — {statusText} (succeeded={succeeded?.ToString() ?? "in_progress"})", repeatKey: "ProvisioningStatus.event:" + categoryLabel);
         }
 
         private void EmitRawRegistryDump(string categoryLabel, string rawJson, string trigger)

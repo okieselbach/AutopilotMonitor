@@ -261,7 +261,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     interval
                 );
                 _intervalTimers[intervalRule.RuleId] = timer;
-                _logger.Info($"  Interval rule {intervalRule.RuleId} scheduled every {intervalRule.IntervalSeconds}s");
+                _logger.Debug($"  Interval rule {intervalRule.RuleId} scheduled every {intervalRule.IntervalSeconds}s");
                 DebugLog(intervalRule.RuleId, GatherRuleDebugLog.StageTrigger,
                     $"interval timer scheduled every {intervalRule.IntervalSeconds}s (first run after one full interval — no immediate execution)");
             }
@@ -321,7 +321,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                             continue;
                         }
 
-                        _logger.Info($"Phase exit triggered rule {rule.RuleId} (left phase: {previousPhaseName}, now: {phaseName})");
+                        _logger.Debug($"Phase exit triggered rule {rule.RuleId} (left phase: {previousPhaseName}, now: {phaseName})");
                         exitRules.Add(rule);
                     }
                 }
@@ -374,7 +374,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             foreach (var rule in deferredStartup)
             {
                 var deferredRule = rule;
-                _logger.Info($"Phase {phaseName} activated deferred startup rule {deferredRule.RuleId}");
+                _logger.Debug($"Phase {phaseName} activated deferred startup rule {deferredRule.RuleId}");
                 DebugLog(deferredRule.RuleId, GatherRuleDebugLog.StageTrigger,
                     $"phase {phaseName} activated deferred startup rule");
                 ThreadPool.QueueUserWorkItem(_ => ExecuteRule(deferredRule));
@@ -405,7 +405,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         continue;
                     }
 
-                    _logger.Info($"Phase change triggered rule {rule.RuleId} (phase: {phaseName})");
+                    _logger.Debug($"Phase change triggered rule {rule.RuleId} (phase: {phaseName})");
                     DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger, $"phase_change to {phaseName} fired");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
                 }
@@ -450,7 +450,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         continue;
                     }
 
-                    _logger.Info($"Event triggered rule {rule.RuleId} (event: {eventType})");
+                    _logger.Debug($"Event triggered rule {rule.RuleId} (event: {eventType})");
                     DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger, $"on_event {eventType} fired");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
                 }
@@ -461,7 +461,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         {
             try
             {
-                _logger.Info($"Executing gather rule: {rule.RuleId} ({rule.Title})");
+                _logger.Info($"Executing gather rule: {rule.RuleId} ({rule.Title})", repeatKey: "GatherRuleExecutor.exec:" + rule.RuleId);
                 DebugLog(rule.RuleId, GatherRuleDebugLog.StageExec, $"executing: collector={rule.CollectorType}, target={rule.Target}");
 
                 var collectorType = rule.CollectorType?.ToLower();
@@ -673,7 +673,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     && (int)_currentPhase >= (int)fromPhase)
                 {
                     _fromPhaseLatched.Add(rule.RuleId);
-                    _logger.Info($"Gather rule {rule.RuleId}: from-phase scope latched at {_currentPhase} (activeFromPhase={rule.ActiveFromPhase})");
+                    _logger.Debug($"Gather rule {rule.RuleId}: from-phase scope latched at {_currentPhase} (activeFromPhase={rule.ActiveFromPhase})");
                 }
             }
         }
@@ -755,7 +755,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             }
 
             if (!emit)
-                _logger.Debug($"Gather rule {rule.RuleId}: result unchanged, emit suppressed (on_change)");
+                _logger.Trace($"Gather rule {rule.RuleId}: result unchanged, emit suppressed (on_change)");
             return emit;
         }
 

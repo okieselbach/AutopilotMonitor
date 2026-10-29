@@ -118,10 +118,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             // request produced.
             var correlationId = Guid.NewGuid().ToString("N");
 
-            // Upload-cadence is pipeline mechanics — keep on Debug so a default Info log
-            // is dominated by lifecycle events. Failures (TIMEOUT/NETWORK/TRANSIENT/PERMANENT)
-            // below stay on Warning/Error so "why didn't my event arrive" surfaces at Info.
-            _logger?.Debug(
+            // The send itself is mechanics (Trace); the success line below is the batch record
+            // (Verbose). Failures (TIMEOUT/NETWORK/TRANSIENT/PERMANENT) stay on Warning/Error so
+            // "why didn't my event arrive" surfaces at Info.
+            _logger?.Trace(
                 $"BackendTelemetryUploader: flushing {items.Count} item(s) (corr={correlationId}, bytes={compressedBody.Length}, firstId={items[0].TelemetryItemId}, lastId={items[items.Count - 1].TelemetryItemId}).");
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -173,7 +173,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
                     if (result.Success)
                     {
-                        _logger?.Debug($"BackendTelemetryUploader: ingest OK (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}).");
+                        _logger?.Verbose($"BackendTelemetryUploader: ingest OK (corr={correlationId}, items={items.Count}, firstId={items[0].TelemetryItemId}, lastId={items[items.Count - 1].TelemetryItemId}, bytes={compressedBody.Length}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}).");
                     }
                     else if (result.IsTransient)
                     {

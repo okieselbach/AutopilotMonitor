@@ -153,7 +153,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         {
             if (_permanentlyDisabled || !_dormant) return;
             _dormant = false;
-            Logger.Info("[DeliveryOptimizationCollector] Waking up — download activity detected");
+            Logger.Debug("[DeliveryOptimizationCollector] Waking up — download activity detected");
             ResumeTimer();
         }
 
@@ -167,7 +167,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             _officeActive = active;
             if (active)
             {
-                Logger.Info("[DeliveryOptimizationCollector] Office install active — sampling DO for Office CDN jobs");
+                Logger.Debug("[DeliveryOptimizationCollector] Office install active — sampling DO for Office CDN jobs");
                 WakeUp();
             }
         }
@@ -243,7 +243,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
             if (!hasActiveDownloads && !hasPendingEnrichment && !officeKeepAwake)
             {
-                Logger.Info("[DeliveryOptimizationCollector] Going dormant — no active downloads, pending enrichment or Office install");
+                Logger.Debug("[DeliveryOptimizationCollector] Going dormant — no active downloads, pending enrichment or Office install");
                 _dormant = true;
                 PauseTimer();
                 // Natural persistence point: all downloads are done — which is exactly when an
@@ -278,7 +278,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             {
                 _runspace = RunspaceFactory.CreateRunspace();
                 _runspace.Open();
-                Logger.Info("[DeliveryOptimizationCollector] PowerShell Runspace opened");
+                Logger.Debug("[DeliveryOptimizationCollector] PowerShell Runspace opened");
             }
             catch (Exception ex)
             {
@@ -343,7 +343,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                             _permanentlyDisabled = true;
                             return null;
                         }
-                        Logger.Debug($"[DeliveryOptimizationCollector] PS error stream: {firstError}");
+                        Logger.Debug($"[DeliveryOptimizationCollector] PS error stream: {firstError}", repeatKey: "DeliveryOptimizationCollector.psError");
                     }
 
                     return results;
@@ -386,7 +386,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         {
             if (results.Count == 0)
             {
-                Logger.Verbose("[DeliveryOptimizationCollector] No DO entries returned");
+                Logger.Trace("[DeliveryOptimizationCollector] No DO entries returned");
                 return;
             }
 
@@ -568,8 +568,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 WriteToLogFile(logEntries);
             }
 
-            Logger.Verbose($"[DeliveryOptimizationCollector] Poll: {results.Count} entries, " +
-                           $"{progressCount} progress updates, {matchCount} new matches ({_enrichedAppIds.Count} total enriched)");
+            var pollSummary = $"[DeliveryOptimizationCollector] Poll: {results.Count} entries, " +
+                              $"{progressCount} progress updates, {matchCount} new matches ({_enrichedAppIds.Count} total enriched)";
+            // A poll that found nothing new is a tick (Trace); one with progress or matches is content.
+            if (progressCount > 0 || matchCount > 0) Logger.Verbose(pollSummary);
+            else Logger.Trace(pollSummary);
         }
 
         // Office C2R content CDN hosts — version-independent (a FileId build marker like "_16_0_" would

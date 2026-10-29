@@ -836,7 +836,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                         }),
                     payload: payload);
 
-                _logger.Info(
+                _logger.Debug(
                     $"EnrollmentOrchestrator: EspConfigDetected bootstrap posted (SkipUser={snapshot.SkipUser?.ToString() ?? "unknown"}, SkipDevice={snapshot.SkipDevice?.ToString() ?? "unknown"}, AllowContinueAnyway={snapshot.AllowContinueAnyway?.ToString() ?? "unknown"}, SyncFailureTimeoutMinutes={snapshot.SyncFailureTimeoutMinutes?.ToString() ?? "unknown"}).");
             }
             catch (Exception ex)

@@ -591,7 +591,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     });
             }
 
-            _logger?.Debug(
+            _logger?.Verbose(
                 $"ImeAdapter: suppressed historic {eventLabel} for {entityId} "
                 + $"(source ts {asUtc:o}, age {age.TotalHours:F1}h, suppressed so far: {suppressedSoFar})");
             return true;
@@ -759,8 +759,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var namesJoined = string.Join("; ", names)
                 + (pendingApps.Count > maxNames ? $" (+{pendingApps.Count - maxNames} more)" : string.Empty);
 
-            _logger?.Info(
-                $"ImeAdapter: IME 'Completed user session' line observed but {pendingApps.Count} required user-ESP app(s) still pending -> deferring ImeUserSessionCompleted (pending: {namesJoined})");
+            _logger?.Debug(
+                $"ImeAdapter: IME 'Completed user session' line observed but {pendingApps.Count} required user-ESP app(s) still pending -> deferring ImeUserSessionCompleted (pending: {namesJoined})", repeatKey: "ImeAdapter.userSessionDeferred");
 
             lock (_lock)
             {
@@ -907,7 +907,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // PR5: surface WasAutoDowngradedToSkipped on the same line as the state-transition
             // log — this is the "why is App X marked Skipped without a download" answer.
             var autoDowngradeNote = app.WasAutoDowngradedToSkipped ? " auto-downgraded=true (inverse-detection)" : string.Empty;
-            _logger?.Debug(
+            _logger?.Verbose(
                 $"ImeAdapter: app '{app.Name ?? "?"}' ({shortId}) {oldState}->{newState} appType={app.AppType ?? "?"} bytesTotal={app.BytesTotal} terminal={(terminalKind != null)} eventType={eventType}{autoDowngradeNote}");
         }
 
@@ -1109,10 +1109,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 data: data,
                 occurredAtUtc: now);
 
-            // PR3-D4: fire-once and useful for compatibility-debugging — INFO level.
+            // PR3-D4: useful for compatibility debugging. IME logs the version on every service start;
+            // an unchanged repeat goes to Trace.
             _logger?.Info(source.HasData && !string.IsNullOrEmpty(source.DownloadUrl)
                 ? $"ImeAdapter: IME agent version detected: {version} (CSP install source: {source.DownloadUrl})"
-                : $"ImeAdapter: IME agent version detected: {version}");
+                : $"ImeAdapter: IME agent version detected: {version}", repeatKey: "ImeAdapter.imeAgentVersion");
         }
 
         // IME token-acquisition failure ("Failed to get AAD token ... errorCode = N",
@@ -1228,8 +1229,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 data: data,
                 occurredAtUtc: now);
 
-            // PR3-D4: per-app DO summary at DEBUG with the headline metrics.
-            _logger?.Debug(
+            // PR3-D4: per-app DO summary at VERBOSE with the headline metrics.
+            _logger?.Verbose(
                 $"ImeAdapter: DO telemetry app='{app.Name ?? "?"}' total={app.DoFileSize} peers={app.DoBytesFromPeers} http={app.DoBytesFromHttp} mode={app.DoDownloadMode}");
         }
 
@@ -1459,9 +1460,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 data: data,
                 occurredAtUtc: now);
 
-            // PR3-D4: per-script summary at DEBUG (failures already surface via Severity=Error
+            // PR3-D4: per-script summary at VERBOSE (failures already surface via Severity=Error
             // in the event itself; the log line carries forensic context for both outcomes).
-            _logger?.Debug(
+            _logger?.Verbose(
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
 
             MaybeEmitBootstrapDetected(script, now);
@@ -1640,7 +1641,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 data: data,
                 occurredAtUtc: now);
 
-            _logger?.Debug($"ImeAdapter: script started policyId={shortId} type={info.ScriptType ?? "?"} policyType={info.PolicyType ?? "?"}");
+            _logger?.Verbose($"ImeAdapter: script started policyId={shortId} type={info.ScriptType ?? "?"} policyType={info.PolicyType ?? "?"}");
         }
 
         private void EmitScriptRecurrenceSummary(ScriptRecurrenceSummary summary)

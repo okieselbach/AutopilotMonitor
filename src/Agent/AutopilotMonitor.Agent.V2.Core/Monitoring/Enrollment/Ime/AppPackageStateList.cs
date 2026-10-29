@@ -426,7 +426,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             if (_logger == null) return;
             var stateList = string.Join(", ", this.Select(x => $"{x.Name ?? x.Id}:{x.InstallationState}"));
-            _logger.Debug($"App states [{Count}]: {stateList}");
+            _logger.Verbose($"App states [{Count}]: {stateList}");
         }
     }
 }

@@ -127,7 +127,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Process metrics read failed: {ex.Message}");
+                Logger.Debug($"Process metrics read failed: {ex.Message}", repeatKey: "AgentSelfMetricsCollector.process");
             }
 
             // --- Spool stats (P2 telemetry) ---
@@ -155,7 +155,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Debug($"Spool metrics read failed: {ex.Message}");
+                    Logger.Debug($"Spool metrics read failed: {ex.Message}", repeatKey: "AgentSelfMetricsCollector.spool");
                 }
             }
 
@@ -186,7 +186,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Network metrics read failed: {ex.Message}");
+                Logger.Debug($"Network metrics read failed: {ex.Message}", repeatKey: "AgentSelfMetricsCollector.network");
             }
 
             // --- IME log tracker health ---
@@ -224,7 +224,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Debug($"IME tracker health read failed: {ex.Message}");
+                    Logger.Debug($"IME tracker health read failed: {ex.Message}", repeatKey: "AgentSelfMetricsCollector.imeTracker");
                 }
             }
 
@@ -262,7 +262,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Debug($"Signal pipeline health read failed: {ex.Message}");
+                    Logger.Debug($"Signal pipeline health read failed: {ex.Message}", repeatKey: "AgentSelfMetricsCollector.signalPipeline");
                 }
             }
 

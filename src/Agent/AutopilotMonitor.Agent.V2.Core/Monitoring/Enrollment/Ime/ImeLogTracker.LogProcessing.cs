@@ -83,7 +83,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 catch (FileNotFoundException) { }
                 catch (IOException ex)
                 {
-                    _logger.Debug($"ImeLogTracker: IO error reading {filePath}: {ex.Message}");
+                    _logger.Debug($"ImeLogTracker: IO error reading {filePath}: {ex.Message}", repeatKey: "ImeLogTracker.ioError:" + filePath);
                 }
             }
 
@@ -588,7 +588,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             _currentLineIsHistoricReplay = isStaleReplayLine;
             if (isStaleReplayLine && AppMutatingActions.Contains(pattern.Action?.ToLower() ?? string.Empty))
             {
-                _logger.Debug($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({ResolveEntryUtc(entry):o})");
+                _logger.Trace($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({ResolveEntryUtc(entry):o})");
                 return;
             }
 
@@ -684,7 +684,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         break;
 
                     case "enrollmentcompleted":
-                        _logger.Info("ImeLogTracker: User session completed detected");
+                        LogLineActivity("ImeLogTracker: User session completed detected", repeatKey: "ImeLogTracker.userSessionCompleted");
                         OnUserSessionCompleted?.Invoke();
                         break;
 

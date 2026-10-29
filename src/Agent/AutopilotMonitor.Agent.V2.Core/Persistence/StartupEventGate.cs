@@ -249,7 +249,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
             }
             catch (Exception ex)
             {
-                _logger.Debug($"StartupEventGate: failed to save state: {ex.Message}");
+                _logger.Debug($"StartupEventGate: failed to save state: {ex.Message}", repeatKey: "StartupEventGate.save");
             }
         }
 

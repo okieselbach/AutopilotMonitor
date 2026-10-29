@@ -105,8 +105,9 @@ namespace AutopilotMonitor.Shared.Models
         public int? InterceptedRegistrationRetryBoots { get; set; }
 
         /// <summary>
-        /// Log verbosity level for the agent.
-        /// "Info" = normal messages, "Debug" = component state/decisions, "Verbose" = per-event tracing, "Trace" = full diagnostic output.
+        /// Log verbosity level for the agent; each level adds to the one before it.
+        /// "Info" = the enrollment flow, "Debug" = decision details and extra attributes,
+        /// "Verbose" = every detail (payloads, raw values), "Trace" = internal mechanics (watcher, poll and queue steps).
         /// Default: "Info"
         /// </summary>
         public string LogLevel { get; set; } = "Info";

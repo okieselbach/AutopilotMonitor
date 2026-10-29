@@ -36,7 +36,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var cert = CertificateHelper.FindMdmCertificate(thumbprint, logger);
+                // Not finding the certificate is the expected answer of most polls; the start, the
+                // minute status and the result below tell the story.
+                var cert = CertificateHelper.FindMdmCertificate(thumbprint, logger, logNotFound: false);
 
                 if (cert != null)
                 {
@@ -64,7 +66,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 {
                     var remaining = timeout - totalElapsed;
                     var storeSummary = GetCertificateStoreSummary();
-                    logger?.Info($"Await-enrollment: Waiting for MDM certificate... " +
+                    logger?.Debug($"Await-enrollment: Waiting for MDM certificate... " +
                                 $"(elapsed: {FormatElapsed(totalElapsed)}, remaining: {FormatElapsed(remaining)}, {storeSummary})");
                     lastLogTime = DateTime.UtcNow;
                 }

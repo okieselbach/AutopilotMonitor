@@ -151,9 +151,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 try
                 {
                     if (attempt == 1)
-                        _logger.Info("Fetching remote configuration from backend...");
+                        _logger.Debug("Fetching remote configuration from backend...");
                     else
-                        _logger.Info($"Fetching remote configuration from backend (attempt {attempt}/{maxAttempts})...");
+                        _logger.Debug($"Fetching remote configuration from backend (attempt {attempt}/{maxAttempts})...");
 
                     var config = await CallBackendAsync();
 
@@ -208,7 +208,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 if (attempt < maxAttempts)
                 {
                     var delay = InitialFetchRetryBackoff[attempt - 1];
-                    _logger.Info($"Retrying remote config fetch in {delay.TotalSeconds:0}s...");
+                    _logger.Debug($"Retrying remote config fetch in {delay.TotalSeconds:0}s...");
                     try { await DelayBetweenAttemptsAsync(delay); }
                     catch (TaskCanceledException) { break; }
                 }

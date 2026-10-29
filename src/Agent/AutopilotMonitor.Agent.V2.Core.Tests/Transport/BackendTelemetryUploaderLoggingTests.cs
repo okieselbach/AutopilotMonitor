@@ -14,8 +14,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 {
     /// <summary>
     /// <see cref="BackendTelemetryUploader"/> emits upload-cadence log lines (flushing / ingest
-    /// OK / ingest TRANSIENT / ingest PERMANENT) so the transport path is observable. The
-    /// success-path lines (flushing, ingest OK) are pipeline mechanics and live on Debug;
+    /// OK / ingest TRANSIENT / ingest PERMANENT) so the transport path is observable. The send
+    /// ("flushing") is mechanics and lives on Trace, the success record ("ingest OK") on Verbose;
     /// failures (TRANSIENT/PERMANENT/TIMEOUT/NETWORK) live on Warning/Error and remain
     /// visible at the default Info level. We assert on log-file content because AgentLogger
     /// writes to disk; checking the file is the most faithful production proxy.
@@ -54,11 +54,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
-        public async Task UploadBatch_logs_flush_start_and_ingest_OK_on_success_at_debug()
+        public async Task UploadBatch_logs_flush_start_at_trace_and_ingest_OK_at_verbose()
         {
             using var tmp = new TempDirectory();
-            // Success-path transport lines live on Debug; capture at that level to assert them.
-            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Debug);
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Trace);
 
             var handler = new RecordingHttpMessageHandler();
             handler.QueueStatus(HttpStatusCode.OK);
@@ -75,11 +74,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 
             // AgentLogger writes each line with File.AppendAllText — content is already on disk.
             var logContent = ReadLogs(tmp.Path);
-            Assert.Contains("BackendTelemetryUploader: flushing 2 item(s)", logContent);
-            // Each upload now carries a per-request correlation id (X-Correlation-ID) for
-            // end-to-end tracing; it precedes the item count in the cadence log lines.
+            Assert.Contains("[TRACE] BackendTelemetryUploader: flushing 2 item(s)", logContent);
+            // Each upload carries a per-request correlation id (X-Correlation-ID) for end-to-end
+            // tracing; the success record carries the batch's item range so it stands alone.
+            Assert.Contains("[VERBOSE] BackendTelemetryUploader: ingest OK (corr=", logContent);
+            Assert.Contains("items=2, firstId=1, lastId=2, bytes=", logContent);
+        }
+
+        [Fact]
+        public async Task UploadBatch_success_at_verbose_logs_the_record_without_the_send_line()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Verbose);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueStatus(HttpStatusCode.OK);
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http,
+                baseUrl: "https://backend.test",
+                tenantId: "T1",
+                logger: logger);
+
+            var result = await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            Assert.True(result.Success);
+
+            var logContent = ReadLogs(tmp.Path);
+            Assert.DoesNotContain("BackendTelemetryUploader: flushing", logContent);
             Assert.Contains("BackendTelemetryUploader: ingest OK (corr=", logContent);
-            Assert.Contains("items=2", logContent);
         }
 
         [Fact]

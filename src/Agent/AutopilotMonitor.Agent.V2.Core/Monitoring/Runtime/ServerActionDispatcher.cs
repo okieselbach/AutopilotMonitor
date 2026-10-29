@@ -97,7 +97,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 var dedupKey = BuildDedupKey(action);
                 if (!_seenActionIds.TryAdd(dedupKey, 0))
                 {
-                    _logger.Debug($"ServerActionDispatcher: duplicate action '{action.Type}' ({dedupKey}) — skipping");
+                    _logger.Debug($"ServerActionDispatcher: duplicate action '{action.Type}' ({dedupKey}) — skipping", repeatKey: "ServerActionDispatcher.duplicate:" + dedupKey);
                     continue;
                 }
 

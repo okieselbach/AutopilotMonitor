@@ -81,7 +81,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         public void AnalyzeAtStartup()
         {
-            _logger.Info($"{Name}: scanning prefetch for a post-boot cmd.exe console artifact");
+            _logger.Debug($"{Name}: scanning prefetch for a post-boot cmd.exe console artifact");
             try { RunScan(); }
             catch (Exception ex) { _logger.Error($"{Name}: scan failed unexpectedly", ex); }
         }

@@ -418,7 +418,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     }
                     else
                     {
-                        _logger.Debug("Periodic Hello policy check: No WHfB policy found yet - will check again");
+                        _logger.Trace("Periodic Hello policy check: No WHfB policy found yet - will check again");
                     }
                 }
             }
@@ -636,7 +636,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     severity = EventSeverity.Info;
                     message = "Windows Hello for Business provisioned successfully - NGC key registered";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
-                    _logger.Info("Windows Hello provisioning COMPLETED successfully");
+                    // A repeat (live plus backfill) is already reported by MarkHelloCompleted.
+                    if (shouldTriggerHelloCompleted) _logger.Info("Windows Hello provisioning COMPLETED successfully");
                     break;
 
                 case EventId_NgcKeyRegistrationFailed: // 301
@@ -644,7 +645,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     severity = EventSeverity.Error;
                     message = "Windows Hello for Business provisioning failed - NGC key registration error";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
-                    _logger.Info("Windows Hello provisioning COMPLETED with failure");
+                    if (shouldTriggerHelloCompleted) _logger.Info("Windows Hello provisioning COMPLETED with failure");
                     break;
 
                 case EventId_ProvisioningWillNotLaunch: // 360
@@ -658,7 +659,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     severity = EventSeverity.Warning;
                     message = "Windows Hello for Business provisioning blocked";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
-                    _logger.Info("Windows Hello provisioning COMPLETED (blocked)");
+                    if (shouldTriggerHelloCompleted) _logger.Info("Windows Hello provisioning COMPLETED (blocked)");
                     break;
 
                 case EventId_PinStatus: // 376
@@ -719,7 +720,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     || eventType == Constants.EventTypes.DeviceRegistrationEvent
             });
 
-            _logger.Info($"Hello event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");
+            _logger.Debug($"Hello event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");
 
             if (shouldTriggerHelloCompleted)
             {
@@ -969,7 +970,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 ImmediateUpload = shouldTriggerHelloCompleted
             });
 
-            _logger.Info($"HelloForBusiness event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");
+            _logger.Debug($"HelloForBusiness event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");
 
             if (shouldTriggerHelloCompleted)
             {

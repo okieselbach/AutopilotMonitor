@@ -171,7 +171,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                             values[valueName] = value.ToString();
                     }
 
-                    logger.Info($"ZtdEvidence: read {values.Count} values from Diagnostics\\Autopilot");
+                    logger.Info($"ZtdEvidence: read {values.Count} values from Diagnostics\\Autopilot", repeatKey: "ZtdEvidence.read");
                     return values.Count > 0 ? values : null;
                 }
             }

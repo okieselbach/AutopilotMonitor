@@ -148,7 +148,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_logger != null)
             {
                 var keys = string.Join(",", payload.Keys.Take(8));
-                _logger.Debug(
+                _logger.Verbose(
                     $"InformationalEventPost: emit eventType={eventType} source={source} " +
                     $"immediate={immediateUpload} severity={severity?.ToString() ?? "default"} " +
                     $"dataKeys=[{keys}]");

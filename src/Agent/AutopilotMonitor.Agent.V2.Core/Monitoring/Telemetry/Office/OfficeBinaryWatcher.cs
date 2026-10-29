@@ -196,7 +196,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 var leaf = Path.GetFileName(relativeName);
                 if (!string.IsNullOrEmpty(leaf) && _binaries.Contains(leaf))
                 {
-                    _logger.Info($"[OfficeBinaryWatcher] core Office binary appeared: {leaf}");
+                    _logger.Info($"[OfficeBinaryWatcher] core Office binary appeared: {leaf}", repeatKey: "OfficeBinaryWatcher.appeared:" + leaf);
                     Raise();
                 }
             }

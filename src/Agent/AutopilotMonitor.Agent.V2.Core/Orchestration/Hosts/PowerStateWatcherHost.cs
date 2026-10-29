@@ -205,7 +205,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (Exception ex)
             {
                 error = ex;
-                _logger.Info($"[{Name}] arm attempt '{modeLabel}' failed ({ex.GetType().Name}: {ex.Message})");
+                _logger.Debug($"[{Name}] arm attempt '{modeLabel}' failed ({ex.GetType().Name}: {ex.Message})");
                 lock (_lock) { _watcher = null; }
                 return false;
             }
@@ -264,7 +264,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch (Exception ex)
             {
-                _logger.Debug($"[{Name}] debounced power tick failed: {ex.Message}");
+                _logger.Debug($"[{Name}] debounced power tick failed: {ex.Message}", repeatKey: "PowerStateWatcherHost.tickFailed");
             }
         }
 

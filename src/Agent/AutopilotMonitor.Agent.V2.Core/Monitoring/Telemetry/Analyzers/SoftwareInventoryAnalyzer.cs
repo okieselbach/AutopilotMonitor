@@ -92,7 +92,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         public void AnalyzeAtStartup()
         {
-            _logger.Info($"{Name}: Running startup analysis (baseline inventory)");
+            _logger.Debug($"{Name}: Running startup analysis (baseline inventory)");
             try
             {
                 // The collection ALWAYS runs — _startupInventory is the in-memory base for the
@@ -106,7 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                         Constants.EventTypes.SoftwareInventoryAnalysis + ":startup",
                         BuildInventoryFingerprint(_startupInventory)))
                 {
-                    _logger.Info($"{Name}: baseline inventory unchanged since last emission — startup events suppressed (restart dedup), delta base kept in memory");
+                    _logger.Debug($"{Name}: baseline inventory unchanged since last emission — startup events suppressed (restart dedup), delta base kept in memory");
                     return;
                 }
 
@@ -156,7 +156,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             {
                 if (Interlocked.CompareExchange(ref _part1ShutdownSnapshotEmitted, 1, 0) != 0)
                 {
-                    _logger.Info($"{Name}: AnalyzeAtShutdown(whiteGlovePart=1) skipped — Part-1 snapshot already emitted (likely by WhiteGloveInventoryTrigger)");
+                    _logger.Debug($"{Name}: AnalyzeAtShutdown(whiteGlovePart=1) skipped — Part-1 snapshot already emitted (likely by WhiteGloveInventoryTrigger)");
                     return;
                 }
             }
@@ -164,12 +164,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             {
                 if (Interlocked.CompareExchange(ref _part2ShutdownSnapshotEmitted, 1, 0) != 0)
                 {
-                    _logger.Info($"{Name}: AnalyzeAtShutdown(whiteGlovePart=2) skipped — Part-2 snapshot already emitted");
+                    _logger.Debug($"{Name}: AnalyzeAtShutdown(whiteGlovePart=2) skipped — Part-2 snapshot already emitted");
                     return;
                 }
             }
 
-            _logger.Info($"{Name}: Running shutdown analysis (delta detection, whiteGlovePart={whiteGlovePart?.ToString() ?? "none"})");
+            _logger.Debug($"{Name}: Running shutdown analysis (delta detection, whiteGlovePart={whiteGlovePart?.ToString() ?? "none"})");
             try
             {
                 var currentInventory = CollectAndNormalize();

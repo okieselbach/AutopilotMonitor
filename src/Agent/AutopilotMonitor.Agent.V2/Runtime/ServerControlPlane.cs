@@ -287,7 +287,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         {
             if (!latch.TryEnter())
             {
-                logger.Debug($"Backend repeated AdminAction={adminAction} — already handled in this process, ignoring.");
+                logger.Debug($"Backend repeated AdminAction={adminAction} — already handled in this process, ignoring.", repeatKey: "ServerControlPlane.repeatedAdminAction");
                 return;
             }
 

@@ -266,24 +266,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
+                var stoppedAny = false;
                 lock (_stateLock)
                 {
-                    DisposeAndNull(ref _servicesAppearanceWatcher);
-                    DisposeAndNull(ref _machineSoftwareAppearanceWatcher);
-                    DisposeAndNull(ref _userSoftwareAppearanceWatcher);
-                    DisposeAndNull(ref _uninstallAppearanceWatcher);
+                    stoppedAny |= DisposeAndNull(ref _servicesAppearanceWatcher);
+                    stoppedAny |= DisposeAndNull(ref _machineSoftwareAppearanceWatcher);
+                    stoppedAny |= DisposeAndNull(ref _userSoftwareAppearanceWatcher);
+                    stoppedAny |= DisposeAndNull(ref _uninstallAppearanceWatcher);
 
                     _serviceRealmjoinDebounce?.Dispose(); _serviceRealmjoinDebounce = null;
                     _machineRealmJoinDebounce?.Dispose(); _machineRealmJoinDebounce = null;
                     _userRealmJoinDebounce?.Dispose(); _userRealmJoinDebounce = null;
                     _uninstallDebounce?.Dispose(); _uninstallDebounce = null;
 
-                    DisposeAndNull(ref _serviceRealmjoinWatcher);
-                    DisposeAndNull(ref _machineRealmJoinWatcher);
-                    DisposeAndNull(ref _userRealmJoinWatcher);
-                    DisposeAndNull(ref _uninstallWatcher);
+                    stoppedAny |= DisposeAndNull(ref _serviceRealmjoinWatcher);
+                    stoppedAny |= DisposeAndNull(ref _machineRealmJoinWatcher);
+                    stoppedAny |= DisposeAndNull(ref _userRealmJoinWatcher);
+                    stoppedAny |= DisposeAndNull(ref _uninstallWatcher);
                 }
-                _logger.Info($"RealmJoinWatcher: stopped ({reason})");
+                // Hosts call Stop and then Dispose, which stops again; only the pass that
+                // stopped a watcher logs.
+                if (stoppedAny) _logger.Info($"RealmJoinWatcher: stopped ({reason})");
             }
             catch (Exception ex)
             {
@@ -913,11 +916,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
-        private static void DisposeAndNull(ref RegistryWatcher? w)
+        private static bool DisposeAndNull(ref RegistryWatcher? w)
         {
-            if (w == null) return;
+            if (w == null) return false;
             try { w.Dispose(); } catch { }
             w = null;
+            return true;
         }
 
         // Test seams — drive the read paths deterministically without touching the real registry.

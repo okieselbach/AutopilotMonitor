@@ -384,7 +384,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 ImmediateUpload = true
             });
 
-            _logger.Info($"Shell-Core event detected: {eventType} (EventID {eventId})");
+            _logger.Debug($"Shell-Core event detected: {eventType} (EventID {eventId})");
 
             // Set the source-event timestamp BEFORE each event raise so adapters / coordinators
             // can read it during their synchronous handler. Cleared in finally so a stale value

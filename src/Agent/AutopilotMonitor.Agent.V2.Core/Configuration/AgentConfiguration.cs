@@ -53,7 +53,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
 
 
         /// <summary>
-        /// Log verbosity level: Info (default), Debug, Verbose.
+        /// Log verbosity level: Info (default), Debug, Verbose, Trace (see <see cref="AgentLogLevel"/>).
         /// Overridable via remote config.
         /// </summary>
         public AgentLogLevel LogLevel { get; set; } = AgentLogLevel.Info;

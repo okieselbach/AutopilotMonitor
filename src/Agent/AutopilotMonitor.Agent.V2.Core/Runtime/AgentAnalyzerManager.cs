@@ -64,7 +64,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                     _logger,
                     _analyzerConfig.LocalAdminAllowedAccounts,
                     _startupEventGate));
-                _logger.Info("LocalAdminAnalyzer registered");
+                _logger.Debug("LocalAdminAnalyzer registered");
             }
             else
             {
@@ -79,7 +79,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                     _post,
                     _logger,
                     _startupEventGate));
-                _logger.Info("SoftwareInventoryAnalyzer registered");
+                _logger.Debug("SoftwareInventoryAnalyzer registered");
             }
             else
             {
@@ -94,7 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                     _post,
                     _logger,
                     _startupEventGate));
-                _logger.Info("IntegrityBypassAnalyzer registered");
+                _logger.Debug("IntegrityBypassAnalyzer registered");
             }
             else
             {
@@ -113,7 +113,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                     _post,
                     _logger,
                     _startupEventGate));
-                _logger.Info("ConsolePrefetchScanner registered");
+                _logger.Debug("ConsolePrefetchScanner registered");
             }
             else
             {
@@ -128,7 +128,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 _configuration.TenantId,
                 _post,
                 _logger));
-            _logger.Info("AutoLogonAnalyzer registered (always-on)");
+            _logger.Debug("AutoLogonAnalyzer registered (always-on)");
 
             _logger.Info($"Analyzers initialized: {_analyzers.Count} active");
         }
@@ -144,7 +144,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             if (_analyzers.Count == 0) return;
 
             var snapshot = new List<IAgentAnalyzer>(_analyzers);
-            _logger.Info($"Scheduling {snapshot.Count} startup analyzer(s) on background thread");
+            _logger.Debug($"Scheduling {snapshot.Count} startup analyzer(s) on background thread");
 
             Task.Run(() =>
             {
@@ -166,7 +166,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             if (!_initialised) Initialize();
             if (_analyzers.Count == 0) return;
 
-            _logger.Info($"Running {_analyzers.Count} shutdown analyzer(s) (whiteGlovePart={whiteGlovePart?.ToString() ?? "none"})");
+            _logger.Debug($"Running {_analyzers.Count} shutdown analyzer(s) (whiteGlovePart={whiteGlovePart?.ToString() ?? "none"})");
 
             foreach (var analyzer in _analyzers)
             {
@@ -202,7 +202,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
 
                 try
                 {
-                    _logger.Info("DeviceSetup complete — running AutoLogonAnalyzer.AnalyzeAtDeviceSetupComplete()");
+                    _logger.Debug("DeviceSetup complete — running AutoLogonAnalyzer.AnalyzeAtDeviceSetupComplete()");
                     autoLogonAnalyzer.AnalyzeAtDeviceSetupComplete();
                 }
                 catch (Exception ex)
@@ -241,7 +241,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
 
                 try
                 {
-                    _logger.Info("WhiteGlove Part 1 inventory snapshot — running SoftwareInventoryAnalyzer.AnalyzeAtShutdown(whiteGlovePart: 1)");
+                    _logger.Debug("WhiteGlove Part 1 inventory snapshot — running SoftwareInventoryAnalyzer.AnalyzeAtShutdown(whiteGlovePart: 1)");
                     softwareAnalyzer.AnalyzeAtShutdown(whiteGlovePart: 1);
                 }
                 catch (Exception ex)

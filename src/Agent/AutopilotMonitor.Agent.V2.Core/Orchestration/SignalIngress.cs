@@ -520,7 +520,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // PR3-D2: 1:1 correlation marker for D1 (DecisionStepProcessor logs the same ord +
             // kind on the receive side). Verbose because the steady-state happy-path is the
             // dominant cardinality.
-            _logger?.Verbose($"SignalIngress: processed ord={signalOrdinal} kind={item.Kind} origin={item.SourceOrigin}.");
+            _logger?.Trace($"SignalIngress: processed ord={signalOrdinal} kind={item.Kind} origin={item.SourceOrigin}.");
             Interlocked.Increment(ref _processedCount);
 
             // Project the signal onto the telemetry transport for backend upload. Local

@@ -97,7 +97,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 hasValues: entries.Any(e => !oobeOnly || IsOobeName(e.Key)), line: line);
         }
 
-        /// <summary>One agent.log line per present key, one naming the absent keys.</summary>
+        /// <summary>
+        /// One agent.log line per present key, one naming the absent keys. Debug: registry detail
+        /// behind the update page; the oobe_update_state event carries the content.
+        /// </summary>
         public static void Log(AgentLogger logger, string moment, IReadOnlyList<KeyState> states)
         {
             if (logger == null || states == null) return;
@@ -110,11 +113,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     absent.Add(state.Path);
                     continue;
                 }
-                logger.Info($"OOBE update registry ({moment}): HKLM\\{state.Path}: {state.Line}");
+                logger.Debug($"OOBE update registry ({moment}): HKLM\\{state.Path}: {state.Line}");
             }
 
             if (absent.Count > 0)
-                logger.Info($"OOBE update registry ({moment}): absent: {string.Join(", ", absent)}");
+                logger.Debug($"OOBE update registry ({moment}): absent: {string.Join(", ", absent)}");
         }
 
         /// <summary>

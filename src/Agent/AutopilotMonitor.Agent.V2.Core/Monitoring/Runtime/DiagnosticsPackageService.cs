@@ -344,7 +344,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 _logger.Info($"Diagnostics package created: {zipFileName} ({zipBytes.Length / 1024} KB)");
 
                 // Fetch a short-lived upload URL just before uploading — never stored in config or on disk
-                _logger.Info("Requesting diagnostics upload URL from backend...");
+                _logger.Debug("Requesting diagnostics upload URL from backend...");
                 var uploadUrlResponse = await _apiClient.GetDiagnosticsUploadUrlAsync(
                     _configuration.TenantId,
                     _configuration.SessionId,
@@ -708,7 +708,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 // Expected outcome, not a packaging problem: the subtree is off limits by design.
                 foreach (var refused in refusedDirectories)
                 {
-                    _logger.Info($"Diagnostics subfolder skipped by guard: {refused}");
+                    _logger.Debug($"Diagnostics subfolder skipped by guard: {refused}");
                     ManifestLine($"SKIPPED DIR (path guard): {refused}");
                 }
 
@@ -800,7 +800,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     }
 
                     tracker.RecordIncluded(length);
-                    _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
+                    _logger.Verbose($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
                     ManifestLine($"ADDED: {entryName} ({length} bytes)");
                 }
             }
@@ -1066,7 +1066,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 try
                 {
-                    _logger.Info($"Uploading diagnostics package (attempt {attempt}/{maxRetries}, {data.Length / 1024} KB)...");
+                    _logger.Debug($"Uploading diagnostics package (attempt {attempt}/{maxRetries}, {data.Length / 1024} KB)...");
 
                     using var content = new ByteArrayContent(data);
                     content.Headers.Add("x-ms-blob-type", "BlockBlob");
@@ -1101,7 +1101,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 if (attempt < maxRetries)
                 {
                     var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt)); // 2s, 4s, 8s
-                    _logger.Info($"Retrying blob upload in {delay.TotalSeconds}s...");
+                    _logger.Debug($"Retrying blob upload in {delay.TotalSeconds}s...");
                     await Task.Delay(delay);
                 }
             }

@@ -205,10 +205,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 if (_pending.Count > _peakPendingCount)
                     _peakPendingCount = _pending.Count;
 
-                // Plan §5 Fix 5 — spool-cadence logging. PR3-A2: VERBOSE (was DEBUG)
-                // because per-item logging hits ~600 lines per session and floods the log
-                // at troubleshoot level. Activate only at micro-repro level.
-                _logger?.Verbose(
+                // Plan §5 Fix 5 — spool-cadence logging. One line per item is mechanics
+                // (well over 1,000 lines per session), so it lives on Trace.
+                _logger?.Trace(
                     $"TelemetrySpool: enqueued itemId={itemId} kind={item.Kind} immediate={item.RequiresImmediateFlush} pending={_pending.Count}.");
             }
 

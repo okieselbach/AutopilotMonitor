@@ -475,15 +475,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         /// </summary>
         private void StartInterceptionPause(ResponseClassification interception)
         {
+            var firstOfEpisode = _interceptionBackoffStep == 0;
             var delay = InterceptionBackoffs[Math.Min(_interceptionBackoffStep, InterceptionBackoffs.Count - 1)];
             _interceptionBackoffStep = Math.Min(_interceptionBackoffStep + 1, InterceptionBackoffs.Count - 1);
             var now = _clock.UtcNow;
             Volatile.Write(ref _interceptionWindow, new InterceptionWindow(now, now + delay));
 
             // The uploader already logged the page finding at Warning; this line adds the schedule.
-            _logger?.Info(
+            // The first pause of an episode is the flow (Info), every re-arm until the path clears is detail.
+            var line =
                 $"TelemetryUploadOrchestrator: upload intercepted ({interception.ForeignReason}, http {interception.StatusCode}) — " +
-                $"batch retained, next attempt not before {now + delay:O} ({delay.TotalSeconds:0}s).");
+                $"batch retained, next attempt not before {now + delay:O} ({delay.TotalSeconds:0}s).";
+            if (firstOfEpisode) _logger?.Info(line);
+            else _logger?.Debug(line);
         }
 
         /// <summary>A successful upload ends the interception pause and resets the backoff. Called under the drain guard.</summary>

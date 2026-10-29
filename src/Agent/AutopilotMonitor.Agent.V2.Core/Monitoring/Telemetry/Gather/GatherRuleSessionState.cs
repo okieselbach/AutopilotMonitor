@@ -356,7 +356,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         {
             var oldest = files.OrderBy(file => file.Value.LastTouched).First();
             files.Remove(oldest.Key);
-            _logger.Info($"GatherRuleSessionState: rule {ruleId} tracks more than {MaxLogFilesPerRule} files — forgot the position of {Path.GetFileName(oldest.Key)}");
+            _logger.Debug($"GatherRuleSessionState: rule {ruleId} tracks more than {MaxLogFilesPerRule} files — forgot the position of {Path.GetFileName(oldest.Key)}");
         }
 
         private static string Prefix(string hash) => hash.Length > 8 ? hash.Substring(0, 8) : hash;

@@ -47,7 +47,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 }
 
                 // Execute tzutil /s to set the timezone
-                logger.Info($"Timezone auto-set: setting timezone to {windowsId} (IANA: {ianaTimezone}, previous: {result.PreviousTimezone})");
+                logger.Debug($"Timezone auto-set: setting timezone to {windowsId} (IANA: {ianaTimezone}, previous: {result.PreviousTimezone})");
 
                 var psi = new ProcessStartInfo
                 {

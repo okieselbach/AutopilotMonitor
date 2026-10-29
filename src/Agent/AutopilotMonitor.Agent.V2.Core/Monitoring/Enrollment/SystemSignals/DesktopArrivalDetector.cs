@@ -225,7 +225,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         // Check against exclusion list
                         if (IsExcludedUser(owner))
                         {
-                            _logger.Debug($"DesktopArrivalDetector: explorer.exe PID {proc.Id} owned by excluded user '{owner}' — skipping");
+                            _logger.Debug($"DesktopArrivalDetector: explorer.exe PID {proc.Id} owned by excluded user '{owner}' — skipping", repeatKey: "DesktopArrivalDetector.excludedUser");
 
                             // Trace this decision once so it's visible in the backend
                             if (!_excludedUserTraced)
@@ -238,7 +238,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                         $"explorer.exe found but owned by excluded user '{owner}' — not a real user desktop",
                                         new Dictionary<string, object> { { "pid", proc.Id }, { "session", proc.SessionId }, { "owner", owner } });
                                 }
-                                catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: OnTraceEvent failed: {ex.Message}"); }
+                                catch (Exception ex) { _logger.Debug($"DesktopArrivalDetector: OnTraceEvent failed: {ex.Message}"); }
                             }
                             continue;
                         }
@@ -254,7 +254,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                 $"Real user desktop detected (explorer.exe PID {proc.Id}, user '[redacted]')",
                                 new Dictionary<string, object> { { "pid", proc.Id }, { "session", proc.SessionId }, { "owner", "[redacted]" } });
                         }
-                        catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: OnTraceEvent failed: {ex.Message}"); }
+                        catch (Exception ex) { _logger.Debug($"DesktopArrivalDetector: OnTraceEvent failed: {ex.Message}"); }
 
                         // First-poll observability snapshot still fires before we stop polling —
                         // there is value in distinguishing "found on first poll" (Stage already
@@ -335,7 +335,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "wtsErrorCount", _wtsErrorCountSinceStart },
                     });
             }
-            catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: first-poll emit failed: {ex.Message}"); }
+            catch (Exception ex) { _logger.Debug($"DesktopArrivalDetector: first-poll emit failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -371,7 +371,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "wtsErrorCount", _wtsErrorCountSinceStart },
                     });
             }
-            catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: no-candidate emit failed: {ex.Message}"); }
+            catch (Exception ex) { _logger.Debug($"DesktopArrivalDetector: no-candidate emit failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -393,7 +393,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "startReason", startReason },
                     });
             }
-            catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: detector-started emit failed: {ex.Message}"); }
+            catch (Exception ex) { _logger.Debug($"DesktopArrivalDetector: detector-started emit failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -445,7 +445,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
             catch (Exception ex)
             {
-                _logger.Verbose($"DesktopArrivalDetector: OOBE state check failed: {ex.Message}");
+                _logger.Debug($"DesktopArrivalDetector: OOBE state check failed: {ex.Message}", repeatKey: "DesktopArrivalDetector.oobeCheckFailed");
             }
         }
 

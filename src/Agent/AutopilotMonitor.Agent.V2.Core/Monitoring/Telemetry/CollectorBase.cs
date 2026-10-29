@@ -62,9 +62,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry
         /// <summary>Stops the collection timer without disposing the collector.</summary>
         public void Stop()
         {
+            // Hosts call Stop and then Dispose, which stops again; only a running timer logs.
+            var wasRunning = _timer != null;
             _timer?.Dispose();
             _timer = null;
-            Logger.Info($"[{GetType().Name}] Stopped");
+            if (wasRunning) Logger.Info($"[{GetType().Name}] Stopped");
             OnAfterStop();
         }
 
@@ -117,7 +119,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry
             // duration of any single slow Collect.
             if (Interlocked.CompareExchange(ref _collecting, 1, 0) != 0)
             {
-                Logger.Debug($"[{GetType().Name}] tick skipped — previous Collect still running");
+                Logger.Trace($"[{GetType().Name}] tick skipped — previous Collect still running");
                 return;
             }
 

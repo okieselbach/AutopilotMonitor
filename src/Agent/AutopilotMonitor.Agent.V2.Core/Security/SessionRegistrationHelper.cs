@@ -106,7 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             {
                 try
                 {
-                    logger.Info($"Registering session with backend (attempt {attempt}/{MaxAttempts})");
+                    logger.Debug($"Registering session with backend (attempt {attempt}/{MaxAttempts})");
                     var response = await apiClient.RegisterSessionAsync(registration).ConfigureAwait(false);
 
                     if (response != null && response.Success)
@@ -195,7 +195,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 if (attempt < MaxAttempts)
                 {
                     var delaySeconds = (int)Math.Pow(2, attempt); // 2, 4, 8, 16, 32
-                    logger.Info($"Retrying session registration in {delaySeconds}s");
+                    logger.Debug($"Retrying session registration in {delaySeconds}s");
                     await backoffDelay(attempt).ConfigureAwait(false);
                 }
             }

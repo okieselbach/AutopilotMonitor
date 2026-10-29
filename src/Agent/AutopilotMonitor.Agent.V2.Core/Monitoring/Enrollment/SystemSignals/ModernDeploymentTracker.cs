@@ -545,7 +545,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             if (description.IndexOf("WhiteGlove", StringComparison.OrdinalIgnoreCase) < 0)
             {
-                _logger.Trace($"ManagementService Event 509 without WhiteGlove keyword — ignoring: {description}");
+                _logger.Debug($"ManagementService Event 509 without WhiteGlove keyword — ignoring: {description}", repeatKey: "ModernDeploymentTracker.nonWhiteGlove509");
                 return;
             }
 
@@ -624,7 +624,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         using (record)
                         {
                             found++;
-                            _logger.Info($"Backfill found ManagementService Event {record.Id} at {record.TimeCreated:O}");
+                            _logger.Debug($"Backfill found ManagementService Event {record.Id} at {record.TimeCreated:O}");
                             ProcessRecord(record, "ManagementService", ManagementChannel, isBackfill: true);
                         }
                     }

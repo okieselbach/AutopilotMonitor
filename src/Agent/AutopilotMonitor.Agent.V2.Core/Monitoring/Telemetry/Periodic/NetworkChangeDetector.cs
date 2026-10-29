@@ -80,6 +80,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         public void Stop()
         {
+            // Hosts call Stop and then Dispose, which stops again; only a started detector logs.
+            var wasRunning = _connectivityCheckClient != null;
             NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
 
             lock (_stateLock)
@@ -91,7 +93,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             _connectivityCheckClient?.Dispose();
             _connectivityCheckClient = null;
 
-            _logger.Info("NetworkChangeDetector: stopped");
+            if (wasRunning) _logger.Info("NetworkChangeDetector: stopped");
         }
 
         public void Dispose()

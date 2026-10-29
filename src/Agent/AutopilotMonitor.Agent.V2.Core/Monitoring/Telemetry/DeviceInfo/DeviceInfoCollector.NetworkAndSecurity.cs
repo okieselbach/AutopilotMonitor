@@ -209,7 +209,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                                 default: modeLabel = $"{autopilotMode}"; break;
                             }
                             data["autopilotModeLabel"] = modeLabel;
-                            _logger.Info($"EnrollmentTracker: AutopilotMode={autopilotMode} ({modeLabel})");
+                            _logger.Info($"EnrollmentTracker: AutopilotMode={autopilotMode} ({modeLabel})", repeatKey: "DeviceInfo.autopilotMode");
                         }
 
                         // --- Interpret CloudAssignedDomainJoinMethod ---
@@ -238,7 +238,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                             }
                             catch (Exception ex)
                             {
-                                _logger.Trace($"EnrollmentTracker: Failed to parse PolicyJsonCache for DomainJoinMethod: {ex.Message}");
+                                _logger.Debug($"EnrollmentTracker: Failed to parse PolicyJsonCache for DomainJoinMethod: {ex.Message}");
                             }
                         }
 
@@ -261,10 +261,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                         if (isHybridJoin)
                         {
-                            _logger.Info("EnrollmentTracker: Hybrid Azure AD Join profile detected");
+                            _logger.Info("EnrollmentTracker: Hybrid Azure AD Join profile detected", repeatKey: "DeviceInfo.hybridProfile");
                         }
 
-                        _logger.Info($"EnrollmentTracker: Read {data.Count} values from AutopilotPolicyCache");
+                        _logger.Info($"EnrollmentTracker: Read {data.Count} values from AutopilotPolicyCache", repeatKey: "DeviceInfo.policyCache");
                     }
                     else
                     {
@@ -390,7 +390,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                         { "detectionRule", detectionRule }
                     });
 
-                _logger.Info($"EnrollmentTracker: enrollment type detected: {detectedType}");
+                _logger.Info($"EnrollmentTracker: enrollment type detected: {detectedType}", repeatKey: "DeviceInfo.enrollmentType");
             }
             catch (Exception ex)
             {
@@ -810,7 +810,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 if (hasAnyEspEvidence)
                 {
                     var summary = BuildSummary(snapshot, tracking);
-                    _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
+                    _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}", repeatKey: "DeviceInfo.espConfig");
                     EmitDeviceInfoEvent(Constants.EventTypes.EspConfigDetected, $"ESP configuration: {summary}", data);
                     PostEspConfigDetectedSignal(snapshot);
                 }

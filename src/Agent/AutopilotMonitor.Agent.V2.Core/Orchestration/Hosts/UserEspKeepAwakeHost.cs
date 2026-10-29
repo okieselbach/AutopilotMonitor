@@ -199,7 +199,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch (Exception ex)
             {
-                _logger.Verbose($"UserEspKeepAwakeHost: signal dispatch failed: {ex.Message}");
+                _logger.Debug($"UserEspKeepAwakeHost: signal dispatch failed: {ex.Message}", repeatKey: "UserEspKeepAwakeHost.dispatchFailed");
             }
         }
 

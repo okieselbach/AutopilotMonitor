@@ -19,7 +19,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     public partial class ImeLogTracker
     {
         // PR3-A2: dedup state for `IME impersonation` lines. ~24 identical per session at
-        // DEBUG flooded the log; we now emit on user change + a 60s rollup with the count.
+        // DEBUG flooded the log; a user change logs at Debug, the 60s rollup with the count at Trace.
         private string _lastImpersonationUser;
         private int _impersonationRepeatCount;
         private DateTime _impersonationLastRollupUtc = DateTime.MinValue;
@@ -111,10 +111,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var now = DateTime.UtcNow;
             if (now - _impersonationLastRollupUtc >= ImpersonationRollupInterval)
             {
-                _logger.Debug($"IME impersonation: same as before (user='{current}', n={_impersonationRepeatCount} since last rollup)");
+                _logger.Trace($"IME impersonation: same as before (user='{current}', n={_impersonationRepeatCount} since last rollup)");
                 _impersonationLastRollupUtc = now;
                 _impersonationRepeatCount = 0;
             }
+        }
+
+        /// <summary>
+        /// Info for what a line of this enrollment reports. A line replayed from a previous
+        /// enrollment's log (historic-replay guard) is context, not progress: Debug. Only for
+        /// handlers that run while that line is processed, since the flag describes the line.
+        /// </summary>
+        private void LogLineActivity(string message, string repeatKey = null)
+        {
+            if (_currentLineIsHistoricReplay) _logger.Debug(message + " (historic line)", repeatKey);
+            else _logger.Info(message, repeatKey);
         }
 
         /// <summary>
@@ -276,7 +287,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // map). Prefer the source CMTrace timestamp; latest start wins on a policy re-run.
                 var startedAtUtc = LastMatchedLogTimestamp ?? UtcNowProvider();
                 _healthScriptStartTimes[id] = (startedAtUtc, CaptureLastMatchedProvenance());
-                _logger.Info($"ImeLogTracker: health script started: {id}");
+                LogLineActivity($"ImeLogTracker: health script started: {id}", repeatKey: "ImeLogTracker.hsStarted:" + id);
 
                 // A replayed line of a previous enrollment bypasses the recurrence gate: the
                 // adapter drops its event, and a dropped run must not count as the policy's
@@ -285,7 +296,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     && !_recurringScripts.OnStart(id, startedAtUtc, policyType, LastMatchedPatternId))
                 {
                     _stateDirty = true;
-                    _logger.Debug($"ImeLogTracker: health script {id} is a recurring policy — start held until its result is known");
+                    _logger.Debug($"ImeLogTracker: health script {id} is a recurring policy — start held until its result is known", repeatKey: "ImeLogTracker.hsStartHeld:" + id);
                     return;
                 }
                 _stateDirty = true;
@@ -501,7 +512,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             RecordInvocationMarker(null, isClose: false);
             NoteInvocationActivity();
             if (!string.IsNullOrEmpty(kind) && !string.Equals(kind, "powershell", StringComparison.OrdinalIgnoreCase))
-                _logger.Debug($"ImeLogTracker: AgentExecutor invocation of kind '{kind}' — exit/output lines not captured as a platform script");
+                _logger.Trace($"ImeLogTracker: AgentExecutor invocation of kind '{kind}' — exit/output lines not captured as a platform script");
         }
 
         private void HandleAgentExecutorCompleted()
@@ -1076,10 +1087,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 DurationBasis = "script_runtime",
             };
 
-            _logger.Info($"ImeLogTracker: health-script {scriptPart} early-signal for {id}: " +
-                         $"compliance={compliance}, exit={exitCode}, " +
-                         $"stdout={(stdout == null ? "n/a" : stdout.Length + " chars")}, " +
-                         $"stderr={(stderr == null ? "n/a" : stderr.Length + " chars")}");
+            LogLineActivity($"ImeLogTracker: health-script {scriptPart} early-signal for {id}: " +
+                            $"compliance={compliance}, exit={exitCode}, " +
+                            $"stdout={(stdout == null ? "n/a" : stdout.Length + " chars")}, " +
+                            $"stderr={(stderr == null ? "n/a" : stderr.Length + " chars")}",
+                            repeatKey: "ImeLogTracker.hsEarly:" + scriptPart + ":" + id);
 
             EmitScriptEvent(enriched);
 
@@ -1303,11 +1315,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 EmitScriptEvent(postDetection);
             }
 
-            _logger.Info($"ImeLogTracker: health-script result emitted for {policyId} " +
-                         $"(status={remediationStatus?.ToString() ?? "?"}, " +
-                         $"firstDetectExit={firstDetectExit?.ToString() ?? "n/a"}, " +
-                         $"remediationExit={remediationExit?.ToString() ?? "n/a"}, " +
-                         $"lastDetectExit={lastDetectExit?.ToString() ?? "n/a"})");
+            // "result for", not "emitted": the recurrence gate in EmitScriptEvent may hold a
+            // repeat back and logs that itself.
+            LogLineActivity($"ImeLogTracker: health-script result for {policyId} " +
+                            $"(status={remediationStatus?.ToString() ?? "?"}, " +
+                            $"firstDetectExit={firstDetectExit?.ToString() ?? "n/a"}, " +
+                            $"remediationExit={remediationExit?.ToString() ?? "n/a"}, " +
+                            $"lastDetectExit={lastDetectExit?.ToString() ?? "n/a"})",
+                            repeatKey: "ImeLogTracker.hsResult:" + policyId);
         }
 
         private static ScriptExecutionState BuildHealthScriptPhase(
@@ -1377,7 +1392,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 _stateDirty = true;
                 if (!emit)
                 {
-                    _logger.Debug($"ImeLogTracker: health script {script.PolicyId} {script.ScriptPart} repeats its last reported result — counted, not emitted");
+                    _logger.Debug($"ImeLogTracker: health script {script.PolicyId} {script.ScriptPart} repeats its last reported result — counted, not emitted", repeatKey: "ImeLogTracker.hsRepeat:" + script.PolicyId + ":" + script.ScriptPart);
                     return;
                 }
                 if (releasedStart != null) RaiseScriptStarted(releasedStart);
@@ -1433,7 +1448,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private void HandleImeStarted()
         {
-            _logger.Info("ImeLogTracker: IME Agent Started detected");
+            LogLineActivity("ImeLogTracker: IME Agent Started detected");
 
             // Log any currently active app — it will be re-evaluated by new log entries after IME restart.
             // We intentionally do NOT mark it as Installed here because IME may retry the app.
@@ -1509,11 +1524,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 _logger.Debug(
                     "ImeLogTracker: zero-app user session observed before the user ESP phase " +
-                    $"(current phase: {_lastEspPhaseDetected ?? "(none)"}) - deferring until AccountSetup");
+                    $"(current phase: {_lastEspPhaseDetected ?? "(none)"}) - deferring until AccountSetup", repeatKey: "ImeLogTracker.zeroAppDeferred");
                 return;
             }
 
-            _logger.Info("ImeLogTracker: user session enumerated with zero targeted apps - treating as user session completed");
+            _logger.Info("ImeLogTracker: user session enumerated with zero targeted apps - treating as user session completed", repeatKey: "ImeLogTracker.zeroAppUserSession");
             OnUserSessionCompleted?.Invoke();
         }
 
@@ -1531,7 +1546,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // which would corrupt tracking if we allowed it to trigger a phase change.
             if (phaseOrd < _currentPhaseOrder)
             {
-                _logger.Debug($"ImeLogTracker: ignoring backward phase transition to {espPhaseString} (current phase order: {_currentPhaseOrder})");
+                _logger.Trace($"ImeLogTracker: ignoring backward phase transition to {espPhaseString} (current phase order: {_currentPhaseOrder})");
                 return;
             }
 
@@ -1572,7 +1587,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     {
                         _phasePackageSnapshots[_lastEspPhaseDetected] =
                             new List<AppPackageState>(_packageStates);
-                        _logger.Info($"ImeLogTracker: Snapshotted {_packageStates.CountAll} package states from {_lastEspPhaseDetected} phase");
+                        _logger.Debug($"ImeLogTracker: Snapshotted {_packageStates.CountAll} package states from {_lastEspPhaseDetected} phase");
                     }
 
                     _packageStates.Clear();
@@ -1591,7 +1606,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (isFirstOrChangedPhase)
                 _logger.Info($"ImeLogTracker: ESP phase detected: {espPhaseString}");
             else
-                _logger.Debug($"ImeLogTracker: ESP phase detected: {espPhaseString}");
+                _logger.Trace($"ImeLogTracker: ESP phase detected: {espPhaseString}");
             ActivatePatterns(logPhaseIsCurrentPhase);
 
             OnEspPhaseChanged?.Invoke(espPhaseString);
@@ -1645,7 +1660,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     // Ignore user-targeted packages during device setup (we only track device phase in general)
                     _packageStates.AddUpdateFromJsonPolicies(policies, ignoreUserTargeted: false);
-                    _logger.Info($"ImeLogTracker: discovered {policies.Count} policies, tracking {_packageStates.Count} packages");
+                    _logger.Info($"ImeLogTracker: discovered {policies.Count} policies, tracking {_packageStates.Count} packages", repeatKey: "ImeLogTracker.policies");
                     OnPoliciesDiscovered?.Invoke(policiesJson);
                 }
             }
@@ -1709,7 +1724,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (changed)
             {
-                _logger.Debug($"ImeLogTracker: {pkg.Name ?? id} downloading: {bytes}/{ofbytes}");
+                _logger.Verbose($"ImeLogTracker: {pkg.Name ?? id} downloading: {bytes}/{ofbytes}");
                 OnAppStateChanged?.Invoke(pkg, oldState, AppInstallationState.Downloading);
             }
         }

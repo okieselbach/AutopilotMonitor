@@ -64,7 +64,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
             watcher.Changed += (sender, args) =>
             {
-                _logger?.Debug($"CompositeRegistryChangeSignal: {label} change detected.");
+                _logger?.Trace($"CompositeRegistryChangeSignal: {label} change detected.");
                 Changed?.Invoke(this, EventArgs.Empty);
             };
             watcher.Error += (sender, ex) =>

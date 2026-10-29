@@ -127,7 +127,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         }
 
                         if (signalFired)
-                            logger?.Debug("TenantIdAwaiter: registry change observed but TenantId still unresolvable.");
+                            logger?.Trace("TenantIdAwaiter: registry change observed but TenantId still unresolvable.");
                     }
 
                     logger?.Warning(

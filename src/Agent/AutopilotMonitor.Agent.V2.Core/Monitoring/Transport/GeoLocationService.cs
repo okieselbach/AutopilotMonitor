@@ -93,7 +93,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             attempt.PrimaryError = error;
 
             // Retry ipinfo.io once after a short delay (network may still be initializing during Autopilot)
-            logger?.Info($"GeoLocation: Retrying ipinfo.io after {RetryDelay.TotalSeconds}s...");
+            logger?.Debug($"GeoLocation: Retrying ipinfo.io after {RetryDelay.TotalSeconds}s...");
             await Task.Delay(RetryDelay);
 
             (result, error) = await TryProvider("ipinfo.io", IpInfoUrl, ParseIpInfo, logger);
@@ -131,7 +131,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         {
             try
             {
-                logger?.Info($"GeoLocation: Querying {name}...");
+                logger?.Debug($"GeoLocation: Querying {name}...");
 
                 using (var httpResponse = await SharedHttpClient.GetAsync(url))
                 {

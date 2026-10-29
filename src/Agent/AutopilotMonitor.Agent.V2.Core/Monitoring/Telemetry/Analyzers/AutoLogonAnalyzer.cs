@@ -81,7 +81,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         /// <summary>Final-shutdown scan — captures any AutoLogon written during the user phase.</summary>
         public void AnalyzeAtShutdown()
         {
-            _logger.Info($"{Name}: Running shutdown AutoLogon scan");
+            _logger.Debug($"{Name}: Running shutdown AutoLogon scan");
             RunScan("shutdown");
         }
 
@@ -91,7 +91,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         /// </summary>
         public void AnalyzeAtDeviceSetupComplete()
         {
-            _logger.Info($"{Name}: Running device-setup-complete AutoLogon scan");
+            _logger.Debug($"{Name}: Running device-setup-complete AutoLogon scan");
             RunScan("device_setup_complete");
         }
 

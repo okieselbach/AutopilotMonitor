@@ -80,7 +80,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         public void AnalyzeAtStartup()
         {
-            _logger.Info($"{Name}: Running startup analysis");
+            _logger.Debug($"{Name}: Running startup analysis");
             RunAnalysis("startup");
         }
 

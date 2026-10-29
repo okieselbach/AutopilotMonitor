@@ -194,7 +194,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                     {
                         // Debounce: C2R may start another short-lived worker after a small gap. Only
                         // close the window if none reappears within the settle period.
-                        _logger.Debug($"[OfficeProcessWatcher] last worker exited — settling {_settleSeconds}s before closing the install window");
+                        _logger.Trace($"[OfficeProcessWatcher] last worker exited — settling {_settleSeconds}s before closing the install window");
                         StartSettleTimer();
                     }
                 }

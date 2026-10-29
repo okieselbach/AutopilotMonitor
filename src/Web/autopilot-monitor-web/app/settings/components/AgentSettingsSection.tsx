@@ -280,7 +280,7 @@ export default function AgentSettingsSection({
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
             <div>
               <p className="font-medium text-gray-900">Log Level</p>
-              <p className="text-sm text-gray-500">Agent log verbosity — Info for normal operation, Debug for troubleshooting, Verbose for detailed tracing, Trace for full diagnostic output</p>
+              <p className="text-sm text-gray-500">Agent log verbosity — Info shows the enrollment flow, Debug adds detail, Verbose adds every detail, Trace adds each internal step (every watcher, poll and queue event)</p>
             </div>
             <select
               value={logLevel}

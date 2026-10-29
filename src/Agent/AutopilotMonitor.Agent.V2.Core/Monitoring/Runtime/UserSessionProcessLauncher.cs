@@ -50,7 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 using (explorerProcess)
                 {
                     sessionId = (uint)explorerProcess.SessionId;
-                    logger.Info($"UserSessionProcessLauncher: Found explorer.exe PID {explorerProcess.Id} in session {sessionId}");
+                    logger.Debug($"UserSessionProcessLauncher: Found explorer.exe PID {explorerProcess.Id} in session {sessionId}");
                 }
 
                 // Get the interactive session token via WTS.
@@ -80,7 +80,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     return false;
                 }
 
-                logger.Info($"UserSessionProcessLauncher: Token duplicated and stamped to session {sessionId}");
+                logger.Debug($"UserSessionProcessLauncher: Token duplicated and stamped to session {sessionId}");
 
                 // Create an environment block for the user (using session-stamped token)
                 if (!ProcessNativeMethods.CreateEnvironmentBlock(out environment, dupToken, false))
@@ -121,7 +121,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     {
                         cxhProcess = FindProcessInSession("CloudExperienceHost", sessionId);
                         if (cxhProcess != null)
-                            logger.Info($"UserSessionProcessLauncher: CloudExperienceHost PID {cxhProcess.Id} running " +
+                            logger.Debug($"UserSessionProcessLauncher: CloudExperienceHost PID {cxhProcess.Id} running " +
                                        $"in session {sessionId} — will monitor for exit during retries");
                     }
                     catch { }
@@ -162,7 +162,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     }
 
                     ProcessNativeMethods.CloseHandle(pi.hThread);
-                    logger.Info($"UserSessionProcessLauncher: Attempt {attempt} — created PID {pi.dwProcessId}" +
+                    logger.Debug($"UserSessionProcessLauncher: Attempt {attempt} — created PID {pi.dwProcessId}" +
                                $" [{(useExplicitDesktop ? "explicit" : "default")} desktop], verifying startup...");
 
                     // Wait 3s to verify the process survives DLL init + CLR bootstrap.
@@ -190,10 +190,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         // On 23H2: CXH never exits → WaitForExit times out → same as regular retry interval.
                         if (cxhProcess != null)
                         {
-                            logger.Info($"UserSessionProcessLauncher: Attempt {attempt} — 0x8007045A, waiting for CXH exit (up to {retryIntervalSeconds}s)...");
+                            logger.Debug($"UserSessionProcessLauncher: Attempt {attempt} — 0x8007045A, waiting for CXH exit (up to {retryIntervalSeconds}s)...");
                             if (cxhProcess.WaitForExit(retryIntervalSeconds * 1000))
                             {
-                                logger.Info("UserSessionProcessLauncher: CloudExperienceHost exited — desktop should be available");
+                                logger.Debug("UserSessionProcessLauncher: CloudExperienceHost exited — desktop should be available");
                                 cxhProcess.Dispose();
                                 cxhProcess = null;
                                 System.Threading.Thread.Sleep(500); // brief delay for desktop init
@@ -201,7 +201,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         }
                         else
                         {
-                            logger.Info($"UserSessionProcessLauncher: Attempt {attempt} — 0x8007045A (desktop locked?) — retrying in {retryIntervalSeconds}s...");
+                            logger.Debug($"UserSessionProcessLauncher: Attempt {attempt} — 0x8007045A (desktop locked?) — retrying in {retryIntervalSeconds}s...");
                             System.Threading.Thread.Sleep(retryIntervalSeconds * 1000);
                         }
                         continue;

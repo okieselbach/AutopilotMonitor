@@ -471,7 +471,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         public void Stop()
         {
-            _logger.Info("Stopping ESP and Hello tracker");
+            // Hosts call Stop and then Dispose, which stops again; the second pass finds nothing.
+            if (_helloTracker != null || _shellCoreTracker != null || _provisioningTracker != null || _modernDeploymentTracker != null)
+                _logger.Info("Stopping ESP and Hello tracker");
 
             DisposeTracker(ref _modernDeploymentTracker, "ModernDeployment", t => t.Stop());
             DisposeProvisioningTracker();

@@ -108,13 +108,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 try { _collector.CollectAll(); }
                 catch (Exception ex) { _logger.Warning($"DeviceInfoHost: CollectAll threw: {ex.Message}"); }
             });
-            _logger.Info("DeviceInfoHost: CollectAll scheduled on background thread.");
+            _logger.Debug("DeviceInfoHost: CollectAll scheduled on background thread.");
 
             if (_observableIngress != null && _handler == null)
             {
                 _handler = OnSignalPosted;
                 _observableIngress.SignalPosted += _handler;
-                _logger.Info("DeviceInfoHost: armed phase-driven re-collections (DeviceSetup → enrollment refresh; FinalizingSetup/desktop → end collect).");
+                _logger.Debug("DeviceInfoHost: armed phase-driven re-collections (DeviceSetup → enrollment refresh; FinalizingSetup/desktop → end collect).");
             }
         }
 
@@ -134,7 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (!runStartRefresh && !runEndCollect) return;
 
             var trigger = kind == DecisionSignalKind.DesktopArrived ? "desktop_arrived" : "esp_phase_changed";
-            _logger.Info($"DeviceInfoHost: trigger '{trigger}' — scheduling re-collect (enrollmentStart={runStartRefresh}, end={runEndCollect}).");
+            _logger.Debug($"DeviceInfoHost: trigger '{trigger}' — scheduling re-collect (enrollmentStart={runStartRefresh}, end={runEndCollect}).");
 
             // Offload WMI/registry IO off the ingress writer thread. The gate suppresses
             // everything that did not actually change.
@@ -170,7 +170,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 if (!_espConfigRefreshesFired.Add(trigger)) return;
             }
 
-            _logger.Info($"DeviceInfoHost: ESP-config refresh trigger '{trigger}' — scheduling re-collect.");
+            _logger.Debug($"DeviceInfoHost: ESP-config refresh trigger '{trigger}' — scheduling re-collect.");
             Task.Run(() =>
             {
                 try { _collector.RefreshEspConfiguration(trigger); }

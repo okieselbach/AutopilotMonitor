@@ -133,7 +133,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch (Exception ex)
             {
-                _logger.Verbose($"GatherRuleExecutorHost: timeline-trigger dispatch failed: {ex.Message}");
+                _logger.Debug($"GatherRuleExecutorHost: timeline-trigger dispatch failed: {ex.Message}", repeatKey: "GatherRuleExecutorHost.dispatchFailed");
             }
         }
 

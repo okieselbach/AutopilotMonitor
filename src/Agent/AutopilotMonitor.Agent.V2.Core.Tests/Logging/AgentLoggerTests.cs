@@ -125,5 +125,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
             // No assertion needed beyond "did not throw"; the regression we guard against is
             // the original swallow-all behaviour, which the rotation refactor must preserve.
         }
+
+        [Theory]
+        [InlineData(AgentLogLevel.Info, "INFO")]
+        [InlineData(AgentLogLevel.Debug, "INFO,DEBUG")]
+        [InlineData(AgentLogLevel.Verbose, "INFO,DEBUG,VERBOSE")]
+        [InlineData(AgentLogLevel.Trace, "INFO,DEBUG,VERBOSE,TRACE")]
+        public void Each_level_adds_to_the_one_before_it(AgentLogLevel level, string expectedTags)
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, level);
+
+            logger.Info("line");
+            logger.Debug("line");
+            logger.Verbose("line");
+            logger.Trace("line");
+
+            var tags = ReadLines(tmp.Path).Select(Tag);
+            Assert.Equal(expectedTags, string.Join(",", tags));
+        }
+
+        [Fact]
+        public void RepeatKey_sends_an_identical_repeat_to_trace_and_a_change_back_to_its_level()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Trace);
+
+            logger.Info("rule A ran", repeatKey: "rule:A");
+            logger.Info("rule A ran", repeatKey: "rule:A");
+            logger.Info("rule A ran again with new data", repeatKey: "rule:A");
+            logger.Info("rule A ran", repeatKey: "rule:A");
+
+            Assert.Equal(new[] { "INFO", "TRACE", "INFO", "INFO" }, ReadLines(tmp.Path).Select(Tag).ToArray());
+        }
+
+        [Fact]
+        public void RepeatKey_keeps_subjects_apart()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Trace);
+
+            logger.Debug("scan failed: access denied", repeatKey: "scan:System");
+            logger.Debug("scan failed: access denied", repeatKey: "scan:Application");
+            logger.Debug("scan failed: access denied", repeatKey: "scan:System");
+
+            Assert.Equal(new[] { "DEBUG", "DEBUG", "TRACE" }, ReadLines(tmp.Path).Select(Tag).ToArray());
+        }
+
+        [Fact]
+        public void RepeatKey_does_not_remember_a_line_its_level_did_not_write()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            logger.Debug("waiting for the policy", repeatKey: "hello.poll");
+            logger.SetLogLevel(AgentLogLevel.Debug);
+            logger.Debug("waiting for the policy", repeatKey: "hello.poll");
+
+            Assert.Equal(new[] { "DEBUG" }, ReadLines(tmp.Path).Select(Tag).ToArray());
+        }
+
+        private static string[] ReadLines(string dir) =>
+            File.ReadAllLines(Path.Combine(dir, BaseName + ".log"));
+
+        // "[2026-10-30 12:00:00.000] [INFO] message" -> "INFO"
+        private static string Tag(string line)
+        {
+            var open = line.IndexOf("] [", StringComparison.Ordinal) + 3;
+            return line.Substring(open, line.IndexOf(']', open) - open);
+        }
     }
 }

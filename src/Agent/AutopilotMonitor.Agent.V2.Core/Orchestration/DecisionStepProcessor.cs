@@ -271,21 +271,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _currentState = step.NewState;
             _consecutiveJournalFailures = 0;
 
-            // PR3-D1: per-step observability. Stage transitions and effect-bearing steps fire
-            // at DEBUG (operator-relevant); pure no-op steps (Stage unchanged + no effects)
-            // fire at VERBOSE so a steady stream of e.g. ClassifierTick + InformationalEvent
-            // pass-throughs doesn't drown the log.
+            // PR3-D1: per-step observability. A stage change is the enrollment flow (Info); other
+            // effect-bearing steps and dead ends are decision detail (Debug); InformationalEvent
+            // pass-throughs, the self-re-arming classifier tick and no-op steps are mechanics
+            // (Trace). The journal keeps every step either way.
             var newStage = step.NewState.Stage;
             if (previousStage != newStage || step.Effects.Count > 0)
             {
-                _logger.Debug(
+                var line =
                     $"DecisionStep: ord={signal.SessionSignalOrdinal} kind={signal.Kind} " +
                     $"stage={previousStage}->{newStage} effects=[{string.Join(",", step.Effects.Select(e => e.Kind))}] " +
-                    $"abort={effectResult.SessionMustAbort} failures={effectResult.Failures.Count}");
+                    $"abort={effectResult.SessionMustAbort} failures={effectResult.Failures.Count}";
+                if (previousStage != newStage) _logger.Info(line);
+                else if (IsRoutineStep(signal, effectResult)) _logger.Trace(line);
+                else _logger.Debug(line);
+            }
+            else if (step.Transition.DeadEndReason != null)
+            {
+                _logger.Debug($"DecisionStep: ord={signal.SessionSignalOrdinal} kind={signal.Kind} stage={previousStage} dead end ({step.Transition.DeadEndReason})");
             }
             else
             {
-                _logger.Verbose($"DecisionStep: ord={signal.SessionSignalOrdinal} kind={signal.Kind} stage={previousStage} (no-op)");
+                _logger.Trace($"DecisionStep: ord={signal.SessionSignalOrdinal} kind={signal.Kind} stage={previousStage} (no-op)");
             }
 
             // 5) Terminal-stage detection (M4.6.β). Fires exactly once per agent run when the
@@ -503,6 +510,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
 
             return _passThroughStepsSinceSnapshot >= SnapshotPassThroughFloor;
+        }
+
+        /// <summary>
+        /// A step that runs for every informational event, or for the classifier tick that re-arms
+        /// itself every 30 s, without changing the stage. Decided by the signal, not the effect:
+        /// real decisions emit timeline entries too. A failed effect run is never routine.
+        /// </summary>
+        private static bool IsRoutineStep(DecisionSignal signal, EffectRunResult effectResult)
+        {
+            if (effectResult.SessionMustAbort || effectResult.Failures.Count > 0) return false;
+            if (signal.Kind == DecisionSignalKind.InformationalEvent) return true;
+            return signal.Kind == DecisionSignalKind.DeadlineFired
+                && signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.Deadline, out var deadline)
+                && string.Equals(deadline, DeadlineNames.ClassifierTick, StringComparison.Ordinal);
         }
 
         private void TryTriggerQuarantine(string reason)

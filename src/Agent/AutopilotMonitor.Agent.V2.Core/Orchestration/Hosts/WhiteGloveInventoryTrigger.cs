@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         {
             if (Interlocked.Exchange(ref _fired, 1) == 1)
             {
-                _logger.Info("WhiteGloveInventoryTrigger: duplicate WhiteGloveCompleted ignored (already fired)");
+                _logger.Debug("WhiteGloveInventoryTrigger: duplicate WhiteGloveCompleted ignored (already fired)");
                 return;
             }
 

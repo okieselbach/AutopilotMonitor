@@ -80,7 +80,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     filter: RegistryNativeMethods.RegChangeNotifyFilter.Name
                           | RegistryNativeMethods.RegChangeNotifyFilter.LastSet
                           | RegistryNativeMethods.RegChangeNotifyFilter.ThreadAgnostic,
-                    trace: msg => _logger?.Debug($"ImeRegistryAppState watcher: {msg}"));
+                    trace: msg => _logger?.Trace($"ImeRegistryAppState watcher: {msg}"));
                 _watcher.Changed += (_, __) => ScheduleDebouncedTick();
                 _watcher.Error += (_, ex) =>
                 {
@@ -131,7 +131,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (Exception ex)
             {
                 // Observer.Tick is itself fail-soft; this is the last-resort belt.
-                _logger?.Debug($"ImeRegistryAppState tick failed: {ex.Message}");
+                _logger?.Debug($"ImeRegistryAppState tick failed: {ex.Message}", repeatKey: "ImeRegistryAppStateHost.tickFailed");
             }
         }
 

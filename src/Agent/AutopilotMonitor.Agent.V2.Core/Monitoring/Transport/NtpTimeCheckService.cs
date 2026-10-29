@@ -29,7 +29,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
 
             try
             {
-                logger.Info($"NTP time check: querying {ntpServer}");
+                logger.Debug($"NTP time check: querying {ntpServer}");
 
                 // NTP request packet: 48 bytes, first byte = 0x1B (LI=0, VN=3, Mode=3)
                 var ntpData = new byte[48];

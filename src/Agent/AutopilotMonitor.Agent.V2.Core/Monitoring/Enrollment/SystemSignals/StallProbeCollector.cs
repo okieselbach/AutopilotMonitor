@@ -568,7 +568,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 }
                 catch (Exception ex)
                 {
-                    _logger.Trace($"StallProbeCollector: eventlog scan of {channel} failed: {ex.Message}");
+                    _logger.Debug($"StallProbeCollector: eventlog scan of {channel} failed: {ex.Message}", repeatKey: "StallProbeCollector.scanFailed:" + channel);
                 }
             }
 

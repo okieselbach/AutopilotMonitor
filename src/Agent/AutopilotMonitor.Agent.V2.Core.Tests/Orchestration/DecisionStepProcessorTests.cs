@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
@@ -303,6 +304,64 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             Assert.Single(rig.Journal.Appended);
             Assert.Same(step.NewState, sut.CurrentState);
         }
+
+        // ========================================================================= Step log levels
+
+        [Fact]
+        public void ApplyStep_logs_a_stage_change_at_info()
+        {
+            using var rig = new Rig();
+            rig.Logger.SetLogLevel(AgentLogLevel.Trace);
+            var sut = rig.Build();
+            var (step, signal) = rig.ReduceAbort(); // SessionStarted -> Failed
+
+            sut.ApplyStep(step, signal);
+
+            Assert.Contains(StepLines(rig), l => l.Contains("[INFO] DecisionStep:") && l.Contains("stage=SessionStarted->Failed"));
+        }
+
+        [Fact]
+        public void ApplyStep_logs_informational_pass_through_and_no_op_at_trace()
+        {
+            using var rig = new Rig();
+            rig.Logger.SetLogLevel(AgentLogLevel.Trace);
+            var sut = rig.Build();
+
+            var (noOp, noOpSignal) = rig.ReduceSessionStarted(ordinal: 0);
+            sut.ApplyStep(noOp, noOpSignal);
+            var (info, infoSignal) = rig.ReduceInformational(sut, ordinal: 1);
+            sut.ApplyStep(info, infoSignal);
+
+            var lines = StepLines(rig);
+            Assert.Equal(2, lines.Length);
+            Assert.All(lines, l => Assert.Contains("[TRACE] DecisionStep:", l));
+            Assert.Contains("(no-op)", lines[0]);
+            Assert.Contains("kind=InformationalEvent", lines[1]);
+        }
+
+        [Fact]
+        public void ApplyStep_logs_informational_pass_through_with_failed_effect_at_debug()
+        {
+            using var rig = new Rig();
+            rig.Logger.SetLogLevel(AgentLogLevel.Trace);
+            rig.Effects.ScriptResult(new EffectRunResult(
+                sessionMustAbort: false,
+                abortReason: null,
+                failures: new[] { new EffectFailure(DecisionEffectKind.EmitEventTimelineEntry, "emit failed", isTransient: false, exhaustedRetries: true) },
+                classifierInvocations: 0,
+                classifierSkippedByAntiLoop: 0));
+            var sut = rig.Build();
+            var (step, signal) = rig.ReduceInformational(sut, ordinal: 0);
+
+            sut.ApplyStep(step, signal);
+
+            Assert.Contains(StepLines(rig), l => l.Contains("[DEBUG] DecisionStep:") && l.Contains("failures=1"));
+        }
+
+        private static string[] StepLines(Rig rig) =>
+            System.IO.File.ReadAllLines(System.IO.Path.Combine(rig.Tmp.Path, "agent.log"))
+                .Where(l => l.Contains("DecisionStep:"))
+                .ToArray();
 
         // ========================================================================= Argument validation
 

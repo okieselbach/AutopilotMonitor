@@ -136,7 +136,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             {
                 if (_distressReporter != null && Volatile.Read(ref _distressDispatched) == 0)
                 {
-                    _logger.Info(
+                    _logger.Debug(
                         $"AuthFailureTracker: distress report suppressed for {operation} (http {statusCode}) — " +
                         "endpoint unavailable (platform error page), a report cannot reach a stopped endpoint.");
                 }
@@ -212,7 +212,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 $"{operation} http {statusCode} {classification.ForeignReason}; " +
                 $"page \"{classification.PageTitle ?? "(none)"}\"; " +
                 $"server cert issuer \"{classification.ServerCertIssuer ?? "(unknown)"}\"";
-            _logger.Info($"AuthFailureTracker: answer did not come from the backend — not an authentication failure, not counted ({finding}).");
+            _logger.Info($"AuthFailureTracker: answer did not come from the backend — not an authentication failure, not counted ({finding}).", repeatKey: "AuthFailureTracker.notBackend");
 
             if (_distressReporter == null || Interlocked.CompareExchange(ref _foreignDistressDispatched, 1, 0) != 0)
                 return;

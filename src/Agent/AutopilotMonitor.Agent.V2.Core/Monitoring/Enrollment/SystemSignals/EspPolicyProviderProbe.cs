@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 {
                     if (rootKey == null)
                     {
-                        logger?.Debug("EspPolicyProviderProbe: EnrollmentStatusTracking registry key not found");
+                        logger?.Debug("EspPolicyProviderProbe: EnrollmentStatusTracking registry key not found", repeatKey: "EspPolicyProviderProbe.noTrackingKey");
                         return EspPolicyProviderSnapshot.Empty;
                     }
 

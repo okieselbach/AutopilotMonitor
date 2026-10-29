@@ -17,8 +17,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// </summary>
         /// <param name="thumbprint">Optional specific thumbprint to search for</param>
         /// <param name="logger">Logger for diagnostic output</param>
+        /// <param name="logNotFound">False where "not found" is expected, e.g. the await-enrollment poll.</param>
         /// <returns>The MDM certificate, or null if not found</returns>
-        public static X509Certificate2 FindMdmCertificate(string thumbprint = null, AgentLogger logger = null)
+        public static X509Certificate2 FindMdmCertificate(string thumbprint = null, AgentLogger logger = null, bool logNotFound = true)
         {
             try
             {
@@ -35,7 +36,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     {
                         store.Open(OpenFlags.ReadOnly);
 
-                        logger?.Debug($"Searching for MDM certificate in {storeInfo.Location}\\{storeInfo.Name}");
+                        logger?.Trace($"Searching for MDM certificate in {storeInfo.Location}\\{storeInfo.Name}");
 
                         // If thumbprint specified, search by thumbprint
                         if (!string.IsNullOrEmpty(thumbprint))
@@ -47,7 +48,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
                             if (cert != null)
                             {
-                                logger?.Info($"Found certificate by thumbprint: {thumbprint}");
+                                logger?.Debug($"Found certificate by thumbprint: {thumbprint}");
                                 return cert;
                             }
                         }
@@ -59,14 +60,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                             var cert = SelectMdmCertificate(store.Certificates.OfType<X509Certificate2>());
                             if (cert != null)
                             {
-                                logger?.Info($"Found MDM certificate: Issuer={cert.Issuer}, Subject={cert.Subject}, Thumbprint={cert.Thumbprint}");
+                                logger?.Debug($"Found MDM certificate: Issuer={cert.Issuer}, Subject={cert.Subject}, Thumbprint={cert.Thumbprint}");
                                 return cert;
                             }
                         }
                     }
                 }
 
-                logger?.Warning("No MDM certificate found");
+                if (logNotFound) logger?.Warning("No MDM certificate found");
                 return null;
             }
             catch (Exception ex)

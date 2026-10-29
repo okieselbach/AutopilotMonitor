@@ -89,7 +89,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// </summary>
         public (string enrollmentType, bool isHybridJoin, bool? skipUserStatusPage, bool? skipDeviceStatusPage, int? autopilotMode, bool hasAadJoinedUser, bool isFooUserDetected) CollectAll()
         {
-            _logger.Info("EnrollmentTracker: collecting device info (at start)");
+            _logger.Debug("EnrollmentTracker: collecting device info (at start)");
 
             CollectOSInfoAndBootTime();
             CollectNetworkAndDnsConfiguration();
@@ -113,7 +113,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// </summary>
         public void CollectAtEnrollmentStart()
         {
-            _logger.Info("EnrollmentTracker: collecting device info (at enrollment start)");
+            _logger.Debug("EnrollmentTracker: collecting device info (at enrollment start)");
 
             CollectAadJoinStatus();
             CollectAutopilotProfile();
@@ -134,7 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// </summary>
         public void RefreshEspConfiguration(string trigger)
         {
-            _logger.Info($"EnrollmentTracker: re-collecting ESP configuration (trigger={trigger})");
+            _logger.Debug($"EnrollmentTracker: re-collecting ESP configuration (trigger={trigger})");
             CollectEspConfiguration();
         }
 
@@ -144,7 +144,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// </summary>
         public void CollectAtEnd()
         {
-            _logger.Info("EnrollmentTracker: collecting device info (at end)");
+            _logger.Debug("EnrollmentTracker: collecting device info (at end)");
 
             // BitLocker can be enabled during enrollment via policy
             CollectBitLockerStatus();

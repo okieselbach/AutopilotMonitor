@@ -1,13 +1,24 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 
 namespace AutopilotMonitor.Agent.V2.Core.Logging
 {
     /// <summary>
-    /// Log verbosity levels for the agent.
-    /// Info  = normal operational messages (default)
-    /// Debug = includes DEBUG-tagged lines (component state, config, decisions)
-    /// Verbose = includes VERBOSE-tagged lines (per-event details, hot-path tracing)
+    /// Log verbosity levels for the agent. Each level adds to the one before it.
+    /// Info    = the enrollment flow an admin follows: one line per thing that happened
+    ///           (state change, milestone, result), repeated only when its content changed.
+    /// Debug   = why and how: decision details, extra attributes, suppression decisions,
+    ///           attempts in retry loops. Grows with the number of apps, scripts and phases,
+    ///           not with elapsed time.
+    /// Verbose = everything known about one thing: full payloads, raw JSON, adapter mappings,
+    ///           the record of each upload batch. Every line carries content of its own.
+    /// Trace   = the mechanics: watcher arm/fire, poll ticks without a result, debounce,
+    ///           per-item enqueue, per-signal pass-through. Grows with time or with the number
+    ///           of notifications; one line alone says almost nothing.
+    /// An identical repeat of a line goes to Trace after its first occurrence (repeatKey).
+    /// A caught unexpected exception is never logged below Debug. Warning and Error are always
+    /// written.
     /// </summary>
     public enum AgentLogLevel
     {
@@ -31,6 +42,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
 
         private AgentLogLevel _logLevel;
         private readonly object _lockObject = new object();
+
+        // Last message written under each repeatKey; bounded because callers key by call site
+        // plus subject (rule, category, file, policy).
+        private readonly ConcurrentDictionary<string, string> _lastMessageByRepeatKey =
+            new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
         private readonly long _maxFileSizeBytes;
         private readonly string _logDirectory;
@@ -122,21 +138,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
                 Log("TRACE", message);
         }
 
-        public void Verbose(string message)
+        /// <param name="repeatKey">Names the call site and its subject. A message equal to the
+        /// last one written under this key goes to Trace instead.</param>
+        public void Verbose(string message, string repeatKey = null)
         {
-            if (_logLevel >= AgentLogLevel.Verbose)
-                Log("VERBOSE", message);
+            if (_logLevel < AgentLogLevel.Verbose) return;
+            if (IsRepeat(repeatKey, message)) Trace(message);
+            else Log("VERBOSE", message);
         }
 
-        public void Debug(string message)
+        /// <param name="repeatKey">Names the call site and its subject. A message equal to the
+        /// last one written under this key goes to Trace instead.</param>
+        public void Debug(string message, string repeatKey = null)
         {
-            if (_logLevel >= AgentLogLevel.Debug)
-                Log("DEBUG", message);
+            if (_logLevel < AgentLogLevel.Debug) return;
+            if (IsRepeat(repeatKey, message)) Trace(message);
+            else Log("DEBUG", message);
         }
 
-        public void Info(string message)
+        /// <param name="repeatKey">Names the call site and its subject. A message equal to the
+        /// last one written under this key goes to Trace instead.</param>
+        public void Info(string message, string repeatKey = null)
         {
-            Log("INFO", message);
+            if (IsRepeat(repeatKey, message)) Trace(message);
+            else Log("INFO", message);
+        }
+
+        // Records the message under the key and reports whether it equals the previous one.
+        // Only reached once the requested level is enabled, so a line that was never written
+        // cannot turn its first visible occurrence into a repeat.
+        private bool IsRepeat(string repeatKey, string message)
+        {
+            if (repeatKey == null) return false;
+            var repeat = false;
+            _lastMessageByRepeatKey.AddOrUpdate(
+                repeatKey,
+                message,
+                (_, previous) =>
+                {
+                    repeat = string.Equals(previous, message, StringComparison.Ordinal);
+                    return message;
+                });
+            return repeat;
         }
 
         public void Warning(string message)

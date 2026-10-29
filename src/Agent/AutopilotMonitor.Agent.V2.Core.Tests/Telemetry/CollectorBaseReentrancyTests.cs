@@ -126,6 +126,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             Assert.Equal(2, collector.CollectInvocationCount);
         }
 
+        [Fact]
+        public void Stop_then_Dispose_logs_Stopped_once()
+        {
+            // Hosts call Stop and then Dispose, which stops again; the log used to show
+            // "[X] Stopped" twice in the same millisecond.
+            using var tmp = new TempDirectory();
+            var collector = new BlockingCollector(NewPost(), NewLogger(tmp));
+
+            collector.Start();
+            collector.Stop();
+            collector.Dispose();
+
+            var log = File.ReadAllText(Path.Combine(tmp.Path, "logs", "agent.log"));
+            Assert.Equal(1, CountOccurrences(log, "[BlockingCollector] Stopped"));
+        }
+
+        [Fact]
+        public void Dispose_without_Start_logs_no_Stopped_line()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var collector = new BlockingCollector(NewPost(), logger);
+            logger.Info("marker"); // make sure the log file exists
+
+            collector.Dispose();
+
+            var log = File.ReadAllText(Path.Combine(tmp.Path, "logs", "agent.log"));
+            Assert.DoesNotContain("[BlockingCollector] Stopped", log);
+        }
+
+        private static int CountOccurrences(string text, string value)
+        {
+            int count = 0, index = 0;
+            while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+            return count;
+        }
+
         /// <summary>
         /// Test-only collector subclass: signals when <see cref="Collect"/> is entered and
         /// blocks until the test releases it, so we can exercise the reentrancy gate

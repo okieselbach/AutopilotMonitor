@@ -114,13 +114,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         public void AnalyzeAtStartup()
         {
-            _logger.Info($"{Name}: Running startup analysis");
+            _logger.Debug($"{Name}: Running startup analysis");
             RunAnalysis("startup", EnrollmentPhase.Unknown);
         }
 
         public void AnalyzeAtShutdown()
         {
-            _logger.Info($"{Name}: Running shutdown analysis");
+            _logger.Debug($"{Name}: Running shutdown analysis");
 
             // At shutdown a user has logged in — their profile folder is expected. Detect logged-in
             // users via explorer.exe owner (same technique as DesktopArrivalDetector); RunAnalysis

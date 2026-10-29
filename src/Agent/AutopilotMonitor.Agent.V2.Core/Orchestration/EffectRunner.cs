@@ -206,7 +206,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 !string.IsNullOrEmpty(lastVerdictId) &&
                 snapshotHash == lastVerdictId)
             {
-                _logger?.Debug(
+                _logger?.Trace(
                     $"EffectRunner: classifier {effect.ClassifierId} skipped (snapshotHash unchanged: {ShortHash(snapshotHash)})");
                 return new ClassifierEffectOutcome(invoked: false, skippedByAntiLoop: true, failure: null);
             }

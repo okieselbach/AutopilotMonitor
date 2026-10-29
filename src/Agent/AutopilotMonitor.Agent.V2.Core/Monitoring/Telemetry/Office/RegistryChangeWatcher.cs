@@ -121,7 +121,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             }
             _watchedKey = ancestor;
             _mode = WatchMode.Bootstrap;
-            _logger.Debug($"[RegistryChangeWatcher] target HKLM\\{_targetSubKey} absent — bootstrap-watching HKLM\\{ancestorPath} (name-only)");
+            _logger.Debug($"[RegistryChangeWatcher] target HKLM\\{_targetSubKey} absent — bootstrap-watching HKLM\\{ancestorPath} (name-only)", repeatKey: "RegistryChangeWatcher.bootstrap:" + _targetSubKey);
             if (!ArmNotify(subtree: false, BootstrapFilter)) return;
 
             // TOCTOU: the target may have been created between TryOpen and arming the ancestor watch.

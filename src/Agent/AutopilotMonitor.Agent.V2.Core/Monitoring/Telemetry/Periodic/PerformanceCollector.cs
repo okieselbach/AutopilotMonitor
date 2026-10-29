@@ -123,7 +123,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"CPU counter read failed: {ex.Message}");
+                Logger.Debug($"CPU counter read failed: {ex.Message}", repeatKey: "PerformanceCollector.cpu");
             }
 
             // Memory info via GlobalMemoryStatusEx (kernel32)
@@ -138,12 +138,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 }
                 else
                 {
-                    Logger.Debug("GlobalMemoryStatusEx returned no data");
+                    Logger.Debug("GlobalMemoryStatusEx returned no data", repeatKey: "PerformanceCollector.memoryNoData");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Memory query failed: {ex.Message}");
+                Logger.Debug($"Memory query failed: {ex.Message}", repeatKey: "PerformanceCollector.memory");
             }
 
             // Disk queue length
@@ -154,7 +154,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Disk queue counter read failed: {ex.Message}");
+                Logger.Debug($"Disk queue counter read failed: {ex.Message}", repeatKey: "PerformanceCollector.diskQueue");
             }
 
             // Disk free space on system drive
@@ -181,7 +181,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Disk space query failed: {ex.Message}");
+                Logger.Debug($"Disk space query failed: {ex.Message}", repeatKey: "PerformanceCollector.diskSpace");
             }
 
             // Network throughput (bytes sent/received delta + rate)
@@ -271,7 +271,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
             catch (Exception ex)
             {
-                Logger.Debug($"Network throughput collection failed: {ex.Message}");
+                Logger.Debug($"Network throughput collection failed: {ex.Message}", repeatKey: "PerformanceCollector.network");
             }
 
             if (data.Count > 0)
