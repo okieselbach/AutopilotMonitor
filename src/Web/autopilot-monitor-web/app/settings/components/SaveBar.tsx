@@ -3,18 +3,17 @@
 import { useState, useCallback, useRef } from "react";
 import { apiErrorText } from "@/lib/apiClient";
 
-interface SaveResetBarProps {
+interface SaveBarProps {
   /** A failed save throws: the bar shows the reason next to the button, where the user is looking. */
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** When false, Save/Reset are disabled (read-only viewer). Defaults to true. */
+  /** When false, Save is disabled (read-only viewer). Defaults to true. */
   canSave?: boolean;
-  /** Input the user can still fix: Save is disabled with this reason, Reset stays available. */
+  /** Input the user can still fix: Save is disabled with this reason. */
   saveBlockedReason?: string;
 }
 
-export default function SaveResetBar({ onSave, onReset, saving, canSave = true, saveBlockedReason }: SaveResetBarProps) {
+export default function SaveBar({ onSave, saving, canSave = true, saveBlockedReason }: SaveBarProps) {
   const [saveResult, setSaveResult] = useState<"idle" | "saved" | "error">("idle");
   const [failureReason, setFailureReason] = useState("");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -27,17 +26,11 @@ export default function SaveResetBar({ onSave, onReset, saving, canSave = true, 
       setSaveResult("saved");
       savedTimer.current = setTimeout(() => setSaveResult("idle"), 3000);
     } catch (err) {
-      // Stays until the next Save or Reset: unlike "Saved!" it needs reading and acting on.
+      // Stays until the next Save: unlike "Saved!" it needs reading and acting on.
       setFailureReason(apiErrorText(err, ""));
       setSaveResult("error");
     }
   }, [onSave]);
-
-  const handleReset = useCallback(() => {
-    clearTimeout(savedTimer.current);
-    setSaveResult("idle");
-    onReset();
-  }, [onReset]);
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-gray-200">
@@ -56,13 +49,6 @@ export default function SaveResetBar({ onSave, onReset, saving, canSave = true, 
           <span className="min-w-0 break-words">Save failed{failureReason && `: ${failureReason}`}</span>
         </span>
       )}
-      <button
-        onClick={handleReset}
-        disabled={saving || !canSave}
-        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-      >
-        Reset
-      </button>
       <button
         onClick={handleSave}
         disabled={saving || !canSave || !!saveBlockedReason}

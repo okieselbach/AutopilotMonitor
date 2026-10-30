@@ -1,6 +1,6 @@
 "use client";
 
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -39,9 +39,8 @@ interface AgentParametersSectionProps {
   enrollmentSummaryLaunchRetrySeconds: number;
   setEnrollmentSummaryLaunchRetrySeconds: (value: number) => void;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): settings visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): settings visible but inert, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -79,7 +78,6 @@ export default function AgentParametersSection({
   enrollmentSummaryLaunchRetrySeconds,
   setEnrollmentSummaryLaunchRetrySeconds,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: AgentParametersSectionProps) {
@@ -337,7 +335,7 @@ export default function AgentParametersSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

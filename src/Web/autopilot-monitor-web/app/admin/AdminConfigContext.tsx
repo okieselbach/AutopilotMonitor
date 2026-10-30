@@ -143,7 +143,6 @@ interface AdminConfigContextValue {
 
   // Actions
   handleSaveAdminConfig: () => Promise<void>;
-  handleResetAdminConfig: () => void;
   handleSaveDiagPaths: (paths: DiagnosticsLogPath[]) => Promise<void>;
 }
 
@@ -393,58 +392,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     }
   }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, portalUserRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, enforceClientAppBinding, mcpClientRegistrationEnabled, modernDeploymentHarmlessEventIds, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
 
-  // Reset admin config
-  const handleResetAdminConfig = useCallback(() => {
-    if (!adminConfig) return;
-    setGlobalRateLimit(adminConfig.globalRateLimitRequestsPerMinute);
-    setUserRateLimit(adminConfig.userRateLimitRequestsPerMinute ?? 120);
-    setPortalUserRateLimit(adminConfig.portalUserRateLimitRequestsPerMinute ?? 600);
-    setGlobalAdminRateLimit(adminConfig.globalAdminRateLimitRequestsPerMinute ?? 600);
-    setPlatformStatsBlobSasUrl(adminConfig.platformStatsBlobSasUrl ?? "");
-    setAgentMigrateApiBaseUrl(adminConfig.agentMigrateApiBaseUrl ?? "");
-    setAgentMigrateTenantOverridesJson(adminConfig.agentMigrateTenantOverridesJson ?? "");
-    setCollectorIdleTimeoutMinutes(adminConfig.collectorIdleTimeoutMinutes ?? 15);
-    setDesktopDetectorNoCandidateTimeoutMinutes(adminConfig.desktopDetectorNoCandidateTimeoutMinutes ?? 10);
-    setOpsEventRetentionDays(adminConfig.opsEventRetentionDays ?? 90);
-    setSlaNotificationCooldownHours(adminConfig.slaNotificationCooldownHours ?? 24);
-    setAllowAgentDowngrade(adminConfig.allowAgentDowngrade ?? false);
-    setEnforceClientAppBinding(adminConfig.enforceClientAppBinding ?? false);
-    setMcpClientRegistrationEnabled(adminConfig.mcpClientRegistrationEnabled ?? false);
-    setModernDeploymentHarmlessEventIds(parseHarmlessEventIdsJson(adminConfig.modernDeploymentHarmlessEventIdsJson));
-    setSessionDeletionKillSwitch(adminConfig.sessionDeletionKillSwitch ?? false);
-    setAutoApproveNewTenants(adminConfig.autoApproveNewTenants ?? false);
-    setSelfServiceAppHomingEnabled(adminConfig.selfServiceAppHomingEnabled ?? false);
-    setImeMsiArchivingEnabled(adminConfig.imeMsiArchivingEnabled ?? true);
-    setMaxImeMsiDownloadSizeMB(adminConfig.maxImeMsiDownloadSizeMB ?? 250);
-    try {
-      setGlobalDiagPaths(adminConfig.diagnosticsGlobalLogPathsJson ? JSON.parse(adminConfig.diagnosticsGlobalLogPathsJson) : []);
-    } catch {
-      setGlobalDiagPaths([]);
-    }
-    try {
-      setOpsAlertRules(adminConfig.opsAlertRulesJson ? JSON.parse(adminConfig.opsAlertRulesJson) : []);
-    } catch {
-      setOpsAlertRules([]);
-    }
-    try {
-      setOpsNotificationChannels(
-        adminConfig.opsNotificationChannelsJson ? JSON.parse(adminConfig.opsNotificationChannelsJson) : []);
-    } catch {
-      setOpsNotificationChannels([]);
-    }
-    setOpsAlertTelegramEnabled(adminConfig.opsAlertTelegramEnabled ?? false);
-    setOpsAlertTelegramChatId(adminConfig.opsAlertTelegramChatId ?? "");
-    setOpsAlertTeamsEnabled(adminConfig.opsAlertTeamsEnabled ?? false);
-    setOpsAlertTeamsWebhookUrl(adminConfig.opsAlertTeamsWebhookUrl ?? "");
-    setOpsAlertSlackEnabled(adminConfig.opsAlertSlackEnabled ?? false);
-    setOpsAlertSlackWebhookUrl(adminConfig.opsAlertSlackWebhookUrl ?? "");
-    setExcessiveEventCountThreshold(adminConfig.excessiveEventCountThreshold ?? 2000);
-    setExcessiveEventAutoActionMode(adminConfig.excessiveEventAutoActionMode ?? "Off");
-    setExcessiveEventAutoActionThreshold(adminConfig.excessiveEventAutoActionThreshold ?? 2500);
-    setExcessiveEventAutoActionDurationHours(adminConfig.excessiveEventAutoActionDurationHours ?? 24);
-    setSuccessMessage(null);
-    setError(null);
-  }, [adminConfig]);
 
   // Save diagnostics paths
   const handleSaveDiagPaths = useCallback(async (paths: DiagnosticsLogPath[]) => {
@@ -591,7 +538,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       notificationEmails, setNotificationEmails,
       error, setError, successMessage, setSuccessMessage,
       getAccessToken,
-      handleSaveAdminConfig, handleResetAdminConfig, handleSaveDiagPaths, handleSaveOpsAlertConfig,
+      handleSaveAdminConfig, handleSaveDiagPaths, handleSaveOpsAlertConfig,
       opsNotificationChannels, setOpsNotificationChannels,
       handleTestOpsChannel, testingOpsChannelId, testOpsChannelResult,
     }}>

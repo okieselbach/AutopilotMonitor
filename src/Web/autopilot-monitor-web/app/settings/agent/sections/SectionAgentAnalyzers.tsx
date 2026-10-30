@@ -13,7 +13,7 @@ export function SectionAgentAnalyzers() {
     enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
     enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
     enableConsoleBypassDetection, setEnableConsoleBypassDetection,
-    handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
+    handleSaveAgentAnalyzers,
     savingSection,
   } = useTenantConfig();
 
@@ -34,7 +34,6 @@ export function SectionAgentAnalyzers() {
         enableConsoleBypassDetection={enableConsoleBypassDetection}
         setEnableConsoleBypassDetection={setEnableConsoleBypassDetection}
         onSave={handleSaveAgentAnalyzers}
-        onReset={handleResetAgentAnalyzers}
         saving={savingSection === "agentAnalyzers"}
         readOnly={!canEditConfig}
       />

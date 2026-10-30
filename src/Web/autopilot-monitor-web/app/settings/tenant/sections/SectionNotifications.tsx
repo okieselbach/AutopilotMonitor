@@ -19,7 +19,7 @@ export function SectionNotifications() {
     canEditConfig,
     notificationChannels, setNotificationChannels,
     handleTestChannel, testingChannelId, testChannelResult,
-    handleSaveNotifications, handleResetNotifications,
+    handleSaveNotifications,
     savingSection,
   } = useTenantConfig();
 
@@ -55,7 +55,6 @@ export function SectionNotifications() {
         testingChannelId={testingChannelId}
         testChannelResult={testChannelResult}
         onSave={handleSaveNotifications}
-        onReset={handleResetNotifications}
         saving={savingSection === "notifications"}
         readOnly={!canEditConfig}
         showTelegramProvider={showTelegramProvider}

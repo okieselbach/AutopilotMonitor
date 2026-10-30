@@ -1,6 +1,6 @@
 "use client";
 
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -14,9 +14,8 @@ interface DataManagementSectionProps {
   /** Edition retention cap (Community 90 / Pro 365) — from feature-flags entitlements. */
   retentionCapDays?: number;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): values visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): values visible but inert, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -28,7 +27,6 @@ export default function DataManagementSection({
   isGlobalAdmin,
   retentionCapDays = 90,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: DataManagementSectionProps) {
@@ -125,7 +123,7 @@ export default function DataManagementSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

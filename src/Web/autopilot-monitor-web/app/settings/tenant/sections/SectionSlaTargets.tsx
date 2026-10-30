@@ -1,7 +1,7 @@
 "use client";
 
 import { useTenantConfig } from "../../TenantConfigContext";
-import SaveResetBar from "../../components/SaveResetBar";
+import SaveBar from "../../components/SaveBar";
 import ReadOnlyFieldset from "../../components/ReadOnlyFieldset";
 import { trackEvent } from "@/lib/appInsights";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -19,7 +19,7 @@ export function SectionSlaTargets() {
     slaNotifyOnAppInstallBreach, setSlaNotifyOnAppInstallBreach,
     slaNotifyOnConsecutiveFailures, setSlaNotifyOnConsecutiveFailures,
     slaConsecutiveFailureThreshold, setSlaConsecutiveFailureThreshold,
-    handleSaveSlaTargets, handleResetSlaTargets,
+    handleSaveSlaTargets,
     savingSection,
   } = useTenantConfig();
 
@@ -218,7 +218,7 @@ export function SectionSlaTargets() {
       </ReadOnlyFieldset>
 
       {canEditConfig && (
-        <SaveResetBar
+        <SaveBar
           onSave={() => {
             trackEvent('sla_targets_saved', {
               hasSuccessRateTarget: slaTargetSuccessRate != null,
@@ -226,10 +226,6 @@ export function SectionSlaTargets() {
               hasAppInstallTarget: slaTargetAppInstallSuccessRate != null,
             });
             return handleSaveSlaTargets();
-          }}
-          onReset={() => {
-            trackEvent('sla_targets_reset');
-            return handleResetSlaTargets();
           }}
           saving={savingSection === "slaTargets"}
         />

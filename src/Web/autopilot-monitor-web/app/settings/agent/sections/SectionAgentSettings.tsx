@@ -29,8 +29,8 @@ export function SectionAgentSettings() {
     enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl,
     enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds,
-    handleSaveAgentParameters, handleResetAgentParameters,
-    handleSaveAgentCollectors, handleResetAgentCollectors,
+    handleSaveAgentParameters,
+    handleSaveAgentCollectors,
     savingSection,
   } = useTenantConfig();
 
@@ -71,7 +71,6 @@ export function SectionAgentSettings() {
         enrollmentSummaryLaunchRetrySeconds={enrollmentSummaryLaunchRetrySeconds}
         setEnrollmentSummaryLaunchRetrySeconds={setEnrollmentSummaryLaunchRetrySeconds}
         onSave={handleSaveAgentParameters}
-        onReset={handleResetAgentParameters}
         saving={savingSection === "agentParameters"}
         readOnly={!canEditConfig}
       />
@@ -87,7 +86,6 @@ export function SectionAgentSettings() {
         enableConfigMgrWatcher={enableConfigMgrWatcher}
         setEnableConfigMgrWatcher={setEnableConfigMgrWatcher}
         onSave={handleSaveAgentCollectors}
-        onReset={handleResetAgentCollectors}
         saving={savingSection === "agentCollectors"}
         readOnly={!canEditConfig}
       />

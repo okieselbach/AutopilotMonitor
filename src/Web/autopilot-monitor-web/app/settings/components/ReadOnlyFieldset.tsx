@@ -4,7 +4,7 @@
  * Wraps a settings section's interactive content for read-only viewers (Operators).
  * The native fieldset `disabled` attribute inertly disables every nested input, select,
  * textarea and button while values stay visible and copyable; a small notice explains why.
- * Sections must ADDITIONALLY not render their SaveResetBar when read-only — a read-only
+ * Sections must ADDITIONALLY not render their SaveBar when read-only — a read-only
  * viewer gets no save affordance at all, not a disabled one.
  */
 export default function ReadOnlyFieldset({

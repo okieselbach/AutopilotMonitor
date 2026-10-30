@@ -1,6 +1,6 @@
 "use client";
 
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -19,9 +19,8 @@ interface AgentAnalyzersSectionProps {
   enableConsoleBypassDetection: boolean;
   setEnableConsoleBypassDetection: (value: boolean) => void;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): analyzers visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): analyzers visible but inert, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -53,7 +52,6 @@ export default function AgentAnalyzersSection({
   enableConsoleBypassDetection,
   setEnableConsoleBypassDetection,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: AgentAnalyzersSectionProps) {
@@ -274,8 +272,8 @@ export default function AgentAnalyzersSection({
         </div>
         </ReadOnlyFieldset>
 
-        {/* Save / Reset */}
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {/* Save */}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

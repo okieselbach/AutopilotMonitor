@@ -100,7 +100,7 @@ interface TenantConfigContextValue {
   loading: boolean;
   /**
    * True when the current user may CHANGE tenant configuration (Tenant Admin or Global Admin).
-   * Operators reach the settings area read-only: sections must render no Save/Reset bar and
+   * Operators reach the settings area read-only: sections must render no Save bar and
    * disable their inputs when this is false. Mirrors the backend write gate (PUT config is
    * TenantAdminOrGA), so hiding the affordances is UX — the server enforces regardless.
    */
@@ -173,7 +173,6 @@ interface TenantConfigContextValue {
   webhookNotifyOnHardwareRejection: boolean;
   setWebhookNotifyOnHardwareRejection: (v: boolean) => void;
   handleSaveHardwareWhitelist: () => Promise<void>;
-  handleResetHardwareWhitelist: () => void;
 
   // Agent settings
   enablePerformanceCollector: boolean;
@@ -195,7 +194,6 @@ interface TenantConfigContextValue {
   companyName: string;
   setCompanyName: (v: string) => void;
   handleSaveContact: () => Promise<void>;
-  handleResetContact: () => void;
   enableGeoLocation: boolean;
   setEnableGeoLocation: (v: boolean) => void;
   enableTimezoneAutoSet: boolean;
@@ -225,9 +223,7 @@ interface TenantConfigContextValue {
   enableConfigMgrWatcher: boolean;
   setEnableConfigMgrWatcher: (v: boolean) => void;
   handleSaveAgentParameters: () => Promise<void>;
-  handleResetAgentParameters: () => void;
   handleSaveAgentCollectors: () => Promise<void>;
-  handleResetAgentCollectors: () => void;
 
   // Agent analyzers
   enableLocalAdminAnalyzer: boolean;
@@ -243,7 +239,6 @@ interface TenantConfigContextValue {
   enableConsoleBypassDetection: boolean;
   setEnableConsoleBypassDetection: (v: boolean) => void;
   handleSaveAgentAnalyzers: () => Promise<void>;
-  handleResetAgentAnalyzers: () => void;
 
   // Unrestricted mode
   unrestrictedMode: boolean;
@@ -257,7 +252,6 @@ interface TenantConfigContextValue {
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
   handleTestChannel: (channelId: string) => Promise<void>;
   handleSaveNotifications: () => Promise<void>;
-  handleResetNotifications: () => void;
 
   // SLA Targets
   slaTargetSuccessRate: number | null;
@@ -279,7 +273,6 @@ interface TenantConfigContextValue {
   slaConsecutiveFailureThreshold: number;
   setSlaConsecutiveFailureThreshold: (v: number) => void;
   handleSaveSlaTargets: () => Promise<void>;
-  handleResetSlaTargets: () => void;
 
   // Diagnostics
   diagnosticsBlobSasUrl: string;
@@ -295,7 +288,6 @@ interface TenantConfigContextValue {
   newDiagDesc: string;
   setNewDiagDesc: (v: string) => void;
   handleSaveDiagnostics: () => Promise<void>;
-  handleResetDiagnostics: () => void;
 
   // Admin management
   admins: TenantAdmin[];
@@ -328,7 +320,6 @@ interface TenantConfigContextValue {
   sessionTimeoutHours: number;
   setSessionTimeoutHours: (v: number) => void;
   handleSaveDataManagement: () => Promise<void>;
-  handleResetDataManagement: () => void;
 
   // Offboarding
   showOffboardDialog: boolean;
@@ -369,7 +360,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const { addNotification } = useNotifications();
 
   // Operators reach the settings area read-only — only a Tenant Admin or Global Admin may
-  // change configuration. Drives section rendering (no Save/Reset bar, disabled inputs)
+  // change configuration. Drives section rendering (no Save bar, disabled inputs)
   // and the defensive guard in saveConfiguration; the backend enforces the same gate.
   const canEditConfig = user?.isTenantAdmin === true || user?.isGlobalAdmin === true;
 
@@ -880,7 +871,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     [runSectionSave],
   );
 
-  // Save bars: a failure throws, so SaveResetBar shows its reason next to the button.
+  // Save bars: a failure throws, so SaveBar shows its reason next to the button.
   const saveSection = useCallback(async (sectionName: SettingsSectionName) => {
     const failure = await runSectionSave(sectionName);
     if (failure !== null) throw new Error(failure);
@@ -1196,22 +1187,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [tenantId, getAccessToken]);
 
   // -----------------------------------------------------------------------
-  // Per-section save/reset handlers
+  // Per-section save handlers
   // -----------------------------------------------------------------------
   const handleSaveHardwareWhitelist = useCallback(() => saveSection("hardwareWhitelist"), [saveSection]);
-  const handleResetHardwareWhitelist = useCallback(() => {
-    if (!config) return;
-    setManufacturerWhitelist(config.manufacturerWhitelist);
-    setModelWhitelist(config.modelWhitelist);
-    setWebhookNotifyOnHardwareRejection(config.webhookNotifyOnHardwareRejection ?? false);
-    // The hardware-rejection toggle writes through to the per-channel flags — restore those
-    // to their saved values too, without disturbing other unsaved channel edits.
-    const savedById = new Map(channelsFromConfig(config).map((c) => [c.id, c]));
-    setNotificationChannels((prev) => prev.map((c) => {
-      const saved = savedById.get(c.id);
-      return saved ? { ...c, notifyOnHardwareRejection: saved.notifyOnHardwareRejection } : c;
-    }));
-  }, [config]);
 
   // Hardware-rejection notify: with channels configured, the hardware-section toggle is a
   // convenience view over the per-channel flags (checked = any enabled channel opted in;
@@ -1226,96 +1204,20 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const handleSaveAgentParameters = useCallback(() => saveSection("agentParameters"), [saveSection]);
-  const handleResetAgentParameters = useCallback(() => {
-    if (!config) return;
-    setSelfDestructOnComplete(config.selfDestructOnComplete ?? true);
-    setKeepLogFile(config.keepLogFile ?? false);
-    setRebootOnComplete(config.rebootOnComplete ?? false);
-    setRebootDelaySeconds(config.rebootDelaySeconds ?? 10);
-    // contactEmail/companyName deliberately NOT reset here — they are owned by the Contact section
-    // (resetting it from the Agent Settings card silently discarded unsaved Contact edits).
-    setEnableGeoLocation(config.enableGeoLocation ?? true);
-    setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
-    setEnableDoGroupIdAutoSet(config.enableDoGroupIdAutoSet ?? false);
-    setEnableImeMatchLog(config.enableImeMatchLog ?? false);
-    setEnableGatherRuleDebugLog(config.enableGatherRuleDebugLog ?? false);
-    setLogLevel(config.logLevel ?? "Info");
-    setShowScriptOutput(config.showScriptOutput ?? true);
-    setShowEnrollmentSummary(config.showEnrollmentSummary ?? false);
-    setEnrollmentSummaryTimeoutSeconds(config.enrollmentSummaryTimeoutSeconds ?? 60);
-    setEnrollmentSummaryBrandingImageUrl(config.enrollmentSummaryBrandingImageUrl ?? "");
-    setEnrollmentSummaryLaunchRetrySeconds(config.enrollmentSummaryLaunchRetrySeconds ?? 120);
-    setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
-  }, [config]);
 
   const handleSaveAgentCollectors = useCallback(() => saveSection("agentCollectors"), [saveSection]);
-  const handleResetAgentCollectors = useCallback(() => {
-    if (!config) return;
-    setEnablePerformanceCollector(config.enablePerformanceCollector ?? true);
-    setPerformanceCollectorInterval(config.performanceCollectorIntervalSeconds ?? 30);
-    setHelloWaitTimeoutSeconds(config.helloWaitTimeoutSeconds ?? HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS);
-    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
-    setEnableConfigMgrWatcher(config.enableConfigMgrWatcher ?? false);
-  }, [config]);
 
   const handleSaveAgentAnalyzers = useCallback(() => saveSection("agentAnalyzers"), [saveSection]);
-  const handleResetAgentAnalyzers = useCallback(() => {
-    if (!config) return;
-    setEnableLocalAdminAnalyzer(config.enableLocalAdminAnalyzer ?? true);
-    try {
-      setLocalAdminAllowedAccounts(config.localAdminAllowedAccountsJson ? JSON.parse(config.localAdminAllowedAccountsJson) : []);
-    } catch { setLocalAdminAllowedAccounts([]); }
-    setNewAllowedAccount("");
-    setEnableSoftwareInventoryAnalyzer(config.enableSoftwareInventoryAnalyzer ?? false);
-    setEnableIntegrityBypassAnalyzer(config.enableIntegrityBypassAnalyzer ?? true);
-    setEnableConsoleBypassDetection(config.enableConsoleBypassDetection ?? true);
-  }, [config]);
 
   const handleSaveNotifications = useCallback(() => saveSection("notifications"), [saveSection]);
-  const handleResetNotifications = useCallback(() => {
-    if (!config) return;
-    setNotificationChannels(channelsFromConfig(config));
-    setTestChannelResult(null);
-  }, [config]);
 
   const handleSaveSlaTargets = useCallback(() => saveSection("slaTargets"), [saveSection]);
-  const handleResetSlaTargets = useCallback(() => {
-    if (!config) return;
-    setSlaTargetSuccessRate(config.slaTargetSuccessRate ?? null);
-    setSlaTargetMaxDurationMinutes(config.slaTargetMaxDurationMinutes ?? null);
-    setSlaTargetAppInstallSuccessRate(config.slaTargetAppInstallSuccessRate ?? null);
-    setSlaNotifyOnSuccessRateBreach(config.slaNotifyOnSuccessRateBreach ?? false);
-    setSlaSuccessRateNotifyThreshold(config.slaSuccessRateNotifyThreshold ?? null);
-    setSlaNotifyOnDurationBreach(config.slaNotifyOnDurationBreach ?? false);
-    setSlaNotifyOnAppInstallBreach(config.slaNotifyOnAppInstallBreach ?? false);
-    setSlaNotifyOnConsecutiveFailures(config.slaNotifyOnConsecutiveFailures ?? false);
-    setSlaConsecutiveFailureThreshold(config.slaConsecutiveFailureThreshold ?? 5);
-  }, [config]);
 
   const handleSaveContact = useCallback(() => saveSection("contact"), [saveSection]);
-  const handleResetContact = useCallback(() => {
-    if (!config) return;
-    setContactEmail(config.contactEmail ?? "");
-    setCompanyName(config.companyName ?? "");
-  }, [config]);
 
   const handleSaveDiagnostics = useCallback(() => saveSection("diagnostics"), [saveSection]);
-  const handleResetDiagnostics = useCallback(() => {
-    if (!config) return;
-    setDiagnosticsBlobSasUrl(config.diagnosticsBlobSasUrl ?? "");
-    setDiagnosticsUploadMode(config.diagnosticsUploadMode ?? "Off");
-    setDiagnosticsUploadDestination(config.diagnosticsUploadDestination ?? "CustomerSas");
-    try {
-      setTenantDiagPaths(config.diagnosticsLogPathsJson ? JSON.parse(config.diagnosticsLogPathsJson) : []);
-    } catch { setTenantDiagPaths([]); }
-  }, [config]);
 
   const handleSaveDataManagement = useCallback(() => saveSection("dataManagement"), [saveSection]);
-  const handleResetDataManagement = useCallback(() => {
-    if (!config) return;
-    setDataRetentionDays(config.dataRetentionDays ?? 90);
-    setSessionTimeoutHours(config.sessionTimeoutHours ?? 5);
-  }, [config]);
 
   // Persist the toggle with the new value passed explicitly. The on/off value MUST be threaded
   // through as an override rather than read from `unrestrictedMode` state: the toggle calls this
@@ -1611,7 +1513,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       modelWhitelist, setModelWhitelist,
       webhookNotifyOnHardwareRejection: effectiveHwRejectionNotify,
       setWebhookNotifyOnHardwareRejection: setHwRejectionNotifyWriteThrough,
-      handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
+      handleSaveHardwareWhitelist,
 
       // Agent settings
       enablePerformanceCollector, setEnablePerformanceCollector,
@@ -1623,7 +1525,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       rebootDelaySeconds, setRebootDelaySeconds,
       contactEmail, setContactEmail,
       companyName, setCompanyName,
-      handleSaveContact, handleResetContact,
+      handleSaveContact,
       enableGeoLocation, setEnableGeoLocation,
       enableTimezoneAutoSet, setEnableTimezoneAutoSet,
       enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet,
@@ -1638,8 +1540,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enableRealmJoinWatcher, setEnableRealmJoinWatcher,
       enableConfigMgrWatcher, setEnableConfigMgrWatcher,
       keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
-      handleSaveAgentParameters, handleResetAgentParameters,
-      handleSaveAgentCollectors, handleResetAgentCollectors,
+      handleSaveAgentParameters,
+      handleSaveAgentCollectors,
 
       // Agent analyzers
       enableLocalAdminAnalyzer, setEnableLocalAdminAnalyzer,
@@ -1648,7 +1550,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
       enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
       enableConsoleBypassDetection, setEnableConsoleBypassDetection,
-      handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
+      handleSaveAgentAnalyzers,
 
       // Unrestricted mode
       unrestrictedMode, setUnrestrictedMode,
@@ -1657,7 +1559,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Notifications
       notificationChannels, setNotificationChannels,
       testingChannelId, testChannelResult,
-      handleTestChannel, handleSaveNotifications, handleResetNotifications,
+      handleTestChannel, handleSaveNotifications,
 
       // SLA Targets
       slaTargetSuccessRate, setSlaTargetSuccessRate,
@@ -1669,7 +1571,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       slaNotifyOnAppInstallBreach, setSlaNotifyOnAppInstallBreach,
       slaNotifyOnConsecutiveFailures, setSlaNotifyOnConsecutiveFailures,
       slaConsecutiveFailureThreshold, setSlaConsecutiveFailureThreshold,
-      handleSaveSlaTargets, handleResetSlaTargets,
+      handleSaveSlaTargets,
 
       // Diagnostics
       diagnosticsBlobSasUrl, setDiagnosticsBlobSasUrl,
@@ -1678,7 +1580,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       tenantDiagPaths, setTenantDiagPaths,
       newDiagPath, setNewDiagPath,
       newDiagDesc, setNewDiagDesc,
-      handleSaveDiagnostics, handleResetDiagnostics,
+      handleSaveDiagnostics,
 
       // Admin management
       admins, loadingAdmins,
@@ -1695,7 +1597,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Data management
       dataRetentionDays, setDataRetentionDays,
       sessionTimeoutHours, setSessionTimeoutHours,
-      handleSaveDataManagement, handleResetDataManagement,
+      handleSaveDataManagement,
 
       // Offboarding
       showOffboardDialog, setShowOffboardDialog,
@@ -1714,33 +1616,33 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,
     saveValidationGate, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
     manufacturerWhitelist, modelWhitelist, effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,
-    handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
+    handleSaveHardwareWhitelist,
     enablePerformanceCollector, performanceCollectorInterval, helloWaitTimeoutSeconds,
     selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, companyName, handleSaveContact, handleResetContact,
+    contactEmail, companyName, handleSaveContact,
     enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
-    handleSaveAgentParameters, handleResetAgentParameters,
-    handleSaveAgentCollectors, handleResetAgentCollectors,
+    handleSaveAgentParameters,
+    handleSaveAgentCollectors,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
     enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableConsoleBypassDetection,
-    handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
+    handleSaveAgentAnalyzers,
     unrestrictedMode, handleSaveUnrestrictedMode,
     notificationChannels, testingChannelId, testChannelResult,
-    handleTestChannel, handleSaveNotifications, handleResetNotifications,
+    handleTestChannel, handleSaveNotifications,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
-    handleSaveSlaTargets, handleResetSlaTargets,
+    handleSaveSlaTargets,
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination,
     tenantDiagPaths, newDiagPath, newDiagDesc,
-    handleSaveDiagnostics, handleResetDiagnostics,
+    handleSaveDiagnostics,
     admins, loadingAdmins, newAdminEmail, newMemberRole, newMemberKind, addingAdmin, removingAdmin, togglingAdmin,
     handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
     bootstrapSessions, bootstrapLoading, fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
-    dataRetentionDays, sessionTimeoutHours, handleSaveDataManagement, handleResetDataManagement,
+    dataRetentionDays, sessionTimeoutHours, handleSaveDataManagement,
     showOffboardDialog, offboardConfirmText, offboarding, offboardError, handleOffboard,
     offboardingInProgress, handleDrainBarrierElapsed,
     user, getAccessToken,

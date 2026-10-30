@@ -1,6 +1,6 @@
 "use client";
 
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { MAX_NOTIFICATION_CHANNELS, NotificationChannel } from "../types";
 import { ChannelEditor } from "@/components/notifications/ChannelEditor";
@@ -16,9 +16,8 @@ interface NotificationsSectionProps {
   testingChannelId: string | null;
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): channels visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): channels visible but inert, no Save bar. */
   readOnly?: boolean;
   /** Global Admin: the platform-bot Telegram provider is offered in the provider dropdown. */
   showTelegramProvider?: boolean;
@@ -34,7 +33,6 @@ export default function NotificationsSection({
   testingChannelId,
   testChannelResult,
   onSave,
-  onReset,
   saving,
   readOnly = false,
   showTelegramProvider = false,
@@ -103,7 +101,7 @@ export default function NotificationsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

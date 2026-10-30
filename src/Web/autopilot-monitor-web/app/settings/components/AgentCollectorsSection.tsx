@@ -1,6 +1,6 @@
 "use client";
 
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -23,9 +23,8 @@ interface AgentCollectorsSectionProps {
   enableConfigMgrWatcher: boolean;
   setEnableConfigMgrWatcher: (value: boolean) => void;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): settings visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): settings visible but inert, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -41,7 +40,6 @@ export default function AgentCollectorsSection({
   enableConfigMgrWatcher,
   setEnableConfigMgrWatcher,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: AgentCollectorsSectionProps) {
@@ -149,7 +147,7 @@ export default function AgentCollectorsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

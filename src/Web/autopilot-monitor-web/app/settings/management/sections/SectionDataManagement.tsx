@@ -11,7 +11,7 @@ export function SectionDataManagement() {
     dataRetentionDays, setDataRetentionDays,
     sessionTimeoutHours, setSessionTimeoutHours,
     editionInfo,
-    handleSaveDataManagement, handleResetDataManagement,
+    handleSaveDataManagement,
     savingSection,
   } = useTenantConfig();
 
@@ -31,7 +31,6 @@ export function SectionDataManagement() {
         isGlobalAdmin={isGlobalAdminView}
         retentionCapDays={editionInfo.entitlements.retentionCapDays}
         onSave={handleSaveDataManagement}
-        onReset={handleResetDataManagement}
         saving={savingSection === "dataManagement"}
         readOnly={!canEditConfig}
       />

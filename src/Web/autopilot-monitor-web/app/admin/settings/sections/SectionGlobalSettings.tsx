@@ -28,7 +28,7 @@ export function SectionGlobalSettings() {
     selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
     imeMsiArchivingEnabled, setImeMsiArchivingEnabled,
     maxImeMsiDownloadSizeMB, setMaxImeMsiDownloadSizeMB,
-    handleSaveAdminConfig, handleResetAdminConfig,
+    handleSaveAdminConfig,
   } = useAdminConfig();
 
   useEffect(() => { ensureAdminConfigLoaded(); }, [ensureAdminConfigLoaded]);
@@ -79,7 +79,6 @@ export function SectionGlobalSettings() {
         maxImeMsiDownloadSizeMB={maxImeMsiDownloadSizeMB}
         setMaxImeMsiDownloadSizeMB={setMaxImeMsiDownloadSizeMB}
         onSave={handleSaveAdminConfig}
-        onReset={handleResetAdminConfig}
       />
     </>
   );

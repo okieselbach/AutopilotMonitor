@@ -7,7 +7,7 @@ import { validateDiagnosticsPath } from "@/lib/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
 import { BuiltInSectionsList } from "@/components/diagnostics/BuiltInSectionsList";
 import { ContextPill, DiagnosticsPathRow } from "@/components/diagnostics/DiagnosticsPathRow";
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { parseSasExpiry } from "./diagnosticsSasExpiry";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -39,9 +39,8 @@ interface DiagnosticsSectionProps {
   setNewDiagDesc: (value: string) => void;
   unrestrictedMode?: boolean;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): settings visible but inert, no Save/Reset bar. */
+  /** Read-only viewer (Operator): settings visible but inert, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -64,7 +63,6 @@ export default function DiagnosticsSection({
   setNewDiagDesc,
   unrestrictedMode = false,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: DiagnosticsSectionProps) {
@@ -368,7 +366,7 @@ export default function DiagnosticsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

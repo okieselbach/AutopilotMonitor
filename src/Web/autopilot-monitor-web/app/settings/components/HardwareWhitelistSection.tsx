@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import SaveResetBar from "./SaveResetBar";
+import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { joinList, parseList } from "../lib/hardwareWhitelist";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -13,9 +13,8 @@ interface HardwareWhitelistSectionProps {
   modelWhitelist: string;
   setModelWhitelist: (value: string) => void;
   onSave: () => Promise<void> | void;
-  onReset: () => void;
   saving: boolean;
-  /** Read-only viewer (Operator): inputs disabled, no Save/Reset bar. */
+  /** Read-only viewer (Operator): inputs disabled, no Save bar. */
   readOnly?: boolean;
 }
 
@@ -129,7 +128,6 @@ export default function HardwareWhitelistSection({
   modelWhitelist,
   setModelWhitelist,
   onSave,
-  onReset,
   saving,
   readOnly = false,
 }: HardwareWhitelistSectionProps) {
@@ -188,7 +186,7 @@ export default function HardwareWhitelistSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
       </div>
     </div>
   );

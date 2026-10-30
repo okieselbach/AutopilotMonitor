@@ -17,7 +17,7 @@ export function SectionHardwareWhitelist() {
     modelWhitelist, setModelWhitelist,
     webhookNotifyOnHardwareRejection, setWebhookNotifyOnHardwareRejection,
     notificationChannels,
-    handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
+    handleSaveHardwareWhitelist,
     savingSection,
   } = useTenantConfig();
 
@@ -42,7 +42,6 @@ export function SectionHardwareWhitelist() {
         modelWhitelist={modelWhitelist}
         setModelWhitelist={setModelWhitelist}
         onSave={handleSaveHardwareWhitelist}
-        onReset={handleResetHardwareWhitelist}
         saving={savingSection === "hardwareWhitelist"}
         readOnly={!canEditConfig}
       />

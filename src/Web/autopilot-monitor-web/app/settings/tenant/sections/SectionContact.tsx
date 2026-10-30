@@ -1,7 +1,7 @@
 "use client";
 
 import { useTenantConfig } from "../../TenantConfigContext";
-import SaveResetBar from "../../components/SaveResetBar";
+import SaveBar from "../../components/SaveBar";
 import ReadOnlyFieldset from "../../components/ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -11,7 +11,7 @@ export function SectionContact() {
     canEditConfig,
     contactEmail, setContactEmail,
     companyName, setCompanyName,
-    handleSaveContact, handleResetContact,
+    handleSaveContact,
     savingSection,
   } = useTenantConfig();
 
@@ -92,9 +92,8 @@ export function SectionContact() {
         </div>
 
         {canEditConfig && (
-          <SaveResetBar
+          <SaveBar
             onSave={handleSaveContact}
-            onReset={handleResetContact}
             saving={savingSection === "contact"}
             saveBlockedReason={saveBlockedReason}
           />
