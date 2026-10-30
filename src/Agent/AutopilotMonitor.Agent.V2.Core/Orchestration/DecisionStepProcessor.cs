@@ -190,7 +190,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_transitionEmitter != null)
             {
                 try { _transitionEmitter.Emit(step.Transition); }
-                catch { /* best-effort upload; local state already consistent */ }
+                catch (Exception ex)
+                {
+                    // Best-effort upload; the local journal already holds the transition.
+                    _logger.Debug($"DecisionStepProcessor: transition not handed to the upload spool: {ex.Message}", repeatKey: "DecisionStepProcessor.transitionEmit");
+                }
             }
 
             // 2) EffectRunner — Async-Methode vom Ingress-Worker-Thread sync ausführen.

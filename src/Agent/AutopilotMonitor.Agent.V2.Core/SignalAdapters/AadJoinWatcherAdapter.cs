@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
@@ -31,6 +32,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly IClock _clock;
         private readonly InformationalEventPost _post;
         private readonly Action? _onRealUserJoined;
+        private readonly AgentLogger? _logger;
         private bool _fired;
         private bool _placeholderFired;
 
@@ -38,13 +40,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             AadJoinWatcher watcher,
             ISignalIngressSink ingress,
             IClock clock,
-            Action? onRealUserJoined = null)
+            Action? onRealUserJoined = null,
+            AgentLogger? logger = null)
         {
             _watcher = watcher ?? throw new ArgumentNullException(nameof(watcher));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _post = new InformationalEventPost(ingress, clock);
             _onRealUserJoined = onRealUserJoined;
+            _logger = logger;
 
             _watcher.AadUserJoined += OnAadUserJoined;
             _watcher.PlaceholderUserDetected += OnPlaceholderUserDetected;
@@ -117,8 +121,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // Pkt 5 — notify the composition root that a real AAD user has appeared, so the
             // DesktopArrivalDetector can be reset for the AD-user-after-Hybrid-reboot case.
             // Fire AFTER the decision signal so reducer-state ordering remains the canonical source.
+            // The callback is best-effort: host wiring must never break the signal post.
             try { _onRealUserJoined?.Invoke(); }
-            catch { /* callback is best-effort — never let host wiring break the signal post */ }
+            catch (Exception ex) { _logger?.Warning($"AadJoinWatcherAdapter: onRealUserJoined callback threw: {ex.Message}"); }
         }
 
         private void EmitPlaceholderInternal(string userEmail)

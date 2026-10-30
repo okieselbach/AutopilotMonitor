@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using Xunit;
 
 // xUnit1031 (no blocking Task.Wait in tests) intentionally suppressed — the API
@@ -22,9 +24,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
     /// Drives <see cref="TenantIdAwaiter.WaitForTenantIdCore"/> through every interesting
     /// path with a fake <see cref="IRegistryChangeSignal"/> + scripted probe so the
     /// orchestration logic is verified without touching the registry. The public
-    /// <see cref="TenantIdAwaiter.WaitForTenantId"/> wrapper isn't covered here — the
-    /// HKCU integration test in <c>RegistryWatcherIntegrationTests</c> proves the
-    /// CompositeRegistryChangeSignal / RegNotifyChangeKeyValue plumbing separately.
+    /// <c>WaitForTenantId</c> wrapper is covered through its internal overload with a scripted
+    /// resolver (which probes log); the HKCU integration test in
+    /// <c>RegistryWatcherIntegrationTests</c> proves the CompositeRegistryChangeSignal /
+    /// RegNotifyChangeKeyValue plumbing separately.
     /// <para>
     /// Single-threaded collection: these tests use <c>Thread.Sleep</c> as a synchronisation
     /// primitive (waiting for the awaiter to enter its WaitAny loop before triggering the
@@ -257,6 +260,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
                     debounceMs: 0,
                     logger: null!,
                     ct: CancellationToken.None));
+        }
+
+        [Fact]
+        public void Initial_miss_never_probes_with_the_logger()
+        {
+            // AgentBootstrap probes with its logger before it calls the awaiter; the resolver's
+            // miss block must not land a second time from the awaiter's own first check.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            int loggedProbes = 0, silentProbes = 0;
+
+            var result = TenantIdAwaiter.WaitForTenantId(
+                timeoutSeconds: 1,
+                logger: logger,
+                ct: CancellationToken.None,
+                resolve: l => { if (l != null) loggedProbes++; else silentProbes++; return null!; },
+                signalFactory: () => new FakeSignal());
+
+            Assert.Null(result);
+            Assert.Equal(0, loggedProbes);
+            Assert.True(silentProbes >= 1, $"expected a silent first check, saw {silentProbes}");
+        }
+
+        [Fact]
+        public void Initial_hit_probes_once_more_with_the_logger_for_the_source_line()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var loggedProbes = 0;
+
+            var result = TenantIdAwaiter.WaitForTenantId(
+                timeoutSeconds: 600,
+                logger: logger,
+                ct: CancellationToken.None,
+                resolve: l => { if (l != null) loggedProbes++; return "tenant-1"; },
+                signalFactory: () => throw new InvalidOperationException("no wait expected on a hit"));
+
+            Assert.Equal("tenant-1", result);
+            Assert.Equal(1, loggedProbes);
         }
     }
 }

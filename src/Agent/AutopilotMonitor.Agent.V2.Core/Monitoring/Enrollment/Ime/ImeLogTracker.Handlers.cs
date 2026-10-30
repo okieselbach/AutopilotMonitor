@@ -1601,8 +1601,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             // First detection of any phase OR a real transition into a new phase: surface on Info
             // so phase boundaries are visible without enabling Debug. Re-matches of the same phase
-            // (IME re-emits the phase string periodically as it re-evaluates app sets) stay on
-            // Debug to avoid Info repetition.
+            // (IME re-emits the phase string periodically as it re-evaluates app sets) are
+            // identical repeats and go to Trace (D-394).
             if (isFirstOrChangedPhase)
                 _logger.Info($"ImeLogTracker: ESP phase detected: {espPhaseString}");
             else

@@ -164,5 +164,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             var info = f.InfoEvent("hello_pin_status");
             Assert.Equal("false", info.Payload![SignalPayloadKeys.ImmediateUpload]);
         }
+
+        [Fact]
+        public void A_throwing_HelloCompleted_handler_is_logged_and_the_completion_stands()
+        {
+            // The handler carries the Hello resolution to the decision engine; a fault there used
+            // to vanish without a trace.
+            using var f = new Fixture();
+            f.Tracker.HelloCompleted += (_, _) => throw new InvalidOperationException("handler bug");
+
+            f.Tracker.ProcessHelloEvent(300, Fixed, "Microsoft-Windows-User Device Registration", isBackfill: false);
+
+            Assert.True(f.Tracker.IsHelloCompleted);
+            f.InfoEvent("hello_provisioning_completed");
+            Assert.Contains("[WARN] HelloTracker: HelloCompleted handler threw: handler bug", ReadLog(f));
+        }
+
+        [Fact]
+        public void A_repeated_terminal_event_logs_COMPLETED_once()
+        {
+            // Live plus backfill deliver event 300 twice; only the first one completes Hello.
+            using var f = new Fixture();
+
+            f.Tracker.ProcessHelloEvent(300, Fixed, "Microsoft-Windows-User Device Registration", isBackfill: false);
+            f.Tracker.ProcessHelloEvent(300, Fixed, "Microsoft-Windows-User Device Registration", isBackfill: true);
+
+            var log = ReadLog(f);
+            Assert.Single(log.Split('\n'), l => l.Contains("Windows Hello provisioning COMPLETED successfully"));
+        }
+
+        private static string ReadLog(Fixture f) =>
+            System.IO.File.ReadAllText(System.IO.Path.Combine(f.Tmp.Path, "agent.log"));
     }
 }

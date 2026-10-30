@@ -174,7 +174,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 lock (_lock) { _startWatcher = null; }
                 // Surface the dead live detector so the backend can distinguish it from a clean run.
                 var handler = WatcherArmFailed;
-                try { handler?.Invoke(this, ex); } catch { /* never throw from Start */ }
+                try { handler?.Invoke(this, ex); }
+                catch (Exception handlerEx)
+                {
+                    // Never throw from Start.
+                    _logger.Warning($"[ConsoleBypassWatcher] WatcherArmFailed handler threw: {handlerEx.Message}");
+                }
             }
 
             // 2) Startup probe — catch a console already open before the watcher armed. Win32_Process

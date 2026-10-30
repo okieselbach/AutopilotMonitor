@@ -383,11 +383,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             var handler = SignalPosted;
             if (handler == null) return;
             try { handler(kind, payload); }
-            catch
+            catch (Exception ex)
             {
                 // Observer exceptions MUST NOT disrupt the production ingress path. The idle-
                 // activity observer (Codex Finding 4) is advisory — dropping one observation
                 // is strictly better than surfacing a mid-Post exception to a collector thread.
+                _logger?.Debug($"SignalIngress: SignalPosted observer threw: {ex.Message}", repeatKey: "SignalIngress.signalPostedObserver");
             }
         }
 
@@ -413,9 +414,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             {
                 _observer.OnBackPressure(origin, _channelCapacity, queueLengthAtBlock, blockedFor);
             }
-            catch
+            catch (Exception ex)
             {
-                // Observer-Fehler dürfen den Produktions-Pfad nicht aufhalten. Weglucken.
+                // An observer fault must not hold up the production path.
+                _logger?.Debug($"SignalIngress: back-pressure observer threw: {ex.Message}", repeatKey: "SignalIngress.backPressureObserver");
             }
         }
 
@@ -518,8 +520,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             _nextSignalOrdinal = signalOrdinal + 1;
             // PR3-D2: 1:1 correlation marker for D1 (DecisionStepProcessor logs the same ord +
-            // kind on the receive side). Verbose because the steady-state happy-path is the
-            // dominant cardinality.
+            // kind on the receive side). Trace: one line per signal is mechanics (D-394).
             _logger?.Trace($"SignalIngress: processed ord={signalOrdinal} kind={item.Kind} origin={item.SourceOrigin}.");
             Interlocked.Increment(ref _processedCount);
 
@@ -530,7 +531,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_signalEmitter != null)
             {
                 try { _signalEmitter.Emit(signal); }
-                catch { /* best-effort upload; local state already consistent */ }
+                catch (Exception ex)
+                {
+                    // Best-effort upload; the local SignalLog already holds the signal.
+                    _logger?.Debug($"SignalIngress: signal not handed to the upload spool: {ex.Message}", repeatKey: "SignalIngress.signalEmit");
+                }
             }
 
             var state = _processor.CurrentState;
@@ -544,9 +549,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch
             {
-                // Processor-Fehler (z.B. Journal-Write, Effect-Transient-Exhaust) werden in
-                // M4.4.5 vom Orchestrator geloggt + ggf. Quarantine ausgelöst. M4.4.0
-                // verschluckt bewusst, damit der Ingress-Worker nicht verstummt.
+                // ApplyStep logs its own failures (a journal append fault at Error, before it
+                // rethrows and counts towards quarantine); swallowed here so the worker keeps running.
             }
 
             // Codex follow-up (post-#50 #B): inline durable-abort path. When the step's
@@ -649,7 +653,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_signalEmitter != null)
             {
                 try { _signalEmitter.Emit(syntheticSignal); }
-                catch { /* best-effort upload */ }
+                catch (Exception ex)
+                {
+                    // Best-effort upload; the local SignalLog already holds the signal.
+                    _logger?.Debug($"SignalIngress: signal not handed to the upload spool: {ex.Message}", repeatKey: "SignalIngress.signalEmit");
+                }
             }
 
             var state = _processor.CurrentState;
@@ -662,8 +670,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch
             {
                 // Processor fault on the terminal transition — Journal has the abort
-                // transition committed (reducer produces Stage=Failed unconditionally).
-                // Swallowed by convention; worker must not die from this path.
+                // transition committed (reducer produces Stage=Failed unconditionally), and
+                // ApplyStep has logged the fault. Swallowed so the worker does not die here.
             }
         }
 

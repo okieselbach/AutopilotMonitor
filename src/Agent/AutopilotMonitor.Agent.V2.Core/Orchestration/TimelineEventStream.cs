@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
@@ -24,11 +25,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// <b>Threading</b>: <see cref="Publish"/> runs on the ingress worker thread (the effect
     /// execution path). Subscribers must stay fast and must not block; subscriber exceptions are
     /// swallowed per handler so the emit path can never throw (an exception here would surface
-    /// as an EffectRunner transient retry and duplicate the emitted event).
+    /// as an EffectRunner transient retry and duplicate the emitted event). They are logged at
+    /// Debug, an identical repeat at Trace.
     /// </para>
     /// </summary>
     public sealed class TimelineEventStream
     {
+        private readonly AgentLogger? _logger;
+
+        public TimelineEventStream(AgentLogger? logger = null)
+        {
+            _logger = logger;
+        }
+
         /// <summary>
         /// Raised once per emitted timeline event with its <see cref="EnrollmentEvent.EventType"/>
         /// and parsed <see cref="EnrollmentEvent.Phase"/> (<see cref="EnrollmentPhase.Unknown"/>
@@ -48,9 +57,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             foreach (Action<string, EnrollmentPhase, string> subscriber in handler.GetInvocationList())
             {
                 try { subscriber(eventType, phase, source); }
-                catch
+                catch (Exception ex)
                 {
                     // Subscriber isolation — see class doc: the emit path must never throw.
+                    var name = $"{subscriber.Method.DeclaringType?.Name}.{subscriber.Method.Name}";
+                    _logger?.Debug($"TimelineEventStream: subscriber {name} threw: {ex.Message}", repeatKey: "TimelineEventStream.subscriber:" + name);
                 }
             }
         }

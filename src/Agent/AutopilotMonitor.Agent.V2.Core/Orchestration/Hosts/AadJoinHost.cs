@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             Func<bool>? isHybridJoinProbe = null)
         {
             _watcher = new AadJoinWatcher(logger);
-            _adapter = new AadJoinWatcherAdapter(_watcher, ingress, clock, onRealUserJoined: onRealUserJoined);
+            _adapter = new AadJoinWatcherAdapter(_watcher, ingress, clock, onRealUserJoined: onRealUserJoined, logger: logger);
             var post = new InformationalEventPost(ingress, clock);
             _hybridLoginPendingDetector = new HybridLoginPendingDetector(
                 watcher: _watcher,

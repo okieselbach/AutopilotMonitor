@@ -142,8 +142,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 payload: payload,
                 typedPayload: typedPayload);
 
-            // PR3-D5: lifecycle-event observability — DEBUG so it doesn't dominate at INFO,
-            // but every event that hits the timeline has a matching agent-log line. First
+            // PR3-D5: lifecycle-event observability — VERBOSE (per-item detail, D-394), so every
+            // event that hits the timeline has a matching agent-log line at that level. First
             // 8 payload keys are usually enough to identify the event variant.
             if (_logger != null)
             {

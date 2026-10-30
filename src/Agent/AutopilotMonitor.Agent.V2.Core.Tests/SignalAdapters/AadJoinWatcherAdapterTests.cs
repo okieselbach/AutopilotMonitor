@@ -258,13 +258,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             using var f = new Fixture();
             using var adapter = new AadJoinWatcherAdapter(
                 f.Watcher, f.Ingress, f.Clock,
-                onRealUserJoined: () => throw new InvalidOperationException("boom"));
+                onRealUserJoined: () => throw new InvalidOperationException("boom"),
+                logger: f.Logger);
 
             // The signal post completes BEFORE the callback fires — even if the callback
             // throws, the decision signal must already be on the bus.
             adapter.TriggerFromTest("alice@contoso.com", "x");
 
             Assert.Single(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AadUserJoinedLate);
+            // ...and the fault is in the log instead of vanishing.
+            Assert.Contains(
+                "[WARN] AadJoinWatcherAdapter: onRealUserJoined callback threw: boom",
+                System.IO.File.ReadAllText(System.IO.Path.Combine(f.Tmp.Path, "agent.log")));
         }
     }
 }

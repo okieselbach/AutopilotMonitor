@@ -30,25 +30,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// Production entry point. Returns the resolved TenantId, or <c>null</c> when
         /// timed out / cancelled. <paramref name="timeoutSeconds"/> &lt;= 0 short-circuits
         /// to <c>null</c> immediately (legacy fast-fail behaviour — caller should also
-        /// gate on the same condition).
+        /// gate on the same condition). The caller probes with its logger first, so this
+        /// method only re-checks silently.
         /// </summary>
-        public static string WaitForTenantId(int timeoutSeconds, AgentLogger logger, CancellationToken ct)
+        public static string WaitForTenantId(int timeoutSeconds, AgentLogger logger, CancellationToken ct) =>
+            WaitForTenantId(
+                timeoutSeconds, logger, ct,
+                resolve: TenantIdResolver.Resolve,
+                signalFactory: () => new CompositeRegistryChangeSignal(logger));
+
+        /// <summary>
+        /// Test-visible body of <see cref="WaitForTenantId(int, AgentLogger, CancellationToken)"/>.
+        /// <paramref name="resolve"/> stands for <see cref="TenantIdResolver.Resolve"/>: a null
+        /// logger probes silently.
+        /// </summary>
+        internal static string WaitForTenantId(
+            int timeoutSeconds,
+            AgentLogger logger,
+            CancellationToken ct,
+            Func<AgentLogger, string> resolve,
+            Func<IRegistryChangeSignal> signalFactory)
         {
             if (timeoutSeconds <= 0)
                 return null;
 
-            // Initial probe with the real logger so the resolver emits its source-tag
-            // Info line on hit / its full diagnostic block on miss exactly once.
-            var initial = TenantIdResolver.Resolve(logger);
+            // The caller probed with its logger a moment ago (AgentBootstrap: the source line on a
+            // hit, the full diagnostic block on a miss), so this re-check stays silent and the
+            // block lands once. A hit re-probes with the logger for the source line.
+            var initial = resolve(null);
             if (!string.IsNullOrWhiteSpace(initial))
+            {
+                resolve(logger);
                 return initial;
+            }
 
             logger?.Info($"TenantIdAwaiter: TenantId not yet resolvable — waiting up to {timeoutSeconds}s for registry signal.");
 
-            using (var signal = new CompositeRegistryChangeSignal(logger))
+            using (var signal = signalFactory())
             {
                 var hit = WaitForTenantIdCore(
-                    probe: () => TenantIdResolver.Resolve(null), // silent during wait — initial probe already logged
+                    probe: () => resolve(null), // silent during the wait
                     signal: signal,
                     timeoutSeconds: timeoutSeconds,
                     periodicReprobeMs: DefaultPeriodicReprobeMs,
@@ -61,7 +82,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     // Re-probe once with the real logger so the source-tag Info line
                     // (e.g. "resolved TenantId=… from cloud_domain_join_tenant_info")
                     // lands in the log alongside the awaiter's "resolved after Xs".
-                    TenantIdResolver.Resolve(logger);
+                    resolve(logger);
                 }
                 return hit;
             }

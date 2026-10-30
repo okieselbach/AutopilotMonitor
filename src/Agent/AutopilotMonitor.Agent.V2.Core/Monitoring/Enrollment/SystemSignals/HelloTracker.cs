@@ -725,7 +725,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (shouldTriggerHelloCompleted)
             {
                 EmitHelloPolicyDetectionMismatch(eventType, eventId, timestamp);
-                try { HelloCompleted?.Invoke(this, EventArgs.Empty); } catch { }
+                try { HelloCompleted?.Invoke(this, EventArgs.Empty); }
+                catch (Exception ex) { _logger.Warning($"HelloTracker: HelloCompleted handler threw: {ex.Message}"); }
             }
         }
 
@@ -975,7 +976,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (shouldTriggerHelloCompleted)
             {
                 EmitHelloPolicyDetectionMismatch(eventType, eventId, timestamp);
-                try { HelloCompleted?.Invoke(this, EventArgs.Empty); } catch { }
+                try { HelloCompleted?.Invoke(this, EventArgs.Empty); }
+                catch (Exception ex) { _logger.Warning($"HelloTracker: HelloCompleted handler threw: {ex.Message}"); }
             }
         }
 

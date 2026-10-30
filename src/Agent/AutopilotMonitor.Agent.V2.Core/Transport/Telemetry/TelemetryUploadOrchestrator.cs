@@ -442,29 +442,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             if (pendingPoison != null)
             {
                 foreach (var poison in pendingPoison)
-                {
-                    try { BatchPoisoned?.Invoke(this, poison); }
-                    catch { /* handler must not abort the drain result; cursor already advanced */ }
-                }
+                    RaiseSafely(nameof(BatchPoisoned), () => BatchPoisoned?.Invoke(this, poison));
             }
 
             if (pendingBlockedReason != null)
-            {
-                try { UploadBlocked?.Invoke(this, pendingBlockedReason); }
-                catch { /* handler must not abort the drain result */ }
-            }
+                RaiseSafely(nameof(UploadBlocked), () => UploadBlocked?.Invoke(this, pendingBlockedReason));
 
             if (pendingSessionGoneReason != null)
-            {
-                try { SessionGone?.Invoke(this, pendingSessionGoneReason); }
-                catch { /* handler must not abort the drain result */ }
-            }
+                RaiseSafely(nameof(SessionGone), () => SessionGone?.Invoke(this, pendingSessionGoneReason));
 
             if (pendingInterception != null)
-            {
-                try { UploadIntercepted?.Invoke(this, pendingInterception); }
-                catch { /* handler must not abort the drain result */ }
-            }
+                RaiseSafely(nameof(UploadIntercepted), () => UploadIntercepted?.Invoke(this, pendingInterception));
 
             return result;
         }
@@ -551,11 +539,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         {
             if (!CarriesSignal(outcome)) return;
 
-            try { ServerResponseReceived?.Invoke(this, outcome); }
-            catch
+            RaiseSafely(nameof(ServerResponseReceived), () => ServerResponseReceived?.Invoke(this, outcome));
+        }
+
+        /// <summary>
+        /// Handler exceptions must not abort the drain result: the upload already happened and the
+        /// cursor has moved. They are still bugs, so the event and the exception get a Warning.
+        /// </summary>
+        private void RaiseSafely(string eventName, Action raise)
+        {
+            try { raise(); }
+            catch (Exception ex)
             {
-                // Handler exceptions MUST NOT abort the drain loop — the upload itself succeeded,
-                // and the cursor is already forwarded. Swallow + log via the caller's logger chain.
+                _logger?.Warning($"TelemetryUploadOrchestrator: {eventName} handler threw: {ex.Message}");
             }
         }
 

@@ -456,7 +456,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // (eventType, phase) here. Fed to the collector-host factory at step 14 so gather-rule
             // phase_change/on_event triggers key off the ENGINE-REDUCED timeline (RealmJoin gate
             // et al. respected) instead of raw pre-reduce signals — see TimelineEventStream doc.
-            _timelineEvents = new TimelineEventStream();
+            _timelineEvents = new TimelineEventStream(_logger);
             _timelineEmitter = new EventTimelineEmitter(eventEmitter, _timelineEvents);
             _backPressureObserver = new BackPressureEventObserver(eventEmitter, _clock);
 

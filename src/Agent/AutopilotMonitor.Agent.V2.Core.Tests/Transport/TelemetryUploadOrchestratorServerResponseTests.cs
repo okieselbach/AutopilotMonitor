@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.Shared.Models;
@@ -33,10 +34,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             public FakeBackendTelemetryUploader Uploader { get; } = new FakeBackendTelemetryUploader();
             public TelemetryUploadOrchestrator Sut { get; }
 
-            public Rig()
+            public Rig(AgentLogger? logger = null)
             {
                 Spool = new TelemetrySpool(Tmp.Path, Clock);
-                Sut = new TelemetryUploadOrchestrator(Spool, Uploader, Clock, batchSize: 10, retryBackoffs: new[] { TimeSpan.Zero });
+                Sut = new TelemetryUploadOrchestrator(Spool, Uploader, Clock, batchSize: 10, retryBackoffs: new[] { TimeSpan.Zero }, logger: logger);
             }
 
             public void Dispose() { Sut.Dispose(); Tmp.Dispose(); }
@@ -140,7 +141,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         [Fact]
         public async Task Handler_exception_does_not_break_drain_cursor()
         {
-            using var rig = new Rig();
+            using var logTmp = new TempDirectory();
+            var logger = new AgentLogger(logTmp.Path, AgentLogLevel.Info);
+            using var rig = new Rig(logger);
             rig.Sut.Enqueue(Draft());
             rig.Uploader.QueueOkWithSignals(deviceKillSignal: true);
 
@@ -150,6 +153,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             // Upload still succeeded — the cursor moves, drain returns success.
             Assert.Equal(1, drain.UploadedItems);
             Assert.Equal(0, drain.FailedBatches);
+            // The handler fault is no longer silent.
+            Assert.Contains(
+                "[WARN] TelemetryUploadOrchestrator: ServerResponseReceived handler threw: handler bug",
+                System.IO.File.ReadAllText(System.IO.Path.Combine(logTmp.Path, "agent.log")));
         }
 
         /// <summary>

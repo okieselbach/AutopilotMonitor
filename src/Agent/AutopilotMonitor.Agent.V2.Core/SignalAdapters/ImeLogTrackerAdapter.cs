@@ -71,7 +71,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly HashSet<string> _whiteGloveSealingPatternIds;
         private readonly object _lock = new object();
         // PR3-D4: optional logger so the largest signal adapter (777 LOC, 0 logger calls
-        // before this PR) gets DEBUG-level visibility into emissions. Null in legacy tests.
+        // before this PR) gets visibility into emissions (mapping lines at Verbose). Null in legacy tests.
         private readonly AgentLogger? _logger;
 
         // Previous action-handlers — restored on Dispose so we don't leave a dead callback
@@ -104,8 +104,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // Dedup state for DecisionSignals.
         private string? _lastEspPhase;
         private bool _userSessionCompletedPosted;
-        // One-shot flag for the user-session-completion deferral trace event — the INFO log
-        // line repeats per suppressed pass, the timeline event fires once per agent run.
+        // One-shot flag for the user-session-completion deferral trace event — the Debug log
+        // line comes per suppressed pass (an identical repeat at Trace), the timeline event once
+        // per agent run.
         private bool _userSessionDeferralNoted;
         private bool _sealingPatternPosted;
         // Fires once per session when a Platform Script stdout contains the Autopilot-Monitor
@@ -742,7 +743,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         /// <summary>
         /// Observability for the deferred user-session completion (sessions 14690fc2/6cb01530):
-        /// an INFO log line per suppressed pass plus a one-shot <c>agent_trace</c> timeline
+        /// a Debug log line per suppressed pass (an identical repeat at Trace) plus a one-shot <c>agent_trace</c> timeline
         /// event, so a field session shows WHY <c>ime_user_session_completed</c> arrived late
         /// (or never) without needing the diagnostics ZIP.
         /// </summary>
