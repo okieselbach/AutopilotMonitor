@@ -32,9 +32,10 @@ const EXPECTED_OWNED_FIELDS = [
   "slaNotifyOnAppInstallBreach", "slaNotifyOnConsecutiveFailures", "slaConsecutiveFailureThreshold",
   // contact
   "contactEmail", "companyName",
-  // agentSettings
+  // agentCollectors
   "enablePerformanceCollector", "performanceCollectorIntervalSeconds", "helloWaitTimeoutSeconds",
   "enableRealmJoinWatcher", "enableConfigMgrWatcher",
+  // agentParameters
   "selfDestructOnComplete", "keepLogFile", "rebootOnComplete", "rebootDelaySeconds",
   "enableGeoLocation", "enableTimezoneAutoSet", "enableDoGroupIdAutoSet", "keepAwakeDuringUserEsp",
   "enableImeMatchLog", "enableGatherRuleDebugLog",
@@ -90,6 +91,15 @@ describe("SECTION_FIELD_MAP parity", () => {
   it("owned fields are exactly the expected Settings write surface", () => {
     const owned = sections.flatMap(([, spec]) => [...spec.fields]).sort();
     expect(owned).toEqual(EXPECTED_OWNED_FIELDS);
+  });
+
+  it("the Agent Collectors card saves only its own fields", () => {
+    // One card, one Save: a field moving back into a shared section would make the Save of one
+    // card write the unsaved edits of the other.
+    expect([...SECTION_FIELD_MAP.agentCollectors.fields].sort()).toEqual([
+      "enableConfigMgrWatcher", "enablePerformanceCollector", "enableRealmJoinWatcher",
+      "helloWaitTimeoutSeconds", "performanceCollectorIntervalSeconds",
+    ]);
   });
 
   it("alsoWrites entries never overlap the same section's owned fields", () => {

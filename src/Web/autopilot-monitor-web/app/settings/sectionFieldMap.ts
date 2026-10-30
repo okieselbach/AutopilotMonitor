@@ -61,13 +61,8 @@ export const SECTION_FIELD_MAP = {
   contact: {
     fields: ["contactEmail", "companyName"],
   },
-  agentSettings: {
+  agentParameters: {
     fields: [
-      "enablePerformanceCollector",
-      "performanceCollectorIntervalSeconds",
-      "helloWaitTimeoutSeconds",
-      "enableRealmJoinWatcher",
-      "enableConfigMgrWatcher",
       "selfDestructOnComplete",
       "keepLogFile",
       "rebootOnComplete",
@@ -84,6 +79,15 @@ export const SECTION_FIELD_MAP = {
       "enrollmentSummaryTimeoutSeconds",
       "enrollmentSummaryBrandingImageUrl",
       "enrollmentSummaryLaunchRetrySeconds",
+    ],
+  },
+  agentCollectors: {
+    fields: [
+      "enablePerformanceCollector",
+      "performanceCollectorIntervalSeconds",
+      "helloWaitTimeoutSeconds",
+      "enableRealmJoinWatcher",
+      "enableConfigMgrWatcher",
     ],
   },
   agentAnalyzers: {

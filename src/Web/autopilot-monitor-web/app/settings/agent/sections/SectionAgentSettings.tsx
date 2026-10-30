@@ -2,7 +2,8 @@
 
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
-import AgentSettingsSection from "../../components/AgentSettingsSection";
+import AgentParametersSection from "../../components/AgentParametersSection";
+import AgentCollectorsSection from "../../components/AgentCollectorsSection";
 
 export function SectionAgentSettings() {
   const {
@@ -28,24 +29,15 @@ export function SectionAgentSettings() {
     enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl,
     enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds,
-    handleSaveAgentSettings, handleResetAgentSettings,
+    handleSaveAgentParameters, handleResetAgentParameters,
+    handleSaveAgentCollectors, handleResetAgentCollectors,
     savingSection,
   } = useTenantConfig();
 
   return (
     <>
       <TenantNotifications />
-      <AgentSettingsSection
-        enablePerformanceCollector={enablePerformanceCollector}
-        setEnablePerformanceCollector={setEnablePerformanceCollector}
-        performanceCollectorInterval={performanceCollectorInterval}
-        setPerformanceCollectorInterval={setPerformanceCollectorInterval}
-        helloWaitTimeoutSeconds={helloWaitTimeoutSeconds}
-        setHelloWaitTimeoutSeconds={setHelloWaitTimeoutSeconds}
-        enableRealmJoinWatcher={enableRealmJoinWatcher}
-        setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
-        enableConfigMgrWatcher={enableConfigMgrWatcher}
-        setEnableConfigMgrWatcher={setEnableConfigMgrWatcher}
+      <AgentParametersSection
         selfDestructOnComplete={selfDestructOnComplete}
         setSelfDestructOnComplete={setSelfDestructOnComplete}
         keepLogFile={keepLogFile}
@@ -78,9 +70,25 @@ export function SectionAgentSettings() {
         setEnrollmentSummaryBrandingImageUrl={setEnrollmentSummaryBrandingImageUrl}
         enrollmentSummaryLaunchRetrySeconds={enrollmentSummaryLaunchRetrySeconds}
         setEnrollmentSummaryLaunchRetrySeconds={setEnrollmentSummaryLaunchRetrySeconds}
-        onSave={handleSaveAgentSettings}
-        onReset={handleResetAgentSettings}
-        saving={savingSection === "agentSettings"}
+        onSave={handleSaveAgentParameters}
+        onReset={handleResetAgentParameters}
+        saving={savingSection === "agentParameters"}
+        readOnly={!canEditConfig}
+      />
+      <AgentCollectorsSection
+        enablePerformanceCollector={enablePerformanceCollector}
+        setEnablePerformanceCollector={setEnablePerformanceCollector}
+        performanceCollectorInterval={performanceCollectorInterval}
+        setPerformanceCollectorInterval={setPerformanceCollectorInterval}
+        helloWaitTimeoutSeconds={helloWaitTimeoutSeconds}
+        setHelloWaitTimeoutSeconds={setHelloWaitTimeoutSeconds}
+        enableRealmJoinWatcher={enableRealmJoinWatcher}
+        setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
+        enableConfigMgrWatcher={enableConfigMgrWatcher}
+        setEnableConfigMgrWatcher={setEnableConfigMgrWatcher}
+        onSave={handleSaveAgentCollectors}
+        onReset={handleResetAgentCollectors}
+        saving={savingSection === "agentCollectors"}
         readOnly={!canEditConfig}
       />
     </>

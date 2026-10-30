@@ -19,6 +19,11 @@ export function SectionContact() {
   const looksInvalid = trimmed.length > 0 && !trimmed.includes("@");
   // Mirrors TenantConfigValidation.MaxCompanyNameLength — the backend rejects longer values.
   const companyTooLong = companyName.trim().length > 200;
+  const saveBlockedReason = looksInvalid
+    ? "Enter a valid email address to save."
+    : companyTooLong
+      ? "Shorten the company name to save."
+      : undefined;
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -91,7 +96,7 @@ export function SectionContact() {
             onSave={handleSaveContact}
             onReset={handleResetContact}
             saving={savingSection === "contact"}
-            canSave={!looksInvalid && !companyTooLong}
+            saveBlockedReason={saveBlockedReason}
           />
         )}
       </div>

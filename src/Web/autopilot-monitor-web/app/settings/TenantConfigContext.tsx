@@ -172,7 +172,7 @@ interface TenantConfigContextValue {
   setModelWhitelist: (v: string) => void;
   webhookNotifyOnHardwareRejection: boolean;
   setWebhookNotifyOnHardwareRejection: (v: boolean) => void;
-  handleSaveHardwareWhitelist: () => void;
+  handleSaveHardwareWhitelist: () => Promise<void>;
   handleResetHardwareWhitelist: () => void;
 
   // Agent settings
@@ -194,7 +194,7 @@ interface TenantConfigContextValue {
   setContactEmail: (v: string) => void;
   companyName: string;
   setCompanyName: (v: string) => void;
-  handleSaveContact: () => void;
+  handleSaveContact: () => Promise<void>;
   handleResetContact: () => void;
   enableGeoLocation: boolean;
   setEnableGeoLocation: (v: boolean) => void;
@@ -224,8 +224,10 @@ interface TenantConfigContextValue {
   setEnableRealmJoinWatcher: (v: boolean) => void;
   enableConfigMgrWatcher: boolean;
   setEnableConfigMgrWatcher: (v: boolean) => void;
-  handleSaveAgentSettings: () => void;
-  handleResetAgentSettings: () => void;
+  handleSaveAgentParameters: () => Promise<void>;
+  handleResetAgentParameters: () => void;
+  handleSaveAgentCollectors: () => Promise<void>;
+  handleResetAgentCollectors: () => void;
 
   // Agent analyzers
   enableLocalAdminAnalyzer: boolean;
@@ -240,7 +242,7 @@ interface TenantConfigContextValue {
   setEnableIntegrityBypassAnalyzer: (v: boolean) => void;
   enableConsoleBypassDetection: boolean;
   setEnableConsoleBypassDetection: (v: boolean) => void;
-  handleSaveAgentAnalyzers: () => void;
+  handleSaveAgentAnalyzers: () => Promise<void>;
   handleResetAgentAnalyzers: () => void;
 
   // Unrestricted mode
@@ -254,7 +256,7 @@ interface TenantConfigContextValue {
   testingChannelId: string | null;
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
   handleTestChannel: (channelId: string) => Promise<void>;
-  handleSaveNotifications: () => void;
+  handleSaveNotifications: () => Promise<void>;
   handleResetNotifications: () => void;
 
   // SLA Targets
@@ -276,7 +278,7 @@ interface TenantConfigContextValue {
   setSlaNotifyOnConsecutiveFailures: (v: boolean) => void;
   slaConsecutiveFailureThreshold: number;
   setSlaConsecutiveFailureThreshold: (v: number) => void;
-  handleSaveSlaTargets: () => void;
+  handleSaveSlaTargets: () => Promise<void>;
   handleResetSlaTargets: () => void;
 
   // Diagnostics
@@ -292,7 +294,7 @@ interface TenantConfigContextValue {
   setNewDiagPath: (v: string) => void;
   newDiagDesc: string;
   setNewDiagDesc: (v: string) => void;
-  handleSaveDiagnostics: () => void;
+  handleSaveDiagnostics: () => Promise<void>;
   handleResetDiagnostics: () => void;
 
   // Admin management
@@ -325,7 +327,7 @@ interface TenantConfigContextValue {
   setDataRetentionDays: (v: number) => void;
   sessionTimeoutHours: number;
   setSessionTimeoutHours: (v: number) => void;
-  handleSaveDataManagement: () => void;
+  handleSaveDataManagement: () => Promise<void>;
   handleResetDataManagement: () => void;
 
   // Offboarding
@@ -727,10 +729,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; validateIntuneDeviceBinding?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
+  // Resolves to null when the save went through, otherwise to the text of the failure.
+  const runSectionSave = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; validateIntuneDeviceBinding?: boolean; unrestrictedMode?: boolean }): Promise<string | null> => {
     // Read-only viewers (Operators) have no save affordances; this guard covers any path
     // that still reaches a save (the backend would 403 the PATCH regardless).
-    if (!tenantId || !config || !canEditConfig) return false;
+    if (!tenantId || !config || !canEditConfig) return "This configuration cannot be edited right now.";
 
     // The validation gates and Unrestricted Mode have no save bar, so their form state must always
     // equal the stored row. Some of their toggles move the state before this save runs, so a failed
@@ -832,7 +835,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       if (await patchTenantConfigFields(api.config.fields(tenantId), patchFields, `settings:${sectionName}`, getAccessToken)) {
         // The feature flags derive from these fields: the cached copy is stale from here on.
         invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
-        setConfig({ ...config, ...patchFields } as TenantConfiguration);
+        // Functional merge: the Agent Settings page has two Save bars, and a save still in flight
+        // must not lose its fields to the later one that started from the same loaded config.
+        setConfig((prev) => ({ ...(prev ?? config), ...patchFields }) as TenantConfiguration);
       }
 
       // Sync the gate-relevant form state with what is now persisted (merge of loaded
@@ -841,13 +846,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       trackEvent("settings_saved", { section: sectionName, fieldCount: Object.keys(patchFields).length });
       setSuccessMessage("Configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
-      return true;
+      return null;
     } catch (err) {
       syncGateState(config);
       const msg = apiErrorText(err, "Failed to save configuration");
       trackEvent("settings_error", { action: "save", section: sectionName, error: msg });
       setError(msg);
-      return false;
+      return msg;
     } finally {
       setSavingSection(null);
     }
@@ -867,6 +872,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, enableSoftwareInventoryAnalyzer,
     enableIntegrityBypassAnalyzer, enableConsoleBypassDetection, unrestrictedMode,
   ]);
+
+  // Flows without a save bar (validation gates, Unrestricted Mode, consent) branch on the outcome.
+  const saveConfiguration = useCallback(
+    async (sectionName: SettingsSectionName, overrides?: Parameters<typeof runSectionSave>[1]) =>
+      (await runSectionSave(sectionName, overrides)) === null,
+    [runSectionSave],
+  );
+
+  // Save bars: a failure throws, so SaveResetBar shows its reason next to the button.
+  const saveSection = useCallback(async (sectionName: SettingsSectionName) => {
+    const failure = await runSectionSave(sectionName);
+    if (failure !== null) throw new Error(failure);
+  }, [runSectionSave]);
 
   // -----------------------------------------------------------------------
   // Consent flow
@@ -1180,7 +1198,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Per-section save/reset handlers
   // -----------------------------------------------------------------------
-  const handleSaveHardwareWhitelist = useCallback(() => saveConfiguration("hardwareWhitelist"), [saveConfiguration]);
+  const handleSaveHardwareWhitelist = useCallback(() => saveSection("hardwareWhitelist"), [saveSection]);
   const handleResetHardwareWhitelist = useCallback(() => {
     if (!config) return;
     setManufacturerWhitelist(config.manufacturerWhitelist);
@@ -1207,12 +1225,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setNotificationChannels((prev) => prev.map((c) => ({ ...c, notifyOnHardwareRejection: v })));
   }, []);
 
-  const handleSaveAgentSettings = useCallback(() => saveConfiguration("agentSettings"), [saveConfiguration]);
-  const handleResetAgentSettings = useCallback(() => {
+  const handleSaveAgentParameters = useCallback(() => saveSection("agentParameters"), [saveSection]);
+  const handleResetAgentParameters = useCallback(() => {
     if (!config) return;
-    setEnablePerformanceCollector(config.enablePerformanceCollector ?? true);
-    setPerformanceCollectorInterval(config.performanceCollectorIntervalSeconds ?? 30);
-    setHelloWaitTimeoutSeconds(config.helloWaitTimeoutSeconds ?? HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS);
     setSelfDestructOnComplete(config.selfDestructOnComplete ?? true);
     setKeepLogFile(config.keepLogFile ?? false);
     setRebootOnComplete(config.rebootOnComplete ?? false);
@@ -1230,12 +1245,20 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnrollmentSummaryTimeoutSeconds(config.enrollmentSummaryTimeoutSeconds ?? 60);
     setEnrollmentSummaryBrandingImageUrl(config.enrollmentSummaryBrandingImageUrl ?? "");
     setEnrollmentSummaryLaunchRetrySeconds(config.enrollmentSummaryLaunchRetrySeconds ?? 120);
-    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
-    setEnableConfigMgrWatcher(config.enableConfigMgrWatcher ?? false);
     setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
   }, [config]);
 
-  const handleSaveAgentAnalyzers = useCallback(() => saveConfiguration("agentAnalyzers"), [saveConfiguration]);
+  const handleSaveAgentCollectors = useCallback(() => saveSection("agentCollectors"), [saveSection]);
+  const handleResetAgentCollectors = useCallback(() => {
+    if (!config) return;
+    setEnablePerformanceCollector(config.enablePerformanceCollector ?? true);
+    setPerformanceCollectorInterval(config.performanceCollectorIntervalSeconds ?? 30);
+    setHelloWaitTimeoutSeconds(config.helloWaitTimeoutSeconds ?? HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS);
+    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
+    setEnableConfigMgrWatcher(config.enableConfigMgrWatcher ?? false);
+  }, [config]);
+
+  const handleSaveAgentAnalyzers = useCallback(() => saveSection("agentAnalyzers"), [saveSection]);
   const handleResetAgentAnalyzers = useCallback(() => {
     if (!config) return;
     setEnableLocalAdminAnalyzer(config.enableLocalAdminAnalyzer ?? true);
@@ -1248,14 +1271,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnableConsoleBypassDetection(config.enableConsoleBypassDetection ?? true);
   }, [config]);
 
-  const handleSaveNotifications = useCallback(() => saveConfiguration("notifications"), [saveConfiguration]);
+  const handleSaveNotifications = useCallback(() => saveSection("notifications"), [saveSection]);
   const handleResetNotifications = useCallback(() => {
     if (!config) return;
     setNotificationChannels(channelsFromConfig(config));
     setTestChannelResult(null);
   }, [config]);
 
-  const handleSaveSlaTargets = useCallback(() => saveConfiguration("slaTargets"), [saveConfiguration]);
+  const handleSaveSlaTargets = useCallback(() => saveSection("slaTargets"), [saveSection]);
   const handleResetSlaTargets = useCallback(() => {
     if (!config) return;
     setSlaTargetSuccessRate(config.slaTargetSuccessRate ?? null);
@@ -1269,14 +1292,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setSlaConsecutiveFailureThreshold(config.slaConsecutiveFailureThreshold ?? 5);
   }, [config]);
 
-  const handleSaveContact = useCallback(() => saveConfiguration("contact"), [saveConfiguration]);
+  const handleSaveContact = useCallback(() => saveSection("contact"), [saveSection]);
   const handleResetContact = useCallback(() => {
     if (!config) return;
     setContactEmail(config.contactEmail ?? "");
     setCompanyName(config.companyName ?? "");
   }, [config]);
 
-  const handleSaveDiagnostics = useCallback(() => saveConfiguration("diagnostics"), [saveConfiguration]);
+  const handleSaveDiagnostics = useCallback(() => saveSection("diagnostics"), [saveSection]);
   const handleResetDiagnostics = useCallback(() => {
     if (!config) return;
     setDiagnosticsBlobSasUrl(config.diagnosticsBlobSasUrl ?? "");
@@ -1287,7 +1310,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     } catch { setTenantDiagPaths([]); }
   }, [config]);
 
-  const handleSaveDataManagement = useCallback(() => saveConfiguration("dataManagement"), [saveConfiguration]);
+  const handleSaveDataManagement = useCallback(() => saveSection("dataManagement"), [saveSection]);
   const handleResetDataManagement = useCallback(() => {
     if (!config) return;
     setDataRetentionDays(config.dataRetentionDays ?? 90);
@@ -1615,7 +1638,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enableRealmJoinWatcher, setEnableRealmJoinWatcher,
       enableConfigMgrWatcher, setEnableConfigMgrWatcher,
       keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
-      handleSaveAgentSettings, handleResetAgentSettings,
+      handleSaveAgentParameters, handleResetAgentParameters,
+      handleSaveAgentCollectors, handleResetAgentCollectors,
 
       // Agent analyzers
       enableLocalAdminAnalyzer, setEnableLocalAdminAnalyzer,
@@ -1698,7 +1722,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
-    handleSaveAgentSettings, handleResetAgentSettings,
+    handleSaveAgentParameters, handleResetAgentParameters,
+    handleSaveAgentCollectors, handleResetAgentCollectors,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
     enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableConsoleBypassDetection,
     handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
