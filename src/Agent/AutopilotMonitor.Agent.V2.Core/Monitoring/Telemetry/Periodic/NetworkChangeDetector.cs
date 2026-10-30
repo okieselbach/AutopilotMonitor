@@ -160,7 +160,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // Suppress events when network hasn't actually changed (DHCP renewals, OS chatter)
             if (previousState != null && previousState.IsSameNetwork(newState))
             {
-                _logger.Debug("NetworkChangeDetector: network address changed but same logical network — suppressing");
+                _logger.Debug("NetworkChangeDetector: network address changed but same logical network — suppressing", repeatKey: "NetworkChangeDetector.sameNetwork");
                 return;
             }
 

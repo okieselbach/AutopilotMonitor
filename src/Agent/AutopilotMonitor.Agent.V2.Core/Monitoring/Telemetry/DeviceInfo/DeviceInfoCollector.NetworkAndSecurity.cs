@@ -1004,7 +1004,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             var fingerprint = Persistence.StartupEventGate.ComputeFingerprint(data, excludedFields);
             if (_startupGate.ShouldEmit(eventType, fingerprint)) return true;
 
-            _logger.Debug($"EnrollmentTracker: '{eventType}' suppressed — payload unchanged since last emission (restart dedup)");
+            _logger.Debug($"EnrollmentTracker: '{eventType}' suppressed — payload unchanged since last emission (restart dedup)", repeatKey: "DeviceInfo.unchanged:" + eventType);
             return false;
         }
 
