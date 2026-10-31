@@ -47,6 +47,39 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
+interface DetectionBadge {
+  label: string;
+  /** Label below `sm`; null hides the pill there — it then appears in the row's Details only. */
+  phoneLabel: string | null;
+  tone: string;
+  title: string;
+}
+
+// IME's check right after the install, or after the restart the installer requested (D-392).
+// Any result other than Detected/NotDetected is IME's DetectedDifferentVersion.
+function postInstallDetectionBadge(result: string, afterReboot: boolean | undefined): DetectionBadge {
+  const check = `Intune's detection check right after the ${afterReboot ? "restart the installer requested" : "installer finished"}`;
+  if (result === "Detected") {
+    // Only confirms what the check icon and the green row already say, so on a phone it yields
+    // its room to the app name instead of squeezing it to a few letters.
+    return { label: "Detected after install", phoneLabel: null, tone: "bg-green-100 text-green-700", title: `${check}: the app was found.` };
+  }
+  if (result === "NotDetected") {
+    return {
+      label: "Not detected after install",
+      phoneLabel: "Not detected",
+      tone: "bg-red-200 text-red-800",
+      title: `${check}: the app was not found, so Intune counts the install as failed (0x87D1041C).`,
+    };
+  }
+  return {
+    label: "Different version detected",
+    phoneLabel: "Other version",
+    tone: "bg-amber-200 text-amber-700",
+    title: `${check}: a different version was found; Intune counts the app as installed.`,
+  };
+}
+
 export default function InstallProgress({ events, summaryStats, observedUntilMs = null, userPhaseBoundary = null }: InstallProgressProps) {
   // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
   // (newer agents suppress them at the source) so week-old installs never render as current.
@@ -263,6 +296,10 @@ function InstallItemRow({ item }: { item: InstallItem }) {
       ? liveElapsed.elapsedMs
       : null;
 
+  // A failed row already says "Detection failed", so its NotDetected verdict is not repeated.
+  const detection = item.postInstallDetection && !(item.state === "Failed" && item.postInstallDetection === "NotDetected")
+    ? postInstallDetectionBadge(item.postInstallDetection, item.postInstallAfterReboot)
+    : null;
 
   // Session 080edee9 follow-up — only the genuine "no HRESULT available" timeout
   // case wears the hedged orange treatment. Detection-failures and install-failures
@@ -343,29 +380,19 @@ function InstallItemRow({ item }: { item: InstallItem }) {
               Uninstall
             </span>
           )}
-          {item.postInstallDetection && !(item.state === "Failed" && item.postInstallDetection === "NotDetected") && (
-            // IME's check right after the install (D-392); a failed row already says "Detection failed".
+          {detection && (
+            // The pill never shrinks (nowrap) while the name does, so on a phone a long label
+            // squeezed the app name to a few letters: short label there, or none at all.
             <span
-              className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
-                item.postInstallDetection === "Detected"
-                  ? "bg-green-100 text-green-700"
-                  : item.postInstallDetection === "NotDetected"
-                    ? "bg-red-200 text-red-800"
-                    : "bg-amber-200 text-amber-700"
-              }`}
-              title={`Intune's detection check right after the ${item.postInstallAfterReboot ? "restart the installer requested" : "installer finished"}: ${
-                item.postInstallDetection === "Detected"
-                  ? "the app was found."
-                  : item.postInstallDetection === "NotDetected"
-                    ? "the app was not found, so Intune counts the install as failed (0x87D1041C)."
-                    : "a different version was found; Intune counts the app as installed."
-              }`}
+              className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${detection.tone}${detection.phoneLabel == null ? " hidden sm:inline" : ""}`}
+              title={detection.title}
             >
-              {item.postInstallDetection === "Detected"
-                ? "Detected after install"
-                : item.postInstallDetection === "NotDetected"
-                  ? "Not detected after install"
-                  : "Different version detected"}
+              {detection.phoneLabel == null ? detection.label : (
+                <>
+                  <span className="sm:hidden">{detection.phoneLabel}</span>
+                  <span className="hidden sm:inline">{detection.label}</span>
+                </>
+              )}
             </span>
           )}
           {item.state === "Failed" && item.isLikelyStuck && (
@@ -515,6 +542,15 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           )}
         </div>
       ) : null}
+
+      {/* Phones: the row header shows the detection result short or not at all, and touch has
+          no hover tooltip — Details carries the full verdict. */}
+      {showDetails && detection && (
+        <div className="sm:hidden mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className={`px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${detection.tone}`}>{detection.label}</span>
+          <span className="text-gray-600">{detection.title}</span>
+        </div>
+      )}
 
       {/* Event details (expandable) */}
       {showDetails && item.eventData && (
