@@ -247,7 +247,7 @@ jobs:
           Get-ChildItem $outDir | ForEach-Object { Write-Host "$($_.Name): $([math]::Round($_.Length / 1MB, 2)) MB" }
 
       - name: Upload unsigned build output
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-unsigned
           path: ${{ runner.temp }}/agent-unsigned
@@ -293,7 +293,7 @@ jobs:
         run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
 
       - name: Download unsigned build output
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-unsigned
           path: ${{ runner.temp }}/agent-unsigned
@@ -790,13 +790,13 @@ jobs:
             staging/agent/AutopilotMonitor.SummaryDialog.exe
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: AutopilotMonitor-Agent-v${{ needs.reserve.outputs.version }}
           path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload version metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: version-metadata
           path: ${{ env.MANIFEST_NAME }}
