@@ -102,12 +102,20 @@ namespace AutopilotMonitor.Functions.Services
         /// before the run starts, so this event is where the operator reads what the run did.
         /// </summary>
         public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy, MaintenanceResult? report = null,
-            IReadOnlyDictionary<string, long>? stepsMs = null)
+            IReadOnlyDictionary<string, long>? stepsMs = null, Maintenance.MaintenanceMemoryReport? memory = null)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceCompleted, OpsEventSeverity.Info,
                 $"Maintenance completed in {durationMs}ms (triggered by {triggeredBy})",
                 null, triggeredBy,
                 report == null
-                    ? (object)new { durationMs, stepsMs }
+                    ? (object)new
+                    {
+                        durationMs,
+                        stepsMs,
+                        stepsPeakMb = memory?.StepsPeakMb,
+                        stepsAllocMb = memory?.StepsAllocMb,
+                        gcHeapLimitMb = memory?.GcHeapLimitMb,
+                        gcHighLoadMb = memory?.GcHighLoadMb,
+                    }
                     : new
                     {
                         durationMs,

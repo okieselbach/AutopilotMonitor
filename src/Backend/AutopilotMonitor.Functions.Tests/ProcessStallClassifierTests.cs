@@ -20,6 +20,7 @@ public class ProcessStallClassifierTests
             PendingWorkItems: pending,
             CompletedWorkItems: completed,
             WorkingSetBytes: 0, HeapSizeBytes: 0, CommittedBytes: 0,
+            TotalAvailableMemoryBytes: 0, MemoryLoadBytes: 0, HighMemoryLoadThresholdBytes: 0,
             LastGcGeneration: 0, LastGcPause: TimeSpan.Zero, LastGcCompacted: false);
 
     [Fact]

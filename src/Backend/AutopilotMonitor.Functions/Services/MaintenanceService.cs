@@ -209,7 +209,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 maintenanceStart.Stop();
                 _logger.LogInformation($"Daily maintenance completed in {maintenanceStart.ElapsedMilliseconds}ms");
-                await _opsEventService.RecordMaintenanceCompletedAsync((int)maintenanceStart.ElapsedMilliseconds, "Timer", stepsMs: steps.Steps);
+                await _opsEventService.RecordMaintenanceCompletedAsync((int)maintenanceStart.ElapsedMilliseconds, "Timer", stepsMs: steps.Steps, memory: steps.MemoryReport());
 
                 // Soft watchdog: the run completed, but if it is climbing toward the host's 60min
                 // functionTimeout (e.g. a large first-time retention backlog deleting row-by-row),

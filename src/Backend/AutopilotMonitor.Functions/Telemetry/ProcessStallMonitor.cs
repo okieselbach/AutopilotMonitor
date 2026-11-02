@@ -31,6 +31,9 @@ public readonly record struct ProcessSnapshot(
     long WorkingSetBytes,
     long HeapSizeBytes,
     long CommittedBytes,
+    long TotalAvailableMemoryBytes,
+    long MemoryLoadBytes,
+    long HighMemoryLoadThresholdBytes,
     int LastGcGeneration,
     TimeSpan LastGcPause,
     bool LastGcCompacted)
@@ -53,6 +56,9 @@ public readonly record struct ProcessSnapshot(
             WorkingSetBytes: Environment.WorkingSet,
             HeapSizeBytes: info.HeapSizeBytes,
             CommittedBytes: info.TotalCommittedBytes,
+            TotalAvailableMemoryBytes: info.TotalAvailableMemoryBytes,
+            MemoryLoadBytes: info.MemoryLoadBytes,
+            HighMemoryLoadThresholdBytes: info.HighMemoryLoadThresholdBytes,
             LastGcGeneration: info.Generation,
             LastGcPause: lastPause,
             LastGcCompacted: info.Compacted);
@@ -121,6 +127,32 @@ public static class ProcessStallClassifier
 }
 
 /// <summary>
+/// Memory pressure as a percentage of the limits the GC itself works against, so a reading keeps
+/// its meaning when the instance size changes. The inputs date from the last GC; before the first
+/// one there is no reading.
+/// </summary>
+public static class ProcessMemoryPressure
+{
+    public const string MetricName = "BackendMemoryPct";
+    public const string KindDimension = "kind";
+
+    /// <summary>Committed heap against the GC's heap limit; at 100 allocations start to fail.</summary>
+    public const string HeapKind = "heap";
+
+    /// <summary>Memory load against the GC's high-load threshold; at 100 the GC collects aggressively.</summary>
+    public const string LoadKind = "load";
+
+    public static double? HeapPercent(ProcessSnapshot snapshot)
+        => Percent(snapshot.CommittedBytes, snapshot.TotalAvailableMemoryBytes);
+
+    public static double? LoadPercent(ProcessSnapshot snapshot)
+        => Percent(snapshot.MemoryLoadBytes, snapshot.HighMemoryLoadThresholdBytes);
+
+    private static double? Percent(long value, long limit)
+        => limit > 0 ? Math.Round(100.0 * value / limit, 1) : null;
+}
+
+/// <summary>
 /// Detects process-wide pauses in the worker and reports what caused them. Production showed
 /// episodes where every in-flight request on ONE instance finished at the same instant after
 /// 5–10 s, with no slow storage call, no warning, no cold start and idle CPU (2026-09-03 12:15
@@ -141,6 +173,11 @@ public static class ProcessStallClassifier
 /// much of one slow request was GC pause. Query:
 /// <c>customEvents | where name == 'ProcessStall' | project timestamp, cloud_RoleInstance, customDimensions</c>.
 /// </para>
+/// <para>
+/// The same tick feeds the pre-aggregated metric <see cref="ProcessMemoryPressure.MetricName"/>
+/// (dimension <c>kind</c>), so a peak shorter than the platform's per-minute counters still shows
+/// as that minute's <c>valueMax</c>.
+/// </para>
 /// </summary>
 public sealed class ProcessStallMonitor : BackgroundService
 {
@@ -154,6 +191,7 @@ public sealed class ProcessStallMonitor : BackgroundService
 
     private readonly TelemetryClient? _telemetry;
     private readonly Metric? _metric;
+    private readonly Metric? _memoryMetric;
     private readonly BackendBuildInfo _buildInfo;
     private readonly ILogger<ProcessStallMonitor> _logger;
 
@@ -163,6 +201,7 @@ public sealed class ProcessStallMonitor : BackgroundService
         _logger = logger;
         _telemetry = telemetry;
         _metric = telemetry?.GetMetric(MetricName, "cause");
+        _memoryMetric = telemetry?.GetMetric(ProcessMemoryPressure.MetricName, ProcessMemoryPressure.KindDimension);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -185,20 +224,30 @@ public sealed class ProcessStallMonitor : BackgroundService
             var drift = stopwatch.Elapsed - Tick;
             var current = ProcessSnapshot.Capture();
 
-            if (drift >= StallThreshold)
+            try
             {
-                try
-                {
+                TrackMemoryPressure(current);
+
+                if (drift >= StallThreshold)
                     Report(ProcessStallClassifier.Classify(drift, previous, current));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "ProcessStallMonitor: failed to report a stall");
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ProcessStallMonitor: failed to report");
             }
 
             previous = current;
         }
+    }
+
+    private void TrackMemoryPressure(ProcessSnapshot snapshot)
+    {
+        if (_memoryMetric == null) return;
+
+        if (ProcessMemoryPressure.HeapPercent(snapshot) is { } heap)
+            _memoryMetric.TrackValue(heap, ProcessMemoryPressure.HeapKind);
+        if (ProcessMemoryPressure.LoadPercent(snapshot) is { } load)
+            _memoryMetric.TrackValue(load, ProcessMemoryPressure.LoadKind);
     }
 
     private void Report(StallReport report)

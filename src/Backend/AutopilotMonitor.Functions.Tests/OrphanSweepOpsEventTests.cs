@@ -47,6 +47,25 @@ public class OrphanSweepOpsEventTests
     }
 
     [Fact]
+    public async Task MaintenanceCompleted_carries_the_step_memory_and_the_gc_limits()
+    {
+        var (service, saved) = Rig();
+        var memory = new MaintenanceMemoryReport(
+            new Dictionary<string, long> { ["appVersionRadar"] = 1900 },
+            new Dictionary<string, long> { ["appVersionRadar"] = 1300 },
+            GcHeapLimitMb: 1740,
+            GcHighLoadMb: 2088);
+
+        await service.RecordMaintenanceCompletedAsync(123456, "Timer", memory: memory);
+
+        var evt = Assert.Single(saved);
+        Assert.Contains("\"stepsPeakMb\":{\"appVersionRadar\":1900}", evt.Details);
+        Assert.Contains("\"stepsAllocMb\":{\"appVersionRadar\":1300}", evt.Details);
+        Assert.Contains("\"gcHeapLimitMb\":1740", evt.Details);
+        Assert.Contains("\"gcHighLoadMb\":2088", evt.Details);
+    }
+
+    [Fact]
     public async Task OrphanEventsCleaned_is_a_Warning_with_per_table_totals_and_the_legacy_count()
     {
         var (service, saved) = Rig();
