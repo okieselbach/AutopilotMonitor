@@ -11,6 +11,7 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared;
@@ -113,34 +114,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         {
             try
             {
-                var data = new Dictionary<string, object>();
-
-                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings"))
-                {
-                    if (key != null)
-                    {
-                        data["proxyEnabled"] = key.GetValue("ProxyEnable")?.ToString() == "1";
-                        data["proxyServer"] = key.GetValue("ProxyServer")?.ToString();
-                        data["proxyOverride"] = key.GetValue("ProxyOverride")?.ToString();
-                        data["autoConfigUrl"] = key.GetValue("AutoConfigURL")?.ToString();
-                    }
-                }
-
-                // Also check WinHTTP proxy
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections"))
-                {
-                    data["winHttpProxyConfigured"] = key?.GetValue("WinHttpSettings") != null;
-                }
-
-                var proxyType = "Direct";
-                if (data.ContainsKey("proxyEnabled") && (bool)data["proxyEnabled"])
-                    proxyType = "Proxy";
-                else if (data.ContainsKey("autoConfigUrl") && data["autoConfigUrl"] != null)
-                    proxyType = "PAC";
-
-                data["proxyType"] = proxyType;
-
-                EmitDeviceInfoEvent(Constants.EventTypes.ProxyConfiguration, $"Proxy configuration: {proxyType}", data);
+                var settings = ProxySettingsReader.Read();
+                EmitDeviceInfoEvent(Constants.EventTypes.ProxyConfiguration, $"Proxy configuration: {settings.ProxyType}", settings.ToEventData());
             }
             catch (Exception ex)
             {

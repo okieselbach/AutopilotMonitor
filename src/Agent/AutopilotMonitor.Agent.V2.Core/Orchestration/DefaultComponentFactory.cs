@@ -96,6 +96,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         private readonly DateTime? _previousRunLastAliveUtc;
 
+        private readonly Transport.ProxyObserver? _proxyObserver;
+
         public DefaultComponentFactory(
             AgentConfiguration agentConfig,
             AgentConfigResponse remoteConfig,
@@ -105,7 +107,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             Persistence.StartupEventGate? startupEventGate = null,
             DateTime? previousBootUtc = null,
             string? previousExitType = null,
-            DateTime? previousRunLastAliveUtc = null)
+            DateTime? previousRunLastAliveUtc = null,
+            Transport.ProxyObserver? proxyObserver = null)
         {
             _agentConfig = agentConfig ?? throw new ArgumentNullException(nameof(agentConfig));
             _remoteConfig = remoteConfig ?? throw new ArgumentNullException(nameof(remoteConfig));
@@ -116,6 +119,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _previousBootUtc = previousBootUtc;
             _previousExitType = previousExitType;
             _previousRunLastAliveUtc = previousRunLastAliveUtc;
+            _proxyObserver = proxyObserver;
         }
 
         /// <summary>
@@ -665,6 +669,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 ingress: ingress,
                 clock: clock,
                 logger: logger));
+
+            // The exact time of a proxy change for the agent log and the timeline. Always on: when
+            // this matters, nothing else from the device reaches the backend.
+            if (_proxyObserver != null)
+            {
+                hosts.Add(new ProxySettingsHost(
+                    observer: _proxyObserver,
+                    ingress: ingress,
+                    clock: clock,
+                    logger: logger));
+            }
 
             // Live AC/battery watcher — WMI Win32_PowerManagementEvent push (no polling), emits
             // power_state_change on AC↔battery transitions and 50/30/15 % downward threshold

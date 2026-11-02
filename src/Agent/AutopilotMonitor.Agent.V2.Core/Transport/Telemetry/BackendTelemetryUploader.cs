@@ -52,6 +52,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         private readonly Logging.AgentLogger? _logger;
         private readonly ServerCertificateObserver? _serverCertificates;
         private readonly NetworkMetrics? _networkMetrics;
+        private readonly ProxyObserver? _proxy;
 
         /// <param name="serverCertificates">
         /// Observer installed on the <paramref name="httpClient"/>'s handler; its issuer becomes
@@ -59,6 +60,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         /// </param>
         /// <param name="networkMetrics">
         /// Counts 2xx answers without the correlation echo (<c>agent_metrics_snapshot</c>). Null = not counted.
+        /// </param>
+        /// <param name="proxy">
+        /// Names the route in the failure lines and hears how each upload ended. Null = neither.
         /// </param>
         public BackendTelemetryUploader(
             HttpClient httpClient,
@@ -72,7 +76,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             AuthFailureTracker? authFailureTracker = null,
             Logging.AgentLogger? logger = null,
             ServerCertificateObserver? serverCertificates = null,
-            NetworkMetrics? networkMetrics = null)
+            NetworkMetrics? networkMetrics = null,
+            ProxyObserver? proxy = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             if (string.IsNullOrEmpty(baseUrl)) throw new ArgumentException("BaseUrl is mandatory.", nameof(baseUrl));
@@ -89,6 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             _logger = logger;
             _serverCertificates = serverCertificates;
             _networkMetrics = networkMetrics;
+            _proxy = proxy;
         }
 
         public async Task<UploadResult> UploadBatchAsync(
@@ -153,7 +159,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 catch (TaskCanceledException ex)
                 {
                     sw.Stop();
-                    _logger?.Warning($"BackendTelemetryUploader: ingest TIMEOUT after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}): {ex.Message}");
+                    _logger?.Warning($"BackendTelemetryUploader: ingest TIMEOUT after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}{RouteSuffix()}): {ex.Message}");
+                    _proxy?.OnSendFailed(sw.Elapsed);
                     // HttpClient timeout (not caller cancellation) surfaces as TaskCanceledException
                     // with cancellationToken.IsCancellationRequested == false.
                     return UploadResult.Transient($"timeout: {ex.Message}");
@@ -162,7 +169,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 {
                     sw.Stop();
                     var cause = TransportErrorCodes.DescribeSendFailure(ex);
-                    _logger?.Warning($"BackendTelemetryUploader: ingest NETWORK fail after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}): {cause}");
+                    _logger?.Warning($"BackendTelemetryUploader: ingest NETWORK fail after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}{RouteSuffix()}): {cause}");
+                    _proxy?.OnSendFailed(sw.Elapsed);
                     // DNS failure, socket error, etc. — network-layer is retryable.
                     return UploadResult.Transient($"network: {cause}");
                 }
@@ -175,6 +183,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     if (result.Success)
                     {
                         _logger?.Verbose($"BackendTelemetryUploader: ingest OK (corr={correlationId}, items={items.Count}, firstId={items[0].TelemetryItemId}, lastId={items[items.Count - 1].TelemetryItemId}, bytes={compressedBody.Length}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}).");
+                        _proxy?.OnSendSucceeded();
                     }
                     else if (result.IsTransient)
                     {
@@ -189,7 +198,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                             $"BackendTelemetryUploader: ingest INTERCEPTED — the answer did not come from the backend " +
                             $"(corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={interception.StatusCode}, " +
                             $"reason={interception.ForeignReason}, pageTitle=\"{interception.PageTitle ?? "(none)"}\", " +
-                            $"serverCertIssuer=\"{interception.ServerCertIssuer ?? "(unknown)"}\").");
+                            $"serverCertIssuer=\"{interception.ServerCertIssuer ?? "(unknown)"}\"{RouteSuffix()}).");
+                        _proxy?.OnSendFailed(sw.Elapsed);
                     }
                     else if (result.IsSessionGone)
                     {
@@ -204,6 +214,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 }
             }
         }
+
+        private string RouteSuffix() => _proxy == null ? string.Empty : $", route={_proxy.RouteText()}";
 
         private async Task<UploadResult> MapResponseAsync(HttpResponseMessage response, string correlationId)
         {

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using Xunit;
 using AutopilotMonitor.Shared.Models;
@@ -34,6 +35,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                 payloadJson: $"{{\"EventType\":\"test\",\"Sequence\":{id}}}",
                 requiresImmediateFlush: false,
                 enqueuedAtUtc: At);
+
+        private static ProxyObserver NewProxyObserver(AgentLogger logger) =>
+            new ProxyObserver(
+                () => new ProxySettings(false, null, null, null, null),
+                () => "direct",
+                logger,
+                new VirtualClock(At),
+                TimeSpan.FromSeconds(30));
 
         private static string ReadLogs(string path)
         {
@@ -234,6 +243,127 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             var logContent = ReadLogs(tmp.Path);
             Assert.DoesNotContain("flushing", logContent);
             Assert.DoesNotContain("ingest", logContent);
+        }
+
+        [Fact]
+        public async Task Network_failure_names_the_route_and_opens_a_series()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(new HttpRequestException("An error occurred while sending the request."));
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, proxy: NewProxyObserver(logger));
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains("ingest NETWORK fail after", logContent);
+            Assert.Contains("items=1, route=direct): ", logContent);
+            Assert.Contains("ProxyObserver: uploads are failing since", logContent);
+        }
+
+        [Fact]
+        public async Task Timeout_names_the_route_and_opens_a_series()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(new TaskCanceledException("A task was canceled."));
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, proxy: NewProxyObserver(logger));
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains("ingest TIMEOUT after", logContent);
+            Assert.Contains("items=1, route=direct): ", logContent);
+            Assert.Contains("ProxyObserver: uploads are failing since", logContent);
+        }
+
+        [Fact]
+        public async Task Interception_names_the_route_and_opens_a_series()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueForeign(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage);
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, proxy: NewProxyObserver(logger));
+
+            var result = await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            Assert.True(result.IsIntercepted);
+
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains(", route=direct).", logContent);
+            Assert.Contains("ProxyObserver: uploads are failing since", logContent);
+        }
+
+        [Fact]
+        public async Task A_successful_upload_ends_the_series()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(new HttpRequestException("An error occurred while sending the request."));
+            handler.QueueStatus(HttpStatusCode.OK);
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, proxy: NewProxyObserver(logger));
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.Contains("ProxyObserver: uploads work again after 1 failed attempt(s)", ReadLogs(tmp.Path));
+        }
+
+        [Fact]
+        public async Task An_answer_from_the_backend_that_is_not_a_success_leaves_the_series_alone()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueStatus(HttpStatusCode.InternalServerError);
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, proxy: NewProxyObserver(logger));
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.DoesNotContain("ProxyObserver: uploads", ReadLogs(tmp.Path));
+        }
+
+        [Fact]
+        public async Task Without_an_observer_the_failure_line_stays_as_it_was()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(new HttpRequestException("An error occurred while sending the request."));
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger);
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains("items=1): ", logContent);
+            Assert.DoesNotContain("route=", logContent);
         }
     }
 }

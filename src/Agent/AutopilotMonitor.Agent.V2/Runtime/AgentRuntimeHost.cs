@@ -99,7 +99,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 // Measured, not guessed: the reducer snapshot is rewritten on every decision step,
                 // so its mtime is the last moment the previous run is known to have been alive —
                 // and unlike LastBootUtc it exists for every exit type, exception_crash included.
-                previousRunLastAliveUtc: DefaultComponentFactory.ReadPreviousRunLastAliveUtc(stateSubdir));
+                previousRunLastAliveUtc: DefaultComponentFactory.ReadPreviousRunLastAliveUtc(stateSubdir),
+                proxyObserver: auth.ProxyObserver);
 
             var whiteGloveSealingPatternIds = (System.Collections.Generic.IReadOnlyCollection<string>)remoteConfig.WhiteGloveSealingPatternIds
                 ?? Array.Empty<string>();

@@ -52,6 +52,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             // outbound call (legacy BackendApiClient calls + dominant /api/agent/telemetry POSTs).
             var networkMetrics = new NetworkMetrics();
 
+            // Before the first request, so a registration that fails has the route in the log too.
+            var proxyObserver = new ProxyObserver(agentConfig.ApiBaseUrl, logger, SystemClock.Instance);
+            proxyObserver.CaptureBaseline();
+
             var hardware = HardwareInfo.GetHardwareInfo(logger);
 
             // Resolve the MDM client cert when cert-mode is on. Cert-missing is non-fatal here:
@@ -150,6 +154,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 emergencyReporter: emergencyReporter,
                 authFailureTracker: authFailureTracker,
                 serverCertificates: serverCertificates,
+                proxyObserver: proxyObserver,
                 clientCertificateThumbprint: clientCertificate?.Thumbprint);
         }
 
@@ -201,7 +206,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     authFailureTracker: auth.AuthFailureTracker,
                     logger: logger,      // Plan §5 Fix 5 — upload-cadence logging
                     serverCertificates: auth.ServerCertificates,
-                    networkMetrics: auth.NetworkMetrics);
+                    networkMetrics: auth.NetworkMetrics,
+                    proxy: auth.ProxyObserver);
             }
             catch (Exception ex)
             {
@@ -291,6 +297,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// </summary>
         public ServerCertificateObserver ServerCertificates { get; }
 
+        /// <summary>Shared by the telemetry uploader built in Phase 5 and the collector host.</summary>
+        public ProxyObserver ProxyObserver { get; }
+
         /// <summary>
         /// Thumbprint of the client certificate this run uses; null without one. Kept beside a
         /// failed run's record so the next successful start can tell whether the certificate changed.
@@ -308,6 +317,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             EmergencyReporter emergencyReporter,
             AuthFailureTracker authFailureTracker,
             ServerCertificateObserver serverCertificates,
+            ProxyObserver proxyObserver,
             string clientCertificateThumbprint = null)
         {
             BackendApiClient = backendApiClient;
@@ -320,6 +330,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             EmergencyReporter = emergencyReporter;
             AuthFailureTracker = authFailureTracker;
             ServerCertificates = serverCertificates;
+            ProxyObserver = proxyObserver;
             ClientCertificateThumbprint = clientCertificateThumbprint;
         }
     }
