@@ -194,7 +194,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             catch (Exception ex)
             {
                 // Swallow — distress channel must never cascade failures into the caller
-                _logger?.Debug($"[DistressChannel] Failed to send report: {ex.Message}");
+                _logger?.Debug($"[DistressChannel] Failed to send report: {TransportErrorCodes.DescribeSendFailure(ex)}");
             }
         }
 

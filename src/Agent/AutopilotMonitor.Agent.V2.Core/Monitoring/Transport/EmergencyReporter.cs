@@ -180,7 +180,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             catch (Exception ex)
             {
                 // Swallow — emergency channel must never cascade failures into the caller
-                _logger?.Debug($"[EmergencyChannel] Failed to send report: {ex.Message}");
+                _logger?.Debug($"[EmergencyChannel] Failed to send report: {TransportErrorCodes.DescribeSendFailure(ex)}");
             }
 
             if (!delivered)

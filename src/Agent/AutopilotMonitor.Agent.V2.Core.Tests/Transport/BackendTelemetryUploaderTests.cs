@@ -551,6 +551,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task Network_error_reason_names_the_cause_instead_of_the_generic_text()
+        {
+            using var rig = new Rig();
+            rig.Handler.QueueThrow(new HttpRequestException(
+                "An error occurred while sending the request.",
+                new WebException(
+                    "Unable to connect to the remote server",
+                    new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.TimedOut),
+                    WebExceptionStatus.ConnectFailure,
+                    null)));
+
+            var result = await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.True(result.IsTransient);
+            Assert.StartsWith("network: status=ConnectFailure, socket=TimedOut: ", result.ErrorReason);
+        }
+
+        [Fact]
         public async Task HttpClient_timeout_maps_to_Transient()
         {
             // HttpClient surfaces its own internal timeout as TaskCanceledException with

@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
 {
@@ -29,6 +31,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             if (ex == null) return null;
             var code = InnermostNativeCode(ex);
             return code == null ? ex.Message : $"{ex.Message} (win32 {code})";
+        }
+
+        /// <summary>
+        /// What a failed send hit, in one line: the <see cref="WebException.Status"/>, the socket error
+        /// or native code, and the innermost message. On .NET Framework a socket error's message names
+        /// the endpoint it tried, which tells a backend that does not answer from a proxy that does not.
+        /// </summary>
+        public static string DescribeSendFailure(Exception ex)
+        {
+            if (ex == null) return null;
+
+            WebExceptionStatus? status = null;
+            SocketError? socketError = null;
+            var innermost = ex;
+            for (var current = ex; current != null; current = current.InnerException)
+            {
+                innermost = current;
+                if (current is WebException web && status == null) status = web.Status;
+                if (current is SocketException socket) socketError = socket.SocketErrorCode;
+            }
+
+            var code = socketError.HasValue ? $"socket={socketError.Value}" : NativeCodePart(ex);
+            var details = status.HasValue
+                ? (code == null ? $"status={status.Value}" : $"status={status.Value}, {code}")
+                : code;
+            return details == null ? innermost.Message : $"{details}: {innermost.Message}";
+        }
+
+        private static string NativeCodePart(Exception ex)
+        {
+            var code = InnermostNativeCode(ex);
+            return code == null ? null : $"win32={code}";
         }
 
         /// <summary>Eight-digit hex with <c>0x</c>: <c>-2146893018</c> → <c>0x80090326</c>.</summary>

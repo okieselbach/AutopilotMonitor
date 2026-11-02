@@ -161,9 +161,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 catch (HttpRequestException ex)
                 {
                     sw.Stop();
-                    _logger?.Warning($"BackendTelemetryUploader: ingest NETWORK fail after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}): {ex.Message}");
+                    var cause = TransportErrorCodes.DescribeSendFailure(ex);
+                    _logger?.Warning($"BackendTelemetryUploader: ingest NETWORK fail after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}): {cause}");
                     // DNS failure, socket error, etc. — network-layer is retryable.
-                    return UploadResult.Transient($"network: {ex.Message}");
+                    return UploadResult.Transient($"network: {cause}");
                 }
 
                 using (response)
