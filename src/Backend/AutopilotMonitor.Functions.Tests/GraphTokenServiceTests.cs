@@ -43,16 +43,21 @@ public class GraphTokenServiceTests
     /// these tests ⇒ the registry always resolves the primary credentials and the tenant-config
     /// lookup is never consulted for the decision — a null-returning repo is fine.
     /// </summary>
-    private static GraphTokenService NewService(IConfiguration config, System.Net.Http.IHttpClientFactory factory) =>
+    private static GraphTokenService NewService(
+        IConfiguration config,
+        System.Net.Http.IHttpClientFactory factory,
+        IGraphAccessHealthRecorder? accessHealth = null,
+        Microsoft.Extensions.Logging.ILogger<GraphTokenService>? logger = null) =>
         new GraphTokenService(
-            NullLogger<GraphTokenService>.Instance,
+            logger ?? NullLogger<GraphTokenService>.Instance,
             factory,
             new MemoryCache(new MemoryCacheOptions()),
             new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance),
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
                 NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
-                new MemoryCache(new MemoryCacheOptions())));
+                new MemoryCache(new MemoryCacheOptions())),
+            accessHealth ?? Moq.Mock.Of<IGraphAccessHealthRecorder>());
 
     private static int TokenPosts(StubHttpMessageHandler handler, string tenantId)
         => handler.Requests.Count(u => u.Contains($"/{tenantId}/oauth2/v2.0/token"));
@@ -240,7 +245,8 @@ public class GraphTokenServiceTests
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
                 NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
-                new MemoryCache(new MemoryCacheOptions())));
+                new MemoryCache(new MemoryCacheOptions())),
+            Moq.Mock.Of<IGraphAccessHealthRecorder>());
 
         var probe1 = await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
         var probe2 = await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
@@ -258,6 +264,195 @@ public class GraphTokenServiceTests
         svc.InvalidateTenant(TenantA);
         await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
         Assert.Equal(3, TokenPosts(handler, TenantA));
+    }
+
+    // ── Entra's refusal ─────────────────────────────────────────────────────
+
+    private const string MissingAppBody = "{\"error\":\"invalid_client\",\"error_description\":\"AADSTS7000229: missing service principal\",\"error_codes\":[7000229]}";
+    private const string ConditionalAccessBody = "{\"error\":\"invalid_request\",\"error_description\":\"AADSTS53003: blocked\",\"error_codes\":[53003]}";
+
+    private static GraphTokenService ServiceFor(
+        StubHttpMessageHandler handler,
+        Moq.Mock<IGraphAccessHealthRecorder> accessHealth,
+        Microsoft.Extensions.Logging.ILogger<GraphTokenService>? logger = null)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EntraId:ClientId"] = "test-client",
+                ["EntraId:ClientSecret"] = "test-secret",
+            })
+            .Build();
+        return NewService(config, new StubHttpClientFactory(handler), accessHealth.Object, logger);
+    }
+
+    [Fact]
+    public async Task Rejection_survives_a_budget_that_ends_the_retries()
+    {
+        // The validators run on 8 s and the recheck on 3 s; the chain's first retry waits 5 s.
+        var handler = new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.Unauthorized, MissingAppBody);
+        var (svc, _) = Create(handler);
+        using var budget = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+
+        var result = await svc.GetAccessTokenAsync(TenantA, budget.Token);
+
+        Assert.Null(result.AccessToken);
+        Assert.True(result.IsTransient);
+        Assert.NotNull(result.Rejection);
+        Assert.Equal(401, result.Rejection!.StatusCode);
+        Assert.True(result.Rejection.IsServicePrincipalMissing);
+        Assert.Equal(1, TokenPosts(handler, TenantA));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    public async Task A_server_error_or_throttle_is_no_rejection(HttpStatusCode status)
+    {
+        var handler = new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", status, MissingAppBody);
+        var (svc, _) = Create(handler);
+        using var budget = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        var result = await svc.GetAccessTokenAsync(TenantA, budget.Token);
+
+        Assert.True(result.IsTransient);
+        Assert.Null(result.Rejection);
+    }
+
+    [Fact]
+    public async Task Agent_validation_reports_a_rejection()
+    {
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.BadRequest, ConditionalAccessBody), health);
+
+        var result = await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+
+        Assert.False(result.IsTransient);
+        health.Verify(h => h.RecordRejectedAsync(TenantA, Moq.It.Is<EntraTokenRejection>(r => r.ErrorCode == "AADSTS53003")), Moq.Times.Once);
+    }
+
+    [Fact]
+    public async Task The_portal_path_does_not_report_a_rejection()
+    {
+        // The consent flows see refusals as a matter of course while a consent propagates.
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.BadRequest, ConditionalAccessBody), health);
+
+        await svc.GetAccessTokenAsync(TenantA);
+
+        health.Verify(h => h.RecordRejectedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<EntraTokenRejection>()), Moq.Times.Never);
+    }
+
+    [Fact]
+    public async Task Only_a_fresh_token_counts_as_proof_of_access()
+    {
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, TestGraphToken.Body(TestGraphToken.ValidationRole)), health);
+
+        var minted = await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+        var cached = await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+
+        Assert.True(minted.IsFreshlyMinted);
+        Assert.False(cached.IsFreshlyMinted);
+        health.Verify(h => h.RecordMintedAsync(TenantA), Moq.Times.Once);
+        health.Verify(h => h.RecordRejectedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<EntraTokenRejection>()), Moq.Times.Never);
+    }
+
+    [Fact]
+    public async Task A_token_without_a_role_is_no_proof_of_access()
+    {
+        // A sign-in consent re-created the removed enterprise application without any permission.
+        // The notice must survive it: this is the moment an admin signs in to read it.
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, TestGraphToken.Body()), health);
+
+        await svc.GetAccessTokenAsync(TenantA);
+
+        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>()), Moq.Times.Never);
+        health.Verify(h => h.RecordRejectedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<EntraTokenRejection>()), Moq.Times.Never);
+    }
+
+    [Fact]
+    public async Task Agent_validation_counts_a_token_without_a_role_as_a_refusal()
+    {
+        // Graph refuses every call made with it, so the agent is locked out all the same.
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, TestGraphToken.Body()), health);
+
+        var result = await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+
+        Assert.NotNull(result.AccessToken);
+        health.Verify(h => h.RecordRejectedAsync(TenantA, EntraTokenRejection.NoApplicationRole), Moq.Times.Once);
+        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>()), Moq.Times.Never);
+    }
+
+    [Fact]
+    public async Task Agent_validation_does_not_judge_a_token_from_the_cache()
+    {
+        var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, TestGraphToken.Body()), health);
+
+        await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+        await svc.GetAccessTokenForAgentValidationAsync(TenantA);
+
+        health.Verify(h => h.RecordRejectedAsync(TenantA, EntraTokenRejection.NoApplicationRole), Moq.Times.Once);
+    }
+
+    [Fact]
+    public async Task A_probe_under_explicit_credentials_reports_nothing()
+    {
+        // A token of the app the tenant is not homed on says nothing about the tenant's access.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EntraId:ClientId"] = "test-client",
+                ["EntraId:ClientSecret"] = "test-secret",
+            })
+            .Build();
+        var registry = new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance);
+
+        foreach (var (status, body) in new[]
+        {
+            (HttpStatusCode.OK, TestGraphToken.Body(TestGraphToken.ValidationRole)),
+            (HttpStatusCode.OK, TestGraphToken.Body()),
+            (HttpStatusCode.BadRequest, ConditionalAccessBody),
+        })
+        {
+            var health = new Moq.Mock<IGraphAccessHealthRecorder>();
+            var svc = NewService(config, new StubHttpClientFactory(new StubHttpMessageHandler().When($"/{TenantA}/oauth2", status, body)), health.Object);
+
+            await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
+
+            health.VerifyNoOtherCalls();
+        }
+    }
+
+    [Fact]
+    public async Task Entra_refusal_is_logged_once_per_window()
+    {
+        var logger = new Moq.Mock<Microsoft.Extensions.Logging.ILogger<GraphTokenService>>();
+        var svc = ServiceFor(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.BadRequest, ConditionalAccessBody),
+            new Moq.Mock<IGraphAccessHealthRecorder>(), logger.Object);
+
+        await svc.GetAccessTokenAsync(TenantA);
+        await svc.GetAccessTokenAsync(TenantA);
+
+        logger.Verify(l => l.Log(
+            Microsoft.Extensions.Logging.LogLevel.Warning,
+            Moq.It.IsAny<Microsoft.Extensions.Logging.EventId>(),
+            Moq.It.Is<Moq.It.IsAnyType>((state, _) => state.ToString()!.Contains("rejected by Entra") && state.ToString()!.Contains("AADSTS53003")),
+            Moq.It.IsAny<Exception?>(),
+            Moq.It.IsAny<Func<Moq.It.IsAnyType, Exception?, string>>()), Moq.Times.Once);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)

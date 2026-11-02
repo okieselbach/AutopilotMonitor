@@ -18,6 +18,10 @@ namespace AutopilotMonitor.Shared.Models
         public bool DiagnosticsUploadConfigured { get; set; }
         /// <summary>At least one device-validation method is enabled (<see cref="TenantConfiguration.HasAnyDeviceValidation"/>); false drives the "agent ingestion is blocked" dashboard banner.</summary>
         public bool DeviceValidationEnabled { get; set; }
+        /// <summary>Microsoft Entra has kept refusing the tenant's app token, so agents get no validation; drives the "enrollment monitoring is interrupted" notice. Boolean only, no error detail.</summary>
+        public bool GraphAccessRejected { get; set; }
+        /// <summary>Only with <see cref="GraphAccessRejected"/>: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text.</summary>
+        public bool GraphAccessAppMissing { get; set; }
         /// <summary>Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids.</summary>
         public bool AppHomingFunnelActive { get; set; }
         public bool ShowScriptOutput { get; set; }

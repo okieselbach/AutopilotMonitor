@@ -28,6 +28,12 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // the operator to re-assign app roles on the new enterprise app.
     "AppHomingFlipped",
     "AppHomingFlippedWithEntraRoles",
+    // Entra keeps refusing a tenant's app token (Error, after 15 min) and issues it again (Info).
+    // Credential: our own client secret is refused (Critical, hits every tenant on that app).
+    // Backend helpers RecordGraphAccess{Rejected,Recovered}Async, RecordGraphAppCredentialRejectedAsync.
+    "GraphAccessRejected",
+    "GraphAccessRecovered",
+    "GraphAppCredentialRejected",
   ],
   Maintenance: [
     // Verdict-calibration drift radar (operator-only classifier diagnostics): a verdict path's

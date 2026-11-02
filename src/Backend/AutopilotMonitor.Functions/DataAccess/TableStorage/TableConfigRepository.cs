@@ -32,12 +32,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         /// <summary>
         /// Changes to ONLY these properties do not snapshot the tenant-config row: the
-        /// LastAuthClientId pair flips as an auth-flow side effect and would flood the
-        /// two backup slots with states nobody ever wants to revert to.
+        /// LastAuthClientId pair flips as an auth-flow side effect and the Graph access state as
+        /// a token side effect; both would flood the two backup slots with states nobody ever
+        /// wants to revert to.
         /// </summary>
         private static readonly HashSet<string> TenantBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
         {
             "LastUpdated", "UpdatedBy", "LastAuthClientId", "LastAuthClientIdSince",
+            "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
         };
 
         private static readonly HashSet<string> AdminBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -815,6 +817,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "HomedAppClientId", config.HomedAppClientId },
                 { "LastAuthClientId", config.LastAuthClientId },
                 { "LastAuthClientIdSince", config.LastAuthClientIdSince },
+                { "GraphAccessRejectedSince", config.GraphAccessRejectedSince },
+                { "GraphAccessRejectedCode", config.GraphAccessRejectedCode },
+                { "GraphAccessRejectionConfirmedAt", config.GraphAccessRejectionConfirmedAt },
                 { "PlanTier", config.PlanTier },
                 { "TrialExpiresUtc", config.TrialExpiresUtc },
                 { "TrialStartedUtc", config.TrialStartedUtc },
@@ -938,6 +943,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 HomedAppClientId = entity.GetString("HomedAppClientId"),
                 LastAuthClientId = entity.GetString("LastAuthClientId"),
                 LastAuthClientIdSince = entity.GetDateTime("LastAuthClientIdSince"),
+                GraphAccessRejectedSince = entity.GetDateTime("GraphAccessRejectedSince"),
+                GraphAccessRejectedCode = entity.GetString("GraphAccessRejectedCode"),
+                GraphAccessRejectionConfirmedAt = entity.GetDateTime("GraphAccessRejectionConfirmedAt"),
                 PlanTier = entity.GetString("PlanTier") ?? "free",
                 TrialExpiresUtc = entity.GetDateTime("TrialExpiresUtc"),
                 TrialStartedUtc = entity.GetDateTime("TrialStartedUtc"),

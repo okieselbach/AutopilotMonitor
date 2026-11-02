@@ -69,6 +69,10 @@ export interface TenantConfiguration {
    * passive re-consent hint in the Autopilot validation section.
    */
   homedAppClientId?: string | null;
+  /** First Entra refusal of the tenant's app token in the current episode. System-owned, shown on the repair card. */
+  graphAccessRejectedSince?: string | null;
+  /** The Entra error of that refusal, for example AADSTS7000229. System-owned, shown on the repair card. */
+  graphAccessRejectedCode?: string | null;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   // Agent collector settings

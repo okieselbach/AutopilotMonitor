@@ -138,6 +138,27 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? LastAuthClientIdSince { get; set; }
 
         /// <summary>
+        /// When Microsoft Entra first refused this tenant's app token on an agent request, in the
+        /// current episode. Only a suspicion: nothing is shown until
+        /// <see cref="GraphAccessRejectionConfirmedAt"/> is set. System-owned, cleared by the next
+        /// freshly issued token that carries an application permission.
+        /// </summary>
+        public DateTime? GraphAccessRejectedSince { get; set; }
+
+        /// <summary>
+        /// The Entra error of the rejection (for example AADSTS7000229), or NoApplicationRole for a
+        /// token without any application permission; null when the response carried no code. System-owned.
+        /// </summary>
+        public string? GraphAccessRejectedCode { get; set; }
+
+        /// <summary>
+        /// When a later rejection confirmed the suspicion: the tenant's agents get no validation
+        /// and the portal shows its notice. System-owned, cleared by the next freshly issued token
+        /// that carries an application permission.
+        /// </summary>
+        public DateTime? GraphAccessRejectionConfirmedAt { get; set; }
+
+        /// <summary>
         /// Whether this tenant is disabled/suspended
         /// If true, users from this tenant cannot log in
         /// Default: false

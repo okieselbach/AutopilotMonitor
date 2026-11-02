@@ -27,6 +27,9 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string ConsentRedirectUriMismatch     = "ConsentRedirectUriMismatch";
         public const string AppHomingFlipped               = "AppHomingFlipped";
         public const string AppHomingFlippedWithEntraRoles = "AppHomingFlippedWithEntraRoles";
+        public const string GraphAccessRejected            = "GraphAccessRejected";
+        public const string GraphAccessRecovered           = "GraphAccessRecovered";
+        public const string GraphAppCredentialRejected     = "GraphAppCredentialRejected";
 
         // ── Maintenance ── Scheduled maintenance, cascade deletion, critical-table backup.
         public const string MaintenanceCompleted                        = "MaintenanceCompleted";
@@ -203,7 +206,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Every declared type, declaration order (grouped by category).</summary>
         public static readonly IReadOnlyList<string> All = new[]
         {
-            ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
+            ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles, GraphAccessRejected, GraphAccessRecovered, GraphAppCredentialRejected,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen, ReportUploadLimitReached,
             OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,

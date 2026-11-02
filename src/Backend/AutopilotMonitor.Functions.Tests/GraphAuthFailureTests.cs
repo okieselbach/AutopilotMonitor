@@ -32,7 +32,7 @@ public class GraphAuthFailureTests
             Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache)
         { CallBase = false };
         return new Mock<GraphTokenService>(
-            NullLogger<GraphTokenService>.Instance, Mock.Of<IHttpClientFactory>(), cache, registry, tenantConfig.Object)
+            NullLogger<GraphTokenService>.Instance, Mock.Of<IHttpClientFactory>(), cache, registry, tenantConfig.Object, Mock.Of<IGraphAccessHealthRecorder>())
         { CallBase = false };
     }
 

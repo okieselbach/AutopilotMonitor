@@ -65,7 +65,7 @@ public class CorporateIdentifierValidatorTests
             Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache)
         { CallBase = false };
         var tokenService = new Mock<GraphTokenService>(
-            NullLogger<GraphTokenService>.Instance, Mock.Of<IHttpClientFactory>(), cache, registry, tenantConfig.Object)
+            NullLogger<GraphTokenService>.Instance, Mock.Of<IHttpClientFactory>(), cache, registry, tenantConfig.Object, Mock.Of<IGraphAccessHealthRecorder>())
         { CallBase = false };
         tokenService.Setup(t => t.GetAccessTokenAsync(TenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(GraphTokenResult.Success("token"));

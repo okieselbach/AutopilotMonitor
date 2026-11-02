@@ -5371,6 +5371,12 @@ export interface TenantConfiguration {
   lastAuthClientId?: string | null;
   /** When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field. */
   lastAuthClientIdSince?: string | null;
+  /** When Microsoft Entra first refused this tenant's app token on an agent request, in the current episode. Only a suspicion: nothing is shown until GraphAccessRejectionConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries an application permission. */
+  graphAccessRejectedSince?: string | null;
+  /** The Entra error of the rejection (for example AADSTS7000229), or NoApplicationRole for a token without any application permission; null when the response carried no code. System-owned. */
+  graphAccessRejectedCode?: string | null;
+  /** When a later rejection confirmed the suspicion: the tenant's agents get no validation and the portal shows its notice. System-owned, cleared by the next freshly issued token that carries an application permission. */
+  graphAccessRejectionConfirmedAt?: string | null;
   /** Whether this tenant is disabled/suspended If true, users from this tenant cannot log in Default: false */
   disabled: boolean;
   /** Optional reason why the tenant was disabled Displayed to users attempting to log in */
@@ -5587,6 +5593,10 @@ export interface TenantFeatureFlagsResponse {
   diagnosticsUploadConfigured: boolean;
   /** At least one device-validation method is enabled (HasAnyDeviceValidation); false drives the "agent ingestion is blocked" dashboard banner. */
   deviceValidationEnabled: boolean;
+  /** Microsoft Entra has kept refusing the tenant's app token, so agents get no validation; drives the "enrollment monitoring is interrupted" notice. Boolean only, no error detail. */
+  graphAccessRejected: boolean;
+  /** Only with GraphAccessRejected: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text. */
+  graphAccessAppMissing: boolean;
   /** Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids. */
   appHomingFunnelActive: boolean;
   showScriptOutput: boolean;

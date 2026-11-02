@@ -74,6 +74,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var resolution = FeatureEntitlementCatalog.Resolve(config, nowUtc);
             var entitlements = FeatureEntitlementCatalog.Get(resolution);
             var isTrial = resolution.IsTrial;
+            var graphAccessRejected = config.HasAnyDeviceValidation() && config.GraphAccessRejectionConfirmedAt != null;
 
             return new TenantFeatureFlagsResponse
             {
@@ -87,6 +88,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 DiagnosticsUploadConfigured = DiagnosticsUploadConfigChange.IsConfigured(config),
                 // Drives the "no device validation enabled" dashboard banner (useTenantSecurityConfig).
                 DeviceValidationEnabled = config.HasAnyDeviceValidation(),
+                // Drives the "enrollment monitoring is interrupted" notice. A suspicion alone shows
+                // nothing; the error code itself stays in the admin-gated full config.
+                GraphAccessRejected = graphAccessRejected,
+                GraphAccessAppMissing = graphAccessRejected
+                    && string.Equals(config.GraphAccessRejectedCode, EntraTokenRejection.ServicePrincipalMissingCode, StringComparison.OrdinalIgnoreCase),
                 // Dual app-reg self-service migration: when true, running the consent flow (or
                 // "Detect existing access") targets the NEW app registration and auto-flips this
                 // tenant's homing after verification — drives the explanatory banner in the

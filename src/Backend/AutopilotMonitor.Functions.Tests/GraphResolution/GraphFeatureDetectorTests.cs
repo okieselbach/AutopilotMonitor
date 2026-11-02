@@ -342,7 +342,8 @@ public class GraphFeatureDetectorTests
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
                 NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
-                new MemoryCache(new MemoryCacheOptions())));
+                new MemoryCache(new MemoryCacheOptions())),
+            Moq.Mock.Of<IGraphAccessHealthRecorder>());
         var telemetry = new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true });
         var detector = new GraphFeatureDetector(
             tokenService, cache, NullLogger<GraphFeatureDetector>.Instance, telemetry);
@@ -497,7 +498,8 @@ public class GraphFeatureDetectorTests
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
                 StubAppRegistry(),
-                StubTenantConfigService())
+                StubTenantConfigService(),
+                Moq.Mock.Of<IGraphAccessHealthRecorder>())
         {
         }
 
@@ -529,7 +531,8 @@ public class GraphFeatureDetectorTests
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
                 StubAppRegistry(),
-                StubTenantConfigService())
+                StubTenantConfigService(),
+                Moq.Mock.Of<IGraphAccessHealthRecorder>())
         {
             _firstToken = firstToken;
             _laterToken = laterToken;
@@ -567,7 +570,8 @@ public class GraphFeatureDetectorTests
                 factory,
                 cache,
                 StubAppRegistry(),
-                StubTenantConfigService())
+                StubTenantConfigService(),
+                Moq.Mock.Of<IGraphAccessHealthRecorder>())
         {
             _onInvalidate = onInvalidate;
         }

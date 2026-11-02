@@ -12,6 +12,7 @@ import { DOCS_URL } from "@/lib/config";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
 import { AppHomingAddOnStep } from "../../components/AppHomingAddOnStep";
+import { GraphAccessCard } from "../../components/GraphAccessCard";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
 import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesInsights";
 import type { GetGraphPermissionsStatusResponse } from "@/lib/generated/wire-types.generated";
@@ -32,6 +33,7 @@ export function SectionAutopilotValidation() {
     autopilotConsentInProgress, savingSection,
     beginDeviceValidationConsentFlow, detectExistingAccess,
     appHomingFunnelActive, homingFlipped, homingMissingRoles,
+    graphAccessRejected, graphAccessAppMissing,
   } = useTenantConfig();
 
   const { getAccessToken } = useAuth();
@@ -100,6 +102,15 @@ export function SectionAutopilotValidation() {
           command={buildAddOnGrantCommand(newAppClientId!, tenantId, { permissions: addOnStepRoles })}
           busy={autopilotConsentInProgress || savingSection === "autopilotValidation"}
           onDetectExistingAccess={() => { void detectExistingAccess("autopilot"); }}
+        />
+      ) : graphAccessRejected ? (
+        <GraphAccessCard
+          appMissing={graphAccessAppMissing}
+          since={config?.graphAccessRejectedSince}
+          code={config?.graphAccessRejectedCode}
+          busy={autopilotConsentInProgress || savingSection === "autopilotValidation"}
+          onRestore={() => { void beginDeviceValidationConsentFlow("restore"); }}
+          onDetectExistingAccess={() => { void detectExistingAccess("restore"); }}
         />
       ) : appHomingFunnelActive ? (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-5 shadow-sm dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-700/60">
@@ -190,6 +201,7 @@ export function SectionAutopilotValidation() {
         onToggleCloudPc={handleToggleCloudPcValidation}
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}
+        accessRejected={graphAccessRejected}
         onBeginConsent={beginDeviceValidationConsentFlow}
         onDetectExistingAccess={detectExistingAccess}
       />

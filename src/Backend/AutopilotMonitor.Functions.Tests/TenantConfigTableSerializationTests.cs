@@ -213,6 +213,40 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.LastAuthClientIdSince);
     }
 
+    [Fact]
+    public void Roundtrip_GraphAccessFields_SurviveStoreAndMap()
+    {
+        var since = new DateTime(2026, 11, 2, 8, 0, 0, DateTimeKind.Utc);
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            GraphAccessRejectedSince = since,
+            GraphAccessRejectedCode = "AADSTS7000229",
+            GraphAccessRejectionConfirmedAt = since.AddMinutes(20),
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(since, mapped.GraphAccessRejectedSince);
+        Assert.Equal("AADSTS7000229", mapped.GraphAccessRejectedCode);
+        Assert.Equal(since.AddMinutes(20), mapped.GraphAccessRejectionConfirmedAt);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutGraphAccessColumns_ReadsNull()
+    {
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(entity);
+
+        Assert.Null(mapped.GraphAccessRejectedSince);
+        Assert.Null(mapped.GraphAccessRejectedCode);
+        Assert.Null(mapped.GraphAccessRejectionConfirmedAt);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData(0)]

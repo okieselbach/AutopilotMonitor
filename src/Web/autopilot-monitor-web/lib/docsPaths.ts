@@ -60,6 +60,8 @@ export const DOCS_PATHS = {
   appRegistrationMigrationAfter: "/troubleshooting-and-support/app-registration-migration#after-the-migration",
   appRegistrationMigrationAddOns: "/troubleshooting-and-support/app-registration-migration#optional-graph-add-on-permissions",
   optionalGraphPermissions: "/reference/optional-graph-permissions",
+  // Rejected Graph access (dashboard banner, settings card)
+  enrollmentMonitoringInterrupted: "/troubleshooting-and-support/enrollment-monitoring-interrupted",
   // Progress Portal access hint (members without a role)
   progressPortalOnly: "/troubleshooting-and-support/progress-portal-only",
   // Dashboard welcome card (tenant without sessions)

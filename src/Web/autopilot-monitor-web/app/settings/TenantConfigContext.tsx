@@ -13,8 +13,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
 import { primaryClientId } from "@/lib/authApp";
 import { canManageBootstrapSessions } from "@/lib/tenantScope";
-
-type ValidationTrigger = "autopilot" | "corporate" | "device-preparation";
+import { gateChangeFor, parseConsentTrigger, type ConsentTrigger, type ValidationTrigger } from "./lib/consentTrigger";
 
 // Human label for a validation trigger.
 const validationLabel = (t: ValidationTrigger) =>
@@ -24,6 +23,9 @@ const validationLabel = (t: ValidationTrigger) =>
 
 // Enable-confirmation suffix: every consent-driven validation is an accepting agent gate.
 const VALIDATION_ENABLED_SUFFIX = " enabled. Backend agent endpoints are now unlocked for this tenant.";
+
+// The one moment someone waits in front of the page: other backend instances hold the config up to 5 minutes.
+const ACCESS_RESTORED_MESSAGE = "Access restored. The notice on the dashboard can take a few minutes to disappear.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
@@ -128,6 +130,10 @@ interface TenantConfigContextValue {
    * this session's consent-status / access-check responses; cleared once the tenant switches.
    */
   homingMissingRoles: string[] | null;
+  /** Microsoft Entra keeps refusing the tenant's app token: the section shows the repair instead of the migration nudge. */
+  graphAccessRejected: boolean;
+  /** Only with graphAccessRejected: the refusal says the enterprise application is missing. */
+  graphAccessAppMissing: boolean;
 
   // Validation
   validateAutopilotDevice: boolean;
@@ -157,13 +163,13 @@ interface TenantConfigContextValue {
    */
   saveValidationGate: (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }) => Promise<boolean>;
   autopilotConsentInProgress: boolean;
-  beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
+  beginDeviceValidationConsentFlow: (trigger: ConsentTrigger) => Promise<void>;
   /**
    * Probe whether the multi-tenant app is already pre-approved in this tenant (by someone with
    * consent rights) and, if so, enable validation without running the /adminconsent redirect —
-   * the "rights-less admin" escape hatch.
+   * the "rights-less admin" escape hatch. With "restore" it enables nothing.
    */
-  detectExistingAccess: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
+  detectExistingAccess: (trigger: ConsentTrigger) => Promise<void>;
 
   // Hardware whitelist
   manufacturerWhitelist: string;
@@ -472,6 +478,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [appHomingFunnelActive, setAppHomingFunnelActive] = useState(false);
   const [homingFlipped, setHomingFlipped] = useState(false);
   const [homingMissingRoles, setHomingMissingRoles] = useState<string[] | null>(null);
+  const [graphAccessRejected, setGraphAccessRejected] = useState(false);
+  const [graphAccessAppMissing, setGraphAccessAppMissing] = useState(false);
   // Last probe said the flip is still converging (consent on the new app propagating). Read by
   // the post-consent poll loop — a ref, because the loop runs inside one async callback.
   const homingPendingRef = useRef(false);
@@ -536,6 +544,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           if (!flags) return;
           setEditionInfo(parseEditionInfo(flags));
           setAppHomingFunnelActive(flags.appHomingFunnelActive === true);
+          setGraphAccessRejected(flags.graphAccessRejected === true);
+          setGraphAccessAppMissing(flags.graphAccessAppMissing === true);
         };
 
         let data: TenantConfiguration;
@@ -913,15 +923,22 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     [saveConfiguration],
   );
 
-  // Persist the validation gate bool for a trigger via the shared config PUT. Returns true ONLY
-  // on a confirmed server persist — saveConfiguration reports failure as false (and sets the
-  // error). Callers MUST NOT claim success without checking this, or the admin sees "enabled"
-  // while the gate bool never landed. Message is caller-owned (reconcile vs normal-consent differ).
-  const persistValidation = useCallback(
-    async (trigger: ValidationTrigger): Promise<boolean> => {
-      if (trigger === "corporate") return saveConfiguration("autopilotValidation", { validateCorporateIdentifier: true });
-      if (trigger === "device-preparation") return saveConfiguration("autopilotValidation", { validateDeviceAssociation: true });
-      return saveConfiguration("autopilotValidation", { validateAutopilotDevice: true });
+  // What verified access does for a trigger. A validation trigger persists its gate bool via the
+  // shared config PUT and returns true ONLY on a confirmed server persist — saveConfiguration
+  // reports failure as false (and sets the error). Callers MUST NOT claim success without checking
+  // this, or the admin sees "enabled" while the gate bool never landed. "restore" persists nothing:
+  // the fresh token behind the probe already cleared the backend state, the page only catches up.
+  // Message is caller-owned (reconcile vs normal-consent differ).
+  const applyVerifiedAccess = useCallback(
+    async (trigger: ConsentTrigger): Promise<boolean> => {
+      const gate = gateChangeFor(trigger);
+      if (gate) return saveConfiguration("autopilotValidation", gate);
+
+      setGraphAccessRejected(false);
+      setGraphAccessAppMissing(false);
+      // The state just changed in the feature flags the dashboard banner reads.
+      invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+      return true;
     },
     [saveConfiguration],
   );
@@ -933,20 +950,22 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // (enabled), "transient" (inconclusive, retry), "absent" (no access), or "failed" (access
   // present but the persist did not land — so callers never show success on a swallowed save error).
   const tryReconcilePreApprovedConsent = useCallback(
-    async (trigger: ValidationTrigger): Promise<AccessCheckOutcome | "failed"> => {
+    async (trigger: ConsentTrigger): Promise<AccessCheckOutcome | "failed"> => {
       const outcome = await probeAccessCheck();
       if (outcome !== "reconciled") return outcome;
 
-      const saved = await persistValidation(trigger);
+      const saved = await applyVerifiedAccess(trigger);
       if (!saved) return "failed";
 
-      setSuccessMessage(`Access is already approved by your organization — ${validationLabel(trigger)}${VALIDATION_ENABLED_SUFFIX}`);
+      setSuccessMessage(trigger === "restore"
+        ? ACCESS_RESTORED_MESSAGE
+        : `Access is already approved by your organization — ${validationLabel(trigger)}${VALIDATION_ENABLED_SUFFIX}`);
       return "reconciled";
     },
-    [probeAccessCheck, persistValidation],
+    [probeAccessCheck, applyVerifiedAccess],
   );
 
-  const beginDeviceValidationConsentFlow = useCallback(async (trigger: "autopilot" | "corporate" | "device-preparation") => {
+  const beginDeviceValidationConsentFlow = useCallback(async (trigger: ConsentTrigger) => {
     if (!tenantId) return;
     try {
       setAutopilotConsentInProgress(true);
@@ -995,7 +1014,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       if (!adminConsent && !consentError) return;
 
-      const trigger = sessionStorage.getItem("consentTrigger") ?? "autopilot";
+      const trigger = parseConsentTrigger(sessionStorage.getItem("consentTrigger"));
       sessionStorage.removeItem("deviceValidationConsentPending");
       sessionStorage.removeItem("autopilotDeviceValidationPending");
       sessionStorage.removeItem("consentTrigger");
@@ -1024,9 +1043,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // consent rights, while the app is already pre-approved in the tenant. Probe and, if the
         // permission is effectively present, silently enable instead of surfacing the error.
         try {
-          const reconcileTrigger: ValidationTrigger =
-            trigger === "corporate" ? "corporate" : trigger === "device-preparation" ? "device-preparation" : "autopilot";
-          const outcome = await tryReconcilePreApprovedConsent(reconcileTrigger);
+          const outcome = await tryReconcilePreApprovedConsent(trigger);
           if (outcome === "reconciled" || outcome === "failed") {
             // "reconciled": silently enabled. "failed": access was present but the config persist
             // failed — saveConfiguration already surfaced that error; don't overwrite it with the
@@ -1082,8 +1099,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // is in the roles claim. Persist ONLY on an authoritative "reconciled": a transient probe
         // (timeout / Graph 5xx / propagation lag) is inconclusive, so opening the gate on it would
         // re-introduce the exact risk this check closes (gate open while the role is unproven).
-        const reconcileTrigger: ValidationTrigger =
-          trigger === "corporate" ? "corporate" : trigger === "device-preparation" ? "device-preparation" : "autopilot";
 
         // AAD consent-propagation awareness: right after a successful admin consent the app-only
         // token often mints with an EMPTY roles claim for 30-90s (observed live 2026-07-31,
@@ -1108,9 +1123,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
         if (reconciled) {
           if (attempts > 1) trackEvent("consent_verify_propagated", { trigger, attempts: String(attempts) });
-          const saved = await persistValidation(reconcileTrigger);
+          const saved = await applyVerifiedAccess(trigger);
           if (saved) {
-            setSuccessMessage(`${validationLabel(reconcileTrigger)}${VALIDATION_ENABLED_SUFFIX}`);
+            setSuccessMessage(trigger === "restore" ? ACCESS_RESTORED_MESSAGE : `${validationLabel(trigger)}${VALIDATION_ENABLED_SUFFIX}`);
           }
         } else if (probe === "transient") {
           trackEvent("consent_verify_failed", { trigger, stage: "role-propagating", attempts: String(attempts - 1) });
@@ -1137,12 +1152,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     };
 
     handleConsentCallback();
-  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation, noteHomingProbe]);
+  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, applyVerifiedAccess, noteHomingProbe]);
 
   // Manual "Detect existing access" affordance — for admins who never even attempt the consent
   // redirect because they know they lack consent rights. Probes and, on success, enables
   // validation silently; otherwise surfaces an actionable message.
-  const detectExistingAccess = useCallback(async (trigger: ValidationTrigger) => {
+  const detectExistingAccess = useCallback(async (trigger: ConsentTrigger) => {
     if (!tenantId) return;
     try {
       setAutopilotConsentInProgress(true);
@@ -1150,7 +1165,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setSuccessMessage(null);
 
       const outcome = await tryReconcilePreApprovedConsent(trigger);
-      if (outcome === "transient") {
+      if (trigger === "restore" && (outcome === "transient" || outcome === "absent")) {
+        // Under the probe's short budget a refusal also reads as transient: "timed out" would mislead here.
+        trackEvent("detect_access_failed", { trigger, outcome });
+        setError("Access could not be confirmed. Use Restore access to grant admin consent, or ask someone with consent rights (Global Administrator or Privileged Role Administrator) to approve the app first.");
+      } else if (outcome === "transient") {
         trackEvent("detect_access_failed", { trigger, outcome });
         setError("Couldn't verify access right now (timed out). Please try again in a moment.");
       } else if (outcome === "absent") {
@@ -1496,6 +1515,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Edition / trial
       editionInfo, startingTrial, startTrial,
       appHomingFunnelActive, homingFlipped, homingMissingRoles,
+      graphAccessRejected, graphAccessAppMissing,
 
       // Validation
       validateAutopilotDevice, setValidateAutopilotDevice,
@@ -1611,6 +1631,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }), [
     config, loading, canEditConfig, savingSection, error, successMessage,
     editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped, homingMissingRoles,
+    graphAccessRejected, graphAccessAppMissing,
     validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     validateCloudPcDevice, handleToggleCloudPcValidation,
     validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,

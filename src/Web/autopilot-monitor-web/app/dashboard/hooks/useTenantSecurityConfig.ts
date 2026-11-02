@@ -17,6 +17,8 @@ export interface TenantConfigurationSummary {
   contactEmailSet?: boolean;
   companyNameSet?: boolean;
   appHomingFunnelActive?: boolean;
+  graphAccessRejected?: boolean;
+  graphAccessAppMissing?: boolean;
 }
 
 interface User {
@@ -42,6 +44,13 @@ export interface TenantSecuritySummary {
    * EXPLICIT true from the backend; loading/error/older-backend states show nothing.
    */
   appHomingFunnelActive: boolean;
+  /**
+   * Microsoft Entra keeps refusing the tenant's app token — drives the red "enrollment monitoring
+   * is interrupted" banner. Requires an EXPLICIT true; loading/error/older-backend states show nothing.
+   */
+  graphAccessRejected: boolean;
+  /** Only with graphAccessRejected: the enterprise application is gone, which selects the banner text. */
+  graphAccessAppMissing: boolean;
 }
 
 const EMPTY_SUMMARY: TenantSecuritySummary = {
@@ -49,6 +58,8 @@ const EMPTY_SUMMARY: TenantSecuritySummary = {
   proContactMissing: false,
   proContactMissingParts: [],
   appHomingFunnelActive: false,
+  graphAccessRejected: false,
+  graphAccessAppMissing: false,
 };
 
 /** Pure projection of a feature-flags body onto the banner summary (unit-tested). */
@@ -60,13 +71,15 @@ export function summarizeTenantSecurityConfig(data: TenantConfigurationSummary):
     proContactMissing: missingParts.length > 0,
     proContactMissingParts: missingParts,
     appHomingFunnelActive: data.appHomingFunnelActive === true,
+    graphAccessRejected: data.graphAccessRejected === true,
+    graphAccessAppMissing: data.graphAccessAppMissing === true,
   };
 }
 
 /**
  * Fetches the tenant's feature-flags summary to drive the dashboard banners:
- * the red "no device validation enabled" banner, the amber
- * Pro-without-contact-address banner, and the blue app-registration migration banner.
+ * the red "no device validation enabled" and "enrollment monitoring is interrupted" banners, the
+ * amber Pro-without-contact-address banner, and the blue app-registration migration banner.
  *
  * Skips the fetch for users without a tenant role (they never see the dashboard).
  */

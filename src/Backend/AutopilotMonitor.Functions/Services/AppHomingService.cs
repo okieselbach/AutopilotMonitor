@@ -144,7 +144,10 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var legacy = await _graphTokenService.GetAccessTokenForAppAsync(tenantId, legacyApp, ct);
-            if (string.IsNullOrWhiteSpace(legacy.AccessToken) && legacy.IsTransient)
+            // A missing service principal is a fact even when the caller's budget cut the retries
+            // short: the access check runs on 4 s, its first retry waits 5 s.
+            if (string.IsNullOrWhiteSpace(legacy.AccessToken) && legacy.IsTransient
+                && legacy.Rejection?.IsServicePrincipalMissing != true)
             {
                 return new AppHomingProbeResult(Succeeded: false, IsTransient: true);
             }
@@ -238,6 +241,10 @@ namespace AutopilotMonitor.Functions.Services
                 oldValue = row.HomedAppClientId;
                 row.HomedAppClientId = normalizedTarget;
                 row.UpdatedBy = actorUpn;
+                // A Graph access rejection belongs to the app the tenant just left.
+                row.GraphAccessRejectedSince = null;
+                row.GraphAccessRejectedCode = null;
+                row.GraphAccessRejectionConfirmedAt = null;
                 return true;
             }, "app-homing", reason);
 

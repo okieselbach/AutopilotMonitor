@@ -124,6 +124,9 @@
       "homedAppClientId",
       "lastAuthClientId",
       "lastAuthClientIdSince",
+      "graphAccessRejectedSince",
+      "graphAccessRejectedCode",
+      "graphAccessRejectionConfirmedAt",
       "disabled",
       "disabledReason",
       "disabledUntil",
@@ -230,6 +233,9 @@
       "homedAppClientId": null,
       "lastAuthClientId": null,
       "lastAuthClientIdSince": null,
+      "graphAccessRejectedSince": null,
+      "graphAccessRejectedCode": null,
+      "graphAccessRejectionConfirmedAt": null,
       "disabled": false,
       "disabledReason": null,
       "disabledUntil": null,
@@ -592,6 +598,9 @@
     "ConsentRedirectUriMismatch",
     "AppHomingFlipped",
     "AppHomingFlippedWithEntraRoles",
+    "GraphAccessRejected",
+    "GraphAccessRecovered",
+    "GraphAppCredentialRejected",
     "MaintenanceCompleted",
     "MaintenanceFailed",
     "MaintenanceLongRunning",
@@ -24615,6 +24624,36 @@
           "doc": "When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field."
         },
         {
+          "name": "graphAccessRejectedSince",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When Microsoft Entra first refused this tenant's app token on an agent request, in the current episode. Only a suspicion: nothing is shown until GraphAccessRejectionConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries an application permission."
+        },
+        {
+          "name": "graphAccessRejectedCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The Entra error of the rejection (for example AADSTS7000229), or NoApplicationRole for a token without any application permission; null when the response carried no code. System-owned."
+        },
+        {
+          "name": "graphAccessRejectionConfirmedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When a later rejection confirmed the suspicion: the tenant's agents get no validation and the portal shows its notice. System-owned, cleared by the next freshly issued token that carries an application permission."
+        },
+        {
           "name": "disabled",
           "type": {
             "kind": "primitive",
@@ -25551,6 +25590,22 @@
             "name": "boolean"
           },
           "doc": "At least one device-validation method is enabled (HasAnyDeviceValidation); false drives the \"agent ingestion is blocked\" dashboard banner."
+        },
+        {
+          "name": "graphAccessRejected",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Microsoft Entra has kept refusing the tenant's app token, so agents get no validation; drives the \"enrollment monitoring is interrupted\" notice. Boolean only, no error detail."
+        },
+        {
+          "name": "graphAccessAppMissing",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Only with GraphAccessRejected: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text."
         },
         {
           "name": "appHomingFunnelActive",

@@ -72,7 +72,8 @@ public class AppHomingServiceTests
             Mock.Of<System.Net.Http.IHttpClientFactory>(),
             cache,
             _registry,
-            _tenantConfigMock.Object)
+            _tenantConfigMock.Object,
+            Mock.Of<IGraphAccessHealthRecorder>())
         { CallBase = false };
         _detectorMock = new Mock<IGraphFeatureDetector>();
         _maintenanceMock = new Mock<IMaintenanceRepository>();
@@ -288,6 +289,32 @@ public class AppHomingServiceTests
     }
 
     [Fact]
+    public async Task Probe_succeeds_when_the_budget_cuts_the_retries_of_a_missing_legacy_service_principal()
+    {
+        // The access check runs on 4 s and the first retry waits 5 s, so the answer arrives as
+        // transient. The Entra code still says the SP is gone: nothing left to lose.
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole)));
+        SetupLegacyToken(GraphTokenResult.TransientFailure(
+            new EntraTokenRejection(401, EntraTokenRejection.ServicePrincipalMissingCode, "no service principal")));
+
+        Assert.True((await _sut.ProbePrimaryConsentAsync(TenantId)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Probe_stays_transient_when_the_budget_cuts_the_retries_of_any_other_legacy_rejection()
+    {
+        // Any other refusal proves nothing about the roles the tenant would lose with the flip.
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole)));
+        SetupLegacyToken(GraphTokenResult.TransientFailure(
+            new EntraTokenRejection(400, "AADSTS53003", "blocked by Conditional Access")));
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        Assert.True(probe.IsTransient);
+    }
+
+    [Fact]
     public async Task Probe_never_mints_a_legacy_token_when_the_primary_token_fails()
     {
         SetupProbe(GraphTokenResult.PermanentFailure());
@@ -347,6 +374,21 @@ public class AppHomingServiceTests
                 d != null && d.ContainsKey("HomedAppClientId"))), Times.Once);
         Assert.Contains(_savedOpsEvents, e => e.EventType == "AppHomingFlipped");
         Assert.DoesNotContain(_savedOpsEvents, e => e.EventType == "AppHomingFlippedWithEntraRoles");
+    }
+
+    [Fact]
+    public async Task AutoFlip_clears_the_graph_access_rejection_of_the_app_the_tenant_leaves()
+    {
+        _store.Row!.GraphAccessRejectedSince = DateTime.UtcNow.AddHours(-3);
+        _store.Row.GraphAccessRejectedCode = EntraTokenRejection.ServicePrincipalMissingCode;
+        _store.Row.GraphAccessRejectionConfirmedAt = DateTime.UtcNow.AddHours(-2);
+
+        var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
+
+        Assert.Equal(AppHomingAutoFlipOutcome.Flipped, outcome.Outcome);
+        Assert.Null(_store.Row!.GraphAccessRejectedSince);
+        Assert.Null(_store.Row.GraphAccessRejectedCode);
+        Assert.Null(_store.Row.GraphAccessRejectionConfirmedAt);
     }
 
     [Fact]

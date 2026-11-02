@@ -52,6 +52,10 @@ namespace AutopilotMonitor.Functions.Helpers
             ("homedAppClientId",     c => c.HomedAppClientId),
             ("lastAuthClientId",     c => c.LastAuthClientId),
             ("lastAuthClientIdSince", c => c.LastAuthClientIdSince),
+            // Graph access state: two timestamps and a Microsoft error code, not secrets.
+            ("graphAccessRejectedSince", c => c.GraphAccessRejectedSince),
+            ("graphAccessRejectedCode", c => c.GraphAccessRejectedCode),
+            ("graphAccessRejectionConfirmedAt", c => c.GraphAccessRejectionConfirmedAt),
         };
 
         /// <summary>

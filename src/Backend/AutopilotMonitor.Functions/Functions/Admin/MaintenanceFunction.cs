@@ -14,17 +14,20 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly MaintenanceService _maintenanceService;
         private readonly Services.Push.PushMaintenanceService _pushMaintenance;
         private readonly Services.Notifications.NotificationChannelHealthMaintenance _channelHealthMaintenance;
+        private readonly GraphAccessRecheckMaintenance _graphAccessRecheck;
         private readonly ILogger<MaintenanceFunction> _logger;
 
         public MaintenanceFunction(
             MaintenanceService maintenanceService,
             Services.Push.PushMaintenanceService pushMaintenance,
             Services.Notifications.NotificationChannelHealthMaintenance channelHealthMaintenance,
+            GraphAccessRecheckMaintenance graphAccessRecheck,
             ILogger<MaintenanceFunction> logger)
         {
             _maintenanceService = maintenanceService;
             _pushMaintenance = pushMaintenance;
             _channelHealthMaintenance = channelHealthMaintenance;
+            _graphAccessRecheck = graphAccessRecheck;
             _logger = logger;
         }
 
@@ -45,6 +48,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             await _pushMaintenance.RunAsync();
             // Health rows of deleted notification channels (D-342); fail-soft inside.
             await _channelHealthMaintenance.RunAsync();
+            // Confirms or clears Graph access suspicions without waiting for device traffic; fail-soft inside.
+            await _graphAccessRecheck.RunAsync();
         }
     }
 }

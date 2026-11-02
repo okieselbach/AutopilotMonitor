@@ -112,6 +112,7 @@ namespace AutopilotMonitor.Functions.Services
             "LastUpdated", "UpdatedBy", "OnboardedAt", "OnboardedBy", "DpaVersion",
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
+            "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
             "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
             "ManagedByProTenantId",
@@ -161,6 +162,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly HashSet<string> RevertProtectedFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
+            "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "OnboardedBy", "OnboardedAt", "DpaVersion",
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
@@ -514,6 +516,8 @@ namespace AutopilotMonitor.Functions.Services
             "DpaAcceptancePending" or "DpaAcceptedBy" or "DpaAcceptedAt" => "system-owned — written by the onboarding and the Terms + DPA acceptance",
             "HomedAppClientId" => "system-owned — written only by the app-homing flow",
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
+            "GraphAccessRejectedSince" or "GraphAccessRejectedCode" or "GraphAccessRejectionConfirmedAt"
+                => "system-owned — follows what Microsoft Entra answers for the tenant's app token",
             "PlanTier" or "TrialExpiresUtc" or "TrialStartedUtc" or "TrialConsumed" or "TrialGrantedBy"
             or "MaxDelegatedTenantsOverride" or "McpUsagePlanOverride" or "PayingCustomer"
                 => "mutable only via the dedicated plan/trial endpoints",

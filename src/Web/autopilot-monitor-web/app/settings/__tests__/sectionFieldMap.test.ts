@@ -62,6 +62,7 @@ const SERVER_DENIED_FIELDS = new Set([
   "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy", "dpaVersion",
   "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
+  "graphAccessRejectedSince", "graphAccessRejectedCode", "graphAccessRejectionConfirmedAt",
   "planTier", "trialExpiresUtc", "trialStartedUtc", "trialConsumed", "trialGrantedBy",
   "proDowngradedUtc", "maxDelegatedTenantsOverride", "mcpUsagePlanOverride", "payingCustomer",
   "managedByProTenantId",

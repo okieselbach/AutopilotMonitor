@@ -126,6 +126,9 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   lastAuthClientId: { section: "Identity & App Homing", label: "Last Auth Client ID", informational: true },
   lastAuthClientIdSince: { section: "Identity & App Homing", label: "Last Auth Client ID Since", kind: "date", informational: true },
   entraAppRolesEnabled: { section: "Identity & App Homing", label: "Entra App Roles Enabled" },
+  graphAccessRejectedSince: { section: "Identity & App Homing", label: "Graph Access Rejected Since", kind: "date", informational: true },
+  graphAccessRejectedCode: { section: "Identity & App Homing", label: "Graph Access Rejected Code", informational: true },
+  graphAccessRejectionConfirmedAt: { section: "Identity & App Homing", label: "Graph Access Rejection Confirmed", kind: "date", informational: true },
 
   // Security & Validation
   validateAutopilotDevice: { section: "Security & Validation", label: "Validate Autopilot Device" },

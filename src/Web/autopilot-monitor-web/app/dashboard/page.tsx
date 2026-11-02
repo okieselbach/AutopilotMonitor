@@ -14,6 +14,7 @@ import { StatsCard } from "./components/StatsCards";
 import { WelcomeMessage } from "./components/WelcomeMessage";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { AppHomingBanner } from "./components/AppHomingBanner";
+import { GraphAccessBanner } from "./components/GraphAccessBanner";
 import { SessionTable } from "./components/SessionTable";
 import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
@@ -257,7 +258,10 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const { deviceValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
+  const {
+    deviceValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive,
+    graphAccessRejected, graphAccessAppMissing,
+  } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).
@@ -362,8 +366,9 @@ function HomeContent() {
 
           {/* Dual app-reg migration nudge (blue, session-dismissable): the TENANT still runs on
               the previous app registration. Admins only — they own the consent; delegated admins
-              are excluded (the link would target their own tenant, not the viewed one). */}
-          {appHomingFunnelActive && !isDelegated && (user?.isTenantAdmin || user?.isGlobalAdmin) && (
+              are excluded (the link would target their own tenant, not the viewed one). The red
+              Graph access banner below takes its place: its repair is the same consent. */}
+          {appHomingFunnelActive && !graphAccessRejected && !isDelegated && (user?.isTenantAdmin || user?.isGlobalAdmin) && (
             <AppHomingBanner />
           )}
 
@@ -393,6 +398,13 @@ function HomeContent() {
                 </a>
               </div>
             </div>
+          )}
+
+          {graphAccessRejected && (
+            <GraphAccessBanner
+              appMissing={graphAccessAppMissing}
+              canRestore={!isDelegated && !!(user?.isTenantAdmin || user?.isGlobalAdmin)}
+            />
           )}
 
           {/* Pro-requires-contact nag (amber, non-blocking): Pro tenants keep every feature,

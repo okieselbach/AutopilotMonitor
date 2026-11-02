@@ -458,6 +458,10 @@ builder.Services.AddSingleton<RegisterSessionFunction>();
 builder.Services.AddSingleton<GetAgentConfigFunction>();
 builder.Services.AddSingleton<ReportAgentErrorFunction>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.EntraAppRegistry>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Security.IGraphAccessHealthRecorder,
+    AutopilotMonitor.Functions.Security.GraphAccessHealthRecorder>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphAccessRecheckMaintenance>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.GraphTokenService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.AutopilotDeviceValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CorporateIdentifierValidator>();

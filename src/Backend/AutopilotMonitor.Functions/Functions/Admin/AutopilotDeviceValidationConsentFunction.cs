@@ -302,13 +302,15 @@ public class AutopilotDeviceValidationConsentFunction
     /// <summary>
     /// Known consent triggers — frontend flows that initiate the AAD admin-consent dialog:
     /// one per serial-based validation (Autopilot, corporate identifier, and
-    /// "device-preparation" for Device Association Validation).
+    /// "device-preparation" for Device Association Validation), plus "restore" for repairing the
+    /// Graph access of validations that are already on.
     /// </summary>
     internal static readonly HashSet<string> KnownConsentTriggers = new(StringComparer.OrdinalIgnoreCase)
     {
         "autopilot",
         "corporate",
         "device-preparation",
+        "restore",
     };
 
     /// <summary>

@@ -62,6 +62,23 @@ namespace AutopilotMonitor.Functions.Services
                 $"App-reg homing flipped {oldApp} -> {newApp} for a tenant with Entra app roles — re-assign roles on the new enterprise app",
                 tenantId, userId, new { oldApp, newApp });
 
+        /// <summary>Entra still refuses the tenant's app token 15 minutes after the first refusal: its agents get no validation.</summary>
+        public Task RecordGraphAccessRejectedAsync(string tenantId, string? errorCode, int statusCode)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.GraphAccessRejected, OpsEventSeverity.Error,
+                $"Microsoft Entra keeps rejecting the app token of this tenant ({errorCode ?? $"status {statusCode}"}): agents get no validation, the portal shows a notice",
+                tenantId, "System.GraphAccess", new { errorCode, statusCode });
+
+        public Task RecordGraphAccessRecoveredAsync(string tenantId, string? errorCode)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.GraphAccessRecovered, OpsEventSeverity.Info,
+                $"Microsoft Entra issues the app token of this tenant again (was {errorCode ?? "no code"})",
+                tenantId, "System.GraphAccess", new { errorCode });
+
+        /// <summary>Entra refuses our own client secret: device validation fails for every tenant on that app.</summary>
+        public Task RecordGraphAppCredentialRejectedAsync(string tenantId, string? errorCode, int statusCode)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.GraphAppCredentialRejected, OpsEventSeverity.Critical,
+                $"Microsoft Entra rejects our app credentials ({errorCode ?? $"status {statusCode}"}): device validation fails for every tenant on that app",
+                tenantId, "System.GraphAccess", new { errorCode, statusCode });
+
         // ── Maintenance ────────────────────────────────────────────────────────
 
         /// <summary>

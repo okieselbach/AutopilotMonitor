@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -55,6 +56,9 @@ public class GetTenantFeatureFlagsPayloadTests
             "enableIntegrityBypassAnalyzer",
             "enableSoftwareInventoryAnalyzer",
             "entitlements",
+            // Non-sensitive by review: booleans only; the Entra code stays in the admin-gated config.
+            "graphAccessAppMissing",
+            "graphAccessRejected",
             "isTrial",
             "showScriptOutput",
             "trialAvailable",
@@ -63,6 +67,54 @@ public class GetTenantFeatureFlagsPayloadTests
             // served. Payload_ActiveTrial_IsTrialWithExpiry pins the key on an active trial.
             "unrestrictedMode",
         }, fieldNames);
+    }
+
+    [Fact]
+    public void Payload_GraphAccess_SuspicionAloneShowsNothing()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = true,
+            GraphAccessRejectedSince = Now.AddMinutes(-5),
+            GraphAccessRejectedCode = EntraTokenRejection.ServicePrincipalMissingCode,
+        });
+
+        Assert.False(element.GetProperty("graphAccessRejected").GetBoolean());
+        Assert.False(element.GetProperty("graphAccessAppMissing").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(EntraTokenRejection.ServicePrincipalMissingCode, true)]
+    [InlineData("AADSTS53003", false)]
+    [InlineData(null, false)]
+    public void Payload_GraphAccess_ConfirmedShowsTheNotice_AndNamesOnlyTheMissingApp(string? code, bool appMissing)
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = true,
+            GraphAccessRejectedSince = Now.AddHours(-1),
+            GraphAccessRejectedCode = code,
+            GraphAccessRejectionConfirmedAt = Now.AddMinutes(-45),
+        });
+
+        Assert.True(element.GetProperty("graphAccessRejected").GetBoolean());
+        Assert.Equal(appMissing, element.GetProperty("graphAccessAppMissing").GetBoolean());
+        Assert.DoesNotContain("AADSTS", element.GetRawText());
+    }
+
+    [Fact]
+    public void Payload_GraphAccess_StaysSilentWithoutDeviceValidation()
+    {
+        // The switch being off has its own banner; the agent does not depend on Graph then.
+        var element = Serialize(new TenantConfiguration
+        {
+            GraphAccessRejectedSince = Now.AddHours(-1),
+            GraphAccessRejectedCode = EntraTokenRejection.ServicePrincipalMissingCode,
+            GraphAccessRejectionConfirmedAt = Now.AddMinutes(-45),
+        });
+
+        Assert.False(element.GetProperty("graphAccessRejected").GetBoolean());
+        Assert.False(element.GetProperty("graphAccessAppMissing").GetBoolean());
     }
 
     [Fact]

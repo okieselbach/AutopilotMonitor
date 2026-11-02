@@ -9,6 +9,17 @@ describe("summarizeTenantSecurityConfig", () => {
     expect(summarizeTenantSecurityConfig({ deviceValidationEnabled: true }).appHomingFunnelActive).toBe(false);
   });
 
+  it("shows the graph access banner only on an explicit true", () => {
+    const rejected = summarizeTenantSecurityConfig({ deviceValidationEnabled: true, graphAccessRejected: true, graphAccessAppMissing: true });
+    expect(rejected.graphAccessRejected).toBe(true);
+    expect(rejected.graphAccessAppMissing).toBe(true);
+    expect(summarizeTenantSecurityConfig({ deviceValidationEnabled: true, graphAccessRejected: false }).graphAccessRejected).toBe(false);
+    // Older backend without the field: stays silent.
+    const older = summarizeTenantSecurityConfig({ deviceValidationEnabled: true });
+    expect(older.graphAccessRejected).toBe(false);
+    expect(older.graphAccessAppMissing).toBe(false);
+  });
+
   it("keys the validation banner on the flag and the contact nag on Pro editions only", () => {
     const community = summarizeTenantSecurityConfig({ deviceValidationEnabled: false, edition: "community", contactEmailSet: false });
     expect(community.deviceValidationEnabled).toBe(false);

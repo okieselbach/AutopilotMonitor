@@ -247,7 +247,7 @@ namespace AutopilotMonitor.Functions.Security
             var ct = attemptCts.Token;
             try
             {
-                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId, ct);
+                var tokenResult = await _graphTokenService.GetAccessTokenForAgentValidationAsync(tenantId, ct);
                 if (string.IsNullOrEmpty(tokenResult.AccessToken))
                 {
                     return new IntuneDeviceBindingResult

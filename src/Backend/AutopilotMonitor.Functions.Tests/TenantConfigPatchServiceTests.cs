@@ -310,6 +310,9 @@ public class TenantConfigPatchServiceTests
     [InlineData("domainName")]
     [InlineData("lastUpdated")]
     [InlineData("updatedBy")]
+    [InlineData("graphAccessRejectedSince")]
+    [InlineData("graphAccessRejectedCode")]
+    [InlineData("graphAccessRejectionConfirmedAt")]
     public async Task Patch_DeniedField_Returns400WithFieldName(string field)
     {
         var harness = new Harness(Stored());

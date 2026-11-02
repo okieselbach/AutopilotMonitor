@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Concurrent;
@@ -30,6 +31,7 @@ namespace AutopilotMonitor.Functions.Security
         private static readonly TimeSpan MaxTokenTtl = TimeSpan.FromMinutes(55);
         private static readonly TimeSpan DefaultTokenLifetime = TimeSpan.FromMinutes(35); // when AAD omits expires_in
         private static readonly TimeSpan TokenGateWait = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan RejectionLogWindow = TimeSpan.FromMinutes(15);
 
         // One coalescing gate per tenant (see GetAccessTokenAsync). A SemaphoreSlim is tiny and
         // tenant cardinality is bounded + validated upstream, so these are never evicted.
@@ -52,19 +54,22 @@ namespace AutopilotMonitor.Functions.Security
         private readonly IMemoryCache _cache;
         private readonly EntraAppRegistry _appRegistry;
         private readonly Services.TenantConfigurationService _tenantConfigService;
+        private readonly IGraphAccessHealthRecorder _accessHealth;
 
         public GraphTokenService(
             ILogger<GraphTokenService> logger,
             IHttpClientFactory httpClientFactory,
             IMemoryCache cache,
             EntraAppRegistry appRegistry,
-            Services.TenantConfigurationService tenantConfigService)
+            Services.TenantConfigurationService tenantConfigService,
+            IGraphAccessHealthRecorder accessHealth)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
             _cache = cache;
             _appRegistry = appRegistry;
             _tenantConfigService = tenantConfigService;
+            _accessHealth = accessHealth;
         }
 
         /// <summary>
@@ -138,8 +143,36 @@ namespace AutopilotMonitor.Functions.Security
             // the resolved client id, so a tenant flipped between apps can never be served a token
             // minted under the other app.
             var credentials = await ResolveCredentialsAsync(tenantId);
-            return await GetAccessTokenWithCredentialsAsync(tenantId, credentials, ct);
+            var result = await GetAccessTokenWithCredentialsAsync(tenantId, credentials, ct);
+            if (result.IsFreshlyMinted && CarriesApplicationRole(result.AccessToken))
+                await _accessHealth.RecordMintedAsync(tenantId);
+            return result;
         }
+
+        /// <summary>
+        /// <see cref="GetAccessTokenAsync"/> for the device validators of the agent routes and the
+        /// maintenance recheck, the only callers whose rejection counts as evidence of lost access.
+        /// The consent flows in the portal see 401s as a matter of course while a consent propagates.
+        /// </summary>
+        public async Task<GraphTokenResult> GetAccessTokenForAgentValidationAsync(string tenantId, CancellationToken ct = default)
+        {
+            var result = await GetAccessTokenAsync(tenantId, ct);
+            var refusal = result.Rejection
+                ?? (result.IsFreshlyMinted && !CarriesApplicationRole(result.AccessToken) ? EntraTokenRejection.NoApplicationRole : null);
+            if (refusal != null)
+                await _accessHealth.RecordRejectedAsync(tenantId, refusal);
+            return result;
+        }
+
+        /// <summary>
+        /// Whether a token can do anything at Graph. A user's sign-in consent re-creates a removed
+        /// enterprise application without any application permission: Entra issues tokens again, and
+        /// Graph refuses every call made with them. Only a role proves access.
+        /// </summary>
+        private static bool CarriesApplicationRole(string? accessToken) =>
+            !string.IsNullOrEmpty(accessToken)
+            && GraphFeatureDetector.TryParseToken(accessToken, out var roles, out _)
+            && roles.Count > 0;
 
         /// <summary>
         /// Acquires an app-only token for this tenant under EXPLICIT app credentials, skipping the
@@ -238,6 +271,8 @@ namespace AutopilotMonitor.Functions.Security
             string? responseBody = null;
             int attempt = 0;
             bool lastAttemptWasTransient = false;
+            // Survives the budget: a caller cut off between retries still learns what Entra said.
+            EntraTokenRejection? rejection = null;
 
             while (true)
             {
@@ -245,7 +280,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     // Caller's budget exhausted — treat as transient so we never cache "no consent"
                     // for a tenant just because the optional path timed out.
-                    return GraphTokenResult.TransientFailure();
+                    return GraphTokenResult.TransientFailure(rejection);
                 }
                 try
                 {
@@ -271,7 +306,7 @@ namespace AutopilotMonitor.Functions.Security
                             // the token's own expires_in, minus a skew margin, clamped to a safe band.
                             CacheToken(tenantId, clientId, accessToken!, genAtStart, (long?)tokenJson?["expires_in"]);
                         }
-                        return GraphTokenResult.Success(accessToken);
+                        return GraphTokenResult.Minted(accessToken);
                     }
 
                     // Classify the error: consent-propagation errors are retryable but ultimately permanent (no consent).
@@ -287,6 +322,9 @@ namespace AutopilotMonitor.Functions.Security
                         || isConsentError || isServerError;
 
                     lastAttemptWasTransient = isServerError;
+                    rejection = isServerError ? null : EntraTokenRejection.Parse(statusCode, responseBody);
+                    if (rejection != null)
+                        LogRejectionOncePerWindow(tenantId, clientId, rejection);
 
                     if (!isRetryable || attempt >= retryDelays.Length)
                     {
@@ -300,7 +338,7 @@ namespace AutopilotMonitor.Functions.Security
                         // Server errors are transient (infrastructure issue), consent errors are permanent (no consent granted)
                         return lastAttemptWasTransient
                             ? GraphTokenResult.TransientFailure()
-                            : GraphTokenResult.PermanentFailure();
+                            : GraphTokenResult.PermanentFailure(rejection);
                     }
 
                     var delay = retryDelays[attempt];
@@ -328,7 +366,7 @@ namespace AutopilotMonitor.Functions.Security
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
                     // Caller budget exhausted between retries — transient by definition.
-                    return GraphTokenResult.TransientFailure();
+                    return GraphTokenResult.TransientFailure(rejection);
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
                 {
@@ -338,7 +376,7 @@ namespace AutopilotMonitor.Functions.Security
                         _logger.LogWarning(ex,
                             "Graph token acquisition for tenant {TenantId} failed with network error after {Attempts} attempt(s)",
                             tenantId, attempt + 1);
-                        return GraphTokenResult.TransientFailure();
+                        return GraphTokenResult.TransientFailure(rejection);
                     }
 
                     var delay = retryDelays[attempt];
@@ -349,11 +387,27 @@ namespace AutopilotMonitor.Functions.Security
                     try { await Task.Delay(delay, ct); }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
-                        return GraphTokenResult.TransientFailure();
+                        return GraphTokenResult.TransientFailure(rejection);
                     }
                     attempt++;
                 }
             }
+        }
+
+        /// <summary>
+        /// The retry chain's own failure line only comes after its 50 s, which the validation budget
+        /// never reaches, so without this line Entra's reason would not reach App Insights at all.
+        /// </summary>
+        private void LogRejectionOncePerWindow(string tenantId, string clientId, EntraTokenRejection rejection)
+        {
+            var key = $"graph-token-rejection-logged:{tenantId}:{clientId.ToLowerInvariant()}";
+            if (_cache.TryGetValue(key, out _))
+                return;
+            _cache.Set(key, true, RejectionLogWindow);
+
+            _logger.LogWarning(
+                "Graph token rejected by Entra for tenant {TenantId}, app {ClientId}: status {StatusCode}, {ErrorCode}. {Description}",
+                tenantId, clientId, rejection.StatusCode, rejection.ErrorCode, rejection.Description);
         }
 
         // Keys include the resolved client id: during the dual app-reg window a tenant flip
@@ -440,9 +494,16 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         public bool IsTransient { get; private set; }
 
+        /// <summary>True when Entra issued this token just now; false for one from the cache.</summary>
+        public bool IsFreshlyMinted { get; private set; }
+
+        /// <summary>What Entra last refused with, also when the caller's budget ended the retries; null without a refusal.</summary>
+        public EntraTokenRejection? Rejection { get; private set; }
+
         public static GraphTokenResult Success(string? token) => new() { AccessToken = token };
-        public static GraphTokenResult PermanentFailure() => new() { AccessToken = null, IsTransient = false };
-        public static GraphTokenResult TransientFailure() => new() { AccessToken = null, IsTransient = true };
+        public static GraphTokenResult Minted(string? token) => new() { AccessToken = token, IsFreshlyMinted = !string.IsNullOrEmpty(token) };
+        public static GraphTokenResult PermanentFailure(EntraTokenRejection? rejection = null) => new() { AccessToken = null, IsTransient = false, Rejection = rejection };
+        public static GraphTokenResult TransientFailure(EntraTokenRejection? rejection = null) => new() { AccessToken = null, IsTransient = true, Rejection = rejection };
     }
 
     public class GraphConsentStatusResult

@@ -26,6 +26,8 @@ interface AutopilotValidationSectionProps {
   onToggleCloudPc?: (newValue: boolean) => void | Promise<void>;
   autopilotConsentInProgress: boolean;
   saving: boolean;
+  /** Microsoft Entra keeps refusing the app token: the gates are on, but nothing gets validated. */
+  accessRejected?: boolean;
   onBeginConsent: (trigger: 'autopilot' | 'corporate' | 'device-preparation') => void;
   /**
    * Probe for pre-approved consent and enable the given validation without the redirect — for
@@ -48,6 +50,7 @@ export default function AutopilotValidationSection({
   onToggleCloudPc,
   autopilotConsentInProgress,
   saving,
+  accessRejected = false,
   onBeginConsent,
   onDetectExistingAccess,
 }: AutopilotValidationSectionProps) {
@@ -146,8 +149,8 @@ export default function AutopilotValidationSection({
         subtitle="Validate devices against Intune registrations before accepting agent data (mandatory for agent ingestion)"
         docsPath={DOCS_PATHS.enrollmentDeviceValidation}
         trailing={
-          <span className={`flex-shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${anyValidationEnabled ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-            {anyValidationEnabled ? "Enabled" : "Disabled"}
+          <span className={`flex-shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${anyValidationEnabled && !accessRejected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+            {accessRejected ? "Access rejected" : anyValidationEnabled ? "Enabled" : "Disabled"}
           </span>
         }
       />
