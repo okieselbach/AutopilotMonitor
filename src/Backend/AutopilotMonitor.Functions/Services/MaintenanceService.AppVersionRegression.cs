@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -26,9 +27,8 @@ namespace AutopilotMonitor.Functions.Services
         /// or median back under 1.5×) deletes the row so a future regression rings again.
         /// The tracker's 30d retention sweep re-arms long-burning episodes by design.
         /// <para>
-        /// One cross-tenant install-summary read over the trailing
-        /// <see cref="AppVersionRegressionRadar.HorizonDays"/> days (the same query the global
-        /// apps dashboard runs), then grouped by tenant — mirrors the rule radar's enumeration.
+        /// Reads the trailing <see cref="AppVersionRegressionRadar.HorizonDays"/> days of install
+        /// summaries tenant by tenant (see <see cref="RunAppVersionRadarPassAsync"/>).
         /// Idempotent per pass via the tracker dedup. Fail-soft per tenant and overall.
         /// </para>
         /// </summary>
@@ -44,38 +44,63 @@ namespace AutopilotMonitor.Functions.Services
 
                 var sw = Stopwatch.StartNew();
                 var sinceUtc = DateTime.UtcNow.AddDays(-AppVersionRegressionRadar.HorizonDays);
-                var summaries = await _metricsRepo.GetAppsDashboardSummariesAsync(sinceUtc, tenantId: null);
+                var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
 
-                var byTenant = summaries
-                    .Where(s => !string.IsNullOrEmpty(s.TenantId))
-                    .GroupBy(s => s.TenantId, StringComparer.OrdinalIgnoreCase);
-
-                int fired = 0, refreshed = 0, rearmed = 0, tenants = 0;
-                foreach (var tenantGroup in byTenant)
-                {
-                    tenants++;
-                    try
-                    {
-                        var (f, r, a) = await EvaluateTenantAppVersionRegressionsAsync(tenantGroup.Key, tenantGroup.ToList());
-                        fired += f;
-                        refreshed += r;
-                        rearmed += a;
-                    }
-                    catch (Exception tenantEx)
-                    {
-                        _logger.LogWarning(tenantEx, "App-version regression radar failed for tenant {TenantId} (non-fatal)", tenantGroup.Key);
-                    }
-                }
+                var pass = await RunAppVersionRadarPassAsync(
+                    tenantIds,
+                    tenantId => _metricsRepo.GetAppsDashboardSummariesAsync(sinceUtc, tenantId),
+                    EvaluateTenantAppVersionRegressionsAsync,
+                    (tenantId, tenantEx) => _logger.LogWarning(tenantEx, "App-version regression radar failed for tenant {TenantId} (non-fatal)", tenantId));
 
                 sw.Stop();
                 _logger.LogInformation(
                     "App-version regression radar: {Tenants} tenants over {Rows} install summaries — {Fired} fired, {Refreshed} refreshed, {Rearmed} re-armed in {Ms}ms",
-                    tenants, summaries.Count, fired, refreshed, rearmed, sw.ElapsedMilliseconds);
+                    pass.Tenants, pass.Rows, pass.Fired, pass.Refreshed, pass.Rearmed, sw.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "App-version regression radar failed (non-fatal)");
             }
+        }
+
+        /// <summary>
+        /// Loads and evaluates one tenant at a time, so a pass holds at most one tenant's rows and
+        /// its memory follows the largest tenant, not the fleet.
+        /// </summary>
+        internal static async Task<(int Tenants, long Rows, int Fired, int Refreshed, int Rearmed)> RunAppVersionRadarPassAsync(
+            IEnumerable<string> tenantIds,
+            Func<string, Task<List<AppInstallSummary>>> loadTenant,
+            Func<string, List<AppInstallSummary>, Task<(int Fired, int Refreshed, int Rearmed)>> evaluateTenant,
+            Action<string, Exception> onTenantFailed)
+        {
+            int tenants = 0, fired = 0, refreshed = 0, rearmed = 0;
+            long rows = 0;
+
+            foreach (var tenantId in tenantIds)
+            {
+                try
+                {
+                    var summaries = await loadTenant(tenantId);
+
+                    // Never evaluate an empty list: re-arm reads "no rows" as "version drained" and
+                    // would delete the tenant's open episodes, and a failed read also returns empty.
+                    if (summaries.Count == 0)
+                        continue;
+
+                    tenants++;
+                    rows += summaries.Count;
+                    var (f, r, a) = await evaluateTenant(tenantId, summaries);
+                    fired += f;
+                    refreshed += r;
+                    rearmed += a;
+                }
+                catch (Exception tenantEx)
+                {
+                    onTenantFailed(tenantId, tenantEx);
+                }
+            }
+
+            return (tenants, rows, fired, refreshed, rearmed);
         }
 
         private async Task<(int Fired, int Refreshed, int Rearmed)> EvaluateTenantAppVersionRegressionsAsync(
