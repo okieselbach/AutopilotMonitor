@@ -8,10 +8,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport
     /// <c>bitsadmin /util /getieproxy localsystem</c> shows for SYSTEM and what .NET uses), plus the
     /// WinHTTP proxy (<c>netsh winhttp show proxy</c>). Compared by content, because WinINET rewrites
     /// its settings blob without changing anything. The values end up in logs and events, so
-    /// credentials and PAC query strings are removed on the way in.
+    /// credentials and PAC query strings are kept out on the way in.
     /// </summary>
     internal sealed class ProxySettings : IEquatable<ProxySettings>
     {
+        internal const string CredentialsHidden = "(value with credentials, not shown)";
+
         public bool AutoDetect { get; }
         public string PacUrl { get; }
         public string Proxy { get; }
@@ -27,9 +29,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport
         {
             AutoDetect = autoDetect;
             PacUrl = SanitizeUrl(pacUrl);
-            Proxy = StripCredentials(proxy);
+            Proxy = HideCredentials(proxy);
             Bypass = EmptyToNull(bypass);
-            WinHttpProxy = StripCredentials(winHttpProxy);
+            WinHttpProxy = HideCredentials(winHttpProxy);
         }
 
         private ProxySettings(int readError)
@@ -116,24 +118,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport
             return $"{uri.Scheme}://{uri.Host}{port}{uri.AbsolutePath}";
         }
 
-        /// <summary>Handles <c>user:pass@host:8080</c>, also per scheme (<c>http=user:pass@host:8080;https=…</c>).</summary>
-        private static string StripCredentials(string proxy)
+        /// <summary>
+        /// A proxy string has no defined form for credentials and a password can hold <c>=</c>,
+        /// <c>;</c> or <c>://</c>, so a value with an <c>@</c> is replaced as a whole, not taken apart.
+        /// </summary>
+        private static string HideCredentials(string proxy)
         {
             if (string.IsNullOrEmpty(proxy)) return null;
-            if (proxy.IndexOf('@') < 0) return proxy;
-
-            var entries = proxy.Split(';');
-            for (var i = 0; i < entries.Length; i++)
-            {
-                var entry = entries[i];
-                var at = entry.LastIndexOf('@');
-                if (at < 0) continue;
-
-                var scheme = entry.IndexOf("://", StringComparison.Ordinal);
-                var hostStart = scheme >= 0 ? scheme + 3 : entry.IndexOf('=') + 1;
-                entries[i] = entry.Substring(0, hostStart) + entry.Substring(at + 1);
-            }
-            return string.Join(";", entries);
+            return proxy.IndexOf('@') < 0 ? proxy : CredentialsHidden;
         }
     }
 }

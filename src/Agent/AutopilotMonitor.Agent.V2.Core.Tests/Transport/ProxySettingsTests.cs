@@ -58,19 +58,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Theory]
-        [InlineData("user:secret@p:8080", "p:8080")]
-        [InlineData("http://user:secret@p:8080", "http://p:8080")]
-        [InlineData("http=user:secret@p:8080;https=user:secret@q:8443", "http=p:8080;https=q:8443")]
-        [InlineData("p:8080", "p:8080")]
-        public void Credentials_never_reach_the_description(string configured, string expected)
+        [InlineData("user:secret@p:8080")]
+        [InlineData("http://user:secret@p:8080")]
+        [InlineData("http=user:secret@p:8080;https=user:secret@q:8443")]
+        [InlineData("user:se=cret@p:8080")]
+        [InlineData("user:se;cret@p:8080")]
+        [InlineData("http=user:se;cret@p:8080")]
+        [InlineData("user:se://cret@p:8080")]
+        public void Credentials_never_reach_logs_or_events(string configured)
         {
-            Assert.Equal(expected, Settings(proxy: configured).Proxy);
-            Assert.Equal(expected, Settings(winHttp: configured).WinHttpProxy);
+            var settings = Settings(proxy: configured, winHttp: configured);
+            var data = settings.ToEventData();
+
+            foreach (var text in new[] { settings.DescribeAll(), (string)data["proxyServer"], (string)data["winHttpProxy"] })
+            {
+                Assert.DoesNotContain("user", text);
+                Assert.DoesNotContain("cret", text);
+            }
+
+            Assert.Equal(ProxySettings.CredentialsHidden, settings.Proxy);
+            Assert.Equal(ProxySettings.CredentialsHidden, settings.WinHttpProxy);
+            Assert.True((bool)data["proxyEnabled"]);
+            Assert.True((bool)data["winHttpProxyConfigured"]);
+        }
+
+        [Theory]
+        [InlineData("p:8080")]
+        [InlineData("http://p:8080")]
+        [InlineData("http=p:8080;https=q:8443")]
+        public void A_value_without_credentials_stays_as_it_is(string configured)
+        {
+            Assert.Equal(configured, Settings(proxy: configured).Proxy);
+            Assert.Equal(configured, Settings(winHttp: configured).WinHttpProxy);
         }
 
         [Theory]
         [InlineData("https://pac.example.test/p.pac?key=secret", "https://pac.example.test/p.pac")]
         [InlineData("http://user:secret@pac.example.test:8080/p.pac", "http://pac.example.test:8080/p.pac")]
+        [InlineData("http://user:se=cr;et@pac.example.test/p.pac", "http://pac.example.test/p.pac")]
         [InlineData("not a url with secret", "(unparsable URL)")]
         public void A_pac_url_keeps_scheme_host_port_and_path(string configured, string expected)
         {
