@@ -1709,7 +1709,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     _allAppsCompletedFired = true;
                     _logger.Info($"ImeLogTracker: all {_packageStates.CountAll} apps completed");
-                    OnAllAppsCompleted?.Invoke();
                 }
             }
         }

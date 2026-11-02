@@ -617,6 +617,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void InvalidateInvocationMarkersFrom(string fileName, long offset) => TakeInvocationMarkersFrom(fileName, offset, out _);
 
         /// <summary>
+        /// A log was rolled over: what the tracker knows about its bytes goes with them. The markers keep
+        /// <see cref="_lastPlatformMarker"/> alive, so the run in flight still owns its lines in the fresh file;
+        /// the ledger stays behind and empties, an archive is not checked for overwrites.
+        /// </summary>
+        private void MoveFileContext(string fromPath, string toPath)
+        {
+            var from = Path.GetFileName(fromPath);
+            var to = Path.GetFileName(toPath);
+
+            List<InvocationMarker> markers;
+            if (_invocationMarkers.TryGetValue(from, out markers))
+            {
+                _invocationMarkers.Remove(from);
+                _invocationMarkers[to] = markers;
+            }
+            if (_platformMarkerFiles.Contains(from)) _platformMarkerFiles.Add(to);
+
+            FileLedger ledger;
+            if (_ledgers.TryGetValue(from, out ledger)) ledger.Clear();
+
+            HeldTail held;
+            if (_heldTails.TryGetValue(fromPath, out held))
+            {
+                _heldTails.Remove(fromPath);
+                _heldTails[toPath] = held;
+            }
+        }
+
+        /// <summary>
         /// An entry that reads unchanged after a rewind keeps its markers: gives back the set-aside markers at exactly
         /// <paramref name="entryOffset"/>. Set-aside markers in front of it belonged to entries that changed and stay
         /// gone with their bytes.

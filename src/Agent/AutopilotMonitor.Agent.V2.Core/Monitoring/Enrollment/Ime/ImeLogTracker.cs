@@ -88,6 +88,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // system clock, ImeLogHost rewires it to the agent IClock, tests to their VirtualClock.
         internal Func<DateTime> UtcNowProvider { get; set; } = () => DateTime.UtcNow;
 
+        // Which file a path holds; null when unreadable. Tests swap it to cover that path.
+        internal Func<string, string> FileIdentityProvider { get; set; } = ImeLogFileIdentity.TryRead;
+
+        // False until the bookmarks were checked against the disk once in this process.
+        private bool _fileIdentitiesReconciled;
+
         /// <summary>
         /// CMTrace timestamps from IME are emitted in UTC, but DateTimeKind may arrive as
         /// Unspecified depending on the parser path. Normalize via SpecifyKind=Utc rather than
@@ -494,7 +500,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public Action OnImeStarted { get; set; }
         public Action<AppPackageState, AppInstallationState, AppInstallationState> OnAppStateChanged { get; set; }
         public Action<string> OnPoliciesDiscovered { get; set; }
-        public Action OnAllAppsCompleted { get; set; }
         public Action OnUserSessionCompleted { get; set; }
         public Action<string> OnImeSessionChange { get; set; }
         // Args: errorCode (may be empty when IME logged none), raw failure line excerpt.
@@ -954,13 +959,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 if (!Directory.Exists(_logFolder)) return;
                 var inputs = new List<ImeLogEraPreScan.ScanInput>();
-                var files = new List<string>();
-                foreach (var filePath in Directory.EnumerateFiles(_logFolder))
-                {
-                    if (MatchesLogFilePattern(Path.GetFileName(filePath)))
-                        files.Add(filePath);
-                }
-                files.Sort(StringComparer.OrdinalIgnoreCase);
+                var files = EnumerateLogFiles();
+                // First: the read below resets the bookmark of a file that shrank, and the archive
+                // that file moved to during the downtime still needs that bookmark.
+                ReconcileFileIdentities(files);
                 foreach (var filePath in files)
                 {
                     var info = new FileInfo(filePath);
@@ -994,9 +996,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             LoadState();
 
             // Era anchors for the backlog the first pass is about to read (2026-09-04). Runs
-            // before the poll loop so every replayed line already finds its era; read-only on
-            // the position tracker. Replay tooling anchors nothing — its logs did not come from
-            // this device's bootstrap.
+            // before the poll loop so every replayed line already finds its era. Replay tooling
+            // anchors nothing — its logs did not come from this device's bootstrap.
             if (!SimulationMode) PreScanEras();
 
             _cts = new CancellationTokenSource();
@@ -1180,6 +1181,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     var fullPath = Path.Combine(_logFolder, kvp.Key);
                     _positionTracker.RestorePosition(fullPath, kvp.Value.Position, kvp.Value.LastKnownSize);
+                    _positionTracker.RestoreFileId(fullPath, kvp.Value.FileId);
                 }
             }
 
@@ -1346,7 +1348,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 state.FilePositions[fileName] = new FilePositionData
                 {
                     Position = kvp.Value.Position,
-                    LastKnownSize = kvp.Value.LastKnownSize
+                    LastKnownSize = kvp.Value.LastKnownSize,
+                    FileId = _positionTracker.GetFileId(kvp.Key)
                 };
             }
 

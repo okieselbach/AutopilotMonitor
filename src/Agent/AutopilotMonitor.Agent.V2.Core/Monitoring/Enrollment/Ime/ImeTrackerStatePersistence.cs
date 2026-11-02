@@ -250,5 +250,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     {
         public long Position { get; set; }
         public long LastKnownSize { get; set; }
+
+        /// <summary>Which file the position belongs to (see <see cref="LogFilePositionTracker.Reconcile"/>); null on older state files.</summary>
+        public string FileId { get; set; }
     }
 }

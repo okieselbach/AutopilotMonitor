@@ -13,12 +13,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly Dictionary<string, FilePositionState> _positions
             = new Dictionary<string, FilePositionState>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>
-        /// Gets the safe read position for a file, detecting rollover/truncation.
-        /// If the current file size is smaller than the stored position, the file
-        /// has been rotated - resets to 0 to read from beginning.
-        /// Returns 0 if no position has been recorded yet.
-        /// </summary>
+        // Which file each path held when last checked (see Reconcile). Apart from _positions: a file
+        // whose identity is known but which no pass looked at yet must still count as unseen for
+        // HasSeen. A null value means the identity could not be read.
+        private readonly Dictionary<string, string> _fileIds
+            = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Whether this file was already observed in an earlier pass.
         /// <para>
@@ -31,6 +31,112 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         public bool HasSeen(string filePath) => _positions.ContainsKey(filePath);
 
+        /// <summary>Whether <see cref="Reconcile"/> already looked at this path.</summary>
+        public bool HasIdentity(string filePath) => _fileIds.ContainsKey(filePath);
+
+        /// <summary>The identity recorded for this path, or null.</summary>
+        public string GetFileId(string filePath)
+        {
+            string id;
+            return _fileIds.TryGetValue(filePath, out id) ? id : null;
+        }
+
+        /// <summary>Restores a persisted identity. <see cref="Reconcile"/> checks it against the disk on the next pass.</summary>
+        public void RestoreFileId(string filePath, string fileId)
+        {
+            if (fileId != null) _fileIds[filePath] = fileId;
+        }
+
+        /// <summary>True when the file is smaller than its bookmark: it was rolled over or truncated.</summary>
+        public bool IsBehindBookmark(string filePath, long currentFileSize)
+        {
+            FilePositionState state;
+            return _positions.TryGetValue(filePath, out state) && currentFileSize < state.Position;
+        }
+
+        /// <summary>
+        /// Brings the bookmarks in line with the files on disk. A bookmark belongs to a file, not to
+        /// a name: IME rolls a log by renaming it, so a known file under a new path keeps its
+        /// position and only the bytes behind it are still unread. The old path starts at 0 with
+        /// whatever file it holds next, and keeps its freshness reference because that file was
+        /// written since the last look. Returns the moves.
+        /// <list type="bullet">
+        ///   <item>A file that is still at its old path as well (a hard link) moves nothing.</item>
+        ///   <item>A path that holds another file with no bookmark to take over starts at 0, even
+        ///     when the new file is longer than the old position.</item>
+        ///   <item>An unreadable identity (null) changes nothing, the path keeps its bookmark.</item>
+        /// </list>
+        /// </summary>
+        public List<BookmarkMove> Reconcile(IDictionary<string, string> idByPath)
+        {
+            var moves = new List<BookmarkMove>();
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in idByPath)
+            {
+                if (entry.Value == null || GetFileId(entry.Key) == entry.Value) continue;
+                var holder = FindBookmarkLeftBehind(entry.Value, entry.Key, idByPath);
+                if (holder != null && claimed.Add(holder))
+                    moves.Add(new BookmarkMove(holder, entry.Key, _positions[holder].Position));
+            }
+
+            // In two steps: a path can be source and target at once (X.log becomes _X.log while
+            // _X.log's own file was replaced).
+            var movedStates = new List<FilePositionState>();
+            foreach (var move in moves)
+            {
+                var state = _positions[move.From];
+                movedStates.Add(state);
+                _positions[move.From] = new FilePositionState { LastCheckedUtc = state.LastCheckedUtc };
+                _fileIds.Remove(move.From);
+            }
+            for (var i = 0; i < moves.Count; i++)
+            {
+                _positions[moves[i].To] = movedStates[i];
+                _fileIds[moves[i].To] = idByPath[moves[i].To];
+            }
+
+            foreach (var entry in idByPath)
+            {
+                if (entry.Value == null)
+                {
+                    if (!_fileIds.ContainsKey(entry.Key)) _fileIds[entry.Key] = null;
+                    continue;
+                }
+
+                string known;
+                FilePositionState state;
+                if (_fileIds.TryGetValue(entry.Key, out known) && known != null && known != entry.Value
+                    && _positions.TryGetValue(entry.Key, out state))
+                {
+                    state.Position = 0;
+                    state.LastKnownSize = 0;
+                }
+                _fileIds[entry.Key] = entry.Value;
+            }
+
+            return moves;
+        }
+
+        private string FindBookmarkLeftBehind(string fileId, string newPath, IDictionary<string, string> idByPath)
+        {
+            foreach (var known in _fileIds)
+            {
+                if (known.Value != fileId || string.Equals(known.Key, newPath, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!_positions.ContainsKey(known.Key)) continue;
+
+                string stillThere;
+                if (idByPath.TryGetValue(known.Key, out stillThere) && stillThere == fileId) continue;
+                return known.Key;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Gets the safe read position for a file, detecting rollover/truncation.
+        /// If the current file size is smaller than the stored position, the file
+        /// has been rotated - resets to 0 to read from beginning.
+        /// Returns 0 if no position has been recorded yet.
+        /// </summary>
         public long GetSafePosition(string filePath, long currentFileSize)
         {
             FilePositionState state;
@@ -142,6 +248,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 LastCheckedUtc = DateTime.MinValue
             };
         }
+    }
+
+    /// <summary>One bookmark that followed its file to a new path.</summary>
+    public sealed class BookmarkMove
+    {
+        public BookmarkMove(string from, string to, long position)
+        {
+            From = from;
+            To = to;
+            Position = position;
+        }
+
+        public string From { get; }
+        public string To { get; }
+        public long Position { get; }
     }
 
     public class FilePositionState

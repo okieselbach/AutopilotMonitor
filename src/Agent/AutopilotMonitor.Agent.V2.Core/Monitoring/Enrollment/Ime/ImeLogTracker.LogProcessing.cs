@@ -51,23 +51,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (!Directory.Exists(_logFolder))
                 return;
 
-            // Get all matching log files, sorted by name (archived files come before current).
-            // M2: a SINGLE directory enumeration filtered in-memory against the patterns, instead
-            // of one Directory.GetFiles(pattern) per LogFilePattern every 100 ms poll (~90 folder
-            // enumerations/s → 1). The in-memory regex match is anchored, so it is also immune to
-            // the Win32 "*.ext" 8.3 search-pattern quirk.
-            var files = new List<string>();
-            try
-            {
-                foreach (var filePath in Directory.EnumerateFiles(_logFolder))
-                {
-                    if (MatchesLogFilePattern(Path.GetFileName(filePath)))
-                        files.Add(filePath);
-                }
-            }
-            catch (DirectoryNotFoundException) { }
-
-            files.Sort(StringComparer.OrdinalIgnoreCase);
+            var files = EnumerateLogFiles();
+            if (FileIdentitiesAreDue(files)) ReconcileFileIdentities(files);
 
             // Σ(file length − bookmark) after this pass — the tracker's queue depth.
             long backlogBytes = 0;
@@ -95,6 +80,66 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// All matching log files, sorted by name (archived files come before current).
+        /// M2: a SINGLE directory enumeration filtered in-memory against the patterns, instead
+        /// of one Directory.GetFiles(pattern) per LogFilePattern every 100 ms poll (~90 folder
+        /// enumerations/s → 1). The in-memory regex match is anchored, so it is also immune to
+        /// the Win32 "*.ext" 8.3 search-pattern quirk.
+        /// </summary>
+        private List<string> EnumerateLogFiles()
+        {
+            var files = new List<string>();
+            try
+            {
+                foreach (var filePath in Directory.EnumerateFiles(_logFolder))
+                {
+                    if (MatchesLogFilePattern(Path.GetFileName(filePath)))
+                        files.Add(filePath);
+                }
+            }
+            catch (DirectoryNotFoundException) { }
+
+            files.Sort(StringComparer.OrdinalIgnoreCase);
+            return files;
+        }
+
+        /// <summary>
+        /// On the first pass (a restart can have rolled logs over) and when a file has no known
+        /// identity yet, which is how a rolled-over archive first shows up. Nothing is opened in
+        /// the regular poll.
+        /// </summary>
+        private bool FileIdentitiesAreDue(List<string> files)
+        {
+            if (!_fileIdentitiesReconciled) return true;
+            foreach (var filePath in files)
+            {
+                if (!_positionTracker.HasIdentity(filePath)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Lets every bookmark follow its file (see <see cref="LogFilePositionTracker.Reconcile"/>).
+        /// Reading a rolled-over log again would replay every app and script line in it: finished
+        /// apps fall back to Installing, and the subgraph line of an older app marks the app that is
+        /// running right now as skipped.
+        /// </summary>
+        private void ReconcileFileIdentities(List<string> files)
+        {
+            _fileIdentitiesReconciled = true;
+
+            var idByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var filePath in files) idByPath[filePath] = FileIdentityProvider(filePath);
+
+            foreach (var move in _positionTracker.Reconcile(idByPath))
+            {
+                MoveFileContext(move.From, move.To);
+                _logger.Info($"ImeLogTracker: {Path.GetFileName(move.From)} rolled over to {Path.GetFileName(move.To)} - continuing at offset {move.Position} instead of reading it again");
+            }
+            _stateDirty = true;
+        }
+
+        /// <summary>
         /// One pass over one file: the bytes behind the bookmark, on a multi-writer file preceded
         /// by the overwrite check that may move the bookmark back first (see
         /// <c>ImeLogTracker.Overwrite.cs</c>). Returns the file's remaining backlog in bytes.
@@ -103,6 +148,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             var fileInfo = new FileInfo(filePath);
             if (!fileInfo.Exists) return 0;
+
+            // IME renamed the file after this pass listed the folder, or its archive sorts behind it
+            // (_IntuneManagementExtension.log). Either way the archive needs the bookmark before the
+            // read below resets it.
+            if (_positionTracker.IsBehindBookmark(filePath, fileInfo.Length))
+                ReconcileFileIdentities(EnumerateLogFiles());
 
             // Captured BEFORE MarkChecked below stamps this pass. Growth measured
             // against a previously observed state is what makes this pass's lines valid

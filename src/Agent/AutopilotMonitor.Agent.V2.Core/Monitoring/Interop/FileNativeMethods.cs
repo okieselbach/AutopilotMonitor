@@ -9,6 +9,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
     /// Win32 file-handle declarations for <c>PinnedSourceFolder</c>: open a file or directory
     /// without following a reparse point at its final component, and ask the handle where it
     /// really points (<c>GetFinalPathNameByHandle</c>) instead of trusting the path string.
+    /// <c>ImeLogFileIdentity</c> reads a file's identity through the same declarations.
     /// </summary>
     internal static class FileNativeMethods
     {
@@ -18,6 +19,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
         public const uint FILE_SHARE_READ = 0x1;
         public const uint FILE_SHARE_WRITE = 0x2;
+        public const uint FILE_SHARE_DELETE = 0x4;
 
         public const uint OPEN_EXISTING = 3;
 
