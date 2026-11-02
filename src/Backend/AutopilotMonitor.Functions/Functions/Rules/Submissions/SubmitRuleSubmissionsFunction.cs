@@ -18,22 +18,19 @@ namespace AutopilotMonitor.Functions.Functions.Rules.Submissions
         private readonly ILogger<SubmitRuleSubmissionsFunction> _logger;
         private readonly RuleSubmissionService _service;
         private readonly IMaintenanceRepository _maintenanceRepo;
-        private readonly TelegramNotificationService _telegram;
         private readonly GlobalNotificationService _globalNotifications;
-        private readonly OpsEventService? _opsEvents;
+        private readonly OpsEventService _opsEvents;
 
         public SubmitRuleSubmissionsFunction(
             ILogger<SubmitRuleSubmissionsFunction> logger,
             RuleSubmissionService service,
             IMaintenanceRepository maintenanceRepo,
-            TelegramNotificationService telegram,
             GlobalNotificationService globalNotifications,
-            OpsEventService? opsEvents = null)
+            OpsEventService opsEvents)
         {
             _logger = logger;
             _service = service;
             _maintenanceRepo = maintenanceRepo;
-            _telegram = telegram;
             _globalNotifications = globalNotifications;
             _opsEvents = opsEvents;
         }
@@ -112,9 +109,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules.Submissions
                 foreach (var s in created)
                 {
                     // Ops event (routable through alert rules, Push included) — written before the response, never throws
-                    if (_opsEvents != null)
-                        await _opsEvents.RecordRuleSubmissionReceivedAsync(request.TenantId, userIdentifier, s.SubmissionId, s.RuleKind, s.SourceRuleId);
-                    _ = _telegram.SendRuleSubmissionAsync(s.SubmissionId, request.TenantId, userIdentifier, s.RuleKind, s.SourceRuleId, s.Title, s.Comment ?? string.Empty);
+                    await _opsEvents.RecordRuleSubmissionReceivedAsync(request.TenantId, userIdentifier, s.SubmissionId, s.RuleKind, s.SourceRuleId);
                     _ = _globalNotifications.CreateNotificationAsync(
                         "rule_submission",
                         $"Rule submission {s.SubmissionId}",

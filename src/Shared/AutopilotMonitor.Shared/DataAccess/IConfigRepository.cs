@@ -105,10 +105,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> RemoveFromPreviewWhitelistAsync(string tenantId);
         Task<List<string>> GetPreviewWhitelistAsync();
 
-        // --- Preview Config ---
-        Task<Dictionary<string, string>> GetPreviewConfigAsync();
-        Task<bool> SavePreviewConfigAsync(string key, string value);
-
         // --- Email Template Overrides (operator-level, PreviewConfig table, partition "EmailTemplates") ---
         /// <summary>Returns the stored override for the given kind, or null when the built-in template applies.</summary>
         Task<EmailTemplateOverride?> GetEmailTemplateOverrideAsync(string kind);

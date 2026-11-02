@@ -187,8 +187,8 @@ namespace AutopilotMonitor.Functions.Helpers
                 return "Invalid webhook provider type.";
 
             // ...and only a webhook provider: its destination passed the webhook URL gate above, never
-            // the channel gates of Telegram, Push or E-mail. Only a CHANGED value is checked, so a
-            // stored one stays saveable.
+            // the channel gates of Push or E-mail. Only a CHANGED value is checked, so a stored one
+            // stays saveable.
             if (candidate.WebhookProviderType != existing.WebhookProviderType
                 && candidate.WebhookProviderType != 0
                 && !Shared.Models.Notifications.NotificationChannel.IsWebhookUrlProvider(candidate.WebhookProviderType))
@@ -202,10 +202,10 @@ namespace AutopilotMonitor.Functions.Helpers
             if (channelsError != null)
                 return $"Invalid notification channels: {channelsError}";
 
-            var telegramGateError = ValidateTelegramChannelGate(
+            var platformProviderError = ValidatePlatformProviderGate(
                 candidate.NotificationChannelsJson, existing.NotificationChannelsJson, isGlobalAdmin);
-            if (telegramGateError != null)
-                return telegramGateError;
+            if (platformProviderError != null)
+                return platformProviderError;
 
             var pushCountError = ValidateSinglePushChannel(candidate.NotificationChannelsJson, existing.NotificationChannelsJson);
             if (pushCountError != null)
@@ -365,15 +365,11 @@ namespace AutopilotMonitor.Functions.Helpers
                 if (!Shared.Models.Notifications.NotificationChannel.IsSupportedProviderType(channel.ProviderType))
                     return $"channel \"{label}\" has an invalid provider type.";
 
-                // Telegram's destination is a chat ID, not a URL — the SSRF gate does not apply
-                // (there is no caller-supplied endpoint; the bot URL is platform-owned) and would
-                // reject every valid value. Format-check the chat ID instead. A Push channel has
-                // no destination at all: a URL on it is refused so it can never fall through to
-                // the webhook path should a future branch forget the provider.
+                // A Push channel has no destination at all: a URL on it is refused so it can never
+                // fall through to the webhook path should a future branch forget the provider. An
+                // e-mail channel names recipients, not a URL, so the SSRF gate does not apply.
                 var destinationError =
-                    channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram
-                        ? ValidateTelegramChatId(channel.Url)
-                    : channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push
+                    channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Push
                         ? ValidatePushDestination(channel.Url)
                     : channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Email
                         ? ValidateEmailDestination(channel.Url)
@@ -388,45 +384,6 @@ namespace AutopilotMonitor.Functions.Helpers
                 var secretError = ValidateWebhookSigningSecret(channel.SigningSecret);
                 if (secretError != null)
                     return $"channel \"{label}\" signing secret: {secretError}";
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Validates a Telegram destination chat ID. Returns an error message, or null when valid.
-        /// Accepts a numeric id (negative for groups/channels, e.g. -1003785642894) or an @username.
-        /// Empty is rejected: unlike a webhook URL, a Telegram channel with no chat ID cannot be
-        /// saved as "configured but idle" — it would silently drop every message.
-        /// </summary>
-        internal static string? ValidateTelegramChatId(string? chatId)
-        {
-            if (string.IsNullOrWhiteSpace(chatId))
-                return "a Telegram chat ID is required.";
-
-            var trimmed = chatId!.Trim();
-
-            if (trimmed.StartsWith("@", StringComparison.Ordinal))
-            {
-                // Telegram public usernames: 5-32 chars, letters/digits/underscore, letter first.
-                var name = trimmed.Substring(1);
-                if (name.Length < 5 || name.Length > 32 || !char.IsLetter(name[0]))
-                    return "the @username must be 5-32 characters and start with a letter.";
-                foreach (var ch in name)
-                {
-                    if (!char.IsLetterOrDigit(ch) && ch != '_')
-                        return "the @username may only contain letters, digits and underscores.";
-                }
-                return null;
-            }
-
-            var digits = trimmed.StartsWith("-", StringComparison.Ordinal) ? trimmed.Substring(1) : trimmed;
-            if (digits.Length == 0 || digits.Length > 20)
-                return "must be a numeric chat ID (up to 20 digits) or an @username.";
-            foreach (var ch in digits)
-            {
-                if (!char.IsDigit(ch))
-                    return "must be a numeric chat ID (up to 20 digits) or an @username.";
             }
 
             return null;
@@ -467,9 +424,8 @@ namespace AutopilotMonitor.Functions.Helpers
         /// <summary>
         /// Global-Admin gate for the providers that send through PLATFORM-owned infrastructure
         /// (<see cref="Shared.Models.Notifications.NotificationChannel.IsGlobalAdminOnlyProvider"/>):
-        /// Telegram through the platform bot (the token lives in PreviewConfig, not in tenant
-        /// config), E-mail through the platform's sender identity and provider key. A tenant admin
-        /// must not be able to create or retarget one — hiding the provider in the UI is not a control.
+        /// E-mail through the platform's sender identity and provider key. A tenant admin must not be
+        /// able to create or retarget one — hiding the provider in the UI is not a control.
         /// <para>
         /// Compares against the stored config so a non-GA caller can still save unrelated changes
         /// while a GA-created gated channel is present: only ADDING one, changing an existing
@@ -477,7 +433,7 @@ namespace AutopilotMonitor.Functions.Helpers
         /// deletion stay with the tenant admin. Same shape as the retention-cap check.
         /// </para>
         /// </summary>
-        internal static string? ValidateTelegramChannelGate(string? candidateJson, string? existingJson, bool isGlobalAdmin)
+        internal static string? ValidatePlatformProviderGate(string? candidateJson, string? existingJson, bool isGlobalAdmin)
         {
             if (isGlobalAdmin)
                 return null;
@@ -501,12 +457,7 @@ namespace AutopilotMonitor.Functions.Helpers
                     || !string.Equals(stored.Url ?? string.Empty, channel.Url ?? string.Empty, StringComparison.Ordinal)
                     || stored.Enabled != channel.Enabled)
                 {
-                    var provider = channel.ProviderType switch
-                    {
-                        (int)Shared.Models.Notifications.WebhookProviderType.Email => "E-mail",
-                        _ => "Telegram",
-                    };
-                    return $"{provider} channels can only be configured by a Global Administrator.";
+                    return "E-mail channels can only be configured by a Global Administrator.";
                 }
             }
 

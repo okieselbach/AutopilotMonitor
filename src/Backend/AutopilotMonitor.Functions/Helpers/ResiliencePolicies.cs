@@ -29,7 +29,7 @@ public sealed class ResiliencePolicies
     public IAsyncPolicy<HttpResponseMessage> ExternalDataApi { get; }
 
     /// <summary>
-    /// Policy for notification clients (webhook, Telegram):
+    /// Policy for notification clients (webhook):
     /// 2 retries with 2s fixed delay. No circuit breaker — a single failing endpoint
     /// should not block all notifications across tenants.
     /// </summary>

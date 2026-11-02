@@ -31,7 +31,6 @@ public class AuthFunction
     private readonly TenantAdminsService _tenantAdminsService;
     private readonly IMetricsRepository _metricsRepo;
     private readonly PreviewWhitelistService _previewWhitelistService;
-    private readonly TelegramNotificationService _telegramNotificationService;
     private readonly GlobalNotificationService _globalNotificationService;
     private readonly McpUserService _mcpUserService;
     private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
@@ -41,7 +40,7 @@ public class AuthFunction
     private readonly AdminConfigurationService _adminConfigService;
     private readonly IOffboardingAuditRepository _offboardingRepo;
     private readonly Services.Push.PushOwnerSignInService? _pushSignIn;
-    private readonly OpsEventService? _opsEvents;
+    private readonly OpsEventService _opsEvents;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -51,7 +50,6 @@ public class AuthFunction
         TenantAdminsService tenantAdminsService,
         IMetricsRepository metricsRepo,
         PreviewWhitelistService previewWhitelistService,
-        TelegramNotificationService telegramNotificationService,
         GlobalNotificationService globalNotificationService,
         McpUserService mcpUserService,
         Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
@@ -60,8 +58,8 @@ public class AuthFunction
         LiveStreamRevoker streams,
         AdminConfigurationService adminConfigService,
         IOffboardingAuditRepository offboardingRepo,
-        Services.Push.PushOwnerSignInService? pushSignIn = null,
-        OpsEventService? opsEvents = null)
+        OpsEventService opsEvents,
+        Services.Push.PushOwnerSignInService? pushSignIn = null)
     {
         _logger = logger;
         _pushSignIn = pushSignIn;
@@ -76,7 +74,6 @@ public class AuthFunction
         _tenantAdminsService = tenantAdminsService;
         _metricsRepo = metricsRepo;
         _previewWhitelistService = previewWhitelistService;
-        _telegramNotificationService = telegramNotificationService;
         _globalNotificationService = globalNotificationService;
         _mcpUserService = mcpUserService;
         _tenantAutoApproveEnqueuer = tenantAutoApproveEnqueuer;
@@ -444,7 +441,7 @@ public class AuthFunction
 
     /// <summary>
     /// If the tenant has no domain name yet, extracts it from the UPN, persists it,
-    /// and fires best-effort notifications (Telegram + global notification). The write lands
+    /// and fires the signup signals (ops event + global notification). The write lands
     /// only while the STORED row still has no domain (conditional create or update), and only
     /// the login that wrote it fires the signup side effects.
     /// </summary>
@@ -559,15 +556,8 @@ public class AuthFunction
         Seed(tenantConfig);
 
         // The ops event is the routable record (alert rules → any channel, Push included); it is
-        // written before the response and never throws. The Telegram ping below stays until retired.
-        if (_opsEvents != null)
-            await _opsEvents.RecordTenantSignupAsync(tenantId, upn);
-
-        // Fire-and-forget: Telegram
-        _ = _telegramNotificationService.SendNewTenantSignupAsync(tenantId, upn)
-            .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                "Fire-and-forget Telegram notification failed for tenant {TenantId}", tenantId),
-                TaskContinuationOptions.OnlyOnFaulted);
+        // written before the response and never throws.
+        await _opsEvents.RecordTenantSignupAsync(tenantId, upn);
 
         // Fire-and-forget: Global notification
         _ = _globalNotificationService.CreateNotificationAsync(

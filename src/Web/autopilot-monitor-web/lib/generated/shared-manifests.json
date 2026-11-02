@@ -32,12 +32,6 @@
       "mcpClientRegistrationEnabled",
       "nvdApiKey",
       "opsAlertRulesJson",
-      "opsAlertTelegramEnabled",
-      "opsAlertTelegramChatId",
-      "opsAlertTeamsEnabled",
-      "opsAlertTeamsWebhookUrl",
-      "opsAlertSlackEnabled",
-      "opsAlertSlackWebhookUrl",
       "opsNotificationChannelsJson",
       "latestAgentV2Version",
       "latestAgentV2Sha256",
@@ -90,12 +84,6 @@
       "mcpClientRegistrationEnabled": false,
       "nvdApiKey": null,
       "opsAlertRulesJson": null,
-      "opsAlertTelegramEnabled": false,
-      "opsAlertTelegramChatId": null,
-      "opsAlertTeamsEnabled": false,
-      "opsAlertTeamsWebhookUrl": null,
-      "opsAlertSlackEnabled": false,
-      "opsAlertSlackWebhookUrl": null,
       "opsNotificationChannelsJson": null,
       "latestAgentV2Version": null,
       "latestAgentV2Sha256": null,
@@ -485,7 +473,6 @@
     "Slack": 10,
     "GenericJson": 20,
     "Discord": 30,
-    "Telegram": 40,
     "Push": 50,
     "Email": 60
   },
@@ -1622,7 +1609,7 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Maintenance alarm threshold: sessions with more events than this value trigger an ExcessiveSessionEvents ops alert (dispatched to Telegram/Teams). 0 = disabled. Default: 2000 (largest real sessions observed are ~500)."
+          "doc": "Maintenance alarm threshold: sessions with more events than this value trigger an ExcessiveSessionEvents ops alert (dispatched through the alert rules). 0 = disabled. Default: 2000 (largest real sessions observed are ~500)."
         },
         {
           "name": "excessiveEventAutoActionMode",
@@ -1753,60 +1740,12 @@
           "doc": "JSON-serialized list of OpsAlertRule objects defining which event types trigger notifications. Provider-agnostic — rules apply to all enabled providers."
         },
         {
-          "name": "opsAlertTelegramEnabled",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Whether the Telegram alert provider is enabled. Default: false."
-        },
-        {
-          "name": "opsAlertTelegramChatId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "doc": "Telegram chat ID for ops alerts (e.g. ITEngineer channel)."
-        },
-        {
-          "name": "opsAlertTeamsEnabled",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Whether the Teams alert provider is enabled. Default: false."
-        },
-        {
-          "name": "opsAlertTeamsWebhookUrl",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "doc": "Teams Workflow webhook URL for ops alerts."
-        },
-        {
-          "name": "opsAlertSlackEnabled",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Whether the Slack alert provider is enabled. Default: false."
-        },
-        {
-          "name": "opsAlertSlackWebhookUrl",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "doc": "Slack Incoming Webhook URL for ops alerts."
-        },
-        {
           "name": "opsNotificationChannelsJson",
           "type": {
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "JSON array of platform notification channels (NotificationChannel), the destinations an OpsAlertRule can target by id. Supersedes the three fixed provider slots above: each channel carries its own provider, destination and name, so an operator can keep e.g. an \"IT Engineer\" push channel and a \"Sales\" webhook apart and bind each event type to only the channels that should see it. Null/empty = not migrated yet — then synthesizes the list from the legacy slots, so dispatch behavior is unchanged until an operator saves the section once."
+          "doc": "JSON array of platform notification channels (NotificationChannel), the destinations an OpsAlertRule can target by id. Each channel carries its own provider, destination and name, so an operator can keep e.g. an \"IT Engineer\" push channel and a \"Sales\" webhook apart and bind each event type to only the channels that should see it."
         },
         {
           "name": "latestAgentV2Version",

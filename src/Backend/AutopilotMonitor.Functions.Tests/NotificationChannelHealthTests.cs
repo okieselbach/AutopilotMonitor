@@ -435,10 +435,10 @@ public class NotificationChannelHealthTests
                     It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()))
                 .ReturnsAsync(webhookResult);
         }
-        var telegram = new Mock<TelegramNotificationService>(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance) { CallBase = false };
-        telegram.Setup(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>())).ReturnsAsync(Ok());
-        return new NotificationChannelDispatcher(webhook.Object, telegram.Object, (push ?? new Mock<IPushChannelSender>()).Object,
-            Mock.Of<IEmailChannelSender>(), recorder.Object, NullLogger<NotificationChannelDispatcher>.Instance);
+        var email = new Mock<IEmailChannelSender>();
+        email.Setup(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>())).ReturnsAsync(Ok());
+        return new NotificationChannelDispatcher(webhook.Object, (push ?? new Mock<IPushChannelSender>()).Object,
+            email.Object, recorder.Object, NullLogger<NotificationChannelDispatcher>.Instance);
     }
 
     [Fact]
@@ -447,13 +447,13 @@ public class NotificationChannelHealthTests
         var recorder = new Mock<INotificationChannelHealthRecorder>();
         var push = new Mock<IPushChannelSender>();
         var dispatcher = Dispatcher(recorder, push: push);
-        var telegram = new NotificationChannel { Id = "tg", Name = "tg", ProviderType = (int)WebhookProviderType.Telegram, Url = "-100123", Enabled = true };
+        var mail = new NotificationChannel { Id = "mail", Name = "mail", ProviderType = (int)WebhookProviderType.Email, Url = "ops@example.invalid", Enabled = true };
         var phones = new NotificationChannel { Id = "push", Name = "push", ProviderType = (int)WebhookProviderType.Push, Enabled = true };
 
-        await dispatcher.SendToChannelsAsync(new[] { Webhook(), telegram, phones }, new NotificationAlert { Title = "t", Summary = "s" }, Tenant);
+        await dispatcher.SendToChannelsAsync(new[] { Webhook(), mail, phones }, new NotificationAlert { Title = "t", Summary = "s" }, Tenant);
 
         recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "c1"), It.Is<NotificationSendResult>(x => !x.Success), ChannelSendKind.Delivery), Times.Once);
-        recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "tg"), It.Is<NotificationSendResult>(x => x.Success), ChannelSendKind.Delivery), Times.Once);
+        recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "mail"), It.Is<NotificationSendResult>(x => x.Success), ChannelSendKind.Delivery), Times.Once);
         recorder.Verify(r => r.RecordAsync(It.IsAny<NotificationScope>(), It.Is<NotificationChannel>(c => c.Id == "push"), It.IsAny<NotificationSendResult>(), It.IsAny<ChannelSendKind>()), Times.Never);
         push.Verify(p => p.SendAsync(Tenant, It.IsAny<NotificationAlert>()), Times.Once);
     }
@@ -474,13 +474,13 @@ public class NotificationChannelHealthTests
     {
         var recorder = new Mock<INotificationChannelHealthRecorder>();
         var dispatcher = Dispatcher(recorder, webhookResult: () => throw new InvalidOperationException("boom"));
-        var telegram = new NotificationChannel { Id = "tg", Name = "tg", ProviderType = (int)WebhookProviderType.Telegram, Url = "-100123", Enabled = true };
+        var mail = new NotificationChannel { Id = "mail", Name = "mail", ProviderType = (int)WebhookProviderType.Email, Url = "ops@example.invalid", Enabled = true };
 
-        await dispatcher.SendToChannelsAsync(new[] { Webhook(), telegram }, new NotificationAlert { Title = "t", Summary = "s" }, Tenant);
+        await dispatcher.SendToChannelsAsync(new[] { Webhook(), mail }, new NotificationAlert { Title = "t", Summary = "s" }, Tenant);
 
         recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "c1"),
             It.Is<NotificationSendResult>(x => !x.Success && x.Message == "Unexpected error: boom"), ChannelSendKind.Delivery), Times.Once);
-        recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "tg"), It.IsAny<NotificationSendResult>(), ChannelSendKind.Delivery), Times.Once);
+        recorder.Verify(r => r.RecordAsync(Tenant, It.Is<NotificationChannel>(c => c.Id == "mail"), It.IsAny<NotificationSendResult>(), ChannelSendKind.Delivery), Times.Once);
     }
 
     // ── Read endpoint projection ──────────────────────────────────────────

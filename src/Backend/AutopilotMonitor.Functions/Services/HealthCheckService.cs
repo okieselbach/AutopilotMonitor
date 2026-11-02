@@ -503,7 +503,7 @@ public class HealthCheckService
     /// overall status to at least <c>warning</c> so a flaky Storage call cannot silently
     /// mask a real backlog; an enumeration failure does the same. Thresholds live in
     /// <see cref="MaintenanceService"/> so the live health card and the timer-driven
-    /// Telegram alert classify identically.
+    /// alert classify identically.
     /// </summary>
     internal async Task<HealthCheck> CheckPoisonQueuesAsync()
     {

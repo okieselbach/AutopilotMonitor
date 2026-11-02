@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
     /// <summary>
     /// Receives Azure Monitor alert notifications (Common Alert Schema) from an Action Group
     /// webhook receiver and re-emits them as ops events, so platform alerts flow through the
-    /// same OpsEventService → OpsAlertDispatchService fan-out (Telegram/Teams/Slack providers +
+    /// same OpsEventService → OpsAlertDispatchService fan-out (the notification channels +
     /// the portal ops-events list) as every internally raised operational event.
     ///
     /// The delivery path is deliberately independent of the portal: Azure Monitor → this

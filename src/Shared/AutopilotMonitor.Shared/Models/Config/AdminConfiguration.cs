@@ -96,7 +96,7 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Maintenance alarm threshold: sessions with more events than this value trigger an
-        /// ExcessiveSessionEvents ops alert (dispatched to Telegram/Teams).
+        /// ExcessiveSessionEvents ops alert (dispatched through the alert rules).
         /// 0 = disabled. Default: 2000 (largest real sessions observed are ~500).
         /// </summary>
         public int ExcessiveEventCountThreshold { get; set; } = 2000;
@@ -276,109 +276,17 @@ namespace AutopilotMonitor.Shared.Models
             }
         }
 
-        /// <summary>Whether the Telegram alert provider is enabled. Default: false.</summary>
-        public bool OpsAlertTelegramEnabled { get; set; }
-
-        /// <summary>Telegram chat ID for ops alerts (e.g. ITEngineer channel).</summary>
-        public string OpsAlertTelegramChatId { get; set; } = default!;
-
-        /// <summary>Whether the Teams alert provider is enabled. Default: false.</summary>
-        public bool OpsAlertTeamsEnabled { get; set; }
-
-        /// <summary>Teams Workflow webhook URL for ops alerts.</summary>
-        public string OpsAlertTeamsWebhookUrl { get; set; } = default!;
-
-        /// <summary>Whether the Slack alert provider is enabled. Default: false.</summary>
-        public bool OpsAlertSlackEnabled { get; set; }
-
-        /// <summary>Slack Incoming Webhook URL for ops alerts.</summary>
-        public string OpsAlertSlackWebhookUrl { get; set; } = default!;
-
         /// <summary>
         /// JSON array of platform notification channels (<see cref="Notifications.NotificationChannel"/>),
-        /// the destinations an <see cref="OpsAlertRule"/> can target by id. Supersedes the three
-        /// fixed provider slots above: each channel carries its own provider, destination and name,
-        /// so an operator can keep e.g. an "IT Engineer" push channel and a "Sales" webhook apart
-        /// and bind each event type to only the channels that should see it.
-        /// <para>
-        /// Null/empty = not migrated yet — <see cref="GetOpsNotificationChannels"/> then synthesizes
-        /// the list from the legacy slots, so dispatch behavior is unchanged until an operator
-        /// saves the section once.
-        /// </para>
+        /// the destinations an <see cref="OpsAlertRule"/> can target by id. Each channel carries its own
+        /// provider, destination and name, so an operator can keep e.g. an "IT Engineer" push channel and
+        /// a "Sales" webhook apart and bind each event type to only the channels that should see it.
         /// </summary>
         public string OpsNotificationChannelsJson { get; set; } = default!;
 
-        /// <summary>Stable id of the channel synthesized from the legacy Telegram slot.</summary>
-        public const string LegacyTelegramChannelId = "legacy-telegram";
-
-        /// <summary>Stable id of the channel synthesized from the legacy Teams slot.</summary>
-        public const string LegacyTeamsChannelId = "legacy-teams";
-
-        /// <summary>Stable id of the channel synthesized from the legacy Slack slot.</summary>
-        public const string LegacySlackChannelId = "legacy-slack";
-
-        /// <summary>
-        /// Display name for the synthesized Telegram channel — the operator push channel that
-        /// every ops alert went to before channels existed.
-        /// </summary>
-        public const string LegacyTelegramChannelName = "Autopilot Monitor IT Engineer";
-
-        /// <summary>
-        /// Returns the platform notification channels. Prefers <see cref="OpsNotificationChannelsJson"/>;
-        /// when that is empty, synthesizes one channel per configured legacy slot (stable ids, so a
-        /// rule's channel binding survives the later migration to the stored list) — same
-        /// forward-compatibility trick as <c>TenantConfiguration.GetNotificationChannels</c>.
-        /// <para>
-        /// The synthesized channels carry the legacy enabled flags, so a disabled provider stays
-        /// disabled and the pre-channels dispatch behavior is reproduced exactly.
-        /// </para>
-        /// </summary>
+        /// <summary>Returns the platform notification channels stored in <see cref="OpsNotificationChannelsJson"/>.</summary>
         public IReadOnlyList<Notifications.NotificationChannel> GetOpsNotificationChannels()
-        {
-            var channels = Notifications.NotificationChannel.ParseList(OpsNotificationChannelsJson);
-            if (channels.Count > 0)
-                return channels;
-
-            var synthesized = new List<Notifications.NotificationChannel>();
-
-            if (!string.IsNullOrWhiteSpace(OpsAlertTelegramChatId))
-            {
-                synthesized.Add(new Notifications.NotificationChannel
-                {
-                    Id = LegacyTelegramChannelId,
-                    Name = LegacyTelegramChannelName,
-                    ProviderType = (int)Notifications.WebhookProviderType.Telegram,
-                    Url = OpsAlertTelegramChatId,
-                    Enabled = OpsAlertTelegramEnabled,
-                });
-            }
-
-            if (!string.IsNullOrWhiteSpace(OpsAlertTeamsWebhookUrl))
-            {
-                synthesized.Add(new Notifications.NotificationChannel
-                {
-                    Id = LegacyTeamsChannelId,
-                    Name = "Microsoft Teams",
-                    ProviderType = (int)Notifications.WebhookProviderType.TeamsWorkflowWebhook,
-                    Url = OpsAlertTeamsWebhookUrl,
-                    Enabled = OpsAlertTeamsEnabled,
-                });
-            }
-
-            if (!string.IsNullOrWhiteSpace(OpsAlertSlackWebhookUrl))
-            {
-                synthesized.Add(new Notifications.NotificationChannel
-                {
-                    Id = LegacySlackChannelId,
-                    Name = "Slack",
-                    ProviderType = (int)Notifications.WebhookProviderType.Slack,
-                    Url = OpsAlertSlackWebhookUrl,
-                    Enabled = OpsAlertSlackEnabled,
-                });
-            }
-
-            return synthesized;
-        }
+            => Notifications.NotificationChannel.ParseList(OpsNotificationChannelsJson);
 
         // ===== PER-LINE AGENT HASH ORACLE =====
         // Per-major-line schema. GetAgentConfigFunction parses X-Agent-Version-Major and
@@ -661,15 +569,11 @@ namespace AutopilotMonitor.Shared.Models
         /// Shallow copy for read-model projections that must not mutate the cached instance
         /// (the configuration service hands out the same object to every caller).
         /// </summary>
-        public AdminConfiguration ShallowCopy() => (AdminConfiguration)MemberwiseClone();
-
         public AdminConfiguration RedactedCopyForReader()
         {
             var copy = (AdminConfiguration)MemberwiseClone();
             copy.PlatformStatsBlobSasUrl = Redact(copy.PlatformStatsBlobSasUrl);
             copy.NvdApiKey = Redact(copy.NvdApiKey);
-            copy.OpsAlertTeamsWebhookUrl = Redact(copy.OpsAlertTeamsWebhookUrl);
-            copy.OpsAlertSlackWebhookUrl = Redact(copy.OpsAlertSlackWebhookUrl);
             // Per-channel: destinations and secrets are redacted, the list structure (ids, names,
             // providers) stays readable so a reader still sees which channels exist.
             copy.OpsNotificationChannelsJson =

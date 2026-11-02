@@ -72,7 +72,7 @@ public class SessionDeletionWorkerTests
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
         // PR-B audit consolidation: deletion_poisoned audit moved to SessionDeletionPoisoned
-        // OpsEvent (operator-bound, Telegram-routable). Tenant-audit row is no longer written.
+        // OpsEvent (operator-bound, routable through alert rules). Tenant-audit row is no longer written.
         var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
         Assert.Equal(TenantId, poisoned.TenantId);
         Assert.Equal(SessionId, poisoned.SessionId);

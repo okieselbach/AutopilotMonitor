@@ -34,6 +34,6 @@ describe("filterOpsEventCatalog", () => {
       ["Consent", ["ConsentFlowFailed"]],
       ["Platform", ["PushDeliveryFailed"]],
     ]);
-    expect(filterOpsEventCatalog(CATALOG, "telegram")).toEqual([]);
+    expect(filterOpsEventCatalog(CATALOG, "no-such-event")).toEqual([]);
   });
 });

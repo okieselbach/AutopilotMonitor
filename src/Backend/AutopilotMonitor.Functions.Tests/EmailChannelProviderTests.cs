@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -12,8 +13,8 @@ using Moq;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// E-mail as a notification-channel provider (D-332): dispatch routing (never the webhook path,
-/// never the bot), recipient validation, the Global-Admin gate, the rendered message, and the
+/// E-mail as a notification-channel provider (D-332): dispatch routing (never the webhook path),
+/// recipient validation, the Global-Admin gate, the rendered message, and the
 /// send against a stubbed provider endpoint.
 /// </summary>
 public class EmailChannelProviderTests
@@ -30,15 +31,6 @@ public class EmailChannelProviderTests
         return mock;
     }
 
-    private static Mock<TelegramNotificationService> TelegramMock()
-    {
-        var mock = new Mock<TelegramNotificationService>(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance)
-        { CallBase = false };
-        mock.Setup(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
-            .ReturnsAsync(new NotificationSendResult { Success = true });
-        return mock;
-    }
-
     private static Mock<IEmailChannelSender> EmailMock()
     {
         var mock = new Mock<IEmailChannelSender>();
@@ -49,6 +41,9 @@ public class EmailChannelProviderTests
 
     private static NotificationChannel Channel(string? url, string id = "mail", bool enabled = true)
         => new() { Id = id, Name = id, ProviderType = Email, Url = url, Enabled = enabled };
+
+    private static NotificationChannel Webhook(WebhookProviderType provider, string url)
+        => new() { Id = provider.ToString(), Name = provider.ToString(), ProviderType = (int)provider, Url = url, Enabled = true };
 
     private static NotificationAlert Alert() => new()
     {
@@ -67,9 +62,8 @@ public class EmailChannelProviderTests
     public async Task Email_channel_reaches_the_email_sender_with_its_recipients_and_never_the_webhook_path()
     {
         var webhook = WebhookMock();
-        var telegram = TelegramMock();
         var email = EmailMock();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, Mock.Of<IPushChannelSender>(), email.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, Mock.Of<IPushChannelSender>(), email.Object);
         var alert = Alert();
 
         await dispatcher.SendToChannelsAsync(new[] { Channel("ops@example.invalid; two@example.invalid") }, alert, Platform);
@@ -77,7 +71,6 @@ public class EmailChannelProviderTests
         email.Verify(e => e.SendAlertAsync("ops@example.invalid; two@example.invalid", alert), Times.Once);
         webhook.Verify(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
             It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Never);
-        telegram.Verify(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
     }
 
     [Fact]
@@ -86,7 +79,7 @@ public class EmailChannelProviderTests
         var email = EmailMock();
         email.Setup(e => e.SendAlertAsync("ops@example.invalid", It.IsAny<NotificationAlert>()))
             .ReturnsAsync(new NotificationSendResult { Success = true, Message = "Sent to 1 recipient(s)." });
-        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, Mock.Of<IPushChannelSender>(), email.Object);
+        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, Mock.Of<IPushChannelSender>(), email.Object);
 
         await dispatcher.SendToChannelsAsync(new[] { Channel(""), Channel(null, "n") }, Alert(), Platform);
         email.Verify(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
@@ -99,13 +92,61 @@ public class EmailChannelProviderTests
     [Fact]
     public async Task Dispatcher_without_an_email_transport_skips_the_channel_and_says_so_on_test()
     {
-        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, Mock.Of<IPushChannelSender>());
+        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, Mock.Of<IPushChannelSender>());
 
         await dispatcher.SendToChannelsAsync(new[] { Channel("ops@example.invalid") }, Alert(), Platform);   // no throw
         var result = await dispatcher.SendTestAsync(Channel("ops@example.invalid"), Alert(), Platform);
 
         Assert.False(result.Success);
         Assert.Contains("not registered", result.Message);
+    }
+
+    [Fact]
+    public async Task Webhook_channel_reaches_the_webhook_path_and_never_the_email_sender()
+    {
+        var webhook = WebhookMock();
+        var email = EmailMock();
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, Mock.Of<IPushChannelSender>(), email.Object);
+        var alert = Alert();
+
+        await dispatcher.SendToChannelsAsync(new[] { Webhook(WebhookProviderType.Slack, "https://hooks.slack.example/x") }, alert, Platform);
+
+        webhook.Verify(w => w.SendAsync("https://hooks.slack.example/x", WebhookProviderType.Slack, alert,
+            It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Once);
+        email.Verify(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Mixed_list_each_channel_reaches_its_own_transport()
+    {
+        var webhook = WebhookMock();
+        var email = EmailMock();
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, Mock.Of<IPushChannelSender>(), email.Object);
+        var alert = Alert();
+
+        await dispatcher.SendToChannelsAsync(new[]
+        {
+            Channel("ops@example.invalid"),
+            Webhook(WebhookProviderType.GenericJson, "https://sales.example/hook"),
+        }, alert, Platform);
+
+        email.Verify(e => e.SendAlertAsync("ops@example.invalid", alert), Times.Once);
+        webhook.Verify(w => w.SendAsync("https://sales.example/hook", WebhookProviderType.GenericJson, alert,
+            It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Channels_without_a_destination_are_skipped_on_every_transport()
+    {
+        var webhook = WebhookMock();
+        var email = EmailMock();
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, Mock.Of<IPushChannelSender>(), email.Object);
+
+        await dispatcher.SendToChannelsAsync(new[] { Channel(null), Webhook(WebhookProviderType.Slack, "") }, Alert(), Platform);
+
+        email.Verify(e => e.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
+        webhook.Verify(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
+            It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Never);
     }
 
     // ── Validation and gate ───────────────────────────────────────────────
@@ -138,6 +179,10 @@ public class EmailChannelProviderTests
 
         var bad = NotificationChannel.SerializeList(new[] { Channel("https://hooks.example.invalid/x") });
         Assert.Contains("not a valid e-mail address", TenantConfigValidation.ValidateNotificationChannels(bad));
+
+        // The branch is per provider: a recipient list on a webhook channel still meets the URL gate.
+        var onWebhook = NotificationChannel.SerializeList(new[] { Webhook(WebhookProviderType.Slack, "ops@example.invalid") });
+        Assert.NotNull(TenantConfigValidation.ValidateNotificationChannels(onWebhook));
     }
 
     [Fact]
@@ -146,14 +191,45 @@ public class EmailChannelProviderTests
         Assert.True(NotificationChannel.IsGlobalAdminOnlyProvider(Email));
         var candidate = NotificationChannel.SerializeList(new[] { Channel("ops@example.invalid") });
 
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(candidate, null, isGlobalAdmin: true));
-        var refused = TenantConfigValidation.ValidateTelegramChannelGate(candidate, null, isGlobalAdmin: false);
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(candidate, null, isGlobalAdmin: true));
+        var refused = TenantConfigValidation.ValidatePlatformProviderGate(candidate, null, isGlobalAdmin: false);
         Assert.Equal("E-mail channels can only be configured by a Global Administrator.", refused);
 
         // A GA-created channel survives a tenant admin's unrelated save; retargeting it does not.
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(candidate, candidate, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(candidate, candidate, isGlobalAdmin: false));
         var retargeted = NotificationChannel.SerializeList(new[] { Channel("other@example.invalid") });
-        Assert.NotNull(TenantConfigValidation.ValidateTelegramChannelGate(retargeted, candidate, isGlobalAdmin: false));
+        Assert.NotNull(TenantConfigValidation.ValidatePlatformProviderGate(retargeted, candidate, isGlobalAdmin: false));
+    }
+
+    [Fact]
+    public void Gate_refuses_a_tenant_admin_who_flips_the_enabled_state()
+    {
+        var existing = NotificationChannel.SerializeList(new[] { Channel("ops@example.invalid", enabled: true) });
+        var disabled = NotificationChannel.SerializeList(new[] { Channel("ops@example.invalid", enabled: false) });
+
+        Assert.NotNull(TenantConfigValidation.ValidatePlatformProviderGate(disabled, existing, isGlobalAdmin: false));
+    }
+
+    [Fact]
+    public void Gate_ignores_webhook_channels()
+    {
+        var candidate = NotificationChannel.SerializeList(new[] { Webhook(WebhookProviderType.GenericJson, "https://sales.example/hook") });
+
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(candidate, null, isGlobalAdmin: false));
+    }
+
+    [Fact]
+    public void ValidateModel_enforces_the_gate_for_every_client_write()
+    {
+        var candidate = new TenantConfiguration
+        {
+            TenantId = "t1",
+            NotificationChannelsJson = NotificationChannel.SerializeList(new[] { Channel("ops@example.invalid") }),
+        };
+        var existing = new TenantConfiguration { TenantId = "t1" };
+
+        Assert.NotNull(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidateModel(candidate, existing, isGlobalAdmin: true));
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────

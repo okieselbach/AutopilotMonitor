@@ -66,7 +66,7 @@ public sealed class SubmitGeneralFeedbackFunctionTests
     [Fact]
     public async Task TheAlert_CarriesNeitherTextNorSenderNorContactAddress()
     {
-        // Channels bound to FeedbackReceived (Telegram, Slack, webhooks) receive message + details;
+        // Channels bound to FeedbackReceived (Slack, webhooks, e-mail) receive message + details;
         // the feedback itself is read in the portal. Personal data must never ride along.
         var h = new Harness();
 

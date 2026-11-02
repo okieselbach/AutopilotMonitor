@@ -1079,7 +1079,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // Side-effect 2: Pointer → Failed.
             await UpdatePointerWithRetryAsync(tenantId, history.RowKey, "Failed", ct);
 
-            // Side-effect 3: OpsEvent (Telegram-routable).
+            // Side-effect 3: OpsEvent (routable through alert rules).
             await _opsEvents.RecordTenantOffboardingFailedAsync(
                 tenantId, history.InitiatedBy, failedPhase, errorMessage, history.RetryCount, history.DomainName);
 

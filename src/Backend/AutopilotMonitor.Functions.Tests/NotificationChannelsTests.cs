@@ -36,6 +36,7 @@ public class NotificationChannelsTests
             "{\"name\":\"no-id\",\"providerType\":20,\"url\":\"https://x.example\"}",
             ChannelJson("none-provider", providerType: 0),
             ChannelJson("retired-teams-connector", providerType: 1),
+            ChannelJson("retired-provider", providerType: 40),
             ChannelJson("unknown-provider", providerType: 99)) + "]";
 
         var parsed = NotificationChannel.ParseList(json);
@@ -154,6 +155,20 @@ public class NotificationChannelsTests
     }
 
     [Fact]
+    public void RedactedCopy_MasksTheRecipientsOfAnEmailChannel()
+    {
+        var cfg = new TenantConfiguration
+        {
+            NotificationChannelsJson = "[" + ChannelJson("mail", providerType: 60, url: "ops@example.invalid") + "]",
+        };
+
+        var redacted = NotificationChannel.ParseList(cfg.RedactedCopyForReader().NotificationChannelsJson);
+
+        Assert.Equal("mail", Assert.Single(redacted).Id);
+        Assert.Equal(Constants.RedactedSecretPlaceholder, redacted[0].Url);
+    }
+
+    [Fact]
     public void RedactedCopy_UnparseableChannelsJson_FallsBackToWholeStringRedaction()
     {
         var cfg = new TenantConfiguration { NotificationChannelsJson = "not-json-but-maybe-secret" };
@@ -218,6 +233,7 @@ public class NotificationChannelsTests
     [InlineData("[{\"name\":\"no-id\",\"providerType\":20}]", "needs an id")]
     [InlineData("[{\"id\":\"a\",\"providerType\":99}]", "invalid provider type")]
     [InlineData("[{\"id\":\"a\",\"providerType\":1}]", "invalid provider type")] // retired Teams Office 365 Connector
+    [InlineData("[{\"id\":\"a\",\"providerType\":40}]", "invalid provider type")] // retired, never reused
     [InlineData("[{\"id\":\"a\",\"providerType\":20,\"url\":\"http://plain.example\"}]", "")] // non-https rejected by SsrfGuard format check
     public void ValidateNotificationChannels_RejectsInvalidEntries(string json, string expectedFragment)
     {
@@ -238,6 +254,7 @@ public class NotificationChannelsTests
 
     [Theory]
     [InlineData(1, false)]  // retired Teams Office 365 Connector
+    [InlineData(40, false)] // retired, never reused
     [InlineData(99, false)]
     [InlineData(0, true)]
     [InlineData(2, true)]
@@ -257,8 +274,6 @@ public class NotificationChannelsTests
     }
 
     [Theory]
-    [InlineData(40, false)]   // Telegram
-    [InlineData(40, true)]
     [InlineData(50, false)]   // Push
     [InlineData(50, true)]
     [InlineData(60, false)]   // E-mail
@@ -275,7 +290,6 @@ public class NotificationChannelsTests
     }
 
     [Theory]
-    [InlineData(40)]
     [InlineData(50)]
     [InlineData(60)]
     public void ValidateModel_LegacyWebhook_KeepsAnUnchangedStoredNonWebhookProviderSaveable(int providerType)

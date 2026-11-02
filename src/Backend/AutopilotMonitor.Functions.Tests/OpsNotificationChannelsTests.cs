@@ -12,28 +12,12 @@ using Moq;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Platform (ops) notification channels: legacy-slot synthesis so the pre-channels dispatch
-/// behavior survives the migration untouched, per-rule channel routing, the platform dispatch
-/// scope (an ops alert's tenant is its subject, never the channel owner), and redaction of the
-/// new secret-bearing field.
+/// Platform (ops) notification channels: the stored list, per-rule channel routing, the platform
+/// dispatch scope (an ops alert's tenant is its subject, never the channel owner), and redaction of
+/// the secret-bearing field.
 /// </summary>
 public class OpsNotificationChannelsTests
 {
-    private static AdminConfiguration LegacyConfig(
-        bool telegramEnabled = true, string telegramChat = "-1003785642894",
-        bool teamsEnabled = true, string teamsUrl = "https://teams.example/hook",
-        bool slackEnabled = false, string slackUrl = "")
-        => new()
-        {
-            UpdatedBy = "test",
-            OpsAlertTelegramEnabled = telegramEnabled,
-            OpsAlertTelegramChatId = telegramChat,
-            OpsAlertTeamsEnabled = teamsEnabled,
-            OpsAlertTeamsWebhookUrl = teamsUrl,
-            OpsAlertSlackEnabled = slackEnabled,
-            OpsAlertSlackWebhookUrl = slackUrl,
-        };
-
     private static NotificationChannel Channel(string id, bool enabled = true, int providerType = 20)
         => new() { Id = id, Name = id, ProviderType = providerType, Url = "https://x.example/" + id, Enabled = enabled };
 
@@ -61,44 +45,20 @@ public class OpsNotificationChannelsTests
     private static IEnumerable<string> WithPayload(IReadOnlyList<OpsAlertRule> rules, IReadOnlyList<NotificationChannel> channels)
         => OpsAlertDispatchService.ResolveTargets(rules, channels).WithPayload.Select(c => c.Id);
 
-    // ── Legacy synthesis ──────────────────────────────────────────────────
-
-    [Fact]
-    public void GetOpsNotificationChannels_SynthesizesConfiguredLegacySlots()
-    {
-        var channels = LegacyConfig().GetOpsNotificationChannels();
-
-        Assert.Equal(2, channels.Count); // Slack slot is empty → not synthesized
-        var telegram = channels[0];
-        Assert.Equal(AdminConfiguration.LegacyTelegramChannelId, telegram.Id);
-        Assert.Equal(AdminConfiguration.LegacyTelegramChannelName, telegram.Name);
-        Assert.Equal((int)WebhookProviderType.Telegram, telegram.ProviderType);
-        Assert.Equal("-1003785642894", telegram.Url);
-        Assert.True(telegram.Enabled);
-
-        Assert.Equal(AdminConfiguration.LegacyTeamsChannelId, channels[1].Id);
-        Assert.Equal((int)WebhookProviderType.TeamsWorkflowWebhook, channels[1].ProviderType);
-    }
-
-    [Fact]
-    public void GetOpsNotificationChannels_CarriesLegacyEnabledFlags()
-    {
-        // A configured-but-disabled provider must stay disabled, or the migration would start
-        // sending to a destination the operator had deliberately switched off.
-        var channels = LegacyConfig(telegramEnabled: false).GetOpsNotificationChannels();
-
-        Assert.False(channels.Single(c => c.Id == AdminConfiguration.LegacyTelegramChannelId).Enabled);
-    }
+    // ── Stored list ───────────────────────────────────────────────────────
 
     [Fact]
     public void GetOpsNotificationChannels_EmptyWhenNothingConfigured()
         => Assert.Empty(new AdminConfiguration { UpdatedBy = "t" }.GetOpsNotificationChannels());
 
     [Fact]
-    public void GetOpsNotificationChannels_StoredListWinsOverLegacySlots()
+    public void GetOpsNotificationChannels_ReturnsTheStoredList()
     {
-        var config = LegacyConfig();
-        config.OpsNotificationChannelsJson = NotificationChannel.SerializeList(new[] { Channel("sales") });
+        var config = new AdminConfiguration
+        {
+            UpdatedBy = "t",
+            OpsNotificationChannelsJson = NotificationChannel.SerializeList(new[] { Channel("sales") }),
+        };
 
         var channels = config.GetOpsNotificationChannels();
 

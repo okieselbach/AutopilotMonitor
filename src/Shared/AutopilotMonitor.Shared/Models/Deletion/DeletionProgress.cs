@@ -134,7 +134,7 @@ namespace AutopilotMonitor.Shared.Models.Deletion
         /// <c>Details</c> column at 4096 chars (<c>TableOpsEventRepository.cs</c>); the full
         /// 50-entry sample plus the other JSON-payload fields can blow past that and leave the
         /// OpsEvent details mid-string-corrupt, which makes the admin UI fall back to raw text
-        /// rendering. The OpsEvent is a Telegram-routable summary, not the forensic record —
+        /// rendering. The OpsEvent is a summary routable through alert rules, not the forensic record —
         /// operators get the full sample from <c>DeletionProgress.LastResidualSampleJson</c>
         /// via the Session Cleanup page's stored-manifest modal.
         /// </summary>

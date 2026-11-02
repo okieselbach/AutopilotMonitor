@@ -21,7 +21,6 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         private readonly TenantConfigurationService _tenantConfigService;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly TenantAdminsService _tenantAdminsService;
-        private readonly TelegramNotificationService _telegramNotificationService;
         private readonly ISessionRepository _sessionRepo;
         private readonly IFeedbackRepository _feedbackRepo;
         private readonly OpsEventService _opsEvents;
@@ -32,7 +31,6 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             TenantConfigurationService tenantConfigService,
             AdminConfigurationService adminConfigService,
             TenantAdminsService tenantAdminsService,
-            TelegramNotificationService telegramNotificationService,
             ISessionRepository sessionRepo,
             IFeedbackRepository feedbackRepo,
             OpsEventService opsEvents,
@@ -42,7 +40,6 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             _tenantConfigService = tenantConfigService;
             _adminConfigService = adminConfigService;
             _tenantAdminsService = tenantAdminsService;
-            _telegramNotificationService = telegramNotificationService;
             _sessionRepo = sessionRepo;
             _feedbackRepo = feedbackRepo;
             _opsEvents = opsEvents;
@@ -185,7 +182,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
 
             // Only a rating that was actually recorded is announced — at most once per person.
             if (stored is { Submitted: true } && stored.Rating is int rating)
-                await AnnounceRatingAsync(tenantId, upn, displayName, stored.FeedbackId!, rating, comment);
+                await AnnounceRatingAsync(tenantId, upn, stored.FeedbackId!, rating, comment);
 
             _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
                 stored == null ? "unchanged" : body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
@@ -196,13 +193,11 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         /// <summary>
         /// The signals of a recorded rating, all best effort: a stored rating never fails because of
         /// them. The ops event carries the stars and the comment length only, so an alert channel
-        /// receives no personal data; the Telegram ping keeps sender and comment until it is retired.
+        /// receives no personal data.
         /// </summary>
         private async Task AnnounceRatingAsync(
-            string tenantId, string upn, string displayName, string feedbackId, int rating, string? comment)
+            string tenantId, string upn, string feedbackId, int rating, string? comment)
         {
-            _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
-
             var normalizedTenantId = tenantId.ToLowerInvariant();
             // The domain makes the alert and the bell readable. The lookup never creates a
             // configuration row; an unknown tenant simply keeps its GUID label.

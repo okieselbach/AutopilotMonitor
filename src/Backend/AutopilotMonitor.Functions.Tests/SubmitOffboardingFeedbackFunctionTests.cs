@@ -52,7 +52,7 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
         Assert.Equal("Pricing was too high for our use case.", h.Repo.PersistedOffboardingFeedback.Comment);
         Assert.NotNull(h.Repo.PersistedOffboardingFeedback.InteractedAt);
 
-        // OpsEvent emitted with the canonical type catalog-registered for Telegram-routing.
+        // OpsEvent emitted with the canonical type catalog-registered for alert routing.
         var ops = Assert.Single(h.OpsEvents);
         Assert.Equal("OffboardingFeedbackReceived", ops.EventType);
         Assert.Equal(TenantId, ops.TenantId);
@@ -283,7 +283,7 @@ public sealed class SubmitOffboardingFeedbackFunctionTests
 
             // Alert-dispatch dependencies are inert: empty AdminConfig service + bare HTTP
             // clients. The feedback path emits Info-severity so even if alerts ARE evaluated,
-            // no Telegram/webhook fires for an unconfigured rule set.
+            // no channel fires for an unconfigured rule set.
             var memCache = new MemoryCache(new MemoryCacheOptions());
             var adminConfig = new Mock<AdminConfigurationService>(
                 Mock.Of<IConfigRepository>(),

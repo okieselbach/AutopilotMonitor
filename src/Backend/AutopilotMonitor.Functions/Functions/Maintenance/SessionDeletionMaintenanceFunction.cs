@@ -29,12 +29,12 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
     /// Independent cadence from the 2h <c>Maintenance</c> function so cascade-lifecycle
     /// work cannot starve rule-stats aggregation / cert-expiry checks, and operators get a
     /// dedicated OpsEvent stream (<see cref="OpsEventService.RecordSessionDeletionMaintenanceLongRunningAsync"/>
-    /// + siblings) wired to Telegram via the standard alert-rules UI.
+    /// + siblings) wired to channels via the standard alert-rules UI.
     /// </para>
     /// <para>
     /// 30-minute watchdog emits a Warning OpsEvent; 60-minute watchdog escalates to Error. The
     /// 60-minute mark matches the Flex Consumption hard <c>functionTimeout</c> (host.json) so the
-    /// operator gets a Telegram alert before the Azure runtime abort. The retention fanout stops
+    /// operator gets an alert before the Azure runtime abort. The retention fanout stops
     /// itself at the <see cref="RunBudget"/> (50min) deadline so a growing backlog degrades into
     /// a clean <c>BudgetExceeded</c> + partial sweep instead of a host abort. Cron
     /// <c>0 0 */12 * * *</c> (every 12h at 00:00 / 12:00 UTC) — const per repo convention;

@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Ops-event payload delivery: the structured Details object reaches outbound channels, both as
-/// readable facts (card + Telegram formats) and verbatim under "data" (generic JSON consumers),
+/// readable facts (card + e-mail formats) and verbatim under "data" (generic JSON consumers),
 /// and only the channels whose rule opted in get it — on the platform scope, like every ops send.
 /// Before this, an alert carried only category/event/severity and a tenant GUID.
 /// </summary>
@@ -117,10 +117,10 @@ public class OpsAlertPayloadTests
         => Assert.Equal("1.0", JObject.Parse(new GenericJsonRenderer().RenderToJson(
             new NotificationAlert { Title = "t", Summary = "s", DataJson = """{"a":1}""" }))["schemaVersion"]!.Value<string>());
 
-    // ── Telegram text carries the same information ────────────────────────
+    // ── E-mail text carries the same information ──────────────────────────
 
     [Fact]
-    public void TelegramRendering_IncludesFlattenedFacts()
+    public void EmailRendering_IncludesFlattenedFacts()
     {
         var alert = new NotificationAlert
         {
@@ -130,7 +130,7 @@ public class OpsAlertPayloadTests
             Facts = OpsAlertDispatchService.FlattenDetails("""{"domainName":"contoso.example"}"""),
         };
 
-        var text = TelegramNotificationService.RenderAlertText(alert);
+        var text = EmailAlertRenderer.Text(alert);
 
         Assert.Contains("Domain Name: contoso.example", text);
         Assert.Contains("Pro trial started", text);

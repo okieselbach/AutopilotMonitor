@@ -21,7 +21,6 @@ const HEALTH_DOT: Record<ChannelHealthTone, string> = {
 };
 
 const GENERIC_PROVIDER = 20;
-const TELEGRAM_PROVIDER = 40;
 const EMAIL_PROVIDER = 60;
 
 /** Default destination sentence of a Push channel (tenant scope); the ops card passes its own. */
@@ -32,23 +31,21 @@ export const PROVIDERS: {
   value: number;
   label: string;
   placeholder: string;
-  /** Offered only to Global Admins (platform-owned transport: Telegram, e-mail). */
+  /** Offered only to Global Admins (platform-owned transport: e-mail). */
   gaOnly?: boolean;
 }[] = [
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/..." },
   { value: 10, label: "Slack", placeholder: "https://hooks.slack.com/services/T.../B.../..." },
   { value: 30, label: "Discord", placeholder: "https://discord.com/api/webhooks/..." },
   { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
-  // Telegram sends through the PLATFORM bot, so only a Global Admin may configure one. The
-  // dropdown hides it for everyone else; the server enforces the same rule (a hidden option is
-  // not a control). An already-configured Telegram channel stays visible and readable either
-  // way, so saving unrelated changes cannot silently drop it.
-  { value: TELEGRAM_PROVIDER, label: "Telegram (mobile push)", placeholder: "-1003785642894", gaOnly: true },
   // Web Push to the devices paired in this scope (plan push-relay). No destination: the
   // recipients are the scope's paired devices, so the URL field gives way to a short description.
   { value: PUSH_PROVIDER, label: "Push to paired devices", placeholder: "" },
-  // E-mail through the platform's own sender (noreply@autopilotmonitor.com) and provider key —
-  // GA-only like Telegram; the destination is one to five recipient addresses.
+  // E-mail through the platform's own sender (noreply@autopilotmonitor.com) and provider key, so
+  // only a Global Admin may configure one. The dropdown hides it for everyone else; the server
+  // enforces the same rule (a hidden option is not a control). An already-configured channel
+  // stays visible and readable either way, so saving unrelated changes cannot silently drop it.
+  // The destination is one to five recipient addresses.
   { value: EMAIL_PROVIDER, label: "E-mail (from noreply@autopilotmonitor.com)", placeholder: "ops@example.com; second@example.com", gaOnly: true },
 ];
 
@@ -167,7 +164,7 @@ export function ChannelEditor({
   onTest,
   testing,
   testResult,
-  showTelegramProvider = false,
+  showPlatformProviders = false,
   showEventToggles = true,
   pushDestinationHint = PUSH_DESTINATION_HINT_TENANT,
   health = null,
@@ -179,8 +176,8 @@ export function ChannelEditor({
   onTest: () => void;
   testing: boolean;
   testResult: { success: boolean; message: string } | null;
-  /** Global Admin: may pick the platform-owned providers (Telegram bot, e-mail). */
-  showTelegramProvider?: boolean;
+  /** Global Admin: may pick the platform-owned providers (e-mail). */
+  showPlatformProviders?: boolean;
   /** Tenant channels subscribe to event kinds here; ops channels are targeted by rules instead. */
   showEventToggles?: boolean;
   /** The sentence shown in place of the URL field for a Push channel (names the host's own devices panel). */
@@ -191,17 +188,16 @@ export function ChannelEditor({
   pushTaken?: boolean;
 }) {
   const placeholder = PROVIDERS.find((p) => p.value === channel.providerType)?.placeholder;
-  const isTelegram = channel.providerType === TELEGRAM_PROVIDER;
   const isPush = channel.providerType === PUSH_PROVIDER;
   const isEmail = channel.providerType === EMAIL_PROVIDER;
   // A Push channel has no destination, so it is configured by being enabled alone.
   const isActive = channel.enabled && (isPush || (channel.url ?? "").length > 0);
-  // Keep the channel's own provider listed even when gated, so a GA-created Telegram channel
+  // Keep the channel's own provider listed even when gated, so a GA-created e-mail channel
   // does not silently render as a different provider for a tenant admin.
   const providerOptions = PROVIDERS.filter(
     (p) =>
       p.value === channel.providerType ||
-      ((!p.gaOnly || showTelegramProvider) && !(p.value === PUSH_PROVIDER && pushTaken)),
+      ((!p.gaOnly || showPlatformProviders) && !(p.value === PUSH_PROVIDER && pushTaken)),
   );
   // A disabled channel sends nothing, so its last status would only be history.
   const status = channel.enabled ? health : null;
@@ -304,7 +300,7 @@ export function ChannelEditor({
       {!isPush && (
       <div>
         <label className="block">
-          <span className="text-gray-700 font-medium text-sm">{isTelegram ? "Chat ID" : isEmail ? "Recipients" : "Webhook URL"}</span>
+          <span className="text-gray-700 font-medium text-sm">{isEmail ? "Recipients" : "Webhook URL"}</span>
           <p className="text-xs text-gray-500 mb-1">
             {channel.providerType === 2
               ? "Create a Workflow in Teams (Channel → Manage channel → Workflows → \"Post to a channel when a webhook request is received\") and paste the URL here."
@@ -314,15 +310,13 @@ export function ChannelEditor({
               ? "Any HTTPS endpoint that accepts a JSON POST. Receives a stable payload (schemaVersion + eventType, e.g. \"enrollment_succeeded\") for ticketing, automation, or an SMTP gateway like Postal."
               : channel.providerType === 30
               ? "Create a webhook in your Discord channel (Channel settings → Integrations → Webhooks) and paste the URL here."
-              : isTelegram
-              ? "Telegram chat or channel ID (negative number for groups), or an @username. Messages are delivered by the platform bot — add it to the chat first."
               : isEmail
               ? "One to five addresses, separated by semicolons. Each alert is sent as one e-mail per recipient from noreply@autopilotmonitor.com."
               : ""}
           </p>
           <div className="flex items-center gap-2">
             <input
-              type={isTelegram || isEmail ? "text" : "url"}
+              type={isEmail ? "text" : "url"}
               value={channel.url ?? ""}
               onChange={(e) => onChange({ ...channel, url: e.target.value })}
               placeholder={placeholder}

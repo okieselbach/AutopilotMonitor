@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Functions.Feedback;
@@ -19,8 +18,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// The rating bubble's answer route, driven through <c>ProcessSubmitAsync</c> (the HTTP shell only
 /// reads the body and maps the validation error). Pins that a recorded rating, and nothing else,
-/// raises <c>FeedbackRatingReceived</c>, the Global Admin bell and the Telegram ping, and that the
-/// alert carries neither the comment nor the sender.
+/// raises <c>FeedbackRatingReceived</c> and the Global Admin bell, and that the alert carries neither
+/// the comment nor the sender.
 /// </summary>
 public sealed class FeedbackFunctionSubmitTests
 {
@@ -34,7 +33,7 @@ public sealed class FeedbackFunctionSubmitTests
     private static readonly string EntryPath = Constants.PortalUserFeedbackEntryPath(FeedbackId);
 
     [Fact]
-    public async Task Rating_IsStored_RaisesTheEvent_RingsTheBell_AndPings()
+    public async Task Rating_IsStored_RaisesTheEvent_AndRingsTheBell()
     {
         var h = new Harness();
 
@@ -64,13 +63,12 @@ public sealed class FeedbackFunctionSubmitTests
 
         h.Bell.Verify(b => b.CreateNotificationAsync(
             "feedback", "New Rating", $"{Upn} (contoso.invalid) · 4/5", EntryPath), Times.Once);
-        h.Telegram.Verify(t => t.SendFeedbackAsync(TenantId, Upn, DisplayName, 4, Comment), Times.Once);
     }
 
     [Fact]
     public async Task TheAlert_CarriesNeitherCommentNorSender()
     {
-        // Channels bound to FeedbackRatingReceived (Telegram, Slack, webhooks, e-mail) receive message
+        // Channels bound to FeedbackRatingReceived (Slack, webhooks, e-mail) receive message
         // and details; the comment is read in the portal. Personal data must never ride along.
         var h = new Harness();
 
@@ -160,7 +158,6 @@ public sealed class FeedbackFunctionSubmitTests
         Assert.Empty(h.OpsEvents);
         h.Bell.Verify(b => b.CreateNotificationAsync(
             "feedback", "New Rating", It.IsAny<string>(), EntryPath), Times.Once);
-        h.Telegram.Verify(t => t.SendFeedbackAsync(TenantId, Upn, DisplayName, 3, Comment), Times.Once);
     }
 
     [Fact]
@@ -183,7 +180,6 @@ public sealed class FeedbackFunctionSubmitTests
         public FakeFeedbackRepository Repo { get; }
         public List<OpsEventEntry> OpsEvents { get; } = new();
         public Mock<GlobalNotificationService> Bell { get; }
-        public Mock<TelegramNotificationService> Telegram { get; }
 
         public Harness(FeedbackEntry? current = null, bool configExists = true, bool opsEventThrows = false)
         {
@@ -203,9 +199,6 @@ public sealed class FeedbackFunctionSubmitTests
                 Mock.Of<INotificationRepository>(), new FakeSignalRNotificationService(),
                 Mock.Of<ILogger<GlobalNotificationService>>())
             { CallBase = false };
-            Telegram = new Mock<TelegramNotificationService>(
-                new HttpClient(), configRepo, Mock.Of<ILogger<TelegramNotificationService>>())
-            { CallBase = false };
 
             var adminConfig = new Mock<AdminConfigurationService>(
                 configRepo, NullLogger<AdminConfigurationService>.Instance, cache)
@@ -216,7 +209,7 @@ public sealed class FeedbackFunctionSubmitTests
 
             Sut = new FeedbackFunction(
                 NullLogger<FeedbackFunction>.Instance, tenantConfig.Object, adminConfig.Object, tenantAdmins.Object,
-                Telegram.Object, Mock.Of<ISessionRepository>(), Repo,
+                Mock.Of<ISessionRepository>(), Repo,
                 BuildOpsEventService(adminConfig.Object, opsEventThrows), Bell.Object);
         }
 
@@ -228,8 +221,6 @@ public sealed class FeedbackFunctionSubmitTests
         {
             Bell.Verify(b => b.CreateNotificationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
-            Telegram.Verify(t => t.SendFeedbackAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>()), Times.Never);
         }
 
         /// <summary>A real OpsEventService over a capturing repository, so the actual record method runs.</summary>

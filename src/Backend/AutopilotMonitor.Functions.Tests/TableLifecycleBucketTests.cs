@@ -45,7 +45,7 @@ public class TableLifecycleBucketTests
         [Constants.TableNames.GlobalAdmins] = "platform operator identities",
         [Constants.TableNames.McpUsers] = "platform MCP identities (PK='McpUsers', RK=UPN)",
         [Constants.TableNames.TenantGroupAssignments] = "per-UPN rows without tenant anchor; offboarding never touches it (see Constants doc)",
-        [Constants.TableNames.PreviewConfig] = "global TelegramBot config row",
+        [Constants.TableNames.PreviewConfig] = "global e-mail template overrides",
         [Constants.TableNames.Feedback] = "product feedback deliberately survives offboarding (TableFeedbackRepositoryTests contract)",
         [Constants.TableNames.BlockedVersions] = "platform-wide agent version blocks",
         [Constants.TableNames.GlobalNotifications] = "GA notifications; time-retention only",

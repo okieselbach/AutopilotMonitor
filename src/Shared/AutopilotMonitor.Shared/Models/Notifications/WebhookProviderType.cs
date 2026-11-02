@@ -31,15 +31,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// </summary>
         Discord = 30,
 
-        /// <summary>
-        /// Telegram chat (plain-text message via the platform bot). The odd one out: this is not
-        /// a webhook. The channel's <c>Url</c> carries the destination CHAT ID, and the bot token
-        /// belongs to the platform (PreviewConfig <c>WebhookUrl</c>), not to the tenant — a caller
-        /// configuring one sends through OUR bot. That is why Telegram channels are Global-Admin
-        /// only (enforced in TenantConfigValidation, not just hidden in the UI), and why they are
-        /// dispatched by TelegramNotificationService instead of a renderer.
-        /// </summary>
-        Telegram = 40,
+        // 40 is retired as well. Never reuse it, for the same reason as value 1.
 
         /// <summary>
         /// Web Push to devices the channel's recipients paired in the portal (RFC 8030/8291/8292,
@@ -56,8 +48,8 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// E-mail through the platform's own sender (the same provider path as the welcome and
         /// farewell mails, <c>noreply@autopilotmonitor.com</c>). Not a webhook: <c>Url</c> carries
         /// the recipients — one to five addresses, ';' or ',' separated — and the message is rendered
-        /// by the backend. Global-Admin only (same gate as Telegram, enforced in
-        /// TenantConfigValidation) because it sends under the platform's identity and API key.
+        /// by the backend. Global-Admin only (enforced in TenantConfigValidation) because it sends
+        /// under the platform's identity and API key.
         /// </summary>
         Email = 60,
     }

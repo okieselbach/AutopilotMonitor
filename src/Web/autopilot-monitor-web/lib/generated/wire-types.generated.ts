@@ -114,7 +114,7 @@ export interface AdminConfiguration {
   collectorIdleTimeoutMinutes: number;
   /** DAD liveness threshold in minutes. When the V2 DesktopArrivalDetector polls for this duration without detecting either an excluded-user explorer.exe or a real user desktop, it emits a single desktop_detector_no_candidate observability event. State-change-only — NOT a periodic heartbeat; max 1 event per detector lifetime. Used to distinguish "user never logged in" from "detector wiring dead post-reboot" in sessions where desktop_arrived is missing. 0 = disabled (event never fires). Default: 10 minutes. */
   desktopDetectorNoCandidateTimeoutMinutes: number;
-  /** Maintenance alarm threshold: sessions with more events than this value trigger an ExcessiveSessionEvents ops alert (dispatched to Telegram/Teams). 0 = disabled. Default: 2000 (largest real sessions observed are ~500). */
+  /** Maintenance alarm threshold: sessions with more events than this value trigger an ExcessiveSessionEvents ops alert (dispatched through the alert rules). 0 = disabled. Default: 2000 (largest real sessions observed are ~500). */
   excessiveEventCountThreshold: number;
   /** Auto-action mode for runaway sessions whose EventCount exceeds ExcessiveEventAutoActionThreshold. One of "Off", "Block", or "Kill". Off (default) keeps the warn-only behaviour; Block stops the device's uploads for ExcessiveEventAutoActionDurationHours; Kill issues a remote self-destruct signal. Action runs in the 2h maintenance batch, is idempotent per session via its block record (SessionSummary.BlockCause), and never downgrades an existing Kill to Block. */
   excessiveEventAutoActionMode: string;
@@ -148,19 +148,7 @@ export interface AdminConfiguration {
   nvdApiKey: string;
   /** JSON-serialized list of OpsAlertRule objects defining which event types trigger notifications. Provider-agnostic — rules apply to all enabled providers. */
   opsAlertRulesJson: string;
-  /** Whether the Telegram alert provider is enabled. Default: false. */
-  opsAlertTelegramEnabled: boolean;
-  /** Telegram chat ID for ops alerts (e.g. ITEngineer channel). */
-  opsAlertTelegramChatId: string;
-  /** Whether the Teams alert provider is enabled. Default: false. */
-  opsAlertTeamsEnabled: boolean;
-  /** Teams Workflow webhook URL for ops alerts. */
-  opsAlertTeamsWebhookUrl: string;
-  /** Whether the Slack alert provider is enabled. Default: false. */
-  opsAlertSlackEnabled: boolean;
-  /** Slack Incoming Webhook URL for ops alerts. */
-  opsAlertSlackWebhookUrl: string;
-  /** JSON array of platform notification channels (NotificationChannel), the destinations an OpsAlertRule can target by id. Supersedes the three fixed provider slots above: each channel carries its own provider, destination and name, so an operator can keep e.g. an "IT Engineer" push channel and a "Sales" webhook apart and bind each event type to only the channels that should see it. Null/empty = not migrated yet — then synthesizes the list from the legacy slots, so dispatch behavior is unchanged until an operator saves the section once. */
+  /** JSON array of platform notification channels (NotificationChannel), the destinations an OpsAlertRule can target by id. Each channel carries its own provider, destination and name, so an operator can keep e.g. an "IT Engineer" push channel and a "Sales" webhook apart and bind each event type to only the channels that should see it. */
   opsNotificationChannelsJson: string;
   /** Version string of the latest published V2 agent (e.g. "2.0.647"). */
   latestAgentV2Version: string;

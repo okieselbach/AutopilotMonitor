@@ -207,12 +207,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     nameof(AdminConfiguration.OpsNotificationChannelsJson), StringComparison.OrdinalIgnoreCase)))
             {
                 // A GlobalReader is served destinations as the ***REDACTED*** sentinel; persisting it as a
-                // chat ID or webhook URL would silently break every alert, so restore per channel id.
+                // recipient or webhook URL would silently break every alert, so restore per channel id.
                 draft.OpsNotificationChannelsJson = NotificationChannel.RestoreRedactedList(
                     draft.OpsNotificationChannelsJson, storedChannels);
 
                 // Same structural gate and one-Push-channel rule the tenant channel list passes. No GA
-                // gate on Telegram here: this endpoint is GlobalAdminOnly by policy.
+                // gate on platform providers here: this endpoint is GlobalAdminOnly by policy.
                 var channelsError = TenantConfigValidation.ValidateNotificationChannels(draft.OpsNotificationChannelsJson)
                     ?? TenantConfigValidation.ValidateSinglePushChannel(draft.OpsNotificationChannelsJson, storedChannels);
                 if (channelsError != null)

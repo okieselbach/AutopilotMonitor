@@ -136,7 +136,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             }
 
             // PR-B audit consolidation: poisoned cascades surface as a global-scope OpsEvent
-            // (operator-bound, Telegram-routable) rather than a per-tenant audit. Tenant admins
+            // (operator-bound, routable through alert rules) rather than a per-tenant audit. Tenant admins
             // observe deletion via the lifecycle audits (started / completed / restored).
             //
             // Codex F4 follow-up: pull the handler's last-failure breadcrumb out of the

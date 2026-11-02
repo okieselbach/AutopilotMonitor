@@ -178,8 +178,7 @@ public class SubmitOffboardingFeedbackFunction
         }
 
         // Best-effort OpsEvent so operators see "feedback received" on the Ops dashboard.
-        // Telegram-wiring done by the admin via OpsAlertRules UI (memory:
-        // feedback_ops_event_types_dual_register).
+        // Alert channels are bound by the admin in the Ops Alert Rules UI.
         try
         {
             await _opsEvents.RecordOffboardingFeedbackReceivedAsync(

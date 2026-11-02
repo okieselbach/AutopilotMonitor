@@ -336,7 +336,7 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                     await _jobs.TryUpdateWithCasAsync(lostJob, lostETag.Value, ct).ConfigureAwait(false);
                 }
                 // Codex-Hotfix Wave2 #2: emit OpsEvent for the lease-loss terminal path so
-                // Telegram alert rules fire on this manual-queue failure mode the same way
+                // alert rules fire on this manual-queue failure mode the same way
                 // they do for the timer path.
                 await TryRecordOpsEventAsync(() => _opsEvents.RecordCriticalTableBackupFailedAsync(
                     backupIdForEvent, leaseLossReason, runningJobRequestedBy)).ConfigureAwait(false);

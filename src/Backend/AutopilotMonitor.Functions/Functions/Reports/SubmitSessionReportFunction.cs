@@ -16,24 +16,21 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         private readonly ILogger<SubmitSessionReportFunction> _logger;
         private readonly SessionReportService _sessionReportService;
         private readonly IMaintenanceRepository _maintenanceRepo;
-        private readonly TelegramNotificationService _telegramNotificationService;
         private readonly GlobalNotificationService _globalNotificationService;
         private readonly ReportUploadGate _uploadGate;
-        private readonly OpsEventService? _opsEvents;
+        private readonly OpsEventService _opsEvents;
 
         public SubmitSessionReportFunction(
             ILogger<SubmitSessionReportFunction> logger,
             SessionReportService sessionReportService,
             IMaintenanceRepository maintenanceRepo,
-            TelegramNotificationService telegramNotificationService,
             GlobalNotificationService globalNotificationService,
             ReportUploadGate uploadGate,
-            OpsEventService? opsEvents = null)
+            OpsEventService opsEvents)
         {
             _logger = logger;
             _sessionReportService = sessionReportService;
             _maintenanceRepo = maintenanceRepo;
-            _telegramNotificationService = telegramNotificationService;
             _globalNotificationService = globalNotificationService;
             _uploadGate = uploadGate;
             _opsEvents = opsEvents;
@@ -131,12 +128,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 }
 
                 // Ops event (routable through alert rules, Push included) — written before the response, never throws
-                if (_opsEvents != null)
-                    await _opsEvents.RecordSessionReportSubmittedAsync(request.TenantId, userIdentifier, sessionId, metadata.ReportId);
-
-                // Telegram notification — best effort
-                _ = _telegramNotificationService.SendSessionReportAsync(
-                    request.TenantId, userIdentifier, sessionId, metadata.ReportId, request.Comment ?? string.Empty);
+                await _opsEvents.RecordSessionReportSubmittedAsync(request.TenantId, userIdentifier, sessionId, metadata.ReportId);
 
                 // Persistent in-app notification for Global Admins — best effort
                 _ = _globalNotificationService.CreateNotificationAsync(

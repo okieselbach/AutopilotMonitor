@@ -122,8 +122,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         public const string FeedbackRatingReceived        = "FeedbackRatingReceived";
         /// <summary>
-        /// A new tenant signed up: its first sign-in seeded the domain (<c>auth/me</c>). Info. Recorded
-        /// next to the direct Telegram ping until that is retired (plan push-relay, Phase 0); message and
+        /// A new tenant signed up: its first sign-in seeded the domain (<c>auth/me</c>). Info. Message and
         /// details carry no personal data — the Tenants page has the rest.
         /// </summary>
         public const string TenantSignup                  = "TenantSignup";

@@ -473,10 +473,8 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphResolutio
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphResolution.IScriptDisplayNameResolver,
     AutopilotMonitor.Functions.Services.GraphResolution.ScriptDisplayNameResolver>();
 builder.Services.AddWebhookNotificationHttpClient();
-builder.Services.AddHttpClient<TelegramNotificationService>()
-    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
-// Channel-level send API — routes each NotificationChannel to its transport (webhook renderer
-// vs. the platform Telegram bot). Transient: both transports are typed HttpClients.
+// Channel-level send API — routes each NotificationChannel to its transport. Transient: the
+// webhook transport is a typed HttpClient.
 builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelDispatcher>();
 // Every channel send lands in the channel's health row (status dot in the portal, failing bell).
 builder.Services.AddSingleton<

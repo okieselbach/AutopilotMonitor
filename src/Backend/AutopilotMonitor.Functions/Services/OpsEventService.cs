@@ -331,7 +331,7 @@ namespace AutopilotMonitor.Functions.Services
         /// the poison queue and CAS-transitioned the Sessions row to <see cref="SessionDeletionState.Poisoned"/>.
         /// Replaces the prior <c>deletion_poisoned</c> tenant audit — tenant admins see only the
         /// lifecycle endpoints (<c>deletion_started</c>, <c>deletion_completed</c>, <c>deletion_restored</c>),
-        /// while operators get this OpsEvent for the Session Cleanup admin page + Telegram routing.
+        /// while operators get this OpsEvent for the Session Cleanup admin page + alert routing.
         /// <para>
         /// Codex follow-ups F4 + F2: <paramref name="failureType"/> / <paramref name="failureMessage"/>
         /// / <paramref name="observedResidualCount"/> / <paramref name="residualSamplePreviewJson"/>
@@ -465,7 +465,7 @@ namespace AutopilotMonitor.Functions.Services
         /// routes a non-GA attempt at a GA-only tool through the same path (access-probe route), so
         /// one event type covers both the direct-HTTP probe and the tool-catalog probe.
         /// Critical unless the caller is a Global Reader (a known operator, not an intruder) — the
-        /// severity split lets one rule push Critical to Telegram while Reader slips stay on the page.
+        /// severity split lets one rule alert on Critical while Reader slips stay on the page.
         /// Recorded against the caller's HOME tenant (JWT tid); the identity is in the details.
         /// </summary>
         public Task RecordPrivilegedRouteDeniedAsync(PrivilegedDenial d)
@@ -528,7 +528,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Fired by <see cref="KillSwitchEvaluator"/> when a Kill signal was actually SERVED to
         /// an agent (as opposed to DeviceBlocked/VersionBlocked, which fire when the admin
-        /// creates the rule). This is the delivery confirmation operators wire Telegram rules
+        /// creates the rule). This is the delivery confirmation operators wire alert rules
         /// on — throttled at the evaluator (24h per tenant+serial+pattern) because a kill-blind
         /// old agent keeps hitting the endpoint every few seconds. Details carry
         /// <c>serialNumber</c> so the Ops Events detail modal's Block/Kill shortcuts deep-link.
@@ -637,7 +637,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// A GA operator restored a single row from a backup (plan §PR2). Warning-level
         /// because the restore overwrote (or created) live data via ETag-CAS — operators
-        /// frequently want a Telegram ping for this event so a parallel admin sees the
+        /// frequently want an alert for this event so a parallel admin sees the
         /// audit trail in near-real-time. Payload carries the canonical
         /// <c>{ container, blobName }</c> only — no SAS URL, per plan §Medium #6.
         /// </summary>
@@ -751,7 +751,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Fired by the tenant-offboarding worker when the cascade fails closed (kill-switch
         /// active mid-enqueue, drain timeout, expectations blob corruption, ETag/CAS exhaustion,
         /// SafeWipe verify abort, …). Marker stays Failed until operator action; this event is
-        /// the Telegram-routable signal that something needs human attention. Plan Rev-4 Q2.
+        /// the routable signal that something needs human attention. Plan Rev-4 Q2.
         /// </summary>
         public Task RecordTenantOffboardingFailedAsync(
             string tenantId, string performedBy, string failedPhase, string errorMessage,
@@ -767,7 +767,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Fired by the tenant-auto-approve queue worker when a new signup was activated
-        /// automatically (AutoApproveNewTenants enabled). Info-tier audit + Telegram-routable
+        /// automatically (AutoApproveNewTenants enabled). Info-tier audit + routable
         /// signal so the operator sees which tenants entered without a manual approval click.
         /// Dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         /// (memory feedback_ops_event_types_dual_register).
@@ -901,7 +901,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// A Pro trial expired within the last sweep window — the tenant silently degraded
         /// to Community at read time (retention cap, rate limits, MSP delegation, MCP plan).
-        /// Warning-tier: a conversion moment an operator likely wants a Telegram ping for.
+        /// Warning-tier: a conversion moment an operator likely wants an alert for.
         /// </summary>
         public Task RecordTenantTrialExpiredAsync(string tenantId, string? domainName, DateTime trialExpiredUtc)
         {
@@ -1118,7 +1118,7 @@ namespace AutopilotMonitor.Functions.Services
         /// once per break report (for a session with a row, guarded by the timeline-event
         /// idempotency check). Severity, <paramref name="sessionStatusAtBreak"/> and
         /// <paramref name="context"/> come from <c>ReportAgentErrorFunction.ClassifyEmergencyBreak</c>:
-        /// Warning only when the session was still open (the break IS the verdict — Telegram-rule
+        /// Warning only when the session was still open (the break IS the verdict — alert-rule
         /// worthy) or its row could not be read. The 2026-09-03 audit found 224 of 269 breaks in
         /// three days were late cleanups on terminal sessions, the 2026-09-28 sweep that 115 of 160
         /// remaining Warnings named sessions that never registered; as Warnings both buried the real
@@ -1165,8 +1165,8 @@ namespace AutopilotMonitor.Functions.Services
         /// (tamper, stale blob, or a build that never came from a committed tree). Session
         /// e9753578 (2026-08-20) carried exactly this report, but it landed only in App
         /// Insights and was invisible to every product surface while the field damage was
-        /// mis-attributed to committed code for hours. Warning-tier so operators can wire a
-        /// Telegram rule; the message carries both hashes verbatim.
+        /// mis-attributed to committed code for hours. Warning-tier so operators can wire an
+        /// alert rule; the message carries both hashes verbatim.
         /// </summary>
         public Task RecordAgentBinaryIntegrityMismatchAsync(string tenantId, string? sessionId, string? agentVersion, string message)
             => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentBinaryIntegrityMismatch, OpsEventSeverity.Warning,
@@ -1211,7 +1211,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Fired when maintenance auto-blocks or auto-kills a device after its session crossed
         /// <see cref="AutopilotMonitor.Shared.Models.AdminConfiguration.ExcessiveEventAutoActionThreshold"/>.
-        /// Critical-severity so operators can wire a Telegram rule independent of the warn-tier
+        /// Critical-severity so operators can wire an alert rule independent of the warn-tier
         /// <c>ExcessiveSessionEvents</c> rule. Details carry the resolved <c>serialNumber</c>
         /// so the Ops Events detail modal's Block/Kill shortcuts deep-link correctly.
         /// </summary>
@@ -1314,11 +1314,11 @@ namespace AutopilotMonitor.Functions.Services
                 null, "System.Push",
                 new { host, scope = scopeKind });
 
-        // ── Tenant: customer-initiated submissions (plan push-relay, Phase 0) ─────
-        // Info events next to the direct Telegram pings, so an alert rule can route them to any
-        // channel. Like FeedbackReceived, message and details carry ids only — never the submitter
-        // or a comment; the portal page behind portalPath has them. The user id column keeps the
-        // submitter for the admin view and never reaches a channel.
+        // ── Tenant: customer-initiated submissions ────────────────────────────────
+        // Info events, so an alert rule can route them to any channel. Like FeedbackReceived, message
+        // and details carry ids only — never the submitter or a comment; the portal page behind
+        // portalPath has them. The user id column keeps the submitter for the admin view and never
+        // reaches a channel.
 
         public virtual Task RecordTenantSignupAsync(string tenantId, string upn)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantSignup, OpsEventSeverity.Info,

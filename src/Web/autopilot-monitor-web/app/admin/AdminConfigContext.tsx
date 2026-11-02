@@ -91,18 +91,6 @@ interface AdminConfigContextValue {
   // Ops Alert settings
   opsAlertRules: OpsAlertRule[];
   setOpsAlertRules: React.Dispatch<React.SetStateAction<OpsAlertRule[]>>;
-  opsAlertTelegramEnabled: boolean;
-  setOpsAlertTelegramEnabled: (value: boolean) => void;
-  opsAlertTelegramChatId: string;
-  setOpsAlertTelegramChatId: (value: string) => void;
-  opsAlertTeamsEnabled: boolean;
-  setOpsAlertTeamsEnabled: (value: boolean) => void;
-  opsAlertTeamsWebhookUrl: string;
-  setOpsAlertTeamsWebhookUrl: (value: string) => void;
-  opsAlertSlackEnabled: boolean;
-  setOpsAlertSlackEnabled: (value: boolean) => void;
-  opsAlertSlackWebhookUrl: string;
-  setOpsAlertSlackWebhookUrl: (value: string) => void;
   excessiveEventCountThreshold: number;
   excessiveEventAutoActionMode: "Off" | "Block" | "Kill";
   excessiveEventAutoActionThreshold: number;
@@ -197,12 +185,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [testingOpsChannelId, setTestingOpsChannelId] = useState<string | null>(null);
   const [testOpsChannelResult, setTestOpsChannelResult] =
     useState<{ channelId: string; success: boolean; message: string } | null>(null);
-  const [opsAlertTelegramEnabled, setOpsAlertTelegramEnabled] = useState(false);
-  const [opsAlertTelegramChatId, setOpsAlertTelegramChatId] = useState("");
-  const [opsAlertTeamsEnabled, setOpsAlertTeamsEnabled] = useState(false);
-  const [opsAlertTeamsWebhookUrl, setOpsAlertTeamsWebhookUrl] = useState("");
-  const [opsAlertSlackEnabled, setOpsAlertSlackEnabled] = useState(false);
-  const [opsAlertSlackWebhookUrl, setOpsAlertSlackWebhookUrl] = useState("");
   const [excessiveEventCountThreshold, setExcessiveEventCountThreshold] = useState(2000);
   const [excessiveEventAutoActionMode, setExcessiveEventAutoActionMode] = useState<"Off" | "Block" | "Kill">("Off");
   const [excessiveEventAutoActionThreshold, setExcessiveEventAutoActionThreshold] = useState(2500);
@@ -274,12 +256,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         } catch {
           setOpsNotificationChannels([]);
         }
-        setOpsAlertTelegramEnabled(data.opsAlertTelegramEnabled ?? false);
-        setOpsAlertTelegramChatId(data.opsAlertTelegramChatId ?? "");
-        setOpsAlertTeamsEnabled(data.opsAlertTeamsEnabled ?? false);
-        setOpsAlertTeamsWebhookUrl(data.opsAlertTeamsWebhookUrl ?? "");
-        setOpsAlertSlackEnabled(data.opsAlertSlackEnabled ?? false);
-        setOpsAlertSlackWebhookUrl(data.opsAlertSlackWebhookUrl ?? "");
         setExcessiveEventCountThreshold(data.excessiveEventCountThreshold ?? 2000);
         setExcessiveEventAutoActionMode(data.excessiveEventAutoActionMode ?? "Off");
         setExcessiveEventAutoActionThreshold(data.excessiveEventAutoActionThreshold ?? 2500);
@@ -467,7 +443,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
   /**
    * Sends a test notification to one SAVED ops channel. Deliberately server-side: only the
-   * backend holds the Telegram bot token and the webhook destinations, and only it applies the
+   * backend holds the webhook destinations and the e-mail provider key, and only it applies the
    * SSRF gate — the browser must never post to a configured endpoint directly.
    */
   const handleTestOpsChannel = useCallback(async (channelId: string) => {
@@ -521,12 +497,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       maxImeMsiDownloadSizeMB, setMaxImeMsiDownloadSizeMB,
       globalDiagPaths, setGlobalDiagPaths, savingDiagPaths,
       opsAlertRules, setOpsAlertRules,
-      opsAlertTelegramEnabled, setOpsAlertTelegramEnabled,
-      opsAlertTelegramChatId, setOpsAlertTelegramChatId,
-      opsAlertTeamsEnabled, setOpsAlertTeamsEnabled,
-      opsAlertTeamsWebhookUrl, setOpsAlertTeamsWebhookUrl,
-      opsAlertSlackEnabled, setOpsAlertSlackEnabled,
-      opsAlertSlackWebhookUrl, setOpsAlertSlackWebhookUrl,
       excessiveEventCountThreshold,
       excessiveEventAutoActionMode,
       excessiveEventAutoActionThreshold,

@@ -202,7 +202,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Turns the ops event's structured details into readable facts, so card channels (Teams,
-        /// Slack, Discord) and the plain-text Telegram message carry the same information the
+        /// Slack, Discord) and the e-mail carry the same information the
         /// generic JSON consumer gets in <c>data</c>. Reached only for rules that opted in via
         /// <see cref="OpsAlertRule.IncludePayload"/> — the caller passes null otherwise, so the
         /// default alert stays the category/event/severity/tenant baseline.

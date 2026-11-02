@@ -14,22 +14,19 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     /// in exactly one place — and so does the outcome: every non-Push send, real or test, is
     /// recorded in the channel's health row by <see cref="INotificationChannelHealthRecorder"/>.
     /// <para>
-    /// Four transports: <see cref="WebhookProviderType.Email"/> goes to the
+    /// Three transports: <see cref="WebhookProviderType.Email"/> goes to the
     /// <see cref="IEmailChannelSender"/> (the platform's own sender, recipients in the channel's
-    /// Url); <see cref="WebhookProviderType.Telegram"/> goes to
-    /// <see cref="TelegramNotificationService"/> (plain text through the platform bot, the channel's
-    /// Url field carrying the chat ID); <see cref="WebhookProviderType.Push"/> goes to the
+    /// Url); <see cref="WebhookProviderType.Push"/> goes to the
     /// <see cref="IPushChannelSender"/> (encrypted Web Push to the paired devices of the
     /// <see cref="NotificationScope"/>, the channel carrying no destination at all, health kept
     /// per device); everything else is a rendered webhook POST via
-    /// <see cref="WebhookNotificationService"/>. Neither Telegram nor Push is a renderer — they
+    /// <see cref="WebhookNotificationService"/>. Neither E-mail nor Push is a renderer — they
     /// have no caller-supplied endpoint and must never reach the SSRF-guarded webhook path.
     /// </para>
     /// </summary>
     public class NotificationChannelDispatcher
     {
         private readonly WebhookNotificationService _webhook;
-        private readonly TelegramNotificationService _telegram;
         private readonly IPushChannelSender _push;
         private readonly IEmailChannelSender? _email;
         private readonly INotificationChannelHealthRecorder? _health;
@@ -37,11 +34,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
         public NotificationChannelDispatcher(
             WebhookNotificationService webhook,
-            TelegramNotificationService telegram,
             IPushChannelSender push)
         {
             _webhook = webhook;
-            _telegram = telegram;
             _push = push;
             _logger = NullLogger<NotificationChannelDispatcher>.Instance;
         }
@@ -49,10 +44,9 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// <summary>With the e-mail transport; the shorter overload stays for the existing mocks.</summary>
         public NotificationChannelDispatcher(
             WebhookNotificationService webhook,
-            TelegramNotificationService telegram,
             IPushChannelSender push,
             IEmailChannelSender email)
-            : this(webhook, telegram, push)
+            : this(webhook, push)
         {
             _email = email;
         }
@@ -60,12 +54,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// <summary>The full dispatcher (DI picks this one): outcomes are logged and recorded.</summary>
         public NotificationChannelDispatcher(
             WebhookNotificationService webhook,
-            TelegramNotificationService telegram,
             IPushChannelSender push,
             IEmailChannelSender email,
             INotificationChannelHealthRecorder health,
             ILogger<NotificationChannelDispatcher> logger)
-            : this(webhook, telegram, push, email)
+            : this(webhook, push, email)
         {
             _health = health;
             _logger = logger;
@@ -142,9 +135,6 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                         ? new NotificationSendResult { Success = false, Message = "The e-mail transport is not registered." }
                         : await _email.SendAlertAsync(channel.Url!, alert);
                 }
-
-                if (channel.ProviderType == (int)WebhookProviderType.Telegram)
-                    return await _telegram.SendAlertAsync(channel.Url!, alert);
 
                 return await _webhook.SendAsync(
                     channel.Url!,

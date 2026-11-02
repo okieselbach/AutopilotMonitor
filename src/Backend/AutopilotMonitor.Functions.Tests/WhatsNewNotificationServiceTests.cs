@@ -88,8 +88,7 @@ public class WhatsNewNotificationServiceTests
         public Harness()
         {
             var webhook = new WebhookNotificationService(new HttpClient());
-            var telegram = new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance);
-            Dispatcher = new Mock<NotificationChannelDispatcher>(webhook, telegram, Mock.Of<IPushChannelSender>());
+            Dispatcher = new Mock<NotificationChannelDispatcher>(webhook, Mock.Of<IPushChannelSender>());
             Dispatcher
                 .Setup(d => d.SendToChannelsAsync(It.IsAny<IEnumerable<NotificationChannel>>(), It.IsAny<NotificationAlert>(), It.IsAny<NotificationScope>()))
                 .Returns<IEnumerable<NotificationChannel>, NotificationAlert, NotificationScope>((channels, alert, scope) =>
@@ -434,14 +433,14 @@ public class WhatsNewNotificationServiceTests
     }
 
     [Fact]
-    public void BuildWhatsNewAlert_TelegramText_CarriesSectionsAndLinks()
+    public void BuildWhatsNewAlert_EmailText_CarriesSectionsAndLinks()
     {
         var alert = NotificationAlertBuilder.BuildWhatsNewAlert(
             new List<WhatsNewFeedEntry> { Entry("platform", "p", title: "**Lead**", body: "Body.") },
             null,
             WhatsNewNotificationService.PortalWhatsNewUrl("platform"));
 
-        var text = TelegramNotificationService.RenderAlertText(alert);
+        var text = EmailAlertRenderer.Text(alert);
 
         Assert.Contains("What's new in Autopilot Monitor", text);
         Assert.Contains("Platform \u00b7 Sep 8, 2026 \u2014 Lead", text);

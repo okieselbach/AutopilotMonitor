@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// Cert-expiry monitoring leg of MaintenanceService. Runs on the existing 2h
     /// timer and emits tiered OpsEvents for embedded Intune CA certs nearing
-    /// NotAfter, so the operator gets a Telegram ping months before agent mTLS
+    /// NotAfter, so the operator gets an alert months before agent mTLS
     /// would break - bundle rotation is the only fix and needs lead time to
     /// source new PEMs from a corporate-enrolled device.
     /// </summary>

@@ -19,8 +19,8 @@ interface NotificationsSectionProps {
   saving: boolean;
   /** Read-only viewer (Operator): channels visible but inert, no Save bar. */
   readOnly?: boolean;
-  /** Global Admin: the platform-bot Telegram provider is offered in the provider dropdown. */
-  showTelegramProvider?: boolean;
+  /** Global Admin: the platform-owned providers (e-mail) are offered in the provider dropdown. */
+  showPlatformProviders?: boolean;
   /** Delivery status per saved channel id; null when it cannot be read. */
   health?: Map<string, ChannelHealthView> | null;
 }
@@ -35,7 +35,7 @@ export default function NotificationsSection({
   onSave,
   saving,
   readOnly = false,
-  showTelegramProvider = false,
+  showPlatformProviders = false,
   health = null,
 }: NotificationsSectionProps) {
   const addChannel = () => {
@@ -81,7 +81,7 @@ export default function NotificationsSection({
             onTest={() => onTestChannel(channel.id)}
             testing={testingChannelId === channel.id}
             testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
-            showTelegramProvider={showTelegramProvider}
+            showPlatformProviders={showPlatformProviders}
             health={health?.get(channel.id) ?? null}
             pushTaken={hasOtherPushChannel(channels, channel.id)}
           />

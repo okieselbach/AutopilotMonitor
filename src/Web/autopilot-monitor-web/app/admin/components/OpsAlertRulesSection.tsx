@@ -78,19 +78,19 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "SessionDeletionStrandedQueued",
     // PR-B audit consolidation: the per-session deletion_poisoned tenant-audit moved here so
     // tenant admins see only the lifecycle endpoints (deletion_started/completed/restored).
-    // Operators wire Telegram on this event + read it in the Session Cleanup admin page.
+    // Operators wire an alert rule on this event + read it in the Session Cleanup admin page.
     "SessionDeletionPoisoned",
     // Critical-table backup (plan §PR1) — dual-register per memory feedback_ops_event_types_dual_register.
     // Dispatched by CriticalTableBackupQueueWorker + CriticalTableBackupTimerFunction.
     // Backend helpers: RecordCriticalTableBackup{Completed,Partial,Failed,SkippedLocked}Async.
     // Partial is a distinct type (Warning severity) so operators can wire a softer
-    // Telegram rule than for Failed (Error severity, fatal manifest-write failure).
+    // alert rule than for Failed (Error severity, fatal manifest-write failure).
     "CriticalTableBackupCompleted",
     "CriticalTableBackupPartial",
     "CriticalTableBackupFailed",
     "CriticalTableBackupSkippedLocked",
     // PR2: GA restored a single row from a backup. Warning severity so operators
-    // can wire a Telegram rule and see the audit in near-real-time.
+    // can wire an alert rule and see the audit in near-real-time.
     "BackupRowRestored",
     // Orphan-session sweep (OrphanSessionSweepFunction, every 4h at :45) — dual-register per
     // memory feedback_ops_event_types_dual_register. Backend helpers RecordOrphanSweep{Completed,
@@ -119,13 +119,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // Critical-tier auto-action: emitted when maintenance auto-blocks/kills a device
     // after its session crosses `excessiveEventAutoActionThreshold`. Dual-register
     // per memory feedback_ops_event_types_dual_register so operators can wire a
-    // dedicated Telegram rule independent of the warn-tier ExcessiveSessionEvents.
+    // dedicated alert rule independent of the warn-tier ExcessiveSessionEvents.
     "ExcessiveSessionEventsAutoActioned",
     // Assume-breach layer for the Global-Admin-only surface: an authenticated caller without the
     // GlobalAdmin role hit a GlobalAdminOnly route (or, via the MCP probe, a GA-only tool).
     // Critical for callers without any platform role, Warning for a Global Reader. Flood-capped
     // per instance: one event per caller per hour and at most 5 per hour in total, then ONE
-    // Critical "storm" marker (PrivilegedDenialReporter). Route it to Telegram at MinSeverity Critical.
+    // Critical "storm" marker (PrivilegedDenialReporter). Route it to a channel at MinSeverity Critical.
     "PrivilegedRouteDenied",
     // A service principal (app-only token, key app:<client-id>) opened its first MCP session — once per
     // application and home tenant, so new automation is visible the moment it starts.
@@ -161,9 +161,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
   // TenantOffboardingFailed is dispatched by TenantOffboardingWorker when the async cascade fails
   // closed (drain timeout, KillSwitch active, Poisoned session, ETag/CAS exhaustion, SafeWipe verify
   // abort, etc.). Marker remains in Failed state until operator action — this event is the
-  // Telegram-routable signal that something needs human attention. Plan Rev-4 Q2 + Rev-9 §11 PR3.
+  // routable signal that something needs human attention. Plan Rev-4 Q2 + Rev-9 §11 PR3.
   // OffboardingFeedbackReceived fires when a departing admin submits free-form feedback
-  // in the drain-barrier banner. Information-tier — wire Telegram to get pinged when
+  // in the drain-barrier banner. Information-tier — wire a channel to get pinged when
   // someone leaves a comment so you can read it promptly.
   // TenantTrialExpiring/Expired — dual-register per memory feedback_ops_event_types_dual_register.
   // Dispatched by TrialExpirySweepFunction (daily 03:30 UTC, informational — enforcement is
@@ -559,7 +559,7 @@ export function OpsAlertRulesSection({
                           )}
                           {et === "ExcessiveSessionEventsAutoActioned" && (
                             // Auto-action controls always render under the rule row (independent of `rule.enabled`,
-                            // which only governs Telegram routing — the auto-block/kill itself fires from
+                            // which only governs channel routing — the auto-block/kill itself fires from
                             // maintenance regardless). Operators can opt in/out via the Off mode here.
                             <div className="ml-12 mt-1 mb-2 space-y-1.5">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -639,7 +639,7 @@ export function OpsAlertRulesSection({
               onTest={() => onTestChannel(channel.id)}
               testing={testingChannelId === channel.id}
               testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
-              showTelegramProvider
+              showPlatformProviders
               showEventToggles={false}
               pushDestinationHint={PUSH_DESTINATION_HINT_OPS}
               health={channelHealth?.get(channel.id) ?? null}

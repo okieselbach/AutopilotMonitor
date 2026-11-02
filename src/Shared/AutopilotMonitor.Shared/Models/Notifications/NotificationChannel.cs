@@ -44,19 +44,16 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// <summary>
         /// Provider type (int form of <see cref="WebhookProviderType"/>):
         /// 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord,
-        /// 40=Telegram (Global-Admin only — see the enum member), 50=Push (paired devices, no
-        /// destination field; open to tenant Admins, at most one Push channel per scope),
-        /// 60=Email (Global-Admin only).
+        /// 50=Push (paired devices, no destination field; open to tenant Admins, at most one Push
+        /// channel per scope), 60=Email (Global-Admin only).
         /// </summary>
         public int ProviderType { get; set; }
 
         /// <summary>
         /// Destination (secret — redacted for read-only viewers). For every webhook provider this
-        /// is the endpoint URL; for <see cref="WebhookProviderType.Telegram"/> it is the CHAT ID
-        /// instead, because the endpoint (the bot) is platform-owned. Deliberately one field: the
-        /// redaction and restore-by-id machinery already covers it, so Telegram needs no new
-        /// secret plumbing. Empty for <see cref="WebhookProviderType.Push"/> (see
-        /// <see cref="HasDestination"/>).
+        /// is the endpoint URL; for <see cref="WebhookProviderType.Email"/> it is the recipient
+        /// list. Deliberately one field: the redaction and restore-by-id machinery already covers
+        /// it. Empty for <see cref="WebhookProviderType.Push"/> (see <see cref="HasDestination"/>).
         /// </summary>
         public string? Url { get; set; }
 
@@ -72,24 +69,22 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>
         /// Providers a tenant admin may not create or retarget: they deliver to a destination the
-        /// caller names (a chat, mail recipients) through PLATFORM-owned infrastructure (the Telegram
-        /// bot; the platform's e-mail sender and identity). Enforced server-side in
-        /// TenantConfigValidation, mirrored by the <c>gaOnly</c> flag in the web ChannelEditor. Push
-        /// sends through the platform too, but is open to tenant Admins: its only recipients are the
-        /// scope's own paired devices, and a scope holds at most one Push channel.
+        /// caller names (mail recipients) through PLATFORM-owned infrastructure (the platform's e-mail
+        /// sender and identity). Enforced server-side in TenantConfigValidation, mirrored by the
+        /// <c>gaOnly</c> flag in the web ChannelEditor. Push sends through the platform too, but is
+        /// open to tenant Admins: its only recipients are the scope's own paired devices, and a scope
+        /// holds at most one Push channel.
         /// </summary>
         public static bool IsGlobalAdminOnlyProvider(int providerType)
-            => providerType == (int)WebhookProviderType.Telegram
-               || providerType == (int)WebhookProviderType.Email;
+            => providerType == (int)WebhookProviderType.Email;
 
         /// <summary>
         /// True for a provider whose destination is a caller-supplied webhook URL, rendered and posted
-        /// through the SSRF-guarded webhook path: every supported provider except Telegram, Push and
-        /// E-mail. The legacy single-webhook field accepts only these.
+        /// through the SSRF-guarded webhook path: every supported provider except Push and E-mail. The
+        /// legacy single-webhook field accepts only these.
         /// </summary>
         public static bool IsWebhookUrlProvider(int providerType)
             => IsSupportedProviderType(providerType)
-               && providerType != (int)WebhookProviderType.Telegram
                && providerType != (int)WebhookProviderType.Push
                && providerType != (int)WebhookProviderType.Email;
 

@@ -541,62 +541,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        // --- Preview Config ---
-
-        public async Task<Dictionary<string, string>> GetPreviewConfigAsync()
-        {
-            try
-            {
-                var config = new Dictionary<string, string>();
-                var entity = await _previewConfigTableClient.GetEntityAsync<TableEntity>("TelegramBot", "config");
-
-                foreach (var kvp in entity.Value)
-                {
-                    if (kvp.Key == "odata.etag" || kvp.Key == "PartitionKey" || kvp.Key == "RowKey" || kvp.Key == "Timestamp")
-                        continue;
-                    config[kvp.Key] = kvp.Value?.ToString() ?? string.Empty;
-                }
-
-                return config;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return new Dictionary<string, string>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading preview config");
-                throw;
-            }
-        }
-
-        public async Task<bool> SavePreviewConfigAsync(string key, string value)
-        {
-            try
-            {
-                // Get existing entity or create new one
-                TableEntity entity;
-                try
-                {
-                    var existing = await _previewConfigTableClient.GetEntityAsync<TableEntity>("TelegramBot", "config");
-                    entity = existing.Value;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    entity = new TableEntity("TelegramBot", "config");
-                }
-
-                entity[key] = value;
-                await _previewConfigTableClient.UpsertEntityAsync(entity);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving preview config key {Key}", key);
-                return false;
-            }
-        }
-
         // --- Email Template Overrides ---
 
         private const string EmailTemplatesPartition = "EmailTemplates";
@@ -1054,12 +998,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "SlaNotificationCooldownHours", config.SlaNotificationCooldownHours },
                 // Ops Alert settings
                 { "OpsAlertRulesJson", config.OpsAlertRulesJson ?? string.Empty },
-                { "OpsAlertTelegramEnabled", config.OpsAlertTelegramEnabled },
-                { "OpsAlertTelegramChatId", config.OpsAlertTelegramChatId ?? string.Empty },
-                { "OpsAlertTeamsEnabled", config.OpsAlertTeamsEnabled },
-                { "OpsAlertTeamsWebhookUrl", config.OpsAlertTeamsWebhookUrl ?? string.Empty },
-                { "OpsAlertSlackEnabled", config.OpsAlertSlackEnabled },
-                { "OpsAlertSlackWebhookUrl", config.OpsAlertSlackWebhookUrl ?? string.Empty },
                 { "OpsNotificationChannelsJson", config.OpsNotificationChannelsJson ?? string.Empty },
                 // Per-line agent binary integrity: written by the release pipeline via Merge.
                 // The backend never changes them (the PATCH gate rejects them), so the
@@ -1130,12 +1068,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 SlaNotificationCooldownHours = entity.GetInt32("SlaNotificationCooldownHours") ?? 24,
                 // Ops Alert settings
                 OpsAlertRulesJson = entity.GetString("OpsAlertRulesJson"),
-                OpsAlertTelegramEnabled = entity.GetBoolean("OpsAlertTelegramEnabled") ?? false,
-                OpsAlertTelegramChatId = entity.GetString("OpsAlertTelegramChatId"),
-                OpsAlertTeamsEnabled = entity.GetBoolean("OpsAlertTeamsEnabled") ?? false,
-                OpsAlertTeamsWebhookUrl = entity.GetString("OpsAlertTeamsWebhookUrl"),
-                OpsAlertSlackEnabled = entity.GetBoolean("OpsAlertSlackEnabled") ?? false,
-                OpsAlertSlackWebhookUrl = entity.GetString("OpsAlertSlackWebhookUrl"),
                 OpsNotificationChannelsJson = entity.GetString("OpsNotificationChannelsJson"),
                 // Per-line agent binary integrity. V2 is the only wired line (V1 retired).
                 AllowAgentDowngrade = entity.GetBoolean("AllowAgentDowngrade") ?? false,

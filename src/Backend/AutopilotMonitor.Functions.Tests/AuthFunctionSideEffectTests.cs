@@ -35,7 +35,6 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<TenantAdminsService> _tenantAdminsMock;
     private readonly Mock<PreviewWhitelistService> _previewMock;
     private readonly Mock<McpUserService> _mcpUserMock;
-    private readonly Mock<TelegramNotificationService> _telegramMock;
     private readonly Mock<OpsEventService> _opsEventsMock;
     private readonly Mock<GlobalNotificationService> _globalNotificationMock;
     private readonly Mock<IMetricsRepository> _metricsRepoMock;
@@ -84,10 +83,6 @@ public class AuthFunctionSideEffectTests
             configRepo, cache, Mock.Of<ILogger<PreviewWhitelistService>>(), _tenantConfigMock.Object)
         { CallBase = false };
 
-        _telegramMock = new Mock<TelegramNotificationService>(
-            new HttpClient(), configRepo, Mock.Of<ILogger<TelegramNotificationService>>())
-        { CallBase = false };
-
         _globalNotificationMock = new Mock<GlobalNotificationService>(
             notificationRepo, new FakeSignalRNotificationService(), Mock.Of<ILogger<GlobalNotificationService>>())
         { CallBase = false };
@@ -117,7 +112,6 @@ public class AuthFunctionSideEffectTests
             tenantAdmins ?? _tenantAdminsMock.Object,
             _metricsRepoMock.Object,
             preview ?? _previewMock.Object,
-            _telegramMock.Object,
             _globalNotificationMock.Object,
             _mcpUserMock.Object,
             _autoApproveEnqueuerMock.Object,
@@ -136,9 +130,6 @@ public class AuthFunctionSideEffectTests
         // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
         // a brand-new tenant). Default: all fire-and-forget calls succeed.
         _store = _tenantConfigMock.StubWrites(TenantId, row: null);
-        _telegramMock
-            .Setup(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(Task.CompletedTask);
         _globalNotificationMock
             .Setup(x => x.CreateNotificationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
@@ -233,7 +224,7 @@ public class AuthFunctionSideEffectTests
         Assert.True(string.IsNullOrEmpty(config.DomainName));
         Assert.Null(config.OnboardedBy);
         Assert.Empty(_store.Writes);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -261,8 +252,7 @@ public class AuthFunctionSideEffectTests
         Assert.Null(written.DpaAcceptedBy);
         Assert.Null(written.DpaAcceptedAt);
         Assert.Equal("auth", source);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
-        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), Times.Once);   // the routable record next to the ping
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), Times.Once);   // the routable record
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Tenant Signup",
             It.Is<string>(m => m.Contains(TenantId) && m.Contains("contoso.com") && m.Contains(Upn)),
@@ -350,7 +340,7 @@ public class AuthFunctionSideEffectTests
         Assert.True(string.IsNullOrEmpty(config.DomainName));
         Assert.Null(config.OnboardedBy);
         Assert.Empty(_store.Writes);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
             It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
             It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -371,7 +361,7 @@ public class AuthFunctionSideEffectTests
 
         Assert.Empty(_store.Writes);
         Assert.Equal("first@contoso.com", _store.Row!.OnboardedBy);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
             It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
             It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -389,7 +379,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleNewTenantDomainAsync(DefaultConfig(), TenantId, Upn);
 
         Assert.Empty(_store.Writes);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------
@@ -624,7 +614,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         Assert.Empty(_store.Writes);
-        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -650,16 +640,17 @@ public class AuthFunctionSideEffectTests
     }
 
     [Fact]
-    public async Task HandleNewTenantDomain_TelegramFailure_DoesNotThrow()
+    public async Task HandleNewTenantDomain_BellFailure_DoesNotThrow()
     {
         var config = DefaultConfig();
         config.DomainName = null!;
 
-        _telegramMock
-            .Setup(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ThrowsAsync(new HttpRequestException("Telegram unreachable"));
+        _globalNotificationMock
+            .Setup(x => x.CreateNotificationAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .ThrowsAsync(new HttpRequestException("Notification store unreachable"));
 
-        // Should not throw — Telegram is fire-and-forget
+        // Should not throw — the bell is fire-and-forget
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         // The write still landed before the fire-and-forget

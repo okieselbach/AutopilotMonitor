@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 /// <summary>
 /// Push as a channel provider: the dispatcher's Push branch (scope passed through, never the
 /// webhook path, one fan-out per send), the validation rules (no destination, open to tenant
-/// admins — only Telegram and E-mail stay behind the GA gate — and one Push channel per scope),
+/// admins — only E-mail stays behind the GA gate — and one Push channel per scope),
 /// the raw-table deny-list and the dependency redaction.
 /// </summary>
 public class PushChannelRoutingTests
@@ -35,15 +35,6 @@ public class PushChannelRoutingTests
         return mock;
     }
 
-    private static Mock<TelegramNotificationService> TelegramMock()
-    {
-        var mock = new Mock<TelegramNotificationService>(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance)
-        { CallBase = false };
-        mock.Setup(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()))
-            .ReturnsAsync(new NotificationSendResult { Success = true });
-        return mock;
-    }
-
     private static NotificationChannel PushChannel(string id = "push", bool enabled = true) =>
         new() { Id = id, Name = id, ProviderType = (int)WebhookProviderType.Push, Url = null, Enabled = enabled };
 
@@ -56,9 +47,8 @@ public class PushChannelRoutingTests
     public async Task Push_channel_reaches_the_push_sender_with_the_callers_scope_and_never_the_webhook_path()
     {
         var webhook = WebhookMock();
-        var telegram = TelegramMock();
         var push = new Mock<IPushChannelSender>();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, telegram.Object, push.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, push.Object);
         var alert = new NotificationAlert { Title = "t", Summary = "s" };
 
         await dispatcher.SendToChannelsAsync(new[] { PushChannel() }, alert, Tenant);
@@ -66,7 +56,6 @@ public class PushChannelRoutingTests
         push.Verify(p => p.SendAsync(Tenant, alert), Times.Once);
         webhook.Verify(w => w.SendAsync(It.IsAny<string>(), It.IsAny<WebhookProviderType>(), It.IsAny<NotificationAlert>(),
             It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<string>()), Times.Never);
-        telegram.Verify(t => t.SendAlertAsync(It.IsAny<string>(), It.IsAny<NotificationAlert>()), Times.Never);
     }
 
     [Fact]
@@ -75,7 +64,7 @@ public class PushChannelRoutingTests
         // A pair stored before validation allowed only one: each would reach every paired device.
         var webhook = WebhookMock();
         var push = new Mock<IPushChannelSender>();
-        var dispatcher = new NotificationChannelDispatcher(webhook.Object, TelegramMock().Object, push.Object);
+        var dispatcher = new NotificationChannelDispatcher(webhook.Object, push.Object);
         var alert = new NotificationAlert { Title = "t", Summary = "s" };
         var slack = new NotificationChannel { Id = "slack", Name = "slack", ProviderType = (int)WebhookProviderType.Slack, Url = "https://hooks.slack.example/x", Enabled = true };
 
@@ -94,7 +83,7 @@ public class PushChannelRoutingTests
         var push = new Mock<IPushChannelSender>();
         push.Setup(p => p.SendWithResultAsync(It.IsAny<NotificationScope>(), It.IsAny<NotificationAlert>()))
             .ReturnsAsync(new NotificationSendResult { Success = true, Message = "ok" });
-        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, TelegramMock().Object, push.Object);
+        var dispatcher = new NotificationChannelDispatcher(WebhookMock().Object, push.Object);
 
         var result = await dispatcher.SendTestAsync(PushChannel(), new NotificationAlert { Title = "t", Summary = "s" }, NotificationScope.Platform);
 
@@ -109,7 +98,6 @@ public class PushChannelRoutingTests
         Assert.False(new NotificationChannel { Id = "s", ProviderType = (int)WebhookProviderType.Slack, Url = "" }.HasDestination());
         Assert.True(new NotificationChannel { Id = "s", ProviderType = (int)WebhookProviderType.Slack, Url = "https://hooks.slack.example/x" }.HasDestination());
         Assert.False(NotificationChannel.IsGlobalAdminOnlyProvider((int)WebhookProviderType.Push));
-        Assert.True(NotificationChannel.IsGlobalAdminOnlyProvider((int)WebhookProviderType.Telegram));
         Assert.True(NotificationChannel.IsGlobalAdminOnlyProvider((int)WebhookProviderType.Email));
         Assert.False(NotificationChannel.IsGlobalAdminOnlyProvider((int)WebhookProviderType.Slack));
     }
@@ -127,23 +115,23 @@ public class PushChannelRoutingTests
     }
 
     [Fact]
-    public void Gate_leaves_a_push_channel_to_the_tenant_admin_but_not_its_change_into_telegram()
+    public void Gate_leaves_a_push_channel_to_the_tenant_admin_but_not_its_change_into_email()
     {
         var json = Json(PushChannel());
 
         // Add, disable, rename and toggle: all the tenant admin's own.
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(json, existingJson: null, isGlobalAdmin: false));
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(Json(PushChannel(enabled: false)), json, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(json, existingJson: null, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(Json(PushChannel(enabled: false)), json, isGlobalAdmin: false));
         var renamed = PushChannel();
         renamed.Name = "Phones";
         renamed.NotifyOnFailure = true;
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(Json(renamed), json, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(Json(renamed), json, isGlobalAdmin: false));
 
-        // The same channel id turned into Telegram still needs a Global Administrator.
-        var retyped = new NotificationChannel { Id = "push", Name = "push", ProviderType = (int)WebhookProviderType.Telegram, Url = "-100123", Enabled = true };
-        Assert.Equal("Telegram channels can only be configured by a Global Administrator.",
-            TenantConfigValidation.ValidateTelegramChannelGate(Json(retyped), json, isGlobalAdmin: false));
-        Assert.Null(TenantConfigValidation.ValidateTelegramChannelGate(Json(retyped), json, isGlobalAdmin: true));
+        // The same channel id turned into E-mail still needs a Global Administrator.
+        var retyped = new NotificationChannel { Id = "push", Name = "push", ProviderType = (int)WebhookProviderType.Email, Url = "ops@example.invalid", Enabled = true };
+        Assert.Equal("E-mail channels can only be configured by a Global Administrator.",
+            TenantConfigValidation.ValidatePlatformProviderGate(Json(retyped), json, isGlobalAdmin: false));
+        Assert.Null(TenantConfigValidation.ValidatePlatformProviderGate(Json(retyped), json, isGlobalAdmin: true));
     }
 
     [Fact]

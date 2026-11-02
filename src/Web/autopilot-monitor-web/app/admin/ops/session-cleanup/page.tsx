@@ -406,7 +406,7 @@ function ActivityTab() {
         (Stranded tab),
         <code className="mx-1 px-1 bg-gray-100 dark:bg-gray-700 rounded text-xs">SessionDeletionMaintenanceFanoutSkipped</code>
         (kill-switch active during a retention sweep). All available on the Ops Events page and
-        wirable for Telegram alerts.
+        wirable for alert rules.
       </p>
       <Link
         href="/audit"

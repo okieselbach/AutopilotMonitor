@@ -5,7 +5,7 @@ namespace AutopilotMonitor.Functions.Services.Activation
     /// <summary>
     /// Queue message contract for <c>tenant-auto-approve</c>. One envelope per new tenant
     /// signup, enqueued with <see cref="ActivationDelay"/> visibility delay so the operator's
-    /// Telegram / portal notification lands before the activation happens.
+    /// alert and portal notification land before the activation happens.
     /// </summary>
     public sealed class TenantAutoApproveEnvelope
     {
