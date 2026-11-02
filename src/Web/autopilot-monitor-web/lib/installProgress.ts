@@ -372,8 +372,9 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
 /**
  * Marks rows that were still installing when observation ended. `observedUntilMs` is the last
  * moment the agent reported anything (session `lastEventAt`) and must be passed only once the
- * session is terminal — `null` means "still live", and every row comes back untouched so the
- * panel keeps its live timer. A start after the observation end (clock skew) clamps to 0.
+ * session is terminal or its agent has gone silent — `null` means "still live", and every row
+ * comes back untouched so the panel keeps its live timer. A start after the observation end
+ * (clock skew) clamps to 0.
  */
 export function applyObservationEnd(items: InstallItem[], observedUntilMs: number | null): InstallItem[] {
   if (observedUntilMs == null) return items;

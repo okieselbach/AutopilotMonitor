@@ -22,6 +22,7 @@ import {
 } from "@/lib/scriptExecutions";
 import { lookupScriptDisplayName, type DisplayNamesByRefKey } from "@/lib/scriptDisplayNames";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/lib/errorCodeMap";
+import { frozenRowText } from "@/lib/sessionStatus";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import PhaseDivider from "@/components/PhaseDivider";
 
@@ -53,14 +54,16 @@ interface ScriptExecutionsProps {
    * stay distinct (rare in practice but never silently collide).
    */
   displayNamesByRefKey?: DisplayNamesByRefKey;
-  // Epoch ms of the agent's last report, passed only once the session is terminal. A script
-  // still running at that point renders as Incomplete instead of ticking against the wall clock.
+  // Epoch ms of the agent's last report, passed once the session is terminal or the agent went
+  // silent. A script still running at that point stops ticking against the wall clock.
   observedUntilMs?: number | null;
+  // The session has not ended, data just stopped arriving: the row reads No data, not Incomplete.
+  agentSilent?: boolean;
   // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
   userPhaseBoundary?: UserPhaseBoundary | null;
 }
 
-export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, observedUntilMs = null, userPhaseBoundary = null }: ScriptExecutionsProps) {
+export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, observedUntilMs = null, agentSilent = false, userPhaseBoundary = null }: ScriptExecutionsProps) {
   // Legacy-agent guard: split off script events replayed from a previous enrollment's IME
   // log (newer agents suppress them at the source) so week-old runs never render as current
   // executions. The muted note below keeps the gap explainable.
@@ -79,7 +82,7 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
   // post-detection were non-compliant en route.
   const runningCount = cards.filter(c => c.headerState === "Running").length;
   // Still running when observation ended — unknown outcome, counted apart from "running"
-  // so a finished session never claims a script is executing.
+  // so a finished or silent session never claims a script is executing.
   const incompleteCount = cards.filter(c => c.headerState === "Incomplete").length;
   const successCount = cards.filter(c => c.headerState === "Success").length;
   const nonCompliantCount = cards.filter(c => c.headerState === "NonCompliant").length;
@@ -88,6 +91,7 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
   const remediationCount = cards.filter(c => c.scriptType === "remediation").length;
 
   const userSplit = userPhaseSplitIndex(cards, c => Date.parse(c.timestamp), userPhaseBoundary);
+  const frozenText = frozenRowText("running", agentSilent);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -110,9 +114,9 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
               // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
               <span
                 className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                title="Still running when the agent stopped observing — the outcome was never seen. Not a failure."
+                title={frozenText.countTitle}
               >
-                {incompleteCount} incomplete
+                {incompleteCount} {frozenText.countLabel}
               </span>
             )}
             {successCount > 0 && (
@@ -158,6 +162,7 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
                 showScriptOutput={showScriptOutput}
                 latestBootstrapVersion={latestBootstrapVersion}
                 displayNamesByRefKey={displayNamesByRefKey}
+                agentSilent={agentSilent}
               />
             </Fragment>
           ))}
@@ -217,7 +222,7 @@ function cardStatusTextColor(state: ScriptCard["headerState"]): string {
  * the parent header + nested phase rows under it; platform / single-phase remediation
  * cards collapse the parent header into the single phase row (no nesting).
  */
-function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey }: { card: ScriptCard; showScriptOutput?: boolean; latestBootstrapVersion?: string | null; displayNamesByRefKey?: DisplayNamesByRefKey }) {
+function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, agentSilent }: { card: ScriptCard; showScriptOutput?: boolean; latestBootstrapVersion?: string | null; displayNamesByRefKey?: DisplayNamesByRefKey; agentSilent: boolean }) {
   // Cycles default to COLLAPSED so a session with many remediation policies stays
   // scannable — the header carries the cycle-level outcome which is the at-a-glance
   // signal the user wants first. Click the chevron to drill into per-phase details.
@@ -231,6 +236,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
         showScriptOutput={showScriptOutput}
         latestBootstrapVersion={latestBootstrapVersion}
         displayName={lookupScriptDisplayName(displayNamesByRefKey, card.phases[0].scriptType, card.phases[0].policyId)}
+        agentSilent={agentSilent}
       />
     );
   }
@@ -255,6 +261,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
   // ("Reported after"), never here.
   const cardDurationLabel = formatScriptDuration(card.durationSeconds);
   const isCardSlow = card.durationSeconds != null && card.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
+  const frozenText = card.headerState === "Incomplete" ? frozenRowText("running", agentSilent) : null;
 
   return (
     <div className={`rounded-lg ${containerClass}`}>
@@ -284,7 +291,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
           )}
         </div>
         <div className="flex items-center space-x-3 text-xs flex-shrink-0 ml-2">
-          <span className={`font-medium ${statusColor}`}>{card.headerLabel}</span>
+          <span className={`font-medium ${statusColor}`} title={frozenText?.rowTitle}>{frozenText?.label ?? card.headerLabel}</span>
           {cardDurationLabel && (
             <span
               className={`font-mono ${isCardSlow ? "text-amber-600 font-medium" : "text-gray-500"}`}
@@ -309,6 +316,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
               showScriptOutput={showScriptOutput}
               latestBootstrapVersion={latestBootstrapVersion}
               displayName={lookupScriptDisplayName(displayNamesByRefKey, phase.scriptType, phase.policyId)}
+              agentSilent={agentSilent}
               nested
             />
           ))}
@@ -356,7 +364,7 @@ function CardIcon({ state, className }: { state: ScriptCard["headerState"]; clas
   );
 }
 
-function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested, displayName }: { item: ScriptItem; showScriptOutput?: boolean; latestBootstrapVersion?: string | null; nested?: boolean; displayName?: string | null }) {
+function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested, displayName, agentSilent }: { item: ScriptItem; showScriptOutput?: boolean; latestBootstrapVersion?: string | null; nested?: boolean; displayName?: string | null; agentSilent: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   // Re-render every 5s while live in Running state so the elapsed time updates; an incomplete
   // placeholder is frozen at the observation end and never ticks.
@@ -399,9 +407,10 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
   const intuneUrl = getIntuneScriptUrl(item.policyId, item.scriptType);
 
   // Status text for the right-hand summary cell
+  const frozenText = frozenRowText("running", agentSilent);
   let statusText: string;
   if (item.isIncomplete) {
-    statusText = "Incomplete";
+    statusText = frozenText.label;
   } else if (item.state === "Running") {
     statusText = isStale ? `Running (${elapsedSeconds}s — stuck?)` : `Running (${elapsedSeconds}s)`;
   } else if (item.scriptType === "remediation" && item.complianceResult) {
@@ -515,7 +524,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
               : isNonCompliant ? "text-amber-700"
               : "text-green-600"
             }`}
-            title={item.isIncomplete ? "Still running when the agent stopped observing. The outcome is unknown — the script may well have finished after the session ended." : undefined}
+            title={item.isIncomplete ? frozenText.rowTitle : undefined}
           >
             {statusText}
           </span>

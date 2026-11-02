@@ -8,6 +8,7 @@ import PhaseDivider from "@/components/PhaseDivider";
 import AssignmentPill from "@/components/AssignmentPill";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
+import { frozenRowText } from "@/lib/sessionStatus";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
 
@@ -65,9 +66,11 @@ interface SummaryStats {
 interface DownloadProgressProps {
   events: DownloadEvent[];
   summaryStats?: SummaryStats | null;
-  // Epoch ms of the agent's last report, passed only once the session is terminal. A download
-  // that never finished by then is incomplete, not active.
+  // Epoch ms of the agent's last report, passed once the session is terminal or the agent went
+  // silent. A download that never finished by then is not active any more.
   observedUntilMs?: number | null;
+  // The session has not ended, data just stopped arriving: the row reads No data, not Incomplete.
+  agentSilent?: boolean;
   // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
   userPhaseBoundary?: UserPhaseBoundary | null;
 }
@@ -155,7 +158,7 @@ function effectiveDurationMs(dl: DownloadItem): number {
   return 0;
 }
 
-export default function DownloadProgress({ events, summaryStats, observedUntilMs = null, userPhaseBoundary = null }: DownloadProgressProps) {
+export default function DownloadProgress({ events, summaryStats, observedUntilMs = null, agentSilent = false, userPhaseBoundary = null }: DownloadProgressProps) {
   // Legacy-agent guard: drop download events replayed from a previous enrollment's IME log.
   // Silent (empty finals set) — the InstallProgress panel already reports the hidden count
   // for the same apps; a second note here would double-report them.
@@ -276,8 +279,8 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
       // This avoids active items jumping when completion status changes.
       return a.firstSeenIndex - b.firstSeenIndex;
     });
-    // Observation ended (terminal session): a download that never finished stays at its last
-    // observed bytes and is reported as incomplete rather than active.
+    // Observation ended (terminal session or silent agent): a download that never finished stays
+    // at its last observed bytes and is not reported as active.
     if (observedUntilMs == null) return folded;
     return folded.map(d => (!d.isComplete && !d.isSkipped && d.hasByteEvidence ? { ...d, isIncomplete: true } : d));
   }, [current, observedUntilMs]);
@@ -348,6 +351,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
   // rows without any observed download activity sit behind the "no download" toggle.
   const activeCount = downloads.filter(d => !d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence && !d.isIncomplete).length;
   const incompleteCount = downloads.filter(d => d.isIncomplete && !d.isUninstall).length;
+  const frozenText = frozenRowText("downloading", agentSilent);
   const completedCount = downloads.filter(d => d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence).length;
   const uninstallCount = downloads.filter(d => d.isUninstall && !d.isSkipped && d.hasByteEvidence).length;
   const noDownloadCount = downloads.filter(d => !d.isSkipped && !d.hasByteEvidence).length;
@@ -415,9 +419,9 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
               // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
               <span
                 className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                title="Still downloading when the agent stopped observing — the outcome was never seen. Not a failure."
+                title={frozenText.countTitle}
               >
-                {incompleteCount} incomplete
+                {incompleteCount} {frozenText.countLabel}
               </span>
             )}
             {uninstallCount > 0 && (
@@ -474,7 +478,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
           return (
             <Fragment key={dl.appName}>
               {userPhaseBoundary && i === userSplit && <PhaseDivider boundary={userPhaseBoundary} side="after" />}
-              <DownloadItem download={dl} progressPercent={progressPercent} />
+              <DownloadItem download={dl} progressPercent={progressPercent} agentSilent={agentSilent} />
             </Fragment>
           );
         })}
@@ -486,9 +490,10 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
   );
 }
 
-function DownloadItem({ download: dl, progressPercent }: { download: DownloadItem; progressPercent: number }) {
+function DownloadItem({ download: dl, progressPercent, agentSilent }: { download: DownloadItem; progressPercent: number; agentSilent: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showDoStats, setShowDoStats] = useState(false);
+  const frozenText = frozenRowText("downloading", agentSilent);
   const hasKnownTotal = dl.bytesTotal > 0;
   const durationMs = effectiveDurationMs(dl);
   // No-download rows get neither a progress bar nor success green — there was no download.
@@ -546,9 +551,9 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                   {dl.isIncomplete && (
                     <span
                       className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                      title="Still downloading when the agent stopped observing. The outcome is unknown — the download may well have finished after the session ended."
+                      title={frozenText.rowTitle}
                     >
-                      Incomplete
+                      {frozenText.label}
                     </span>
                   )}
                 </div>

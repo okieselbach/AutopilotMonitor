@@ -28,6 +28,7 @@ import { useSessionDetail } from "./hooks/useSessionDetail";
 import { useSessionEvents } from "./hooks/useSessionEvents";
 import { useSessionSignalR } from "./hooks/useSessionSignalR";
 import { useSessionDerivedData } from "./hooks/useSessionDerivedData";
+import { useAgentSilence } from "./hooks/useAgentSilence";
 import { useSessionTenantConfig } from "./hooks/useSessionTenantConfig";
 import { useSessionTimeAttribution } from "./hooks/useSessionTimeAttribution";
 
@@ -193,6 +194,7 @@ function SessionDetailContent() {
     displayStatus,
     enrollmentDurationFromEvents,
     lastObservedAtMs,
+    lastIngestAtMs,
     standbySeconds,
     osUpdateLive,
     isSkipUserStatusPage,
@@ -206,10 +208,12 @@ function SessionDetailContent() {
     userEnrollGrouped,
   } = derived;
 
-  // Observation end for the progress panels: only once the session is terminal does a row
-  // without a terminal event stop being "still running" — it becomes incomplete, its timer
-  // bounded by the agent's last report. Live sessions pass null and keep ticking.
-  const observedUntilMs = isTerminalStatus(displayStatus) ? lastObservedAtMs : null;
+  // Observation end for the progress panels: once the session is terminal, or no data has arrived
+  // for a while, a row without a terminal event stops being "still running" — its timer is bounded
+  // by the agent's last report. A silent session reads "No data" and goes live again with new
+  // data; live sessions pass null and keep ticking.
+  const agentSilent = useAgentSilence(displayStatus, lastIngestAtMs);
+  const observedUntilMs = isTerminalStatus(displayStatus) || agentSilent ? lastObservedAtMs : null;
   // One boundary for the Download / Install / Script panels, so all three split at the same moment.
   const userPhaseBoundary = useMemo(
     () => findUserPhaseBoundary(events, session?.enrollmentType),
@@ -772,6 +776,7 @@ function SessionDetailContent() {
               latestBootstrapVersion={latestBootstrapVersion}
               displayNamesByRefKey={scriptDisplayNamesByRefKey}
               observedUntilMs={observedUntilMs}
+              agentSilent={agentSilent}
               userPhaseBoundary={userPhaseBoundary}
             />
             </div>
@@ -784,6 +789,7 @@ function SessionDetailContent() {
               events={downloadEvents}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
+              agentSilent={agentSilent}
               userPhaseBoundary={userPhaseBoundary}
             />
             </div>
@@ -800,6 +806,7 @@ function SessionDetailContent() {
               events={installEvents}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
+              agentSilent={agentSilent}
               userPhaseBoundary={userPhaseBoundary}
             />
             </div>

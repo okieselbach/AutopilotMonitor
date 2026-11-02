@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/lib/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem } from "@/lib/installProgress";
+import { frozenRowText } from "@/lib/sessionStatus";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { InstallSourcePill } from "@/components/InstallSourcePill";
 import PendingAppRow from "@/components/PendingAppRow";
@@ -25,9 +26,11 @@ interface SummaryStats {
 interface InstallProgressProps {
   events: InstallEvent[];
   summaryStats?: SummaryStats | null;
-  // Epoch ms of the agent's last report, passed only once the session is terminal. A row still
-  // installing at that point renders as Incomplete instead of ticking against the wall clock.
+  // Epoch ms of the agent's last report, passed once the session is terminal or the agent went
+  // silent. A row still installing at that point stops ticking against the wall clock.
   observedUntilMs?: number | null;
+  // The session has not ended, data just stopped arriving: the row reads No data, not Incomplete.
+  agentSilent?: boolean;
   // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
   userPhaseBoundary?: UserPhaseBoundary | null;
 }
@@ -47,7 +50,7 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-export default function InstallProgress({ events, summaryStats, observedUntilMs = null, userPhaseBoundary = null }: InstallProgressProps) {
+export default function InstallProgress({ events, summaryStats, observedUntilMs = null, agentSilent = false, userPhaseBoundary = null }: InstallProgressProps) {
   // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
   // (newer agents suppress them at the source) so week-old installs never render as current.
   // office_*/realmjoin_* events never carry rejectedSourceTimestamp and pass through untouched.
@@ -118,6 +121,7 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
   const installedFromSummary = summaryStats?.installed;
 
   const userSplit = userPhaseSplitIndex(filteredInstalls, i => Date.parse(i.firstSeenAt), userPhaseBoundary);
+  const frozenText = frozenRowText("installing", agentSilent);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -181,9 +185,9 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
               // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
               <span
                 className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                title="Still installing when the agent stopped observing — the outcome was never seen. Not a failure."
+                title={frozenText.countTitle}
               >
-                {incompleteCount} incomplete
+                {incompleteCount} {frozenText.countLabel}
               </span>
             )}
             {postponedCount > 0 && (
@@ -221,7 +225,7 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
         {filteredInstalls.map((item, i) => (
           <Fragment key={item.key}>
             {userPhaseBoundary && i === userSplit && <PhaseDivider boundary={userPhaseBoundary} side="after" />}
-            <InstallItemRow item={item} />
+            <InstallItemRow item={item} agentSilent={agentSilent} />
           </Fragment>
         ))}
         {showPending && pendingNames.map((name) => (
@@ -240,8 +244,9 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
   );
 }
 
-function InstallItemRow({ item }: { item: InstallItem }) {
+function InstallItemRow({ item, agentSilent }: { item: InstallItem; agentSilent: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
+  const frozenText = frozenRowText("installing", agentSilent);
   // Live 1s timer while this app is installing. The tick state carries the
   // startedAt it was computed from so the read below can mask stale values from
   // a previous activation — the effect only starts/stops the interval; the
@@ -401,9 +406,9 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           {item.isIncomplete && (
             <span
               className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-              title="Still installing when the agent stopped observing. The outcome is unknown — the install may well have finished after the session ended."
+              title={frozenText.rowTitle}
             >
-              Incomplete
+              {frozenText.label}
             </span>
           )}
           {item.state === "Preinstalled" && (

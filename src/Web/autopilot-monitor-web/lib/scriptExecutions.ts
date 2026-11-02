@@ -598,9 +598,9 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
 /**
  * Marks placeholders that were still running when observation ended. `observedUntilMs` is the
  * last moment the agent reported anything (the session's lastEventAt) and is only passed once
- * the session is terminal; null (live session) leaves every row untouched. Mirrors the install
- * panel's applyObservationEnd: no timer runs on such a row, and `observedMs` is the watched
- * span from the start line — a lower bound, never the run time.
+ * the session is terminal or its agent has gone silent; null (live session) leaves every row
+ * untouched. Mirrors the install panel's applyObservationEnd: no timer runs on such a row, and
+ * `observedMs` is the watched span from the start line — a lower bound, never the run time.
  */
 export function applyObservationEnd(items: ScriptItem[], observedUntilMs: number | null): ScriptItem[] {
   if (observedUntilMs == null) return items;

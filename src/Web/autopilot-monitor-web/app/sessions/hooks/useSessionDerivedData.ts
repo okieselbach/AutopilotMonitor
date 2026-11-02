@@ -30,6 +30,8 @@ export interface UseSessionDerivedDataReturn {
   displayStatus: string;
   enrollmentDurationFromEvents: string | null;
   lastObservedAtMs: number | null;
+  /** When the server last received anything from the agent. Server clock, unlike lastObservedAtMs. */
+  lastIngestAtMs: number | null;
   standbySeconds: number | null;
   /** The OOBE quality update of a running session (null otherwise); its label depends on the clock. */
   osUpdateLive: OsUpdateLiveFacts | null;
@@ -168,6 +170,19 @@ export function useSessionDerivedData(
     return max;
   }, [events, sessionLastEventAt]);
 
+  // The session row is not refreshed with every event, the event's own receipt time is.
+  const sessionLastIngestAt = session?.lastIngestAt ?? null;
+  const lastIngestAtMs = useMemo(() => {
+    const fromSession = sessionLastIngestAt ? new Date(sessionLastIngestAt).getTime() : NaN;
+    let max: number | null = Number.isFinite(fromSession) ? fromSession : null;
+    for (const e of events) {
+      if (!e.receivedAt) continue;
+      const t = new Date(e.receivedAt).getTime();
+      if (Number.isFinite(t) && (max === null || t > max)) max = t;
+    }
+    return max;
+  }, [events, sessionLastIngestAt]);
+
   // The OOBE quality update while the session runs — the live counterpart of the time
   // attribution's os_update / awaiting_sign_in segments, which exist only once it ended.
   const sessionStatus = session?.status;
@@ -269,6 +284,7 @@ export function useSessionDerivedData(
     displayStatus,
     enrollmentDurationFromEvents,
     lastObservedAtMs,
+    lastIngestAtMs,
     standbySeconds,
     osUpdateLive,
     phaseNamesMap,
