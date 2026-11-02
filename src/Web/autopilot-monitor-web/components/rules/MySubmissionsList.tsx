@@ -95,36 +95,41 @@ export function MySubmissionsList({ kind, getAccessToken, refreshKey, overrideTe
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <button
+      {/* The div takes the mouse click so the whole head stays a click target; the title and the
+          filter are sibling buttons, because a button inside a button hides the inner one from
+          the keyboard and from screen readers. */}
+      <div
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
+        className="w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer select-none"
       >
-        <span className="flex items-center gap-2 text-sm font-medium text-gray-900">
+        <button
+          onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
+          aria-expanded={!collapsed}
+          className="flex items-center gap-2 text-sm font-medium text-gray-900 text-left"
+        >
           <svg className={`w-4 h-4 text-gray-400 transition-transform ${collapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           Community submissions
           <span className="text-xs font-normal text-gray-500">({items.length}{pending > 0 ? `, ${pending} pending` : ""})</span>
-        </span>
+        </button>
         {!collapsed && hidden > 0 && (
-          <span
-            role="button"
+          <button
             onClick={(e) => { e.stopPropagation(); setShowAll(true); }}
             className="text-xs text-indigo-600 hover:text-indigo-800"
           >
             Show all ({hidden} more)
-          </span>
+          </button>
         )}
         {!collapsed && showAll && items.length > pending && (
-          <span
-            role="button"
+          <button
             onClick={(e) => { e.stopPropagation(); setShowAll(false); }}
             className="text-xs text-indigo-600 hover:text-indigo-800"
           >
             Pending only
-          </span>
+          </button>
         )}
-      </button>
+      </div>
       {!collapsed && visible.length === 0 && (
         <p className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">Nothing pending.</p>
       )}

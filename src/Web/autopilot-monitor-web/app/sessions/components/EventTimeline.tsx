@@ -606,7 +606,9 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
     <div id={`event-${event.eventId}`} className="bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
+          {/* flex-wrap: on a phone the event type, one long word, drops below the time and badges
+              instead of pushing the whole page sideways. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="text-xs text-gray-500 font-mono">
               {(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}
               {recordedAt && (
@@ -632,9 +634,9 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                 ⧖ Clamped
               </span>
             )}
-            <span className="text-sm font-medium text-gray-900">{event.eventType}</span>
+            <span className="text-sm font-medium text-gray-900 min-w-0 break-words">{event.eventType}</span>
           </div>
-          <p className="mt-1 text-sm text-gray-600" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</p>
+          <p className="mt-1 text-sm text-gray-600 break-words" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</p>
           {laterCorrection && (
             <p className="mt-0.5 text-xs text-gray-500">
               {laterCorrection === "foreign"

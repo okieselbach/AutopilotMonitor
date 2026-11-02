@@ -5,6 +5,7 @@ import { partitionHistoricReplayEvents, type ReplayInputEvent } from "@/lib/hist
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 import PhaseDivider from "@/components/PhaseDivider";
+import ProgressPanelHeader from "@/components/ProgressPanelHeader";
 import AssignmentPill from "@/components/AssignmentPill";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
@@ -369,104 +370,98 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between w-full text-left"
-      >
-        {/* flex-wrap + gap (not space-x): on narrow screens the pills wrap as whole units
-            below the title instead of overflowing the viewport; whitespace-nowrap inherits
-            so no pill breaks internally. */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-nowrap">
+      <ProgressPanelHeader
+        title="Download Progress"
+        expanded={expanded}
+        onToggle={() => setExpanded(!expanded)}
+        icon={
           <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <h2 className="text-lg font-semibold text-gray-900">Download Progress</h2>
-          {totalDownloadable != null && downloadedCount != null ? (
+        }
+      >
+        {totalDownloadable != null && downloadedCount != null ? (
+          <span
+            className="text-xs text-gray-400"
+            title="Install assignments only — skipped apps and uninstall downloads are not counted here."
+          >
+            ({downloadedCount} of {totalDownloadable} downloaded)
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400">({downloads.length} {downloads.length === 1 ? 'download' : 'downloads'})</span>
+        )}
+        {totalDuration != null && (
+          <span className="text-xs text-gray-400">
+            — Total: {formatDuration(Math.floor(totalDuration / 1000))}
+          </span>
+        )}
+        {totalP2P != null && (
+          <span
+            className="text-xs text-gray-400"
+            title={`${formatBytes(totalP2P.peers)} from peers of ${formatBytes(totalP2P.total)} total`}
+          >
+            — P2P: {totalP2P.percent}%
+          </span>
+        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {activeCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+              {activeCount} active
+            </span>
+          )}
+          {completedCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+              {completedCount} completed
+            </span>
+          )}
+          {incompleteCount > 0 && (
+            // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
             <span
-              className="text-xs text-gray-400"
-              title="Install assignments only — skipped apps and uninstall downloads are not counted here."
+              className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+              title={frozenText.countTitle}
             >
-              ({downloadedCount} of {totalDownloadable} downloaded)
-            </span>
-          ) : (
-            <span className="text-xs text-gray-400">({downloads.length} {downloads.length === 1 ? 'download' : 'downloads'})</span>
-          )}
-          {totalDuration != null && (
-            <span className="text-xs text-gray-400">
-              — Total: {formatDuration(Math.floor(totalDuration / 1000))}
+              {incompleteCount} {frozenText.countLabel}
             </span>
           )}
-          {totalP2P != null && (
+          {uninstallCount > 0 && (
+            // Muted gray on purpose (dark-mode covered by the global gray overrides) —
+            // it's context, not a state the user needs to act on.
             <span
-              className="text-xs text-gray-400"
-              title={`${formatBytes(totalP2P.peers)} from peers of ${formatBytes(totalP2P.total)} total`}
+              className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+              title="Package content downloaded for uninstall assignments — Win32 uninstalls re-download the full package before removing the app."
             >
-              — P2P: {totalP2P.percent}%
+              {uninstallCount} uninstall
             </span>
           )}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            {activeCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
-                {activeCount} active
-              </span>
-            )}
-            {completedCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                {completedCount} completed
-              </span>
-            )}
-            {incompleteCount > 0 && (
-              // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
-              <span
-                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                title={frozenText.countTitle}
-              >
-                {incompleteCount} {frozenText.countLabel}
-              </span>
-            )}
-            {uninstallCount > 0 && (
-              // Muted gray on purpose (dark-mode covered by the global gray overrides) —
-              // it's context, not a state the user needs to act on.
-              <span
-                className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
-                title="Package content downloaded for uninstall assignments — Win32 uninstalls re-download the full package before removing the app."
-              >
-                {uninstallCount} uninstall
-              </span>
-            )}
-            {skippedCount > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowSkipped(!showSkipped); }}
-                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showSkipped ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
-                title={showSkipped ? "Hide skipped apps" : "Show skipped apps"}
-              >
-                {skippedCount} skipped {showSkipped ? "▾" : "▸"}
-              </button>
-            )}
-            {noDownloadCount > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowNoDownload(!showNoDownload); }}
-                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showNoDownload ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
-                title="Assignments the management extension reported without downloading any package content — typically Store/WinGet uninstalls and skips."
-              >
-                {noDownloadCount} no download {showNoDownload ? "▾" : "▸"}
-              </button>
-            )}
-            {pendingNames.length > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
-                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
-                title="Assigned to this device but not picked up by the management extension yet — no download activity has been observed."
-              >
-                {pendingNames.length} pending {showPending ? "▾" : "▸"}
-              </button>
-            )}
-          </div>
+          {skippedCount > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowSkipped(!showSkipped); }}
+              className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showSkipped ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+              title={showSkipped ? "Hide skipped apps" : "Show skipped apps"}
+            >
+              {skippedCount} skipped {showSkipped ? "▾" : "▸"}
+            </button>
+          )}
+          {noDownloadCount > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowNoDownload(!showNoDownload); }}
+              className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showNoDownload ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+              title="Assignments the management extension reported without downloading any package content — typically Store/WinGet uninstalls and skips."
+            >
+              {noDownloadCount} no download {showNoDownload ? "▾" : "▸"}
+            </button>
+          )}
+          {pendingNames.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
+              className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+              title="Assigned to this device but not picked up by the management extension yet — no download activity has been observed."
+            >
+              {pendingNames.length} pending {showPending ? "▾" : "▸"}
+            </button>
+          )}
         </div>
-        <svg className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+      </ProgressPanelHeader>
 
       {expanded && <div className="space-y-3 mt-4">
         {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}

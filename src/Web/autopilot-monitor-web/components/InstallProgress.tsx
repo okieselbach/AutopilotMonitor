@@ -9,6 +9,7 @@ import TruncatedLabel from "@/components/TruncatedLabel";
 import { InstallSourcePill } from "@/components/InstallSourcePill";
 import PendingAppRow from "@/components/PendingAppRow";
 import PhaseDivider from "@/components/PhaseDivider";
+import ProgressPanelHeader from "@/components/ProgressPanelHeader";
 import AssignmentPill from "@/components/AssignmentPill";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 
@@ -158,100 +159,94 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between w-full text-left"
-      >
-        {/* flex-wrap + gap (not space-x): on narrow screens the pills wrap as whole units
-            below the title instead of overflowing the viewport; whitespace-nowrap inherits
-            so no pill breaks internally. */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-nowrap">
+      <ProgressPanelHeader
+        title="Install Progress"
+        expanded={expanded}
+        onToggle={() => setExpanded(!expanded)}
+        icon={
           <svg className="w-5 h-5 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
           </svg>
-          <h2 className="text-lg font-semibold text-gray-900">Install Progress</h2>
-          {totalFromSummary != null && installedFromSummary != null && (
-            <span className="text-xs text-gray-400">
-              ({installedFromSummary} of {totalFromSummary} installed)
+        }
+      >
+        {totalFromSummary != null && installedFromSummary != null && (
+          <span className="text-xs text-gray-400">
+            ({installedFromSummary} of {totalFromSummary} installed)
+          </span>
+        )}
+        {totalDuration != null && (
+          <span className="text-xs text-gray-400">
+            — Total: {formatDuration(totalDuration)}
+          </span>
+        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {activeCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">
+              {activeCount} active
             </span>
           )}
-          {totalDuration != null && (
-            <span className="text-xs text-gray-400">
-              — Total: {formatDuration(totalDuration)}
+          {completedCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+              {completedCount} completed
             </span>
           )}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            {activeCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">
-                {activeCount} active
-              </span>
-            )}
-            {completedCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                {completedCount} completed
-              </span>
-            )}
-            {uninstalledCount > 0 && (
-              // Deliberately muted (gray family, dark-mode covered by the global overrides) —
-              // a saturated pill here pulls the eye to what is a successful non-event.
-              <span
-                className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
-                title="Uninstall assignments enforced during this enrollment — the app was removed, not installed."
-              >
-                {uninstalledCount} uninstalled
-              </span>
-            )}
-            {failedCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
-                {failedCount} failed
-              </span>
-            )}
-            {likelyStuckCount > 0 && (
-              <span
-                className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium"
-                title="ESP timed out while these apps were still installing — final status couldn't be confirmed."
-              >
-                {likelyStuckCount} likely stuck
-              </span>
-            )}
-            {incompleteCount > 0 && (
-              // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
-              <span
-                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
-                title={frozenText.countTitle}
-              >
-                {incompleteCount} {frozenText.countLabel}
-              </span>
-            )}
-            {postponedCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                {postponedCount} postponed
-              </span>
-            )}
-            {skippedCount > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowSkipped(!showSkipped); }}
-                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showSkipped ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
-                title={showSkipped ? "Hide skipped apps" : "Show skipped apps"}
-              >
-                {skippedCount} skipped {showSkipped ? "▾" : "▸"}
-              </button>
-            )}
-            {pendingNames.length > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
-                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
-                title="Assigned to this device but not picked up by the management extension yet — no install activity has been observed."
-              >
-                {pendingNames.length} pending {showPending ? "▾" : "▸"}
-              </button>
-            )}
-          </div>
+          {uninstalledCount > 0 && (
+            // Deliberately muted (gray family, dark-mode covered by the global overrides) —
+            // a saturated pill here pulls the eye to what is a successful non-event.
+            <span
+              className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+              title="Uninstall assignments enforced during this enrollment — the app was removed, not installed."
+            >
+              {uninstalledCount} uninstalled
+            </span>
+          )}
+          {failedCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
+              {failedCount} failed
+            </span>
+          )}
+          {likelyStuckCount > 0 && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium"
+              title="ESP timed out while these apps were still installing — final status couldn't be confirmed."
+            >
+              {likelyStuckCount} likely stuck
+            </span>
+          )}
+          {incompleteCount > 0 && (
+            // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
+            <span
+              className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+              title={frozenText.countTitle}
+            >
+              {incompleteCount} {frozenText.countLabel}
+            </span>
+          )}
+          {postponedCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+              {postponedCount} postponed
+            </span>
+          )}
+          {skippedCount > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowSkipped(!showSkipped); }}
+              className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showSkipped ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+              title={showSkipped ? "Hide skipped apps" : "Show skipped apps"}
+            >
+              {skippedCount} skipped {showSkipped ? "▾" : "▸"}
+            </button>
+          )}
+          {pendingNames.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
+              className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+              title="Assigned to this device but not picked up by the management extension yet — no install activity has been observed."
+            >
+              {pendingNames.length} pending {showPending ? "▾" : "▸"}
+            </button>
+          )}
         </div>
-        <svg className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+      </ProgressPanelHeader>
 
       {expanded && <div className="space-y-3 mt-4">
         {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}
@@ -538,7 +533,7 @@ function InstallItemRow({ item, agentSilent }: { item: InstallItem; agentSilent:
             );
           })()}
           {item.isError && item.errorDetail && !item.isLikelyStuck && (
-            <div className="text-xs text-red-600">{item.errorDetail}</div>
+            <div className="text-xs text-red-600 break-words">{item.errorDetail}</div>
           )}
           {item.isLikelyStuck && (
             <div className="text-xs text-orange-700">
