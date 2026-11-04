@@ -426,8 +426,9 @@ public class IntuneEnrollmentValidationTests
     private static readonly CloudPcValidationResult CloudPcPermissionMissing =
         new() { IsValid = false, PermissionMissing = true, ErrorMessage = "not permitted" };
 
-    private static Task<SecurityValidationResult> Validate(SecurityValidator validator)
-        => validator.ValidateRequestAsync(CertTenantBindingTests.BuildRequestWithCert(CertTenantBindingTests.SampleCertBase64()), CertTenant);
+    private static Task<SecurityValidationResult> Validate(SecurityValidator validator, bool selfReportedCloudPc = false)
+        => validator.ValidateRequestAsync(CertTenantBindingTests.BuildRequestWithCert(CertTenantBindingTests.SampleCertBase64()), CertTenant,
+            selfReportedCloudPc: selfReportedCloudPc);
 
     [Fact]
     public async Task Chain_MissingBindingPermission_ReportsTheAddOn_AndKeepsTheResponse()
@@ -464,18 +465,23 @@ public class IntuneEnrollmentValidationTests
         recorder.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task Chain_MissingCloudPcPermission_ReportsTheAddOn_WithTheSame403()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)] // a laptop not (yet) in Autopilot or a Hyper-V test VM: the grant would not admit it either
+    public async Task Chain_MissingCloudPcPermission_KeepsThe403_AndReportsOnlyASelfReportedCloudPc(bool selfReportedCloudPc)
     {
         var recorder = new Mock<IGraphAccessHealthRecorder>();
         var (validator, _) = BuildChain(new TenantConfiguration { ValidateCloudPcDevice = true }, recorder.Object,
             CloudPcAnswering(CloudPcPermissionMissing).Object);
 
-        var result = await Validate(validator);
+        var result = await Validate(validator, selfReportedCloudPc);
 
         Assert.Equal(HttpStatusCode.Forbidden, result.StatusCode);
+        Assert.Contains("not permitted", result.Details);
         recorder.Verify(r => r.RecordAddOnPermissionMissingAsync(CertTenant,
-            It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 1 && l[0] == AddOnValidation.CloudPc)), Times.Once);
+                It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 1 && l[0] == AddOnValidation.CloudPc)),
+            selfReportedCloudPc ? Times.Once() : Times.Never());
+        recorder.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -494,21 +500,26 @@ public class IntuneEnrollmentValidationTests
         recorder.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task Chain_BothPermissionsMissing_ReportsBothInChainOrder()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)] // a Hyper-V VM outside Autopilot: only the binding's grant would admit it
+    public async Task Chain_BothPermissionsMissing_ReportsInChainOrder_CloudPcOnlyWhenSelfReported(bool selfReportedCloudPc)
     {
         var recorder = new Mock<IGraphAccessHealthRecorder>();
         var (validator, binding) = BuildChain(
             new TenantConfiguration { ValidateCloudPcDevice = true, ValidateIntuneDeviceBinding = true }, recorder.Object,
             CloudPcAnswering(CloudPcPermissionMissing).Object);
         SetupAdmitting(binding, new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.PermissionMissing, ErrorMessage = "grant" });
+        AddOnValidation[] expected = selfReportedCloudPc
+            ? [AddOnValidation.CloudPc, AddOnValidation.IntuneDeviceBinding]
+            : [AddOnValidation.IntuneDeviceBinding];
 
-        var result = await Validate(validator);
+        var result = await Validate(validator, selfReportedCloudPc);
 
         // The binding's missing grant keeps the device waiting rather than rejected (D-282).
         Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
         recorder.Verify(r => r.RecordAddOnPermissionMissingAsync(CertTenant,
-            It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 2 && l[0] == AddOnValidation.CloudPc && l[1] == AddOnValidation.IntuneDeviceBinding)), Times.Once);
+            It.Is<IReadOnlyList<AddOnValidation>>(l => l.SequenceEqual(expected))), Times.Once);
     }
 
     [Fact]

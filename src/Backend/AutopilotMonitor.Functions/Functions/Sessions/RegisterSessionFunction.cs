@@ -119,7 +119,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     deviceAssociationValidator: _deviceAssociationValidator,
                     cloudPcDeviceValidator: _cloudPcDeviceValidator,
                     intuneDeviceBindingValidator: _intuneDeviceBindingValidator,
-                    accessHealth: _accessHealth
+                    accessHealth: _accessHealth,
+                    selfReportedCloudPc: registration.IsCloudPc
                 );
 
                 if (errorResponse2 != null)

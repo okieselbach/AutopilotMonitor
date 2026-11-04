@@ -133,8 +133,13 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         /// <param name="req">HTTP request</param>
         /// <param name="tenantId">Tenant ID for configuration lookup</param>
+        /// <param name="selfReportedCloudPc">
+        /// The agent's own Cloud PC verdict (<c>SessionRegistration.IsCloudPc</c>, two local W365 markers).
+        /// Never an admission input: it only decides whether a Cloud PC lookup blocked by the missing
+        /// add-on permission counts toward the add-on notice.
+        /// </param>
         /// <returns>Security validation result</returns>
-        public async Task<SecurityValidationResult> ValidateRequestAsync(HttpRequestData req, string tenantId, string? sessionId = null)
+        public async Task<SecurityValidationResult> ValidateRequestAsync(HttpRequestData req, string tenantId, string? sessionId = null, bool selfReportedCloudPc = false)
         {
             // 0. Verify tenant is known and not suspended (cheapest gate — runs before cert/rate/hardware)
             var (config, tenantExists) = await _configService.TryGetConfigurationAsync(tenantId);
@@ -513,7 +518,12 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     deviceValidationError = CombineValidationErrors(deviceValidationError, cloudPcResult.ErrorMessage);
                     deviceValidationTransient |= cloudPcResult.IsTransient;
-                    if (cloudPcResult.PermissionMissing)
+                    // Every device that missed the serial lookups lands here (laptops registered in
+                    // Autopilot only during enrollment, Hyper-V test VMs), and the grant admits none of
+                    // them. Only a device reporting itself as a Cloud PC was kept out by the missing grant.
+                    // A Cloud PC is never admitted without it, so each of its runs registers: the register
+                    // request is the only one carrying the flag, and it is enough.
+                    if (cloudPcResult.PermissionMissing && selfReportedCloudPc)
                         (addOnsMissingPermission ??= new List<AddOnValidation>()).Add(AddOnValidation.CloudPc);
                 }
             }

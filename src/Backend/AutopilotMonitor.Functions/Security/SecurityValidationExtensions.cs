@@ -37,10 +37,11 @@ namespace AutopilotMonitor.Functions.Security
             DeviceAssociationValidator? deviceAssociationValidator = null,
             CloudPcDeviceValidator? cloudPcDeviceValidator = null,
             IntuneDeviceBindingValidator? intuneDeviceBindingValidator = null,
-            IGraphAccessHealthRecorder? accessHealth = null)
+            IGraphAccessHealthRecorder? accessHealth = null,
+            bool selfReportedCloudPc = false)
         {
             var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator, cloudPcDeviceValidator, intuneDeviceBindingValidator, accessHealth);
-            var validation = await validator.ValidateRequestAsync(req, tenantId, sessionId);
+            var validation = await validator.ValidateRequestAsync(req, tenantId, sessionId, selfReportedCloudPc);
 
             if (!validation.IsValid)
             {
