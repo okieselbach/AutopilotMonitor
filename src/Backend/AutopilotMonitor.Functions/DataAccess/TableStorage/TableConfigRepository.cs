@@ -40,6 +40,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             "LastUpdated", "UpdatedBy", "LastAuthClientId", "LastAuthClientIdSince",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
+            "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
+            "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
         };
 
         private static readonly HashSet<string> AdminBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -820,6 +822,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "GraphAccessRejectedSince", config.GraphAccessRejectedSince },
                 { "GraphAccessRejectedCode", config.GraphAccessRejectedCode },
                 { "GraphAccessRejectionConfirmedAt", config.GraphAccessRejectionConfirmedAt },
+                { "IntuneDeviceBindingPermissionMissingSince", config.IntuneDeviceBindingPermissionMissingSince },
+                { "IntuneDeviceBindingPermissionMissingConfirmedAt", config.IntuneDeviceBindingPermissionMissingConfirmedAt },
+                { "CloudPcPermissionMissingSince", config.CloudPcPermissionMissingSince },
+                { "CloudPcPermissionMissingConfirmedAt", config.CloudPcPermissionMissingConfirmedAt },
                 { "PlanTier", config.PlanTier },
                 { "TrialExpiresUtc", config.TrialExpiresUtc },
                 { "TrialStartedUtc", config.TrialStartedUtc },
@@ -946,6 +952,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 GraphAccessRejectedSince = entity.GetDateTime("GraphAccessRejectedSince"),
                 GraphAccessRejectedCode = entity.GetString("GraphAccessRejectedCode"),
                 GraphAccessRejectionConfirmedAt = entity.GetDateTime("GraphAccessRejectionConfirmedAt"),
+                IntuneDeviceBindingPermissionMissingSince = entity.GetDateTime("IntuneDeviceBindingPermissionMissingSince"),
+                IntuneDeviceBindingPermissionMissingConfirmedAt = entity.GetDateTime("IntuneDeviceBindingPermissionMissingConfirmedAt"),
+                CloudPcPermissionMissingSince = entity.GetDateTime("CloudPcPermissionMissingSince"),
+                CloudPcPermissionMissingConfirmedAt = entity.GetDateTime("CloudPcPermissionMissingConfirmedAt"),
                 PlanTier = entity.GetString("PlanTier") ?? "free",
                 TrialExpiresUtc = entity.GetDateTime("TrialExpiresUtc"),
                 TrialStartedUtc = entity.GetDateTime("TrialStartedUtc"),

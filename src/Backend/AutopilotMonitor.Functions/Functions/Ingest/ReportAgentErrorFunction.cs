@@ -40,6 +40,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
         private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
+        private readonly IGraphAccessHealthRecorder _accessHealth;
         private readonly TelemetryClient _telemetryClient;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly ISessionRepository _sessionRepo;
@@ -58,6 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
+            IGraphAccessHealthRecorder accessHealth,
             TelemetryClient telemetryClient,
             BootstrapSessionService bootstrapSessionService,
             ISessionRepository sessionRepo,
@@ -75,6 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
+            _accessHealth = accessHealth;
             _telemetryClient = telemetryClient;
             _bootstrapSessionService = bootstrapSessionService;
             _sessionRepo = sessionRepo;
@@ -115,7 +118,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
                     cloudPcDeviceValidator: _cloudPcDeviceValidator,
-                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator,
+                    accessHealth: _accessHealth
                 );
 
                 if (errorResponse != null)

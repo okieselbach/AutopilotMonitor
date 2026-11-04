@@ -1,19 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
 import { DOCS_URL } from "@/lib/config";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
-import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, buildAddOnGrantCommand } from "@/lib/appHoming";
+import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, buildAddOnGrantCommand, initialAddOnFeatures } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
+import { ADD_ON_VALIDATIONS } from "@/lib/addOnPermission";
+import { useTenantConfig } from "../../TenantConfigContext";
 
 interface FeatureStatus {
   name: string;
-  /** null when the backend couldn't determine permission state (transient/budget exhausted). */
-  granted: boolean | null;
+  /**
+   * Absent (the wire omits nulls) or null when the backend couldn't determine the permission
+   * state (transient/budget exhausted).
+   */
+  granted?: boolean | null;
   requiredPermissions: string[];
+}
+
+// The router's search params change with a client-side navigation, which a read of
+// window.location during render misses; under output: "export" they need a Suspense boundary.
+export function SectionOptionalGraphCapabilities() {
+  return (
+    <Suspense fallback={null}>
+      <OptionalGraphCapabilities />
+    </Suspense>
+  );
 }
 
 interface StatusResponse {
@@ -24,22 +41,33 @@ interface StatusResponse {
   features: FeatureStatus[];
 }
 
-export function SectionOptionalGraphCapabilities() {
+function OptionalGraphCapabilities() {
   const { getAccessToken, user } = useAuth();
   const { tenantId } = useTenant();
+  const { validateCloudPcDevice, validateIntuneDeviceBinding } = useTenantConfig();
+  const searchParams = useSearchParams();
 
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"command" | "permissions" | null>(null);
-  // Features ticked in the table drive the command's -Features value. ScriptDisplayNames starts
-  // ticked so the link between the table and the command is obvious on first view.
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(["ScriptDisplayNames"]);
+  // Features ticked in the table drive the command's -Features value. Null until the admin ticks
+  // or unticks one: until then the link's choice stands.
+  const [pickedFeatures, setPickedFeatures] = useState<string[] | null>(null);
+  const selectedFeatures = pickedFeatures ?? initialAddOnFeatures(searchParams.get("features"));
 
-  const toggleFeature = useCallback((name: string) => {
-    setSelectedFeatures(prev => (prev.includes(name) ? prev.filter(f => f !== name) : [...prev, name]));
-  }, []);
+  // A switched-on validation that needs this feature: the row says so while it is not granted.
+  const neededBy: Record<string, string | undefined> = {
+    [ADD_ON_VALIDATIONS.cloudPc.feature]: validateCloudPcDevice ? ADD_ON_VALIDATIONS.cloudPc.label : undefined,
+    [ADD_ON_VALIDATIONS.intuneEnrollment.feature]: validateIntuneDeviceBinding ? ADD_ON_VALIDATIONS.intuneEnrollment.label : undefined,
+  };
+
+  const toggleFeature = (name: string) => {
+    setPickedFeatures(selectedFeatures.includes(name)
+      ? selectedFeatures.filter(f => f !== name)
+      : [...selectedFeatures, name]);
+  };
 
   const fetchStatus = useCallback(async () => {
     if (!tenantId) return;
@@ -122,7 +150,7 @@ export function SectionOptionalGraphCapabilities() {
   const selectedPermissionsLine = selectedPermissions.map(p => `"${p}"`).join(",");
 
   const scriptDownloadUrl = ADD_ON_GRANT_SCRIPT_URL;
-  const docsUrl = `${DOCS_URL}/reference/optional-graph-permissions`;
+  const docsUrl = `${DOCS_URL}${DOCS_PATHS.optionalGraphPermissions}`;
   const psCommand = status?.clientId && featuresValue.length > 0
     ? buildAddOnGrantCommand(status.clientId, tenantId, { features: featuresValue })
     : "";
@@ -192,12 +220,17 @@ export function SectionOptionalGraphCapabilities() {
                           />
                           {f.name}
                         </label>
+                        {f.granted !== true && neededBy[f.name] && (
+                          <p className="mt-0.5 ml-6 text-xs font-normal text-amber-700">
+                            Needed by {neededBy[f.name]} (on)
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-2 font-mono text-xs text-gray-700">
                         {f.requiredPermissions.join(", ")}
                       </td>
                       <td className="px-4 py-2">
-                        {f.granted === null ? (
+                        {f.granted == null ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
                             unknown
                           </span>

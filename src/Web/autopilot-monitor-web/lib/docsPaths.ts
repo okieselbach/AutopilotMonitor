@@ -62,6 +62,8 @@ export const DOCS_PATHS = {
   optionalGraphPermissions: "/reference/optional-graph-permissions",
   // Rejected Graph access (dashboard banner, settings card)
   enrollmentMonitoringInterrupted: "/troubleshooting-and-support/enrollment-monitoring-interrupted",
+  // Switched-on validation without its add-on permission (dashboard banner, settings card)
+  deviceValidationPermissionMissing: "/troubleshooting-and-support/device-validation-permission-missing",
   // Progress Portal access hint (members without a role)
   progressPortalOnly: "/troubleshooting-and-support/progress-portal-only",
   // Dashboard welcome card (tenant without sessions)

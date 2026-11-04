@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, appHomingErrorMessage, buildAddOnGrantCommand } from "../appHoming";
+import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, appHomingErrorMessage, buildAddOnGrantCommand, initialAddOnFeatures } from "../appHoming";
 import { classifyClientId } from "../authApp";
 
 const PRIMARY = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -121,5 +121,18 @@ describe("addOnFeaturesSelector", () => {
     expect(addOnFeaturesSelector(["Retired"], CATALOG)).toEqual([]);
     // An empty catalog (status not loaded) never turns into All.
     expect(addOnFeaturesSelector(["ScriptDisplayNames"], [])).toEqual([]);
+  });
+});
+
+describe("initialAddOnFeatures", () => {
+  it("ticks what the Grant permission link names", () => {
+    expect(initialAddOnFeatures("IntuneDeviceBinding")).toEqual(["IntuneDeviceBinding"]);
+    expect(initialAddOnFeatures("W365CloudPcValidation, IntuneDeviceBinding")).toEqual(["W365CloudPcValidation", "IntuneDeviceBinding"]);
+  });
+
+  it("keeps the old default without a usable parameter", () => {
+    expect(initialAddOnFeatures(null)).toEqual(["ScriptDisplayNames"]);
+    expect(initialAddOnFeatures("")).toEqual(["ScriptDisplayNames"]);
+    expect(initialAddOnFeatures(" , ")).toEqual(["ScriptDisplayNames"]);
   });
 });

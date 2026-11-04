@@ -5377,6 +5377,14 @@ export interface TenantConfiguration {
   graphAccessRejectedCode?: string | null;
   /** When a later rejection confirmed the suspicion: the tenant's agents get no validation and the portal shows its notice. System-owned, cleared by the next freshly issued token that carries an application permission. */
   graphAccessRejectionConfirmedAt?: string | null;
+  /** When Intune Enrollment Validation first held back a device in the current episode because the optional DeviceManagementManagedDevices.Read.All permission is not granted. Only a suspicion: nothing is shown until IntuneDeviceBindingPermissionMissingConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries the permission. */
+  intuneDeviceBindingPermissionMissingSince?: string | null;
+  /** When the missing DeviceManagementManagedDevices.Read.All permission was confirmed at least 15 minutes after the first held device: the portal shows its notice. System-owned, cleared by the next freshly issued token that carries the permission or once the validation is off. */
+  intuneDeviceBindingPermissionMissingConfirmedAt?: string | null;
+  /** When Cloud PC validation first rejected a device in the current episode because the optional CloudPC.Read.All permission is not granted. Only a suspicion: nothing is shown until CloudPcPermissionMissingConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries the permission. */
+  cloudPcPermissionMissingSince?: string | null;
+  /** When the missing CloudPC.Read.All permission was confirmed at least 15 minutes after the first rejected device: the portal shows its notice. System-owned, cleared by the next freshly issued token that carries the permission or once the validation is off. */
+  cloudPcPermissionMissingConfirmedAt?: string | null;
   /** Whether this tenant is disabled/suspended If true, users from this tenant cannot log in Default: false */
   disabled: boolean;
   /** Optional reason why the tenant was disabled Displayed to users attempting to log in */
@@ -5597,6 +5605,12 @@ export interface TenantFeatureFlagsResponse {
   graphAccessRejected: boolean;
   /** Only with GraphAccessRejected: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text. */
   graphAccessAppMissing: boolean;
+  /** Intune Enrollment Validation is on, kept devices out, and still lacks DeviceManagementManagedDevices.Read.All after 15 minutes; drives the dashboard notice. Boolean only. */
+  intuneDeviceBindingPermissionMissing: boolean;
+  /** Cloud PC validation is on, rejected devices, and still lacks CloudPC.Read.All after 15 minutes; drives the dashboard notice. Boolean only. */
+  cloudPcPermissionMissing: boolean;
+  /** The validations with a confirmed missing permission are all the switched-on ones, so no device can be validated; selects the notice text. */
+  addOnPermissionMissingBlocksAll: boolean;
   /** Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids. */
   appHomingFunnelActive: boolean;
   showScriptOutput: boolean;

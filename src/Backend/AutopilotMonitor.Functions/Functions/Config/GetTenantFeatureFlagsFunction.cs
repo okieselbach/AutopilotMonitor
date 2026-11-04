@@ -93,6 +93,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 GraphAccessRejected = graphAccessRejected,
                 GraphAccessAppMissing = graphAccessRejected
                     && string.Equals(config.GraphAccessRejectedCode, EntraTokenRejection.ServicePrincipalMissingCode, StringComparison.OrdinalIgnoreCase),
+                // Drive the "devices aren't being monitored" notice: a switched-on validation kept
+                // devices out and still lacks its optional permission. Switching it off hides the
+                // notice at once; the state itself ends in the next maintenance run.
+                IntuneDeviceBindingPermissionMissing = AddOnValidation.IntuneDeviceBinding.IsConfirmedMissing(config),
+                CloudPcPermissionMissing = AddOnValidation.CloudPc.IsConfirmedMissing(config),
+                AddOnPermissionMissingBlocksAll = AddOnValidation.BlocksAllValidation(config),
                 // Dual app-reg self-service migration: when true, running the consent flow (or
                 // "Detect existing access") targets the NEW app registration and auto-flips this
                 // tenant's homing after verification — drives the explanatory banner in the

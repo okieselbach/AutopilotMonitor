@@ -234,6 +234,9 @@ namespace AutopilotMonitor.Functions.Services
         {
             var normalizedTarget = EntraAppRegistry.NormalizeClientId(targetClientId);
             string? oldValue = null;
+            string? closedRejectionCode = null;
+            var closedRejection = false;
+            var closedAddOns = new List<AddOnValidation>();
             var update = await _tenantConfigService.UpdateAsync(tenantId, row =>
             {
                 if (string.Equals(row.HomedAppClientId, normalizedTarget, StringComparison.OrdinalIgnoreCase))
@@ -241,10 +244,21 @@ namespace AutopilotMonitor.Functions.Services
                 oldValue = row.HomedAppClientId;
                 row.HomedAppClientId = normalizedTarget;
                 row.UpdatedBy = actorUpn;
-                // A Graph access rejection belongs to the app the tenant just left.
+                // A Graph access rejection and the add-on grants belong to the app the tenant just
+                // left; the new app's next fresh token decides again. A confirmed episode ends
+                // with its closing event, so the ops trail never shows an open one.
+                closedRejection = row.GraphAccessRejectionConfirmedAt != null;
+                closedRejectionCode = row.GraphAccessRejectedCode;
                 row.GraphAccessRejectedSince = null;
                 row.GraphAccessRejectedCode = null;
                 row.GraphAccessRejectionConfirmedAt = null;
+                closedAddOns.Clear();
+                foreach (var addOn in AddOnValidation.All)
+                {
+                    if (addOn.MissingConfirmedAt(row) != null)
+                        closedAddOns.Add(addOn);
+                    addOn.ClearEpisode(row);
+                }
                 return true;
             }, "app-homing", reason);
 
@@ -304,6 +318,10 @@ namespace AutopilotMonitor.Functions.Services
             });
 
             await _opsEventService.RecordAppHomingFlippedAsync(tenantId, actorUpn, oldLabel, newLabel, reason, forced);
+            if (closedRejection)
+                await _opsEventService.RecordGraphAccessClosedByAppHomingFlipAsync(tenantId, closedRejectionCode);
+            foreach (var addOn in closedAddOns)
+                await _opsEventService.RecordAddOnPermissionResolvedAsync(tenantId, addOn.Feature, GraphAccessHealthRecorder.ResolvedByAppHomingFlip);
         }
 
         /// <summary>

@@ -15,6 +15,7 @@ import { WelcomeMessage } from "./components/WelcomeMessage";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { AppHomingBanner } from "./components/AppHomingBanner";
 import { GraphAccessBanner } from "./components/GraphAccessBanner";
+import { AddOnPermissionBanner } from "./components/AddOnPermissionBanner";
 import { SessionTable } from "./components/SessionTable";
 import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
@@ -260,7 +261,7 @@ function HomeContent() {
 
   const {
     deviceValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive,
-    graphAccessRejected, graphAccessAppMissing,
+    graphAccessRejected, graphAccessAppMissing, addOnPermissionMissing, addOnPermissionMissingBlocksAll,
   } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
@@ -404,6 +405,15 @@ function HomeContent() {
             <GraphAccessBanner
               appMissing={graphAccessAppMissing}
               canRestore={!isDelegated && !!(user?.isTenantAdmin || user?.isGlobalAdmin)}
+            />
+          )}
+
+          {/* A refused token hides the add-on state: without a token there are no roles to judge. */}
+          {!graphAccessRejected && addOnPermissionMissing.length > 0 && (
+            <AddOnPermissionBanner
+              kinds={addOnPermissionMissing}
+              blocksAll={addOnPermissionMissingBlocksAll}
+              canFix={!isDelegated && !!(user?.isTenantAdmin || user?.isGlobalAdmin)}
             />
           )}
 

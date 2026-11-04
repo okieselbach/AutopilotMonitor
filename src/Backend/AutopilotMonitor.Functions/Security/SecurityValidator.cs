@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -76,6 +77,7 @@ namespace AutopilotMonitor.Functions.Security
         private readonly CloudPcDeviceValidator? _cloudPcDeviceValidator;
         private readonly IntuneDeviceBindingValidator? _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService? _bootstrapSessionService;
+        private readonly IGraphAccessHealthRecorder? _accessHealth;
         private readonly ILogger _logger;
 
         public SecurityValidator(
@@ -88,7 +90,8 @@ namespace AutopilotMonitor.Functions.Security
             BootstrapSessionService? bootstrapSessionService = null,
             DeviceAssociationValidator? deviceAssociationValidator = null,
             CloudPcDeviceValidator? cloudPcDeviceValidator = null,
-            IntuneDeviceBindingValidator? intuneDeviceBindingValidator = null)
+            IntuneDeviceBindingValidator? intuneDeviceBindingValidator = null,
+            IGraphAccessHealthRecorder? accessHealth = null)
         {
             _configService = configService;
             _adminConfigService = adminConfigService;
@@ -99,6 +102,7 @@ namespace AutopilotMonitor.Functions.Security
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
+            _accessHealth = accessHealth;
             _logger = logger;
         }
 
@@ -423,6 +427,9 @@ namespace AutopilotMonitor.Functions.Security
             int? deviceValidationRetryAfter = null;
             string? deviceValidationError = null;
             ValidatorType validatedBy = ValidatorType.Unknown;
+            // Switched-on validations that could not decide because their optional Graph
+            // permission is missing (GraphAccessHealthRecorder turns them into tenant state).
+            List<AddOnValidation>? addOnsMissingPermission = null;
 
             // One time budget for the whole (sequential) validator chain — see
             // DeviceValidationBudget: a stuck Graph call must not park the request past the
@@ -506,6 +513,8 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     deviceValidationError = CombineValidationErrors(deviceValidationError, cloudPcResult.ErrorMessage);
                     deviceValidationTransient |= cloudPcResult.IsTransient;
+                    if (cloudPcResult.PermissionMissing)
+                        (addOnsMissingPermission ??= new List<AddOnValidation>()).Add(AddOnValidation.CloudPc);
                 }
             }
 
@@ -542,12 +551,18 @@ namespace AutopilotMonitor.Functions.Security
                     {
                         deviceValidationTransient = true;
                         deviceValidationRetryAfter = MaxRetryAfter(deviceValidationRetryAfter, GraphAuthFailure.PermissionMissingRetryAfterSeconds);
+                        (addOnsMissingPermission ??= new List<AddOnValidation>()).Add(AddOnValidation.IntuneDeviceBinding);
                     }
                 }
             }
 
             if (config.HasAnyDeviceValidation() && !deviceValidated)
             {
+                // Only a device that stayed out counts as a consequence of the missing grant: the
+                // notice must not appear while another validation admits every device.
+                if (addOnsMissingPermission != null && _accessHealth != null)
+                    await _accessHealth.RecordAddOnPermissionMissingAsync(tenantId, addOnsMissingPermission);
+
                 // Transient failures (Graph API down, token issues) → 503 Retry-After so agent retries
                 // Definitive failures (device not registered) → 403 Forbidden
                 if (deviceValidationTransient)

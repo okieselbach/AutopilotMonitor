@@ -159,6 +159,36 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? GraphAccessRejectionConfirmedAt { get; set; }
 
         /// <summary>
+        /// When Intune Enrollment Validation first held back a device in the current episode because
+        /// the optional DeviceManagementManagedDevices.Read.All permission is not granted. Only a
+        /// suspicion: nothing is shown until <see cref="IntuneDeviceBindingPermissionMissingConfirmedAt"/>
+        /// is set. System-owned, cleared by the next freshly issued token that carries the permission.
+        /// </summary>
+        public DateTime? IntuneDeviceBindingPermissionMissingSince { get; set; }
+
+        /// <summary>
+        /// When the missing DeviceManagementManagedDevices.Read.All permission was confirmed at least
+        /// 15 minutes after the first held device: the portal shows its notice. System-owned, cleared
+        /// by the next freshly issued token that carries the permission or once the validation is off.
+        /// </summary>
+        public DateTime? IntuneDeviceBindingPermissionMissingConfirmedAt { get; set; }
+
+        /// <summary>
+        /// When Cloud PC validation first rejected a device in the current episode because the
+        /// optional CloudPC.Read.All permission is not granted. Only a suspicion: nothing is shown
+        /// until <see cref="CloudPcPermissionMissingConfirmedAt"/> is set. System-owned, cleared by
+        /// the next freshly issued token that carries the permission.
+        /// </summary>
+        public DateTime? CloudPcPermissionMissingSince { get; set; }
+
+        /// <summary>
+        /// When the missing CloudPC.Read.All permission was confirmed at least 15 minutes after the
+        /// first rejected device: the portal shows its notice. System-owned, cleared by the next
+        /// freshly issued token that carries the permission or once the validation is off.
+        /// </summary>
+        public DateTime? CloudPcPermissionMissingConfirmedAt { get; set; }
+
+        /// <summary>
         /// Whether this tenant is disabled/suspended
         /// If true, users from this tenant cannot log in
         /// Default: false

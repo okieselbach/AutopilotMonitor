@@ -127,6 +127,10 @@
       "graphAccessRejectedSince",
       "graphAccessRejectedCode",
       "graphAccessRejectionConfirmedAt",
+      "intuneDeviceBindingPermissionMissingSince",
+      "intuneDeviceBindingPermissionMissingConfirmedAt",
+      "cloudPcPermissionMissingSince",
+      "cloudPcPermissionMissingConfirmedAt",
       "disabled",
       "disabledReason",
       "disabledUntil",
@@ -236,6 +240,10 @@
       "graphAccessRejectedSince": null,
       "graphAccessRejectedCode": null,
       "graphAccessRejectionConfirmedAt": null,
+      "intuneDeviceBindingPermissionMissingSince": null,
+      "intuneDeviceBindingPermissionMissingConfirmedAt": null,
+      "cloudPcPermissionMissingSince": null,
+      "cloudPcPermissionMissingConfirmedAt": null,
       "disabled": false,
       "disabledReason": null,
       "disabledUntil": null,
@@ -601,6 +609,8 @@
     "GraphAccessRejected",
     "GraphAccessRecovered",
     "GraphAppCredentialRejected",
+    "AddOnPermissionMissing",
+    "AddOnPermissionResolved",
     "MaintenanceCompleted",
     "MaintenanceFailed",
     "MaintenanceLongRunning",
@@ -24654,6 +24664,46 @@
           "doc": "When a later rejection confirmed the suspicion: the tenant's agents get no validation and the portal shows its notice. System-owned, cleared by the next freshly issued token that carries an application permission."
         },
         {
+          "name": "intuneDeviceBindingPermissionMissingSince",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When Intune Enrollment Validation first held back a device in the current episode because the optional DeviceManagementManagedDevices.Read.All permission is not granted. Only a suspicion: nothing is shown until IntuneDeviceBindingPermissionMissingConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries the permission."
+        },
+        {
+          "name": "intuneDeviceBindingPermissionMissingConfirmedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When the missing DeviceManagementManagedDevices.Read.All permission was confirmed at least 15 minutes after the first held device: the portal shows its notice. System-owned, cleared by the next freshly issued token that carries the permission or once the validation is off."
+        },
+        {
+          "name": "cloudPcPermissionMissingSince",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When Cloud PC validation first rejected a device in the current episode because the optional CloudPC.Read.All permission is not granted. Only a suspicion: nothing is shown until CloudPcPermissionMissingConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries the permission."
+        },
+        {
+          "name": "cloudPcPermissionMissingConfirmedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When the missing CloudPC.Read.All permission was confirmed at least 15 minutes after the first rejected device: the portal shows its notice. System-owned, cleared by the next freshly issued token that carries the permission or once the validation is off."
+        },
+        {
           "name": "disabled",
           "type": {
             "kind": "primitive",
@@ -25606,6 +25656,30 @@
             "name": "boolean"
           },
           "doc": "Only with GraphAccessRejected: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text."
+        },
+        {
+          "name": "intuneDeviceBindingPermissionMissing",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Intune Enrollment Validation is on, kept devices out, and still lacks DeviceManagementManagedDevices.Read.All after 15 minutes; drives the dashboard notice. Boolean only."
+        },
+        {
+          "name": "cloudPcPermissionMissing",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Cloud PC validation is on, rejected devices, and still lacks CloudPC.Read.All after 15 minutes; drives the dashboard notice. Boolean only."
+        },
+        {
+          "name": "addOnPermissionMissingBlocksAll",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "The validations with a confirmed missing permission are all the switched-on ones, so no device can be validated; selects the notice text."
         },
         {
           "name": "appHomingFunnelActive",

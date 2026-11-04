@@ -360,7 +360,8 @@ public class GraphTokenServiceTests
 
         Assert.True(minted.IsFreshlyMinted);
         Assert.False(cached.IsFreshlyMinted);
-        health.Verify(h => h.RecordMintedAsync(TenantA), Moq.Times.Once);
+        // The roles travel along: they decide the add-on episodes.
+        health.Verify(h => h.RecordMintedAsync(TenantA, Moq.It.Is<IReadOnlyCollection<string>>(r => r.Contains(TestGraphToken.ValidationRole))), Moq.Times.Once);
         health.Verify(h => h.RecordRejectedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<EntraTokenRejection>()), Moq.Times.Never);
     }
 
@@ -375,7 +376,7 @@ public class GraphTokenServiceTests
 
         await svc.GetAccessTokenAsync(TenantA);
 
-        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>()), Moq.Times.Never);
+        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<IReadOnlyCollection<string>>()), Moq.Times.Never);
         health.Verify(h => h.RecordRejectedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<EntraTokenRejection>()), Moq.Times.Never);
     }
 
@@ -391,7 +392,7 @@ public class GraphTokenServiceTests
 
         Assert.NotNull(result.AccessToken);
         health.Verify(h => h.RecordRejectedAsync(TenantA, EntraTokenRejection.NoApplicationRole), Moq.Times.Once);
-        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>()), Moq.Times.Never);
+        health.Verify(h => h.RecordMintedAsync(Moq.It.IsAny<string>(), Moq.It.IsAny<IReadOnlyCollection<string>>()), Moq.Times.Never);
     }
 
     [Fact]

@@ -34,6 +34,8 @@ public class TenantConfigProjectionTests
         "lastUpdated", "dataRetentionDays",
         "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
         "graphAccessRejectedSince", "graphAccessRejectedCode", "graphAccessRejectionConfirmedAt",
+        "intuneDeviceBindingPermissionMissingSince", "intuneDeviceBindingPermissionMissingConfirmedAt",
+        "cloudPcPermissionMissingSince", "cloudPcPermissionMissingConfirmedAt",
     };
 
     [Fact]

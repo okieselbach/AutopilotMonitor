@@ -22,6 +22,12 @@ namespace AutopilotMonitor.Shared.Models
         public bool GraphAccessRejected { get; set; }
         /// <summary>Only with <see cref="GraphAccessRejected"/>: the refusal says the enterprise application is missing from the tenant, which selects the concrete notice text.</summary>
         public bool GraphAccessAppMissing { get; set; }
+        /// <summary>Intune Enrollment Validation is on, kept devices out, and still lacks DeviceManagementManagedDevices.Read.All after 15 minutes; drives the dashboard notice. Boolean only.</summary>
+        public bool IntuneDeviceBindingPermissionMissing { get; set; }
+        /// <summary>Cloud PC validation is on, rejected devices, and still lacks CloudPC.Read.All after 15 minutes; drives the dashboard notice. Boolean only.</summary>
+        public bool CloudPcPermissionMissing { get; set; }
+        /// <summary>The validations with a confirmed missing permission are all the switched-on ones, so no device can be validated; selects the notice text.</summary>
+        public bool AddOnPermissionMissingBlocksAll { get; set; }
         /// <summary>Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids.</summary>
         public bool AppHomingFunnelActive { get; set; }
         public bool ShowScriptOutput { get; set; }

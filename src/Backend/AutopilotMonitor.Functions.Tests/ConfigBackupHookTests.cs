@@ -203,6 +203,28 @@ public class ConfigBackupHookTests
     }
 
     [Fact]
+    public async Task NoiseOnlyChange_AddOnPermissionState_NoSnapshot()
+    {
+        // Agent and token side effect, like the Graph access state.
+        var stored = StoredConfig();
+        var harness = new Harness(TableConfigRepository.ConvertToTenantTableEntity(stored));
+
+        var incoming = RoundtripClone(stored);
+        incoming.IntuneDeviceBindingPermissionMissingSince = DateTime.UtcNow.AddMinutes(-20);
+        incoming.IntuneDeviceBindingPermissionMissingConfirmedAt = DateTime.UtcNow;
+        incoming.CloudPcPermissionMissingSince = DateTime.UtcNow.AddMinutes(-20);
+        incoming.CloudPcPermissionMissingConfirmedAt = DateTime.UtcNow;
+        incoming.LastUpdated = DateTime.UtcNow;
+
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "graph-access", null);
+
+        Assert.True(saved);
+        Assert.Single(harness.Upserts);
+        harness.Backup.Verify(
+            b => b.UpsertAsync(It.IsAny<ConfigBackupEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task NoOpSave_IdenticalContent_NoSnapshot()
     {
         var stored = StoredConfig();

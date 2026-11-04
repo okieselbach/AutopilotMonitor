@@ -20,6 +20,24 @@ describe("summarizeTenantSecurityConfig", () => {
     expect(older.graphAccessAppMissing).toBe(false);
   });
 
+  it("lists the validations without their permission in chain order, only on an explicit true", () => {
+    const both = summarizeTenantSecurityConfig({
+      deviceValidationEnabled: true,
+      intuneDeviceBindingPermissionMissing: true,
+      cloudPcPermissionMissing: true,
+      addOnPermissionMissingBlocksAll: true,
+    });
+    expect(both.addOnPermissionMissing).toEqual(["cloudPc", "intuneEnrollment"]);
+    expect(both.addOnPermissionMissingBlocksAll).toBe(true);
+
+    expect(summarizeTenantSecurityConfig({ deviceValidationEnabled: true, intuneDeviceBindingPermissionMissing: true }).addOnPermissionMissing)
+      .toEqual(["intuneEnrollment"]);
+    // Older backend without the fields: stays silent.
+    const older = summarizeTenantSecurityConfig({ deviceValidationEnabled: true });
+    expect(older.addOnPermissionMissing).toEqual([]);
+    expect(older.addOnPermissionMissingBlocksAll).toBe(false);
+  });
+
   it("keys the validation banner on the flag and the contact nag on Pro editions only", () => {
     const community = summarizeTenantSecurityConfig({ deviceValidationEnabled: false, edition: "community", contactEmailSet: false });
     expect(community.deviceValidationEnabled).toBe(false);

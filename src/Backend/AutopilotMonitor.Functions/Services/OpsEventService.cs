@@ -73,6 +73,26 @@ namespace AutopilotMonitor.Functions.Services
                 $"Microsoft Entra issues the app token of this tenant again (was {errorCode ?? "no code"})",
                 tenantId, "System.GraphAccess", new { errorCode });
 
+        /// <summary>The app-homing flip ended a confirmed rejection: it belonged to the app the tenant left.</summary>
+        public Task RecordGraphAccessClosedByAppHomingFlipAsync(string tenantId, string? errorCode)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.GraphAccessRecovered, OpsEventSeverity.Info,
+                $"The app-homing flip ended the rejected Graph access of this tenant (was {errorCode ?? "no code"}); the new app's next token decides again",
+                tenantId, "System.GraphAccess", new { errorCode, closedBy = "app-homing-flip" });
+
+        /// <summary>A switched-on validation still lacks its optional Graph permission: devices it alone could admit are not monitored.</summary>
+        public Task RecordAddOnPermissionMissingAsync(string tenantId, string feature, string permission, DateTime since, bool blocksAll)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.AddOnPermissionMissing, OpsEventSeverity.Warning,
+                blocksAll
+                    ? $"{feature} is the only device validation and still lacks {permission}: no device is validated, the portal shows a notice"
+                    : $"{feature} is switched on but still lacks {permission}: devices only it could admit are not monitored, the portal shows a notice",
+                tenantId, "System.GraphAccess", new { feature, permission, since, blocksAll });
+
+        /// <summary><paramref name="resolution"/>: granted, switched_off or app_homing_flip.</summary>
+        public Task RecordAddOnPermissionResolvedAsync(string tenantId, string feature, string resolution)
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.AddOnPermissionResolved, OpsEventSeverity.Info,
+                $"{feature} no longer lacks its optional Graph permission ({resolution})",
+                tenantId, "System.GraphAccess", new { feature, resolution });
+
         /// <summary>Entra refuses our own client secret: device validation fails for every tenant on that app.</summary>
         public Task RecordGraphAppCredentialRejectedAsync(string tenantId, string? errorCode, int statusCode)
             => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.GraphAppCredentialRejected, OpsEventSeverity.Critical,

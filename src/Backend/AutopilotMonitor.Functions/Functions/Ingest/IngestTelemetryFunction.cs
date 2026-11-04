@@ -53,6 +53,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
         private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
+        private readonly IGraphAccessHealthRecorder _accessHealth;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
         private readonly SessionDeletionGuard _deletionGuard;
@@ -73,6 +74,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
+            IGraphAccessHealthRecorder accessHealth,
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator,
             SessionDeletionGuard deletionGuard,
@@ -92,6 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
+            _accessHealth = accessHealth;
             _bootstrapSessionService = bootstrapSessionService;
             _killSwitchEvaluator = killSwitchEvaluator;
             _deletionGuard = deletionGuard;
@@ -125,7 +128,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
                     cloudPcDeviceValidator: _cloudPcDeviceValidator,
-                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator);
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator,
+                    accessHealth: _accessHealth);
 
                 if (errorResponse != null) return AsOutput(errorResponse);
 

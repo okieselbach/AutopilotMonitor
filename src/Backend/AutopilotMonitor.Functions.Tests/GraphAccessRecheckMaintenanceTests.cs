@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Tests.GraphResolution;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -54,7 +55,7 @@ public class GraphAccessRecheckMaintenanceTests
             tenantConfig, new Lazy<OpsEventService>(() => opsEvents), NullLogger<GraphAccessHealthRecorder>.Instance, new TestTimeProvider(Now));
 
         _tokens = NewTokenService(new SingleHandlerFactory(_entra), recorder, tenantConfig);
-        _sut = new GraphAccessRecheckMaintenance(_repo.Object, _tokens, NullLogger<GraphAccessRecheckMaintenance>.Instance);
+        _sut = new GraphAccessRecheckMaintenance(_repo.Object, _tokens, recorder, NullLogger<GraphAccessRecheckMaintenance>.Instance);
     }
 
     private static GraphTokenService NewTokenService(
@@ -227,11 +228,63 @@ public class GraphAccessRecheckMaintenanceTests
         var tenantConfig = new TenantConfigurationService(
             repo.Object, NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()));
         var sut = new GraphAccessRecheckMaintenance(
-            repo.Object, NewTokenService(new StubHttpClientFactory(handler), recorder.Object, tenantConfig), NullLogger<GraphAccessRecheckMaintenance>.Instance);
+            repo.Object, NewTokenService(new StubHttpClientFactory(handler), recorder.Object, tenantConfig), recorder.Object,
+            NullLogger<GraphAccessRecheckMaintenance>.Instance);
 
         Assert.Equal(2, await sut.RunAsync());
 
-        recorder.Verify(r => r.RecordMintedAsync(OtherTenantId), Times.Once);
+        recorder.Verify(r => r.RecordMintedAsync(OtherTenantId, It.IsAny<IReadOnlyCollection<string>>()), Times.Once);
+    }
+
+    // ── Add-on episodes ─────────────────────────────────────────────────────
+
+    private void AddOnSuspect(TimeSpan age, TimeSpan? confirmedAgo = null, bool switchedOn = true)
+    {
+        _store.Row!.ValidateIntuneDeviceBinding = switchedOn;
+        _store.Row.IntuneDeviceBindingPermissionMissingSince = Now.UtcDateTime - age;
+        if (confirmedAgo is { } ago)
+            _store.Row.IntuneDeviceBindingPermissionMissingConfirmedAt = Now.UtcDateTime - ago;
+    }
+
+    [Fact]
+    public async Task Confirms_an_old_addon_suspicion_with_a_token_that_lacks_the_permission()
+    {
+        AddOnSuspect(TimeSpan.FromMinutes(20));
+        _entra.Answer(HttpStatusCode.OK, TokenBody);
+
+        Assert.Equal(1, await _sut.RunAsync());
+
+        Assert.Equal(Now.UtcDateTime, _store.Row!.IntuneDeviceBindingPermissionMissingConfirmedAt);
+        Assert.Equal(OpsEventTypes.AddOnPermissionMissing, Assert.Single(_events).EventType);
+    }
+
+    [Fact]
+    public async Task Ends_an_addon_episode_once_the_grant_arrives()
+    {
+        AddOnSuspect(TimeSpan.FromHours(5), confirmedAgo: TimeSpan.FromHours(4));
+        _entra.Answer(HttpStatusCode.OK,
+            TestGraphToken.Body(TestGraphToken.ValidationRole, GraphAppPermissions.DeviceManagementManagedDevicesReadAll));
+
+        await _sut.RunAsync();
+
+        Assert.Null(_store.Row!.IntuneDeviceBindingPermissionMissingSince);
+        Assert.Null(_store.Row.IntuneDeviceBindingPermissionMissingConfirmedAt);
+        var resolved = Assert.Single(_events);
+        Assert.Equal(OpsEventTypes.AddOnPermissionResolved, resolved.EventType);
+        Assert.Contains(GraphAccessHealthRecorder.ResolvedByGrant, resolved.Details);
+    }
+
+    [Fact]
+    public async Task A_switched_off_addon_ends_without_asking_Entra()
+    {
+        AddOnSuspect(TimeSpan.FromHours(5), confirmedAgo: TimeSpan.FromHours(4), switchedOn: false);
+
+        Assert.Equal(1, await _sut.RunAsync());
+
+        Assert.Equal(0, _entra.Posts);
+        Assert.Null(_store.Row!.IntuneDeviceBindingPermissionMissingSince);
+        var resolved = Assert.Single(_events);
+        Assert.Contains(GraphAccessHealthRecorder.ResolvedBySwitchOff, resolved.Details);
     }
 
     /// <summary>Entra's token endpoint with an answer that can change between calls.</summary>

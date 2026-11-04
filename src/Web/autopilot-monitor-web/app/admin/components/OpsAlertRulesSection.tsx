@@ -34,6 +34,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "GraphAccessRejected",
     "GraphAccessRecovered",
     "GraphAppCredentialRejected",
+    // A switched-on Cloud PC or Intune Enrollment Validation keeps lacking its optional Graph
+    // permission while devices stay out (Warning, after 15 min), and the episode ending (Info).
+    // Backend helpers RecordAddOnPermission{Missing,Resolved}Async.
+    "AddOnPermissionMissing",
+    "AddOnPermissionResolved",
   ],
   Maintenance: [
     // Verdict-calibration drift radar (operator-only classifier diagnostics): a verdict path's

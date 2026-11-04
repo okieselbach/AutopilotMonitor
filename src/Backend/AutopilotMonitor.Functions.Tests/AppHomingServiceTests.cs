@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Extensions.Caching.Memory;
@@ -389,6 +390,28 @@ public class AppHomingServiceTests
         Assert.Null(_store.Row!.GraphAccessRejectedSince);
         Assert.Null(_store.Row.GraphAccessRejectedCode);
         Assert.Null(_store.Row.GraphAccessRejectionConfirmedAt);
+        // The confirmed episode ends visibly: the ops trail never keeps an open rejection.
+        var closed = Assert.Single(_savedOpsEvents, e => e.EventType == OpsEventTypes.GraphAccessRecovered);
+        Assert.Contains("app-homing-flip", closed.Details);
+    }
+
+    [Fact]
+    public async Task AutoFlip_clears_the_addon_episodes_and_closes_only_the_confirmed_ones()
+    {
+        _store.Row!.IntuneDeviceBindingPermissionMissingSince = DateTime.UtcNow.AddHours(-3);
+        _store.Row.IntuneDeviceBindingPermissionMissingConfirmedAt = DateTime.UtcNow.AddHours(-2);
+        _store.Row.CloudPcPermissionMissingSince = DateTime.UtcNow.AddMinutes(-5);
+
+        await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
+
+        Assert.Null(_store.Row!.IntuneDeviceBindingPermissionMissingSince);
+        Assert.Null(_store.Row.IntuneDeviceBindingPermissionMissingConfirmedAt);
+        Assert.Null(_store.Row.CloudPcPermissionMissingSince);
+        var resolved = Assert.Single(_savedOpsEvents, e => e.EventType == OpsEventTypes.AddOnPermissionResolved);
+        Assert.Contains(GraphFeatureCatalog.FeatureIntuneDeviceBinding, resolved.Details);
+        Assert.Contains(GraphAccessHealthRecorder.ResolvedByAppHomingFlip, resolved.Details);
+        // An unconfirmed rejection was never shown, so it ends without a trace.
+        Assert.DoesNotContain(_savedOpsEvents, e => e.EventType == OpsEventTypes.GraphAccessRecovered);
     }
 
     [Fact]

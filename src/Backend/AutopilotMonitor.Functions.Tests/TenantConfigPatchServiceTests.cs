@@ -313,6 +313,10 @@ public class TenantConfigPatchServiceTests
     [InlineData("graphAccessRejectedSince")]
     [InlineData("graphAccessRejectedCode")]
     [InlineData("graphAccessRejectionConfirmedAt")]
+    [InlineData("intuneDeviceBindingPermissionMissingSince")]
+    [InlineData("intuneDeviceBindingPermissionMissingConfirmedAt")]
+    [InlineData("cloudPcPermissionMissingSince")]
+    [InlineData("cloudPcPermissionMissingConfirmedAt")]
     public async Task Patch_DeniedField_Returns400WithFieldName(string field)
     {
         var harness = new Harness(Stored());

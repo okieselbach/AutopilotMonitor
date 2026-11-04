@@ -73,6 +73,14 @@ export interface TenantConfiguration {
   graphAccessRejectedSince?: string | null;
   /** The Entra error of that refusal, for example AADSTS7000229. System-owned, shown on the repair card. */
   graphAccessRejectedCode?: string | null;
+  /** First device kept out by the missing IntuneDeviceBinding grant in the current episode. System-owned. */
+  intuneDeviceBindingPermissionMissingSince?: string | null;
+  /** Set once that missing grant is confirmed; the notice at the switch then names the date. System-owned. */
+  intuneDeviceBindingPermissionMissingConfirmedAt?: string | null;
+  /** First device rejected by the missing W365CloudPcValidation grant in the current episode. System-owned. */
+  cloudPcPermissionMissingSince?: string | null;
+  /** Set once that missing grant is confirmed; the notice at the switch then names the date. System-owned. */
+  cloudPcPermissionMissingConfirmedAt?: string | null;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   // Agent collector settings

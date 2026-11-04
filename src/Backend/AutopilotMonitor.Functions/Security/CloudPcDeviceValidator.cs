@@ -51,7 +51,7 @@ namespace AutopilotMonitor.Functions.Security
             _graphTokenService = graphTokenService;
         }
 
-        public async Task<CloudPcValidationResult> ValidateCloudPcAsync(
+        public virtual async Task<CloudPcValidationResult> ValidateCloudPcAsync(
             string tenantId,
             string? intuneDeviceId,
             string? sessionId = null,
@@ -174,6 +174,7 @@ namespace AutopilotMonitor.Functions.Security
                         return CacheAndReturn(cacheKey, new CloudPcValidationResult
                         {
                             IsValid = false,
+                            PermissionMissing = true,
                             IntuneDeviceId = normalizedId,
                             ErrorMessage = "Cloud PC lookup not permitted — grant the optional 'W365CloudPcValidation' Graph feature (CloudPC.Read.All)"
                         }, isPositive: false);
@@ -302,6 +303,12 @@ namespace AutopilotMonitor.Functions.Security
         /// Transient failures are NOT cached and should trigger a 503 Retry-After to the agent.
         /// </summary>
         public bool IsTransient { get; set; }
+
+        /// <summary>
+        /// True when Graph refused the lookup after a fresh token because CloudPC.Read.All is not
+        /// granted: a definitive negative about the tenant's configuration, not about the device.
+        /// </summary>
+        public bool PermissionMissing { get; set; }
 
         /// <summary>Intune device id extracted from the MDM client certificate's Subject CN.</summary>
         public string? IntuneDeviceId { get; set; }

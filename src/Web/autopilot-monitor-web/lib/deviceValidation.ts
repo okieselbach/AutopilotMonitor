@@ -19,6 +19,9 @@ export function hasAnyDeviceValidation(config: object): boolean {
 /** Grant-script feature backing Intune Enrollment Validation (GraphFeatureCatalog.FeatureIntuneDeviceBinding). */
 export const INTUNE_ENROLLMENT_FEATURE = "IntuneDeviceBinding";
 
+/** Grant-script feature backing Cloud PC validation (GraphFeatureCatalog.FeatureW365CloudPcValidation). */
+export const CLOUD_PC_FEATURE = "W365CloudPcValidation";
+
 /** Granted verdict of one add-on feature; null while unknown (not loaded, failed, or transient snapshot). */
 export function addOnGranted(status: GetGraphPermissionsStatusResponse | null, feature: string): boolean | null {
   if (!status || status.isTransient) return null;

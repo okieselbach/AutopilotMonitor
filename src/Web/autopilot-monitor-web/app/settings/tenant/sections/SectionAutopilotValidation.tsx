@@ -16,7 +16,7 @@ import { GraphAccessCard } from "../../components/GraphAccessCard";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
 import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesInsights";
 import type { GetGraphPermissionsStatusResponse } from "@/lib/generated/wire-types.generated";
-import { addOnGranted, INTUNE_ENROLLMENT_FEATURE } from "@/lib/deviceValidation";
+import { addOnGranted, CLOUD_PC_FEATURE, INTUNE_ENROLLMENT_FEATURE } from "@/lib/deviceValidation";
 
 export function SectionAutopilotValidation() {
   const {
@@ -38,8 +38,8 @@ export function SectionAutopilotValidation() {
 
   const { getAccessToken } = useAuth();
   const { tenantId } = useTenant();
-  // Add-on permission state for the Intune Enrollment option — the same status endpoint the
-  // Optional Graph capabilities page reads. Best effort: a failure leaves the hint hidden.
+  // Add-on permission state for the Cloud PC and Intune Enrollment options — the same status
+  // endpoint the Optional Graph capabilities page reads. Best effort: a failure leaves the hints hidden.
   // Hooks sit before the early return below — they may not be conditional.
   const permissionStatus = useAuthenticatedFetch<GetGraphPermissionsStatusResponse>({ onError: () => {} });
   const fetchPermissionStatus = permissionStatus.execute;
@@ -198,7 +198,11 @@ export function SectionAutopilotValidation() {
         validateIntuneDeviceBinding={validateIntuneDeviceBinding}
         onToggleIntuneDeviceBinding={handleToggleIntuneDeviceBinding}
         intuneEnrollmentPermission={addOnGranted(permissionStatus.data, INTUNE_ENROLLMENT_FEATURE)}
+        // "Devices affected since" only once the backend confirmed that devices were kept out.
+        intuneEnrollmentAffectedSince={config?.intuneDeviceBindingPermissionMissingConfirmedAt ? config.intuneDeviceBindingPermissionMissingSince : null}
         onToggleCloudPc={handleToggleCloudPcValidation}
+        cloudPcPermission={addOnGranted(permissionStatus.data, CLOUD_PC_FEATURE)}
+        cloudPcAffectedSince={config?.cloudPcPermissionMissingConfirmedAt ? config.cloudPcPermissionMissingSince : null}
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}
         accessRejected={graphAccessRejected}

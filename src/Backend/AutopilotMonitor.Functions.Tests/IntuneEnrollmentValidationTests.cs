@@ -290,7 +290,8 @@ public class IntuneEnrollmentValidationTests
 
     // ------------------------------------------------------------------ SecurityValidator chain
 
-    private static (SecurityValidator Validator, Mock<IntuneDeviceBindingValidator> Binding) BuildChain(TenantConfiguration config)
+    private static (SecurityValidator Validator, Mock<IntuneDeviceBindingValidator> Binding) BuildChain(
+        TenantConfiguration config, IGraphAccessHealthRecorder? accessHealth = null, CloudPcDeviceValidator? cloudPc = null)
     {
         var configRepo = Mock.Of<IConfigRepository>();
         var cache = new MemoryCache(new MemoryCacheOptions());
@@ -318,7 +319,9 @@ public class IntuneEnrollmentValidationTests
             new RateLimitService(cache, Mock.Of<ILogger<RateLimitService>>()),
             autopilotDeviceValidator: null!, corporateIdentifierValidator: null!,
             NullLogger.Instance,
-            intuneDeviceBindingValidator: binding.Object);
+            cloudPcDeviceValidator: cloudPc,
+            intuneDeviceBindingValidator: binding.Object,
+            accessHealth: accessHealth);
         return (validator, binding);
     }
 
@@ -405,6 +408,107 @@ public class IntuneEnrollmentValidationTests
         Assert.False(result.IsValid);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
         Assert.Equal(retryAfter, result.RetryAfterSeconds);
+    }
+
+    // ------------------------------------------------------------------ missing add-on permission
+
+    private static Mock<CloudPcDeviceValidator> CloudPcAnswering(CloudPcValidationResult result)
+    {
+        var cloudPc = new Mock<CloudPcDeviceValidator>(
+            NullLogger<CloudPcDeviceValidator>.Instance, Mock.Of<IHttpClientFactory>(),
+            new MemoryCache(new MemoryCacheOptions()), null!)
+        { CallBase = false };
+        cloudPc.Setup(c => c.ValidateCloudPcAsync(CertTenant, DeviceId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+        return cloudPc;
+    }
+
+    private static readonly CloudPcValidationResult CloudPcPermissionMissing =
+        new() { IsValid = false, PermissionMissing = true, ErrorMessage = "not permitted" };
+
+    private static Task<SecurityValidationResult> Validate(SecurityValidator validator)
+        => validator.ValidateRequestAsync(CertTenantBindingTests.BuildRequestWithCert(CertTenantBindingTests.SampleCertBase64()), CertTenant);
+
+    [Fact]
+    public async Task Chain_MissingBindingPermission_ReportsTheAddOn_AndKeepsTheResponse()
+    {
+        var recorder = new Mock<IGraphAccessHealthRecorder>();
+        var (withRecorder, binding) = BuildChain(new TenantConfiguration { ValidateIntuneDeviceBinding = true }, recorder.Object);
+        SetupAdmitting(binding, new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.PermissionMissing, ErrorMessage = "grant" });
+        var (withoutRecorder, bindingWithout) = BuildChain(new TenantConfiguration { ValidateIntuneDeviceBinding = true });
+        SetupAdmitting(bindingWithout, new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.PermissionMissing, ErrorMessage = "grant" });
+
+        var reported = await Validate(withRecorder);
+        var silent = await Validate(withoutRecorder);
+
+        recorder.Verify(r => r.RecordAddOnPermissionMissingAsync(CertTenant,
+            It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 1 && l[0] == AddOnValidation.IntuneDeviceBinding)), Times.Once);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, reported.StatusCode);
+        Assert.Equal(silent.StatusCode, reported.StatusCode);
+        Assert.Equal(silent.RetryAfterSeconds, reported.RetryAfterSeconds);
+        Assert.Equal(silent.Details, reported.Details);
+    }
+
+    [Theory]
+    [InlineData(IntuneDeviceBindingOutcome.Match)]
+    [InlineData(IntuneDeviceBindingOutcome.NotFound)]
+    [InlineData(IntuneDeviceBindingOutcome.Transient)]
+    public async Task Chain_OtherBindingOutcomes_ReportNothing(IntuneDeviceBindingOutcome outcome)
+    {
+        var recorder = new Mock<IGraphAccessHealthRecorder>();
+        var (validator, binding) = BuildChain(new TenantConfiguration { ValidateIntuneDeviceBinding = true }, recorder.Object);
+        SetupAdmitting(binding, new IntuneDeviceBindingResult { Outcome = outcome, ErrorMessage = "x" });
+
+        await Validate(validator);
+
+        recorder.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Chain_MissingCloudPcPermission_ReportsTheAddOn_WithTheSame403()
+    {
+        var recorder = new Mock<IGraphAccessHealthRecorder>();
+        var (validator, _) = BuildChain(new TenantConfiguration { ValidateCloudPcDevice = true }, recorder.Object,
+            CloudPcAnswering(CloudPcPermissionMissing).Object);
+
+        var result = await Validate(validator);
+
+        Assert.Equal(HttpStatusCode.Forbidden, result.StatusCode);
+        recorder.Verify(r => r.RecordAddOnPermissionMissingAsync(CertTenant,
+            It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 1 && l[0] == AddOnValidation.CloudPc)), Times.Once);
+    }
+
+    [Fact]
+    public async Task Chain_MissingCloudPcPermission_ReportsNothing_WhenTheBindingAdmits()
+    {
+        // The device got in: the missing grant had no consequence.
+        var recorder = new Mock<IGraphAccessHealthRecorder>();
+        var (validator, binding) = BuildChain(
+            new TenantConfiguration { ValidateCloudPcDevice = true, ValidateIntuneDeviceBinding = true }, recorder.Object,
+            CloudPcAnswering(CloudPcPermissionMissing).Object);
+        SetupAdmitting(binding, new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.Match, IntuneDeviceId = DeviceId });
+
+        var result = await Validate(validator);
+
+        Assert.True(result.IsValid, result.ErrorMessage + " " + result.Details);
+        recorder.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Chain_BothPermissionsMissing_ReportsBothInChainOrder()
+    {
+        var recorder = new Mock<IGraphAccessHealthRecorder>();
+        var (validator, binding) = BuildChain(
+            new TenantConfiguration { ValidateCloudPcDevice = true, ValidateIntuneDeviceBinding = true }, recorder.Object,
+            CloudPcAnswering(CloudPcPermissionMissing).Object);
+        SetupAdmitting(binding, new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.PermissionMissing, ErrorMessage = "grant" });
+
+        var result = await Validate(validator);
+
+        // The binding's missing grant keeps the device waiting rather than rejected (D-282).
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
+        recorder.Verify(r => r.RecordAddOnPermissionMissingAsync(CertTenant,
+            It.Is<IReadOnlyList<AddOnValidation>>(l => l.Count == 2 && l[0] == AddOnValidation.CloudPc && l[1] == AddOnValidation.IntuneDeviceBinding)), Times.Once);
     }
 
     [Fact]

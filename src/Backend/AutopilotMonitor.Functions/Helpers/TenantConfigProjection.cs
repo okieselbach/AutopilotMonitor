@@ -56,6 +56,11 @@ namespace AutopilotMonitor.Functions.Helpers
             ("graphAccessRejectedSince", c => c.GraphAccessRejectedSince),
             ("graphAccessRejectedCode", c => c.GraphAccessRejectedCode),
             ("graphAccessRejectionConfirmedAt", c => c.GraphAccessRejectionConfirmedAt),
+            // Missing add-on permission behind a switched-on validation: four timestamps.
+            ("intuneDeviceBindingPermissionMissingSince", c => c.IntuneDeviceBindingPermissionMissingSince),
+            ("intuneDeviceBindingPermissionMissingConfirmedAt", c => c.IntuneDeviceBindingPermissionMissingConfirmedAt),
+            ("cloudPcPermissionMissingSince", c => c.CloudPcPermissionMissingSince),
+            ("cloudPcPermissionMissingConfirmedAt", c => c.CloudPcPermissionMissingConfirmedAt),
         };
 
         /// <summary>

@@ -64,6 +64,8 @@ export const OPS_EVENT_TYPES = [
   "GraphAccessRejected",
   "GraphAccessRecovered",
   "GraphAppCredentialRejected",
+  "AddOnPermissionMissing",
+  "AddOnPermissionResolved",
   "MaintenanceCompleted",
   "MaintenanceFailed",
   "MaintenanceLongRunning",

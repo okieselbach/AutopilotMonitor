@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { cachedAuthFetchJson, FEATURE_FLAGS_TTL_MS } from "@/lib/cachedAuthFetch";
 import { missingContactProfileParts } from "@/lib/edition";
+import type { AddOnValidationKind } from "@/lib/addOnPermission";
 
 /** NotificationContext.notifyError, injected so the hook stays free of the provider. */
 type NotifyError = (title: string, err: unknown, key?: string, fallback?: string) => void;
@@ -19,6 +20,9 @@ export interface TenantConfigurationSummary {
   appHomingFunnelActive?: boolean;
   graphAccessRejected?: boolean;
   graphAccessAppMissing?: boolean;
+  intuneDeviceBindingPermissionMissing?: boolean;
+  cloudPcPermissionMissing?: boolean;
+  addOnPermissionMissingBlocksAll?: boolean;
 }
 
 interface User {
@@ -51,6 +55,14 @@ export interface TenantSecuritySummary {
   graphAccessRejected: boolean;
   /** Only with graphAccessRejected: the enterprise application is gone, which selects the banner text. */
   graphAccessAppMissing: boolean;
+  /**
+   * Switched-on validations that kept devices out and still lack their optional Graph permission
+   * (confirmed after 15 minutes) — drive the red "devices aren't being monitored" banner, in chain
+   * order. Each requires an EXPLICIT true; loading/error/older-backend states show nothing.
+   */
+  addOnPermissionMissing: AddOnValidationKind[];
+  /** The affected validations are all the tenant has, so nothing is validated; selects the banner text. */
+  addOnPermissionMissingBlocksAll: boolean;
 }
 
 const EMPTY_SUMMARY: TenantSecuritySummary = {
@@ -60,6 +72,8 @@ const EMPTY_SUMMARY: TenantSecuritySummary = {
   appHomingFunnelActive: false,
   graphAccessRejected: false,
   graphAccessAppMissing: false,
+  addOnPermissionMissing: [],
+  addOnPermissionMissingBlocksAll: false,
 };
 
 /** Pure projection of a feature-flags body onto the banner summary (unit-tested). */
@@ -73,13 +87,18 @@ export function summarizeTenantSecurityConfig(data: TenantConfigurationSummary):
     appHomingFunnelActive: data.appHomingFunnelActive === true,
     graphAccessRejected: data.graphAccessRejected === true,
     graphAccessAppMissing: data.graphAccessAppMissing === true,
+    addOnPermissionMissing: [
+      ...(data.cloudPcPermissionMissing === true ? ["cloudPc" as const] : []),
+      ...(data.intuneDeviceBindingPermissionMissing === true ? ["intuneEnrollment" as const] : []),
+    ],
+    addOnPermissionMissingBlocksAll: data.addOnPermissionMissingBlocksAll === true,
   };
 }
 
 /**
- * Fetches the tenant's feature-flags summary to drive the dashboard banners:
- * the red "no device validation enabled" and "enrollment monitoring is interrupted" banners, the
- * amber Pro-without-contact-address banner, and the blue app-registration migration banner.
+ * Fetches the tenant's feature-flags summary to drive the dashboard banners: the red "no device
+ * validation enabled", "enrollment monitoring is interrupted" and "devices aren't being monitored"
+ * banners, the amber Pro-without-contact-address banner, and the blue app-registration migration banner.
  *
  * Skips the fetch for users without a tenant role (they never see the dashboard).
  */

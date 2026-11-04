@@ -113,6 +113,8 @@ namespace AutopilotMonitor.Functions.Services
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
+            "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
+            "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
             "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
             "ManagedByProTenantId",
@@ -163,6 +165,8 @@ namespace AutopilotMonitor.Functions.Services
         {
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
+            "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
+            "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
             "OnboardedBy", "OnboardedAt", "DpaVersion",
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
@@ -518,6 +522,9 @@ namespace AutopilotMonitor.Functions.Services
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
             "GraphAccessRejectedSince" or "GraphAccessRejectedCode" or "GraphAccessRejectionConfirmedAt"
                 => "system-owned — follows what Microsoft Entra answers for the tenant's app token",
+            "IntuneDeviceBindingPermissionMissingSince" or "IntuneDeviceBindingPermissionMissingConfirmedAt"
+            or "CloudPcPermissionMissingSince" or "CloudPcPermissionMissingConfirmedAt"
+                => "system-owned — follows which optional Graph permissions the tenant's app token carries",
             "PlanTier" or "TrialExpiresUtc" or "TrialStartedUtc" or "TrialConsumed" or "TrialGrantedBy"
             or "MaxDelegatedTenantsOverride" or "McpUsagePlanOverride" or "PayingCustomer"
                 => "mutable only via the dedicated plan/trial endpoints",

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { ModalPortal } from "@/components/ModalPortal";
+import { ADD_ON_VALIDATIONS } from "@/lib/addOnPermission";
+import { AddOnPermissionNotice } from "./AddOnPermissionNotice";
 
 interface AutopilotValidationSectionProps {
   validateAutopilotDevice: boolean;
@@ -20,10 +22,16 @@ interface AutopilotValidationSectionProps {
   onToggleIntuneDeviceBinding?: (v: boolean) => void | Promise<void>;
   /** Whether the IntuneDeviceBinding add-on is granted; null while unknown (loading, transient). */
   intuneEnrollmentPermission?: boolean | null;
+  /** First device the missing IntuneDeviceBinding grant kept out; set only once the backend confirmed it. */
+  intuneEnrollmentAffectedSince?: string | null;
   /** Windows 365 Cloud PC validation — fallback gate for Cloud PCs (never Autopilot-registered). */
   validateCloudPcDevice?: boolean;
   /** Toggle + persist Cloud PC validation in one shot (permission comes via the Optional Graph capabilities add-on, no consent dialog). */
   onToggleCloudPc?: (newValue: boolean) => void | Promise<void>;
+  /** Whether the W365CloudPcValidation add-on is granted; null while unknown (loading, transient). */
+  cloudPcPermission?: boolean | null;
+  /** First device the missing W365CloudPcValidation grant rejected; set only once the backend confirmed it. */
+  cloudPcAffectedSince?: string | null;
   autopilotConsentInProgress: boolean;
   saving: boolean;
   /** Microsoft Entra keeps refusing the app token: the gates are on, but nothing gets validated. */
@@ -46,8 +54,11 @@ export default function AutopilotValidationSection({
   validateIntuneDeviceBinding = false,
   onToggleIntuneDeviceBinding,
   intuneEnrollmentPermission = null,
+  intuneEnrollmentAffectedSince = null,
   validateCloudPcDevice = false,
   onToggleCloudPc,
+  cloudPcPermission = null,
+  cloudPcAffectedSince = null,
   autopilotConsentInProgress,
   saving,
   accessRejected = false,
@@ -56,6 +67,19 @@ export default function AutopilotValidationSection({
 }: AutopilotValidationSectionProps) {
   const enabledValidations = [validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding];
   const anyValidationEnabled = enabledValidations.some(Boolean);
+  // A switched-on add-on validation without its grant accepts no device. The token's roles say so
+  // at once; while they are unknown, the confirmed backend state (a device was kept out) stands in.
+  const permissionMissing = (on: boolean, granted: boolean | null, affectedSince: string | null) =>
+    on && (granted === false || (granted == null && !!affectedSince));
+  const intuneEnrollmentPermissionMissing = permissionMissing(validateIntuneDeviceBinding, intuneEnrollmentPermission, intuneEnrollmentAffectedSince);
+  const cloudPcPermissionMissing = permissionMissing(validateCloudPcDevice, cloudPcPermission, cloudPcAffectedSince);
+  const badge = accessRejected
+    ? { text: "Access rejected", className: "bg-red-100 text-red-800" }
+    : intuneEnrollmentPermissionMissing || cloudPcPermissionMissing
+      ? { text: "Permission missing", className: "bg-amber-100 text-amber-800" }
+      : anyValidationEnabled
+        ? { text: "Enabled", className: "bg-green-100 text-green-800" }
+        : { text: "Disabled", className: "bg-red-100 text-red-800" };
   const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'device-association' | 'cloudpc' | 'intune-enrollment' | null>(null);
   // The three serial-based validations share one Graph permission: the first one enabled
   // carries the admin consent, every further one is a plain persisted toggle.
@@ -149,15 +173,15 @@ export default function AutopilotValidationSection({
         subtitle="Validate devices against Intune registrations before accepting agent data (mandatory for agent ingestion)"
         docsPath={DOCS_PATHS.enrollmentDeviceValidation}
         trailing={
-          <span className={`flex-shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${anyValidationEnabled && !accessRejected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-            {accessRejected ? "Access rejected" : anyValidationEnabled ? "Enabled" : "Disabled"}
+          <span className={`flex-shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${badge.className}`}>
+            {badge.text}
           </span>
         }
       />
       <div className="p-6 space-y-5">
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
           <p className="text-sm text-gray-700">
-            These validations require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission. Enabling an option starts Microsoft Entra admin consent if not already granted. After consent, the setting is saved automatically. Granting consent requires the <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong> Entra role (Application Administrator is not sufficient — Microsoft excludes Graph application permissions from its consent rights).
+            The first three options require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission; enabling one of them starts Microsoft Entra admin consent if it is not granted yet. Cloud PC and Intune Enrollment Validation need an optional permission instead. After consent, the setting is saved automatically. Granting consent requires the <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong> Entra role (Application Administrator is not sufficient — Microsoft excludes Graph application permissions from its consent rights).
           </p>
           {onDetectExistingAccess && (
             <p className="text-sm text-gray-700">
@@ -238,7 +262,7 @@ export default function AutopilotValidationSection({
 
         {/* Windows 365 Cloud PC — fallback gate for Cloud PCs; permission via the Optional Graph capabilities add-on */}
         {onToggleCloudPc && (
-          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="cloudpc-validation-toggle">
+          <div id={ADD_ON_VALIDATIONS.cloudPc.anchor} className="border-t border-gray-100 pt-5 space-y-3 scroll-mt-24" data-testid="cloudpc-validation-toggle">
             <p className="text-sm font-semibold text-gray-700 tracking-wide">Windows 365</p>
             <label className="flex items-start justify-between gap-4">
               <div>
@@ -251,6 +275,9 @@ export default function AutopilotValidationSection({
                   Requires the optional <strong>CloudPC.Read.All</strong> permission — grant the{" "}
                   <strong>W365CloudPcValidation</strong> add-on under <em>Optional Graph capabilities</em>.
                 </p>
+                {cloudPcPermission === true && (
+                  <p className="text-xs font-medium text-emerald-700 mt-1">Permission granted.</p>
+                )}
               </div>
               <button
                 onClick={handleToggleCloudPc}
@@ -261,12 +288,21 @@ export default function AutopilotValidationSection({
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateCloudPcDevice ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </label>
+            {/* Outside the label: a click on the notice must not reach the switch. */}
+            {cloudPcPermissionMissing && (
+              <AddOnPermissionNotice
+                kind="cloudPc"
+                affectedSince={cloudPcAffectedSince}
+                busy={saving}
+                onTurnOff={() => setDisableConfirm('cloudpc')}
+              />
+            )}
           </div>
         )}
 
         {/* Intune Enrollment — no pre-registration; permission via the Optional Graph capabilities add-on */}
         {onToggleIntuneDeviceBinding && (
-          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="intune-enrollment-validation-toggle">
+          <div id={ADD_ON_VALIDATIONS.intuneEnrollment.anchor} className="border-t border-gray-100 pt-5 space-y-3 scroll-mt-24" data-testid="intune-enrollment-validation-toggle">
             <p className="text-sm font-semibold text-gray-700 tracking-wide">Without pre-registration</p>
             <label className="flex items-start justify-between gap-4">
               <div>
@@ -289,7 +325,8 @@ export default function AutopilotValidationSection({
                 {intuneEnrollmentPermission === true && (
                   <p className="text-xs font-medium text-emerald-700 mt-1">Permission granted.</p>
                 )}
-                {intuneEnrollmentPermission === false && (
+                {/* Switched off, the short hint is enough; switched on, the notice below takes over. */}
+                {intuneEnrollmentPermission === false && !validateIntuneDeviceBinding && (
                   <p className="text-xs font-medium text-amber-700 mt-1">
                     Permission not granted yet. No device is accepted this way until the add-on is granted.
                   </p>
@@ -304,6 +341,15 @@ export default function AutopilotValidationSection({
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateIntuneDeviceBinding ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </label>
+            {/* Outside the label: a click on the notice must not reach the switch. */}
+            {intuneEnrollmentPermissionMissing && (
+              <AddOnPermissionNotice
+                kind="intuneEnrollment"
+                affectedSince={intuneEnrollmentAffectedSince}
+                busy={saving}
+                onTurnOff={() => setDisableConfirm('intune-enrollment')}
+              />
+            )}
           </div>
         )}
 

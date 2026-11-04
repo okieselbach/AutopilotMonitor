@@ -35,10 +35,13 @@ public class GetTenantFeatureFlagsPayloadTests
         // — and that forces a deliberate code review of whether the new field is non-sensitive.
         Assert.Equal(new[]
         {
+            // Non-sensitive by review: booleans only, the timestamps stay in the admin-gated config.
+            "addOnPermissionMissingBlocksAll",
             // Non-sensitive by review: bool only, exposes no client ids (dual app-reg
             // self-service migration banner).
             "appHomingFunnelActive",
             "bootstrapTokenEnabled",
+            "cloudPcPermissionMissing",
             // Non-sensitive by review: bool only ("is a company name set"), never the value
             // itself (admin-gated full config only).
             "companyNameSet",
@@ -59,6 +62,7 @@ public class GetTenantFeatureFlagsPayloadTests
             // Non-sensitive by review: booleans only; the Entra code stays in the admin-gated config.
             "graphAccessAppMissing",
             "graphAccessRejected",
+            "intuneDeviceBindingPermissionMissing",
             "isTrial",
             "showScriptOutput",
             "trialAvailable",
@@ -115,6 +119,74 @@ public class GetTenantFeatureFlagsPayloadTests
 
         Assert.False(element.GetProperty("graphAccessRejected").GetBoolean());
         Assert.False(element.GetProperty("graphAccessAppMissing").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_AddOn_SuspicionAloneShowsNothing()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = true,
+            ValidateIntuneDeviceBinding = true,
+            IntuneDeviceBindingPermissionMissingSince = Now.AddMinutes(-5),
+        });
+
+        Assert.False(element.GetProperty("intuneDeviceBindingPermissionMissing").GetBoolean());
+        Assert.False(element.GetProperty("addOnPermissionMissingBlocksAll").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_AddOn_ConfirmedShowsTheNotice_PerValidation()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = true,
+            ValidateIntuneDeviceBinding = true,
+            ValidateCloudPcDevice = true,
+            CloudPcPermissionMissingSince = Now.AddHours(-1),
+            CloudPcPermissionMissingConfirmedAt = Now.AddMinutes(-45),
+        });
+
+        Assert.True(element.GetProperty("cloudPcPermissionMissing").GetBoolean());
+        Assert.False(element.GetProperty("intuneDeviceBindingPermissionMissing").GetBoolean());
+        // Autopilot still admits its devices.
+        Assert.False(element.GetProperty("addOnPermissionMissingBlocksAll").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_AddOn_SwitchingTheValidationOffHidesTheNoticeAtOnce()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateAutopilotDevice = true,
+            IntuneDeviceBindingPermissionMissingSince = Now.AddHours(-1),
+            IntuneDeviceBindingPermissionMissingConfirmedAt = Now.AddMinutes(-45),
+        });
+
+        Assert.False(element.GetProperty("intuneDeviceBindingPermissionMissing").GetBoolean());
+    }
+
+    [Theory]
+    // Only the binding is on: no device can be validated.
+    [InlineData(false, false, true)]
+    // The Cloud PC check is on and still works for Cloud PCs.
+    [InlineData(true, false, false)]
+    // Both are on and both are confirmed missing.
+    [InlineData(true, true, true)]
+    public void Payload_AddOn_BlocksAllOnlyWhenNoOtherValidationAdmits(bool cloudPcOn, bool cloudPcConfirmed, bool blocksAll)
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            ValidateIntuneDeviceBinding = true,
+            IntuneDeviceBindingPermissionMissingSince = Now.AddHours(-1),
+            IntuneDeviceBindingPermissionMissingConfirmedAt = Now.AddMinutes(-45),
+            ValidateCloudPcDevice = cloudPcOn,
+            CloudPcPermissionMissingSince = cloudPcConfirmed ? Now.AddHours(-1) : null,
+            CloudPcPermissionMissingConfirmedAt = cloudPcConfirmed ? Now.AddMinutes(-45) : null,
+        });
+
+        Assert.True(element.GetProperty("intuneDeviceBindingPermissionMissing").GetBoolean());
+        Assert.Equal(blocksAll, element.GetProperty("addOnPermissionMissingBlocksAll").GetBoolean());
     }
 
     [Fact]

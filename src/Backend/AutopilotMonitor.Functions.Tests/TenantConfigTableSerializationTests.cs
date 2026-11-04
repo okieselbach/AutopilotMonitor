@@ -245,6 +245,32 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.GraphAccessRejectedSince);
         Assert.Null(mapped.GraphAccessRejectedCode);
         Assert.Null(mapped.GraphAccessRejectionConfirmedAt);
+        Assert.Null(mapped.IntuneDeviceBindingPermissionMissingSince);
+        Assert.Null(mapped.CloudPcPermissionMissingConfirmedAt);
+    }
+
+    [Fact]
+    public void Roundtrip_AddOnPermissionFields_SurviveStoreAndMap()
+    {
+        var since = new DateTime(2026, 11, 4, 8, 0, 0, DateTimeKind.Utc);
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            IntuneDeviceBindingPermissionMissingSince = since,
+            IntuneDeviceBindingPermissionMissingConfirmedAt = since.AddMinutes(15),
+            CloudPcPermissionMissingSince = since.AddHours(1),
+            CloudPcPermissionMissingConfirmedAt = since.AddHours(2),
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(since, mapped.IntuneDeviceBindingPermissionMissingSince);
+        Assert.Equal(since.AddMinutes(15), mapped.IntuneDeviceBindingPermissionMissingConfirmedAt);
+        Assert.Equal(since.AddHours(1), mapped.CloudPcPermissionMissingSince);
+        Assert.Equal(since.AddHours(2), mapped.CloudPcPermissionMissingConfirmedAt);
     }
 
     [Theory]

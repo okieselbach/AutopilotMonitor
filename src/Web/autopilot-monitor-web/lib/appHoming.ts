@@ -59,6 +59,16 @@ export function addOnFeaturesSelector(selected: readonly string[], catalog: read
 }
 
 /**
+ * Features the capabilities page starts with: those named in `?features=` (the "Grant permission"
+ * link at a validation switch), otherwise ScriptDisplayNames, so the link between the table and the
+ * command is obvious on first view. Unknown names are harmless: addOnFeaturesSelector drops them.
+ */
+export function initialAddOnFeatures(featuresParam: string | null): string[] {
+  const names = (featuresParam ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return names.length > 0 ? names : ["ScriptDisplayNames"];
+}
+
+/**
  * Copy-paste-ready PowerShell: download the grant script, then run it against the service
  * principal of `clientId` in `tenantId`. The client id is the caller's choice on purpose — the
  * funnel must target the NEW app while the tenant is still homed on the previous one.

@@ -29,6 +29,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
+        private readonly IGraphAccessHealthRecorder _accessHealth;
 
         public GetAgentConfigFunction(
             ILogger<GetAgentConfigFunction> logger,
@@ -42,8 +43,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
             CloudPcDeviceValidator cloudPcDeviceValidator,
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
-            KillSwitchEvaluator killSwitchEvaluator)
+            KillSwitchEvaluator killSwitchEvaluator,
+            IGraphAccessHealthRecorder accessHealth)
         {
+            _accessHealth = accessHealth;
             _logger = logger;
             _configService = configService;
             _adminConfigService = adminConfigService;
@@ -85,7 +88,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
                     cloudPcDeviceValidator: _cloudPcDeviceValidator,
-                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator,
+                    accessHealth: _accessHealth
                 );
 
                 if (errorResponse != null)

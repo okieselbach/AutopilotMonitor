@@ -144,8 +144,8 @@ namespace AutopilotMonitor.Functions.Security
             // minted under the other app.
             var credentials = await ResolveCredentialsAsync(tenantId);
             var result = await GetAccessTokenWithCredentialsAsync(tenantId, credentials, ct);
-            if (result.IsFreshlyMinted && CarriesApplicationRole(result.AccessToken))
-                await _accessHealth.RecordMintedAsync(tenantId);
+            if (result.IsFreshlyMinted && TryGetApplicationRoles(result.AccessToken, out var roles))
+                await _accessHealth.RecordMintedAsync(tenantId, roles);
             return result;
         }
 
@@ -158,21 +158,27 @@ namespace AutopilotMonitor.Functions.Security
         {
             var result = await GetAccessTokenAsync(tenantId, ct);
             var refusal = result.Rejection
-                ?? (result.IsFreshlyMinted && !CarriesApplicationRole(result.AccessToken) ? EntraTokenRejection.NoApplicationRole : null);
+                ?? (result.IsFreshlyMinted && !TryGetApplicationRoles(result.AccessToken, out _) ? EntraTokenRejection.NoApplicationRole : null);
             if (refusal != null)
                 await _accessHealth.RecordRejectedAsync(tenantId, refusal);
             return result;
         }
 
         /// <summary>
-        /// Whether a token can do anything at Graph. A user's sign-in consent re-creates a removed
-        /// enterprise application without any application permission: Entra issues tokens again, and
-        /// Graph refuses every call made with them. Only a role proves access.
+        /// Whether a token can do anything at Graph, and with which application roles. A user's
+        /// sign-in consent re-creates a removed enterprise application without any application
+        /// permission: Entra issues tokens again, and Graph refuses every call made with them. Only a
+        /// role proves access.
         /// </summary>
-        private static bool CarriesApplicationRole(string? accessToken) =>
-            !string.IsNullOrEmpty(accessToken)
-            && GraphFeatureDetector.TryParseToken(accessToken, out var roles, out _)
-            && roles.Count > 0;
+        private static bool TryGetApplicationRoles(string? accessToken, out IReadOnlySet<string> roles)
+        {
+            if (!string.IsNullOrEmpty(accessToken)
+                && GraphFeatureDetector.TryParseToken(accessToken, out roles, out _)
+                && roles.Count > 0)
+                return true;
+            roles = new HashSet<string>();
+            return false;
+        }
 
         /// <summary>
         /// Acquires an app-only token for this tenant under EXPLICIT app credentials, skipping the
