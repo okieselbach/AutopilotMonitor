@@ -146,12 +146,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             _logger.LogInformation($"Registering session {registration.SessionId} for tenant {registration.TenantId} (Device: {validation.CertificateThumbprint})");
 
-            // Server-populated: record which device-validation path accepted this request
-            // (AutopilotV1 / CorporateIdentifier / DeviceAssociation / Bootstrap / CloudPc /
-            // IntuneEnrollment) so the
-            // session row shows HOW the backend admitted the device. Overwrites any
-            // agent-sent value unconditionally — this is the server's verdict, not input.
-            registration.ValidatedBy = validation.ValidatedBy;
+            // What the backend established about the device — which validator admitted it and the
+            // Autopilot registration that validator read — travels apart from the agent's body, so
+            // a device can never report its own group tag or validator.
+            var serverFacts = new SessionServerFacts
+            {
+                ValidatedBy = validation.ValidatedBy,
+                AutopilotRegistration = validation.AutopilotRegistration,
+            };
 
             // Device-supplied session anchor: clamp before ANY consumer sees it. StartedAt drives the
             // SessionsIndex RowKey (list order), the retention filter ("StartedAt lt cutoff"), the
@@ -210,7 +212,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             bool stored;
             try
             {
-                stored = await _sessionRepo.StoreSessionAsync(registration, ownerDecision.OwnerToStamp);
+                stored = await _sessionRepo.StoreSessionAsync(registration, serverFacts, ownerDecision.OwnerToStamp);
             }
             catch (SessionTenantConflictException conflict)
             {

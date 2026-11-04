@@ -25,7 +25,42 @@ namespace AutopilotMonitor.Shared.Models
         public List<FleetSlowModel> SlowestModels { get; set; } = new();
         /// <summary>Device models by failure count (descending).</summary>
         public List<FleetFailingModel> TopFailingModels { get; set; } = new();
+
+        /// <summary>
+        /// Sessions per Autopilot group tag over the whole window — buckets the group-tag view filter
+        /// excluded stay in the list, flagged — by volume, at most 50. Empty when no session in the
+        /// window carries a group tag.
+        /// </summary>
+        public List<FleetGroupTagHealth> GroupTagHealth { get; set; } = new();
+
+        /// <summary>Sessions the group-tag view filter took out of every other figure; 0 without a filter.</summary>
+        public int ExcludedSessions { get; set; }
+
+        /// <summary>The group tags the view filter excluded, as requested.</summary>
+        public List<string> ExcludedGroupTags { get; set; } = new();
+
+        /// <summary>Whether the view filter excluded the sessions without a group tag.</summary>
+        public bool ExcludeUntagged { get; set; }
+
         public DateTime ComputedAt { get; set; }
+    }
+
+    /// <summary>
+    /// One Autopilot group tag bucket. <see cref="GroupTag"/> is the tag's most frequent spelling in the
+    /// window and the value to filter by (empty for the sessions without a tag); <see cref="Label"/> is
+    /// the same spelling, or "No group tag".
+    /// </summary>
+    public sealed class FleetGroupTagHealth
+    {
+        public string GroupTag { get; set; } = string.Empty;
+        public string Label { get; set; } = default!;
+        /// <summary>All sessions with this tag in the window, including in-flight ones.</summary>
+        public int Total { get; set; }
+        public int Succeeded { get; set; }
+        /// <summary>Clients derive the rate as Succeeded / (Succeeded + Failed).</summary>
+        public int Failed { get; set; }
+        /// <summary>True when the view filter took this bucket out of the other figures.</summary>
+        public bool Excluded { get; set; }
     }
 
     public sealed class FleetHealthStats

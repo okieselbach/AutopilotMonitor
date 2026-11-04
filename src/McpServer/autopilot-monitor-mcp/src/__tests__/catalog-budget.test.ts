@@ -43,7 +43,9 @@ const ROLES: Role[] = [
   // Raised 2026-10-28 by +1,100 each: the platform-only get_growth_metrics (measured 1,106 chars).
   { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 93_100 },
   { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 78_100 },
-  { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_000 },
+  // Raised 2026-11-04 by +400: search_sessions gained the groupTag filter and five Autopilot
+  // projection keys (measured 53,318 chars; the other roles stayed under their ceilings).
+  { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_400 },
   // Lowered 2026-10-11: Operators/Viewers and delegated callers without the home Admin role no longer
   // list the two rule dry-runs (measured 49,385 and 53,645 chars).
   { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false, maxCatalogChars: 51_000 },

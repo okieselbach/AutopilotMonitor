@@ -95,7 +95,7 @@ public class AutopilotDeviceValidatorTests
         var result = await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
 
         Assert.True(result.IsValid);
-        Assert.Equal("ap-1", result.AutopilotDeviceId);
+        Assert.Equal("ap-1", result.Registration!.DeviceId);
         Assert.Equal(2, handler.Requests.Count);
         tokens.Verify(t => t.InvalidateTenant(TenantId), Times.Once);
         tokens.Verify(t => t.GetAccessTokenAsync(TenantId, It.IsAny<CancellationToken>()), Times.Exactly(2));
@@ -168,7 +168,7 @@ public class AutopilotDeviceValidatorTests
         var result = await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
 
         Assert.True(result.IsValid);
-        Assert.Equal("ap-1", result.AutopilotDeviceId);
+        Assert.Equal("ap-1", result.Registration!.DeviceId);
         Assert.Equal(2, handler.Requests.Count);
     }
 
@@ -212,5 +212,65 @@ public class AutopilotDeviceValidatorTests
         await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
 
         Assert.True(observed.CanBeCanceled);
+    }
+
+    // ── Registration fields the session keeps ────────────────────────────────
+
+    private const string Upn = "first.last@example.invalid";
+
+    [Fact]
+    public void ReadRegistration_MapsTheKeptFields_AndKeepsOnlyWhetherAUserIsAssigned()
+    {
+        var device = Newtonsoft.Json.Linq.JObject.Parse(
+            "{\"id\":\"ap-1\",\"groupTag\":\" TEST \",\"purchaseOrderIdentifier\":\"PO-7\",\"displayName\":\"LAB-01\"," +
+            $"\"userPrincipalName\":\"{Upn}\",\"addressableUserName\":\"First Last\",\"productKey\":\"AAAAA-BBBBB\"}}");
+
+        var registration = AutopilotDeviceValidator.ReadRegistration(device);
+
+        Assert.Equal("ap-1", registration.DeviceId);
+        Assert.Equal("TEST", registration.GroupTag);
+        Assert.Equal("PO-7", registration.PurchaseOrderId);
+        Assert.Equal("LAB-01", registration.DisplayName);
+        Assert.True(registration.UserAssigned);
+        var kept = Newtonsoft.Json.JsonConvert.SerializeObject(registration);
+        Assert.DoesNotContain(Upn, kept);
+        Assert.DoesNotContain("First Last", kept);
+        Assert.DoesNotContain("AAAAA-BBBBB", kept);
+    }
+
+    [Fact]
+    public void ReadRegistration_TreatsBlankMissingAndNonTextValuesAsAbsent()
+    {
+        var device = Newtonsoft.Json.Linq.JObject.Parse(
+            "{\"id\":\"ap-1\",\"groupTag\":\"   \",\"purchaseOrderIdentifier\":null,\"displayName\":42,\"userPrincipalName\":\"\"}");
+
+        var registration = AutopilotDeviceValidator.ReadRegistration(device);
+
+        Assert.Null(registration.GroupTag);
+        Assert.Null(registration.PurchaseOrderId);
+        Assert.Null(registration.DisplayName);
+        Assert.False(registration.UserAssigned);
+    }
+
+    [Fact]
+    public void ReadRegistration_CutsOverlongText()
+    {
+        var longTag = new string('x', AutopilotDeviceValidator.MaxRegistrationFieldLength + 50);
+        var device = Newtonsoft.Json.Linq.JObject.Parse($"{{\"id\":\"ap-1\",\"groupTag\":\"{longTag}\"}}");
+
+        Assert.Equal(AutopilotDeviceValidator.MaxRegistrationFieldLength, AutopilotDeviceValidator.ReadRegistration(device).GroupTag!.Length);
+    }
+
+    [Fact]
+    public async Task CachedValidation_CarriesTheRegistration()
+    {
+        var (sut, handler, _) = BuildSut(Json(
+            "{\"value\":[{\"id\":\"ap-1\",\"serialNumber\":\"PF3XKQ7\",\"groupTag\":\"TEST\"}]}"));
+
+        await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
+        var cached = await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
+
+        Assert.Single(handler.Requests);
+        Assert.Equal("TEST", cached.Registration!.GroupTag);
     }
 }

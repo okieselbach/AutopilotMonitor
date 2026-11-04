@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "23 October 2026";
+const LAST_UPDATED = "4 November 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -73,6 +73,11 @@ export default function PrivacyPage() {
             <li><strong>Enrollment progress</strong> — phases, ESP stages, application and script results, policy activity, Windows updates installed during the enrollment, reboots, timings, and failure codes</li>
             <li><strong>Device context</strong> — OS build, hardware characteristics, disk and network state, plus whatever your own gather rules request; with the ConfigMgr Watcher enabled, also whether the Configuration Manager client is installed (service state, version, site code)</li>
             <li><strong>Approximate location</strong> — country, region, city, and approximate coordinates, if geolocation is enabled for your tenant</li>
+          </ul>
+
+          <h3 className="text-lg font-medium text-gray-800 mt-4">From your tenant&apos;s Autopilot registration</h3>
+          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+            <li><strong>Autopilot registration</strong> — when Autopilot device validation admits a device, the group tag, purchase order identifier, Autopilot device name, object ID, and whether a user is assigned, as Intune records them; the assigned user&apos;s name is not stored</li>
           </ul>
 
           <h3 className="text-lg font-medium text-gray-800 mt-4">From portal users</h3>

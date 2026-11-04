@@ -32,6 +32,7 @@ public sealed class SessionSearchQuery
             new("serial", s => s.SerialNumber),
             new("model", s => s.Model),
             new("manufacturer", s => s.Manufacturer),
+            new("grouptag", s => s.AutopilotGroupTag),
             new("status", s => s.Status.ToString()),
             new("session", s => s.SessionId),
             new("country", s => s.GeoCountry),

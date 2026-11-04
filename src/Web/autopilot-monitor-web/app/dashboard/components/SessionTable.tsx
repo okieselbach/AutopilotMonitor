@@ -51,6 +51,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "osDisplayVersion", label: "OS Version", defaultVisible: false, sortKey: "osDisplayVersion", filterKey: "osDisplayVersion" },
   { key: "osEdition", label: "OS Edition", defaultVisible: false, sortKey: "osEdition", filterKey: "osEdition" },
   { key: "osLanguage", label: "OS Language", defaultVisible: false, sortKey: "osLanguage", filterKey: "osLanguage" },
+  { key: "groupTag", label: "Group Tag", defaultVisible: false, sortKey: "autopilotGroupTag", filterKey: "autopilotGroupTag" },
   { key: "actions", label: "Actions", defaultVisible: true, adminOnly: true },
 ];
 
@@ -857,7 +858,7 @@ export function SessionTable({
                       currentSort={sortColumn}
                       direction={sortDirection}
                       onSort={onSort}
-                      className={["eventCount", "duration", "started", "country", "apiLatency", "connection", "agentVersion", "osName", "osBuild", "osDisplayVersion", "osEdition", "osLanguage"].includes(col.key) ? "px-3" : undefined}
+                      className={["eventCount", "duration", "started", "country", "apiLatency", "connection", "agentVersion", "osName", "osBuild", "osDisplayVersion", "osEdition", "osLanguage", "groupTag"].includes(col.key) ? "px-3" : undefined}
                       filterKey={col.filterKey}
                       filterValues={col.filterKey ? uniqueValuesByField[col.filterKey] : undefined}
                       activeFilter={col.filterKey ? columnFilters[col.filterKey] : undefined}
@@ -1295,6 +1296,14 @@ function SessionCell({
         <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
           <RowLinkOverlay href={href} session={session} />
           {session.osLanguage || <span className="text-gray-300">—</span>}
+        </td>
+      );
+
+    case "groupTag":
+      return (
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
+          {session.autopilotGroupTag || <span className="text-gray-300">—</span>}
         </td>
       );
 

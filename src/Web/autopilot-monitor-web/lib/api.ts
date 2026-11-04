@@ -317,10 +317,11 @@ export const api = {
     globalApp: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/app${qs({ days: String(days), tenantId })}`,
     // Server-aggregated Fleet Health (replaces client-side raw-session aggregation).
-    fleetHealth: (days: number) =>
-      `${API_BASE_URL}/api/metrics/fleet-health${qs({ days: String(days) })}`,
-    globalFleetHealth: (days: number, tenantId?: string) =>
-      `${API_BASE_URL}/api/global/metrics/fleet-health${qs({ days: String(days), tenantId })}`,
+    // excludeGroupTags: the group-tag view filter, comma-separated (empty = none).
+    fleetHealth: (days: number, excludeGroupTags?: string, excludeUntagged?: boolean) =>
+      `${API_BASE_URL}/api/metrics/fleet-health${qs({ days: String(days), excludeGroupTags, excludeUntagged: excludeUntagged ? "true" : undefined })}`,
+    globalFleetHealth: (days: number, tenantId?: string, excludeGroupTags?: string, excludeUntagged?: boolean) =>
+      `${API_BASE_URL}/api/global/metrics/fleet-health${qs({ days: String(days), tenantId, excludeGroupTags, excludeUntagged: excludeUntagged ? "true" : undefined })}`,
     // F1 time attribution fleet rollups (fixed rolling 30d window — sweep-maintained;
     // per-day medians cannot be merged into arbitrary ranges honestly).
     timeAttribution: () =>

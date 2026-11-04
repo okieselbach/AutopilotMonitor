@@ -2022,6 +2022,19 @@ export interface FleetFailureReason {
   count: number;
 }
 
+/** One Autopilot group tag bucket. GroupTag is the tag's most frequent spelling in the window and the value to filter by (empty for the sessions without a tag); Label is the same spelling, or "No group tag". */
+export interface FleetGroupTagHealth {
+  groupTag: string;
+  label: string;
+  /** All sessions with this tag in the window, including in-flight ones. */
+  total: number;
+  succeeded: number;
+  /** Clients derive the rate as Succeeded / (Succeeded + Failed). */
+  failed: number;
+  /** True when the view filter took this bucket out of the other figures. */
+  excluded: boolean;
+}
+
 /** Server-computed Fleet Health aggregates. Replaces the client-side pass that drained up to 200k raw sessions into the browser and aggregated on the main thread. Built once per request from the windowed session list — see MetricsMath.BuildFleetHealthPayload. Presentation-only derivations (bar-chart maxima, weekday/month axis labels) stay on the client; this payload carries the data, not the formatting. */
 export interface FleetHealthMetrics {
   success: boolean;
@@ -2037,6 +2050,14 @@ export interface FleetHealthMetrics {
   slowestModels: FleetSlowModel[];
   /** Device models by failure count (descending). */
   topFailingModels: FleetFailingModel[];
+  /** Sessions per Autopilot group tag over the whole window — buckets the group-tag view filter excluded stay in the list, flagged — by volume, at most 50. Empty when no session in the window carries a group tag. */
+  groupTagHealth: FleetGroupTagHealth[];
+  /** Sessions the group-tag view filter took out of every other figure; 0 without a filter. */
+  excludedSessions: number;
+  /** The group tags the view filter excluded, as requested. */
+  excludedGroupTags: string[];
+  /** Whether the view filter excluded the sessions without a group tag. */
+  excludeUntagged: boolean;
   computedAt: string;
 }
 
@@ -3144,6 +3165,11 @@ export interface LocationSessionRow {
   completionSource: string;
   adminMarkedAction?: string;
   validatedBy: string;
+  autopilotGroupTag?: string;
+  autopilotPurchaseOrderId?: string;
+  autopilotDisplayName?: string;
+  autopilotDeviceId?: string;
+  autopilotUserAssigned?: boolean;
   eventCount: number;
   durationSeconds?: number;
   avgApiLatencyMs?: number;
@@ -4693,8 +4719,6 @@ export interface SessionRegistration {
   isSelfDeployingProfile: boolean;
   /** Whether the agent identified the device as a Windows 365 Cloud PC (marker AND: HKLM\SOFTWARE\Microsoft\Windows365 key + installed CloudManagedDesktopExtension service — the evidence set field-verified by bootstrap v2.3-dev.2). Display/filter metadata only, agent-reported and NOT server-verified; the authoritative Cloud PC auth signal is ValidatedBy == CloudPc (cert-CN-bound Graph lookup). The two can legitimately disagree, e.g. when a Cloud PC is admitted via Autopilot validation. */
   isCloudPc: boolean;
-  /** Which backend device-validation path accepted this registration (Autopilot S/N, Corporate Identifier, Device Association, or Bootstrap token). SERVER-POPULATED: RegisterSessionFunction overwrites this unconditionally from its own SecurityValidationResult — any agent-sent value is ignored. */
-  validatedBy: ValidatorType;
 }
 
 /** Success body of GET global/session-reports/download-url: short-lived SAS download URL for a session report blob. */
@@ -4819,6 +4843,16 @@ export interface SessionSummary {
   adminMarkedAction?: string;
   /** Which backend device-validation path accepted this device at session registration — ValidatorType name as string: "AutopilotV1" (Autopilot S/N lookup), "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc", "IntuneEnrollment" (enrolled Intune device, no pre-registration) or "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap session re-registering under cert auth upgrades to the cert-path validator). Empty for sessions that predate this field or tenants with device validation off. */
   validatedBy: string;
+  /** Group tag of the device's Windows Autopilot registration in Intune, as the Autopilot device validation read it from Microsoft Graph at session registration. Absent when that validation did not admit the device, the tag is empty, or the session predates the field — the key is omitted when null. */
+  autopilotGroupTag?: string;
+  /** Purchase order identifier of the Autopilot registration — same source and absence rules as AutopilotGroupTag. */
+  autopilotPurchaseOrderId?: string;
+  /** Device name set on the Autopilot registration in Intune — same source and absence rules as AutopilotGroupTag. */
+  autopilotDisplayName?: string;
+  /** Object id of the Autopilot registration in Intune — same source and absence rules as AutopilotGroupTag. */
+  autopilotDeviceId?: string;
+  /** Whether a user is assigned to the Autopilot registration — only yes or no, never the user's name. Null when the registration was not read (same rules as AutopilotGroupTag). */
+  autopilotUserAssigned?: boolean;
   eventCount: number;
   durationSeconds?: number;
   /** Session-wide average HTTP round-trip latency (ms) of the agent's calls to the backend API, as measured on the device (includes network RTT + TLS + server processing). Projected at ingest from the cumulative counters of the latest agent_metrics_snapshot (net_total_latency_ms / net_total_requests). Null for V1 sessions and sessions from agents that predate the field. Aggregate across sessions weighted by ApiRequestCount — e.g. per GeoCountry to compare regional backend reachability. */

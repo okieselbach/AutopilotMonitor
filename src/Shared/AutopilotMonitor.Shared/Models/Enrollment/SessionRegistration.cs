@@ -112,14 +112,6 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool IsCloudPc { get; set; }
 
-        /// <summary>
-        /// Which backend device-validation path accepted this registration (Autopilot S/N,
-        /// Corporate Identifier, Device Association, or Bootstrap token). SERVER-POPULATED:
-        /// RegisterSessionFunction overwrites this unconditionally from its own
-        /// SecurityValidationResult — any agent-sent value is ignored.
-        /// </summary>
-        public ValidatorType ValidatedBy { get; set; } = ValidatorType.Unknown;
-
         public SessionRegistration()
         {
             SessionId = Guid.NewGuid().ToString();

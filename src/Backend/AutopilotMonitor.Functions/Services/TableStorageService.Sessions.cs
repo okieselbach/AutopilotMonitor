@@ -219,6 +219,13 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(validatedBy))
                 indexEntity["ValidatedBy"] = validatedBy;
 
+            // Autopilot registration read at validation — the session list filters by group tag.
+            foreach (var col in AutopilotRegistrationColumns)
+            {
+                if (sessionEntity.TryGetValue(col, out var val) && val is not null)
+                    indexEntity[col] = val;
+            }
+
             var failureSnapshotJson = sessionEntity.GetString("FailureSnapshotJson");
             if (!string.IsNullOrEmpty(failureSnapshotJson))
                 indexEntity["FailureSnapshotJson"] = failureSnapshotJson;
@@ -498,6 +505,16 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// The <see cref="AutopilotRegistration"/> columns. Declared before
+        /// <see cref="RegistrationOwnedColumns"/>, which includes them (static initializers of one file
+        /// run in textual order).
+        /// </summary>
+        internal static readonly string[] AutopilotRegistrationColumns =
+        {
+            "AutopilotDeviceId", "AutopilotGroupTag", "AutopilotPurchaseOrderId", "AutopilotDisplayName", "AutopilotUserAssigned",
+        };
+
+        /// <summary>
         /// Columns <see cref="StoreSessionAsync"/> writes under its own rules: taken from the
         /// registration, derived from the existing row (sticky flags, earliest StartedAt, preserved
         /// counters and verdict), or re-stamped from the fresh read (cascade lock, owner, server time,
@@ -506,7 +523,7 @@ namespace AutopilotMonitor.Functions.Services
         /// writer adds later survives an agent restart by default. A column that must reset on
         /// re-registration belongs here, together with its rule in <see cref="StoreSessionAsync"/>.
         /// </summary>
-        internal static readonly string[] RegistrationOwnedColumns =
+        internal static readonly string[] RegistrationOwnedColumns = new[]
         {
             "SerialNumber", "Manufacturer", "Model", "DeviceName",
             "OsName", "OsBuild", "OsDisplayVersion", "OsEdition", "OsLanguage",
@@ -525,7 +542,7 @@ namespace AutopilotMonitor.Functions.Services
             SessionOwner.Columns.BootstrapCode, SessionOwner.Columns.Serial, SessionOwner.Columns.BoundAt,
             ServerTimeStateColumn, StartedAtServerColumn, ResumedAtServerColumn, CompletedAtServerColumn,
             "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "EspSoftFailure", "CompletionSource",
-        };
+        }.Concat(AutopilotRegistrationColumns).ToArray();
 
         /// <summary>
         /// The declared Sessions columns (index manifest plus primary-only) that
@@ -561,17 +578,52 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Writes the <see cref="AutopilotRegistrationColumns"/>: a registration read during this request
+        /// replaces the stored set whole, so a group tag removed in Intune clears the column; without one
+        /// (another validator admitted the device, or validation is off) the values of the fresh read stay.
+        /// Runs once per CAS attempt, like <see cref="CarryUnownedColumns"/>.
+        /// </summary>
+        internal static void ApplyAutopilotRegistration(TableEntity target, AutopilotRegistration? registration, TableEntity? fresh)
+        {
+            foreach (var column in AutopilotRegistrationColumns)
+                target.Remove(column);
+
+            if (registration == null)
+            {
+                if (fresh == null)
+                    return;
+                foreach (var column in AutopilotRegistrationColumns)
+                {
+                    if (fresh.TryGetValue(column, out var value) && value is not null)
+                        target[column] = value;
+                }
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(registration.DeviceId))
+                target["AutopilotDeviceId"] = registration.DeviceId;
+            if (!string.IsNullOrEmpty(registration.GroupTag))
+                target["AutopilotGroupTag"] = registration.GroupTag;
+            if (!string.IsNullOrEmpty(registration.PurchaseOrderId))
+                target["AutopilotPurchaseOrderId"] = registration.PurchaseOrderId;
+            if (!string.IsNullOrEmpty(registration.DisplayName))
+                target["AutopilotDisplayName"] = registration.DisplayName;
+            target["AutopilotUserAssigned"] = registration.UserAssigned;
+        }
+
+        /// <summary>
         /// Stores a session registration. A re-registration rewrites the row with Replace: the
         /// <see cref="RegistrationOwnedColumns"/> follow their rules below, every other declared
         /// column is carried from the fresh read (<see cref="CarryUnownedColumns"/>).
         /// </summary>
-        /// <param name="registration">Agent-supplied registration (server-stamped fields already applied by the caller).</param>
+        /// <param name="registration">Agent-supplied registration.</param>
+        /// <param name="serverFacts">What the backend established about the device: the admitting validator and the Autopilot registration it read.</param>
         /// <param name="ownerToStamp">
         /// SESSION-OWNER-BINDING: the device identity to bind the row to, decided by
         /// <c>SessionOwnershipPolicy</c> (fresh bind, legacy claim, rebind). Null preserves whatever
         /// owner the row already carries — the Replace below must never blank it.
         /// </param>
-        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null)
+        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionServerFacts serverFacts, SessionOwner? ownerToStamp = null)
         {
             SecurityValidator.EnsureValidGuid(registration.TenantId, "TenantId");
             SecurityValidator.EnsureValidGuid(registration.SessionId, "SessionId");
@@ -786,8 +838,8 @@ namespace AutopilotMonitor.Functions.Services
                 // re-registers under cert auth upgrades to the cert-path validator; an Unknown
                 // result (device validation disabled for the tenant) preserves whatever an
                 // earlier registration recorded.
-                if (registration.ValidatedBy != ValidatorType.Unknown)
-                    validatedBy = registration.ValidatedBy.ToString();
+                if (serverFacts.ValidatedBy != ValidatorType.Unknown)
+                    validatedBy = serverFacts.ValidatedBy.ToString();
                 if (!string.IsNullOrWhiteSpace(validatedBy))
                     entity["ValidatedBy"] = validatedBy;
 
@@ -924,6 +976,7 @@ namespace AutopilotMonitor.Functions.Services
                     }
 
                     CarryUnownedColumns(entity, freshEntity, carriedByLastAttempt);
+                    ApplyAutopilotRegistration(entity, serverFacts.AutopilotRegistration, freshEntity);
 
                     try
                     {
@@ -3740,6 +3793,11 @@ namespace AutopilotMonitor.Functions.Services
                 PriorStatus = entity.GetString("PriorStatus"),
                 PriorVerdictPath = entity.GetString("PriorVerdictPath"),
                 ValidatedBy = entity.GetString("ValidatedBy") ?? string.Empty,
+                AutopilotGroupTag = entity.GetString("AutopilotGroupTag"),
+                AutopilotPurchaseOrderId = entity.GetString("AutopilotPurchaseOrderId"),
+                AutopilotDisplayName = entity.GetString("AutopilotDisplayName"),
+                AutopilotDeviceId = entity.GetString("AutopilotDeviceId"),
+                AutopilotUserAssigned = entity.GetBoolean("AutopilotUserAssigned"),
                 PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,
                 PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),
                 EventCount = SafeGetInt32(entity, "EventCount") ?? 0,

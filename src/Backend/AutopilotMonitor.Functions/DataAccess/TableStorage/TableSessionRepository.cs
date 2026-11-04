@@ -22,9 +22,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _publisher = publisher;
         }
 
-        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null)
+        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionServerFacts serverFacts, SessionOwner? ownerToStamp = null)
         {
-            var result = await _storage.StoreSessionAsync(registration, ownerToStamp);
+            var result = await _storage.StoreSessionAsync(registration, serverFacts, ownerToStamp);
             if (result)
                 await _publisher.PublishAsync("session.created", registration, registration.TenantId);
             return result;
@@ -265,9 +265,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<List<QuickSearchResult>> QuickSearchSessionsAsync(string? tenantId, string query, int limit = 10)
             => _storage.QuickSearchSessionsAsync(tenantId, query, limit);
-
-        public Task<List<SessionSummary>> SearchSessionsAsync(string? tenantId, SessionSearchFilter filter)
-            => _storage.SearchSessionsAsync(tenantId, filter);
 
         public Task<RawPage<SessionSummary>> SearchSessionsPageAsync(string? tenantId, SessionSearchFilter filter, int pageSize, string? continuation)
             => _storage.SearchSessionsPageAsync(tenantId, filter, pageSize, continuation);

@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { dashboardUrl } from "@/lib/routes";
 import { buildSessionSearchQuery } from "../dashboard/lib/sessionSearchQuery";
-import type { FleetModelHealth } from "@/lib/generated/wire-types.generated";
+import type { FleetGroupTagHealth, FleetModelHealth } from "@/lib/generated/wire-types.generated";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -19,6 +19,9 @@ import DeviceJourneySection, { DeviceJourneyResponseDto } from "./components/Dev
 import TruncatedLabel from "../../components/TruncatedLabel";
 import { InstallSourcePill } from "../../components/InstallSourcePill";
 import { useFleetHealth } from "./hooks/useFleetHealth";
+import { useGroupTagExclusion } from "./hooks/useGroupTagExclusion";
+import { describeGroupTagExclusion, isGroupTagExclusionActive } from "./lib/groupTagExclusion";
+import NotFilteredByGroupTag from "./components/NotFilteredByGroupTag";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -84,6 +87,11 @@ function FleetHealthContent() {
   // The window lives in the URL (?days=): page default 7, capped to the viewed tenant's edition.
   const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: 7, tenantId: effectiveTenantId });
 
+  // Group-tag view filter, also in the URL: its sessions leave every server-computed figure
+  // except the group tag breakdown, which keeps them so they can be shown again.
+  const { exclusion: groupTagExclusion, toggleTag, toggleUntagged, clear: clearGroupTagExclusion } = useGroupTagExclusion();
+  const groupTagFilterActive = isGroupTagExclusionActive(groupTagExclusion);
+
   // Server-aggregated fleet data (stats, timeline, model + failure breakdowns).
   // Replaces the old client path that drained up to 200k raw sessions into the
   // browser and aggregated on the main thread.
@@ -94,6 +102,7 @@ function FleetHealthContent() {
     scopeInitialized: scopeInitialized && windowReady,
     scopeKey,
     days,
+    groupTagExclusion,
     getAccessToken,
     signalR: { on, off, isConnected },
   });
@@ -188,7 +197,20 @@ function FleetHealthContent() {
   // with none finished there is no rate to show — the card renders "—" instead of 0%.
   const finishedCount = stats.succeeded + stats.failed;
   const modelHealth = data?.modelHealth ?? [];
+  const groupTagHealth = data?.groupTagHealth ?? [];
   const slowestModels = data?.slowestModels ?? [];
+
+  // Deep-link a group tag bucket into the dashboard like the model rows below; the
+  // "No group tag" bucket has nothing to search for.
+  const dashboardGroupTagHref = (g: FleetGroupTagHealth): Route | null => {
+    const search = buildSessionSearchQuery({ grouptag: g.groupTag });
+    if (!search) return null;
+    return dashboardUrl({
+      status: g.failed > 0 ? "Failed" : undefined,
+      search,
+      tenant: isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined,
+    });
+  };
 
   // Deep-link a model bucket into the dashboard, pre-filtered to Failed sessions of that
   // model — but only while the bucket has any: a 100 % row would otherwise land on a
@@ -283,6 +305,26 @@ function FleetHealthContent() {
             </div>
           ) : (
           <>
+          {/* Group-tag view filter: stays next to the figures it changes, screenshots included. */}
+          {groupTagFilterActive && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+                {`Excluding ${describeGroupTagExclusion(groupTagExclusion)} · ${data?.excludedSessions ?? 0} ${
+                  data?.excludedSessions === 1 ? "session" : "sessions"
+                }`}
+                <button
+                  type="button"
+                  onClick={clearGroupTagExclusion}
+                  className="text-gray-500 hover:text-gray-900"
+                  title="Show all group tags"
+                  aria-label="Show all group tags"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+          )}
+
           {/* Top Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <FleetStatCard
@@ -573,6 +615,7 @@ function FleetHealthContent() {
                 >
                   measured installs
                 </span>
+                {groupTagFilterActive && <NotFilteredByGroupTag />}
               </h2>
               {!appMetrics || appMetrics.slowestApps.length === 0 ? (
                 <div className="text-center py-6 text-gray-400 text-sm">
@@ -644,6 +687,7 @@ function FleetHealthContent() {
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">
                 Top Failing Apps
+                {groupTagFilterActive && <NotFilteredByGroupTag />}
               </h2>
               {!appMetrics || appMetrics.topFailingApps.length === 0 ? (
                 <div className="text-center py-6 text-gray-400 text-sm">
@@ -699,13 +743,70 @@ function FleetHealthContent() {
           </div>
 
           {/* Time attribution (F1) — sweep-maintained rolling 30d rollup per enrollment class */}
-          <TimeAttributionSection data={timeAttribution} />
+          <TimeAttributionSection
+            data={timeAttribution}
+            headerNote={groupTagFilterActive ? <NotFilteredByGroupTag /> : undefined}
+          />
 
           {/* First-time-right (F2) — journey-based wipe-and-retry visibility */}
           <DeviceJourneySection
             data={deviceJourneys}
             linkTenantId={isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined}
+            headerNote={groupTagFilterActive ? <NotFilteredByGroupTag /> : undefined}
           />
+
+          {/* Health by Group Tag — over the whole window; hidden tags stay listed, dimmed */}
+          {groupTagHealth.length > 0 && (
+            <div className="bg-white shadow rounded-lg p-6 mb-8">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Health by Group Tag
+                <span
+                  className="ml-2 text-xs font-normal text-gray-400"
+                  title="Autopilot group tag of the device in Intune, recorded when the Autopilot validation admitted the session. Hide a tag to take its sessions out of the figures on this page."
+                >
+                  Autopilot group tag in Intune
+                </span>
+              </h2>
+              <div className="space-y-3">
+                {groupTagHealth.map((g) => {
+                  const finished = g.succeeded + g.failed;
+                  const successRate = finished > 0 ? Math.round((g.succeeded / finished) * 100) : null;
+                  const href = dashboardGroupTagHref(g);
+                  return (
+                    <div key={g.label} className={`-mx-2 px-2 py-1 rounded-md ${g.excluded ? "opacity-50" : ""}`}>
+                      <div className="flex items-baseline justify-between gap-3 mb-1">
+                        {href ? (
+                          <Link
+                            href={href}
+                            className="text-sm text-gray-700 hover:text-green-600 break-words leading-snug"
+                            title={g.failed > 0 ? `Show failed enrollments with group tag ${g.label}` : `Show enrollments with group tag ${g.label}`}
+                          >
+                            {g.label}
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-gray-700 break-words leading-snug">{g.label}</span>
+                        )}
+                        <span className="flex flex-shrink-0 items-baseline gap-3">
+                          <span className="text-sm font-medium text-gray-900">
+                            {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">{`(${g.total} ${g.total === 1 ? "enrollment" : "enrollments"})`}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => (g.groupTag ? toggleTag(g.groupTag) : toggleUntagged())}
+                            className="text-xs text-gray-500 hover:text-gray-900"
+                            title={g.excluded ? "Count these sessions on this page again" : "Take these sessions out of the figures on this page"}
+                          >
+                            {g.excluded ? "Show" : "Hide"}
+                          </button>
+                        </span>
+                      </div>
+                      <SuccessRateBar successRate={successRate} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Health by Device Model */}
           <div className="bg-white shadow rounded-lg p-6">
@@ -735,20 +836,7 @@ function FleetHealthContent() {
                           {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">{`(${m.total} ${m.total === 1 ? "enrollment" : "enrollments"})`}</span>
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            successRate === null
-                              ? "bg-gray-300"
-                              : successRate >= 95
-                              ? "bg-green-500"
-                              : successRate >= 80
-                              ? "bg-yellow-500"
-                              : "bg-red-500"
-                          }`}
-                          style={{ width: `${successRate ?? 0}%` }}
-                        />
-                      </div>
+                      <SuccessRateBar successRate={successRate} />
                     </>
                   );
                   // The "Unknown" bucket (no manufacturer, no model) has nothing to search for.
@@ -775,5 +863,25 @@ function FleetHealthContent() {
         </main>
       </div>
     </ProtectedRoute>
+  );
+}
+
+/** Success-rate bar of a breakdown row: green from 95 %, yellow from 80 %, red below, grey without finished enrollments. */
+function SuccessRateBar({ successRate }: { successRate: number | null }) {
+  return (
+    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all ${
+          successRate === null
+            ? "bg-gray-300"
+            : successRate >= 95
+            ? "bg-green-500"
+            : successRate >= 80
+            ? "bg-yellow-500"
+            : "bg-red-500"
+        }`}
+        style={{ width: `${successRate ?? 0}%` }}
+      />
+    </div>
   );
 }

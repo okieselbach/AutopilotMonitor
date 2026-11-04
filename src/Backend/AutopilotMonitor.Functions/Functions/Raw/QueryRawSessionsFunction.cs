@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 return await req.BadRequestAsync(pagination.Error);
             }
 
-            // Build search filter — Limit is ignored, pagination owns size.
+            // Build search filter — pagination owns size.
             var filter = new SessionSearchFilter
             {
                 Status = string.IsNullOrEmpty(status) ? null : status,
@@ -128,6 +128,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             filter.RebootCountMax = QueryParams.IntOrNull(query["rebootCountMax"]);
             var connectionType = query["connectionType"];
             if (!string.IsNullOrEmpty(connectionType)) filter.ConnectionType = connectionType;
+            var groupTag = query["groupTag"];
+            if (!string.IsNullOrWhiteSpace(groupTag)) filter.GroupTag = groupTag.Trim();
 
             var callerTenantId = TenantHelper.GetTenantId(req);
 

@@ -9854,6 +9854,57 @@
         }
       ]
     },
+    "FleetGroupTagHealth": {
+      "kind": "object",
+      "doc": "One Autopilot group tag bucket. GroupTag is the tag's most frequent spelling in the window and the value to filter by (empty for the sessions without a tag); Label is the same spelling, or \"No group tag\".",
+      "fields": [
+        {
+          "name": "groupTag",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "All sessions with this tag in the window, including in-flight ones."
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Clients derive the rate as Succeeded / (Succeeded + Failed)."
+        },
+        {
+          "name": "excluded",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the view filter took this bucket out of the other figures."
+        }
+      ]
+    },
     "FleetHealthMetrics": {
       "kind": "object",
       "doc": "Server-computed Fleet Health aggregates. Replaces the client-side pass that drained up to 200k raw sessions into the browser and aggregated on the main thread. Built once per request from the windowed session list — see MetricsMath.BuildFleetHealthPayload. Presentation-only derivations (bar-chart maxima, weekday/month axis labels) stay on the client; this payload carries the data, not the formatting.",
@@ -9933,6 +9984,44 @@
             }
           },
           "doc": "Device models by failure count (descending)."
+        },
+        {
+          "name": "groupTagHealth",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetGroupTagHealth"
+            }
+          },
+          "doc": "Sessions per Autopilot group tag over the whole window — buckets the group-tag view filter excluded stay in the list, flagged — by volume, at most 50. Empty when no session in the window carries a group tag."
+        },
+        {
+          "name": "excludedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions the group-tag view filter took out of every other figure; 0 without a filter."
+        },
+        {
+          "name": "excludedGroupTags",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "The group tags the view filter excluded, as requested."
+        },
+        {
+          "name": "excludeUntagged",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the view filter excluded the sessions without a group tag."
         },
         {
           "name": "computedAt",
@@ -14756,6 +14845,46 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "autopilotGroupTag",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "autopilotPurchaseOrderId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "autopilotDisplayName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "autopilotDeviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "autopilotUserAssigned",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true
         },
         {
           "name": "eventCount",
@@ -21642,14 +21771,6 @@
             "name": "boolean"
           },
           "doc": "Whether the agent identified the device as a Windows 365 Cloud PC (marker AND: HKLM\\SOFTWARE\\Microsoft\\Windows365 key + installed CloudManagedDesktopExtension service — the evidence set field-verified by bootstrap v2.3-dev.2). Display/filter metadata only, agent-reported and NOT server-verified; the authoritative Cloud PC auth signal is ValidatedBy == CloudPc (cert-CN-bound Graph lookup). The two can legitimately disagree, e.g. when a Cloud PC is admitted via Autopilot validation."
-        },
-        {
-          "name": "validatedBy",
-          "type": {
-            "kind": "enum",
-            "name": "ValidatorType"
-          },
-          "doc": "Which backend device-validation path accepted this registration (Autopilot S/N, Corporate Identifier, Device Association, or Bootstrap token). SERVER-POPULATED: RegisterSessionFunction overwrites this unconditionally from its own SecurityValidationResult — any agent-sent value is ignored."
         }
       ]
     },
@@ -22215,6 +22336,51 @@
             "name": "string"
           },
           "doc": "Which backend device-validation path accepted this device at session registration — ValidatorType name as string: \"AutopilotV1\" (Autopilot S/N lookup), \"CorporateIdentifier\", \"DeviceAssociation\" (device preparation), \"CloudPc\", \"IntuneEnrollment\" (enrolled Intune device, no pre-registration) or \"Bootstrap\" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap session re-registering under cert auth upgrades to the cert-path validator). Empty for sessions that predate this field or tenants with device validation off."
+        },
+        {
+          "name": "autopilotGroupTag",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Group tag of the device's Windows Autopilot registration in Intune, as the Autopilot device validation read it from Microsoft Graph at session registration. Absent when that validation did not admit the device, the tag is empty, or the session predates the field — the key is omitted when null."
+        },
+        {
+          "name": "autopilotPurchaseOrderId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Purchase order identifier of the Autopilot registration — same source and absence rules as AutopilotGroupTag."
+        },
+        {
+          "name": "autopilotDisplayName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Device name set on the Autopilot registration in Intune — same source and absence rules as AutopilotGroupTag."
+        },
+        {
+          "name": "autopilotDeviceId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Object id of the Autopilot registration in Intune — same source and absence rules as AutopilotGroupTag."
+        },
+        {
+          "name": "autopilotUserAssigned",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Whether a user is assigned to the Autopilot registration — only yes or no, never the user's name. Null when the registration was not read (same rules as AutopilotGroupTag)."
         },
         {
           "name": "eventCount",

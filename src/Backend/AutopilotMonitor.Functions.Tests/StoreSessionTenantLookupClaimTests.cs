@@ -40,7 +40,7 @@ public class StoreSessionTenantLookupClaimTests
     {
         var harness = new Harness(existingOwner: null);
 
-        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA));
+        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA), new SessionServerFacts());
 
         Assert.True(ok);
         Assert.Equal(new[] { "lookup-add", "session-write" }, harness.Order);
@@ -54,7 +54,7 @@ public class StoreSessionTenantLookupClaimTests
     {
         var harness = new Harness(existingOwner: TenantA.ToUpperInvariant());
 
-        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA));
+        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA), new SessionServerFacts());
 
         Assert.True(ok);
         Assert.Contains("session-write", harness.Order);
@@ -67,7 +67,7 @@ public class StoreSessionTenantLookupClaimTests
         var harness = new Harness(existingOwner: TenantA);
 
         var ex = await Assert.ThrowsAsync<SessionTenantConflictException>(
-            () => harness.Sut.StoreSessionAsync(Registration(TenantB)));
+            () => harness.Sut.StoreSessionAsync(Registration(TenantB), new SessionServerFacts()));
 
         Assert.Equal(SessionId, ex.SessionId);
         Assert.Equal(TenantB, ex.RequestedTenantId);
@@ -87,7 +87,7 @@ public class StoreSessionTenantLookupClaimTests
         harness.Lookup.Setup(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new RequestFailedException(503, "ServerBusy"));
 
-        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA));
+        var ok = await harness.Sut.StoreSessionAsync(Registration(TenantA), new SessionServerFacts());
 
         Assert.False(ok);
         Assert.DoesNotContain("session-write", harness.Order);

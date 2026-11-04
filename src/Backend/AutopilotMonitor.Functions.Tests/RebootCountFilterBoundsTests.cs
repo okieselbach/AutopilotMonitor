@@ -5,9 +5,9 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Cover for the RebootCount range predicate used on every search path that does NOT push the
-/// bound to OData — the deviceProperties batch-get (<c>ApplyBasicFilters</c>) and the legacy
-/// unpaged scan. Without it a <c>deviceProperties + rebootCountMin=5</c> query leaks sessions
+/// Cover for the RebootCount range predicate used on the search path that does NOT push the
+/// bound to OData — the deviceProperties batch-get (<c>ApplyBasicFilters</c>). Without it a
+/// <c>deviceProperties + rebootCountMin=5</c> query leaks sessions
 /// with RebootCount &lt; 5 (the medium finding). Min is inclusive (">= many reboots").
 /// </summary>
 public class RebootCountFilterBoundsTests

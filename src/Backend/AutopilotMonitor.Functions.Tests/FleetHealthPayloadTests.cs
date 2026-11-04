@@ -23,7 +23,8 @@ public class FleetHealthPayloadTests
         string manufacturer = "Contoso",
         string model = "Laptop",
         string? failureReason = null,
-        DateTime? startedAt = null)
+        DateTime? startedAt = null,
+        string? groupTag = null)
         => new()
         {
             TenantId = Guid.NewGuid().ToString(),
@@ -34,7 +35,105 @@ public class FleetHealthPayloadTests
             Model = model,
             FailureReason = failureReason!,
             StartedAt = startedAt ?? DateTime.UtcNow,
+            AutopilotGroupTag = groupTag,
         };
+
+    private static FleetGroupTagFilter Filter(string? excludeGroupTags, bool excludeUntagged = false)
+    {
+        Assert.True(FleetGroupTagFilter.TryParse(excludeGroupTags, excludeUntagged ? "true" : null, out var filter, out _));
+        return filter;
+    }
+
+    // ── Group tag breakdown and view filter ──────────────────────────────────
+
+    [Fact]
+    public void GroupTagHealth_IsEmpty_WhenNoSessionCarriesATag()
+    {
+        var payload = MetricsMath.BuildFleetHealthPayload(
+            new List<SessionSummary> { S(SessionStatus.Succeeded), S(SessionStatus.Failed) }, days: 7);
+
+        Assert.Empty(payload.GroupTagHealth);
+    }
+
+    [Fact]
+    public void GroupTagHealth_GroupsWithoutCase_InTheMostFrequentSpelling_WithANoTagBucket()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Succeeded, groupTag: "TEST"),
+            S(SessionStatus.Failed, groupTag: "TEST"),
+            S(SessionStatus.Failed, groupTag: " test "),
+            S(SessionStatus.Succeeded, groupTag: "PROD"),
+            S(SessionStatus.InProgress),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        Assert.Equal(new[] { "TEST", "No group tag", "PROD" }.OrderBy(l => l), payload.GroupTagHealth.Select(g => g.Label).OrderBy(l => l));
+        var test = payload.GroupTagHealth.Single(g => g.GroupTag == "TEST");
+        Assert.Equal((3, 1, 2), (test.Total, test.Succeeded, test.Failed));
+        Assert.Equal(string.Empty, payload.GroupTagHealth.Single(g => g.Label == "No group tag").GroupTag);
+        Assert.Equal("TEST", payload.GroupTagHealth[0].GroupTag); // by volume
+    }
+
+    [Fact]
+    public void Filter_TakesExcludedTagsOutOfEveryFigure_ButKeepsThemFlaggedInTheBreakdown()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Failed, groupTag: "TEST", model: "Lab VM", failureReason: "lab"),
+            S(SessionStatus.Failed, groupTag: "test", model: "Lab VM", failureReason: "lab"),
+            S(SessionStatus.Succeeded, groupTag: "PROD"),
+            S(SessionStatus.Succeeded),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7, Filter("Test"));
+
+        Assert.Equal(2, payload.ExcludedSessions);
+        Assert.Equal(new[] { "Test" }, payload.ExcludedGroupTags);
+        Assert.False(payload.ExcludeUntagged);
+        Assert.Equal(2, payload.Stats.Total);
+        Assert.Equal(100d, payload.Stats.SuccessRate);
+        Assert.Empty(payload.FailureReasons);
+        Assert.DoesNotContain(payload.ModelHealth, m => m.Model == "Lab VM");
+        Assert.Equal(0, payload.DailyData.Sum(d => d.Failed));
+        var excluded = Assert.Single(payload.GroupTagHealth, g => g.Excluded);
+        Assert.Equal(("TEST", 2), (excluded.GroupTag, excluded.Total));
+    }
+
+    [Fact]
+    public void Filter_ExcludeUntagged_TakesTheSessionsWithoutATagOut()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Failed),
+            S(SessionStatus.Succeeded, groupTag: "PROD"),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7, Filter(null, excludeUntagged: true));
+
+        Assert.Equal(1, payload.ExcludedSessions);
+        Assert.True(payload.ExcludeUntagged);
+        Assert.Equal(100d, payload.Stats.SuccessRate);
+        Assert.True(payload.GroupTagHealth.Single(g => g.GroupTag.Length == 0).Excluded);
+    }
+
+    [Fact]
+    public void TryParse_TrimsDeduplicatesAndCapsTheList()
+    {
+        Assert.True(FleetGroupTagFilter.TryParse(" TEST , test,,LAB ", null, out var filter, out _));
+        Assert.Equal(new[] { "TEST", "LAB" }, filter.ExcludedTags);
+        Assert.True(filter.IsActive);
+
+        Assert.True(FleetGroupTagFilter.TryParse(null, null, out var none, out _));
+        Assert.False(none.IsActive);
+
+        var tooMany = string.Join(",", Enumerable.Range(0, FleetGroupTagFilter.MaxExcludedTags + 1).Select(i => $"T{i}"));
+        Assert.False(FleetGroupTagFilter.TryParse(tooMany, null, out _, out var error));
+        Assert.Contains("at most", error);
+
+        Assert.False(FleetGroupTagFilter.TryParse(new string('x', 300), null, out _, out _));
+    }
 
     [Fact]
     public void EmptyInput_YieldsZeroedStats_AndOneDailyPointPerDay()

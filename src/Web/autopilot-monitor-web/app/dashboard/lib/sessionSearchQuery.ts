@@ -39,6 +39,7 @@ export const SESSION_SEARCH_FIELDS = [
   { qualifier: "serial", key: "serialNumber", label: "Serial" },
   { qualifier: "model", key: "model", label: "Model" },
   { qualifier: "manufacturer", key: "manufacturer", label: "Manufacturer" },
+  { qualifier: "grouptag", key: "autopilotGroupTag", label: "Group Tag" },
   { qualifier: "status", key: "status", label: "Status" },
   { qualifier: "session", key: "sessionId", label: "Session ID" },
   { qualifier: "country", key: "geoCountry", label: "Country" },

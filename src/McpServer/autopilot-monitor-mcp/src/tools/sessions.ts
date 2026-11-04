@@ -162,12 +162,14 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
           .describe('Active network media during enrollment, indexed for exact match. Last emission wins (a device that ' +
                     'switches media reports the most recent state). Sessions predating the column are excluded.'),
+        groupTag: z.string().optional().describe('Autopilot group tag (exact, case-insensitive)'),
         fields: z.string().optional()
           .describe('Comma-separated projection keys: sessionId, tenantId, status, serialNumber, manufacturer, model, ' +
                     'deviceName, osBuild, osName, startedAt, completedAt, durationSeconds, currentPhase, failureReason, ' +
                     'eventCount, enrollmentType, isPreProvisioned, isUserDriven, isHybridJoin, isSelfDeployingProfile, ' +
                     'isCloudPc, agentVersion, imeAgentVersion, geoCountry, rebootCount, connectionType, avgApiLatencyMs, ' +
-                    'apiRequestCount (weight avgApiLatencyMs by it). A key newer than the recording agent is null.'),
+                    'apiRequestCount (weight avgApiLatencyMs by it), autopilotGroupTag, autopilotPurchaseOrderId, ' +
+                    'autopilotDisplayName, autopilotDeviceId, autopilotUserAssigned. A key newer than the recording agent is null.'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
           'Keys "eventType.propertyName" from get_resource(name="device_properties"); unknown prefix rejected. ' +
           'Exact match; numeric ">=8" (>=, <=, >, <); "ARM*" = prefix; "True"/"False"; arrays: substring of any element. ' +
@@ -516,6 +518,17 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           // "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" | "CloudPc".
           // Null for sessions predating the field or tenants with device validation off.
           validatedBy: s.validatedBy || null,
+          // The device's Autopilot registration in Intune as the Autopilot validation read it.
+          // Null unless that validation admitted the device (or the session predates the fields).
+          autopilotRegistration: (s.autopilotDeviceId || s.autopilotGroupTag || s.autopilotPurchaseOrderId
+            || s.autopilotDisplayName || s.autopilotUserAssigned != null)
+            ? {
+                groupTag: s.autopilotGroupTag ?? null,
+                purchaseOrderId: s.autopilotPurchaseOrderId ?? null,
+                displayName: s.autopilotDisplayName ?? null,
+                userAssigned: s.autopilotUserAssigned ?? null,
+              }
+            : null,
           device: {
             name: s.deviceName,
             serialNumber: s.serialNumber,

@@ -5,9 +5,9 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Cover for the ConnectionType predicate used on every search path that does NOT push the
-/// filter to OData — the deviceProperties batch-get (<c>ApplyBasicFilters</c>) and the legacy
-/// unpaged scan. Sessions that predate the projection (null ConnectionType) must never match
+/// Cover for the ConnectionType predicate used on the search path that does NOT push the
+/// filter to OData — the deviceProperties batch-get (<c>ApplyBasicFilters</c>). Sessions that
+/// predate the projection (null ConnectionType) must never match
 /// a set filter; an unset filter matches everything.
 /// </summary>
 public class ConnectionTypeFilterTests

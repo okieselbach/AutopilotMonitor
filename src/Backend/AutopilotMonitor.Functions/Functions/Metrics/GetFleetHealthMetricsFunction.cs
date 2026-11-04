@@ -36,13 +36,15 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
+                if (!FleetGroupTagFilter.TryParse(query["excludeGroupTags"], query["excludeUntagged"], out var groupTagFilter, out var filterError))
+                    return await req.BadRequestAsync(filterError!);
 
                 _logger.LogInformation("Fetching fleet health for tenant {TenantId} (days={Days})", tenantId, days);
 
                 var sessions = await _sessionRepo.GetSessionsAsync(tenantId, days);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(MetricsMath.BuildFleetHealthPayload(sessions, days));
+                await response.WriteAsJsonAsync(MetricsMath.BuildFleetHealthPayload(sessions, days, groupTagFilter));
                 return response;
             }
             catch (Exception ex)

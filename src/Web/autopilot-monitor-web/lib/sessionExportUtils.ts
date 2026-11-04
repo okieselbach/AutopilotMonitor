@@ -123,6 +123,11 @@ export interface SessionCsvData {
   stalledAt?: string;
   failureSnapshotJson?: string;
   isCloudPc?: boolean;
+  autopilotGroupTag?: string;
+  autopilotPurchaseOrderId?: string;
+  autopilotDisplayName?: string;
+  autopilotDeviceId?: string;
+  autopilotUserAssigned?: boolean;
 }
 
 export function generateSessionCsvExport(session: SessionCsvData): string {
@@ -130,7 +135,7 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
   // PartitionKey = TenantId, RowKey = SessionId
   // Newer fields are APPENDED (never inserted) so the column prefix stays stable
   // for anything parsing older exports.
-  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson,IsCloudPc";
+  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson,IsCloudPc,AutopilotGroupTag,AutopilotPurchaseOrderId,AutopilotDisplayName,AutopilotDeviceId,AutopilotUserAssigned";
   const row = [
     csvCell(session.tenantId),
     csvCell(session.sessionId),
@@ -172,6 +177,11 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
     csvCell(session.stalledAt),
     csvCell(session.failureSnapshotJson),
     String(session.isCloudPc ?? ""),
+    csvCell(session.autopilotGroupTag),
+    csvCell(session.autopilotPurchaseOrderId),
+    csvCell(session.autopilotDisplayName),
+    csvCell(session.autopilotDeviceId),
+    String(session.autopilotUserAssigned ?? ""),
   ].join(",");
   return "\uFEFF" + header + "\n" + row;
 }

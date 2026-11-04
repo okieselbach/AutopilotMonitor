@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using System;
 using System.Linq;
 using System.Net.Http.Headers;
@@ -219,7 +220,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     IsValid = true,
                     SerialNumber = normalizedSerial,
-                    AutopilotDeviceId = exactDevice["id"]?.ToString()
+                    Registration = ReadRegistration(exactDevice)
                 };
 
                 _logger.LogInformation(
@@ -227,7 +228,7 @@ namespace AutopilotMonitor.Functions.Security
                     tenantId,
                     sessionId ?? "<none>",
                     normalizedSerial,
-                    result.AutopilotDeviceId ?? "<none>");
+                    result.Registration?.DeviceId ?? "<none>");
 
                 return CacheAndReturn(cacheKey, result, isPositive: true);
             }
@@ -271,6 +272,31 @@ namespace AutopilotMonitor.Functions.Security
             return $"autopilot-device-validation:{tenantId}:{serialNumber}";
         }
 
+        /// <summary>Longest registration text a session keeps; anything beyond is cut.</summary>
+        internal const int MaxRegistrationFieldLength = 256;
+
+        /// <summary>
+        /// The registration fields a session keeps, read from the object this lookup already holds. The
+        /// assigned user's UPN is only tested for presence and never leaves this method; productKey is
+        /// never read.
+        /// </summary>
+        internal static AutopilotRegistration ReadRegistration(JToken device) => new AutopilotRegistration
+        {
+            DeviceId = RegistrationText(device["id"]),
+            GroupTag = RegistrationText(device["groupTag"]),
+            PurchaseOrderId = RegistrationText(device["purchaseOrderIdentifier"]),
+            DisplayName = RegistrationText(device["displayName"]),
+            UserAssigned = RegistrationText(device["userPrincipalName"]) != null,
+        };
+
+        private static string? RegistrationText(JToken? token)
+        {
+            var value = token?.Type == JTokenType.String ? ((string?)token)?.Trim() : null;
+            if (string.IsNullOrEmpty(value))
+                return null;
+            return value!.Length > MaxRegistrationFieldLength ? value.Substring(0, MaxRegistrationFieldLength) : value;
+        }
+
         private AutopilotDeviceValidationResult CacheAndReturn(
             string cacheKey,
             AutopilotDeviceValidationResult result,
@@ -303,7 +329,10 @@ namespace AutopilotMonitor.Functions.Security
         public int? RetryAfterSeconds { get; set; }
 
         public string? SerialNumber { get; set; }
-        public string? AutopilotDeviceId { get; set; }
+
+        /// <summary>The device's Autopilot registration; set exactly when <see cref="IsValid"/>.</summary>
+        public AutopilotRegistration? Registration { get; set; }
+
         public string? ErrorMessage { get; set; }
     }
 }

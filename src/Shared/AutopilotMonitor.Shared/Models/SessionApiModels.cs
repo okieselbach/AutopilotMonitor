@@ -361,6 +361,29 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string ValidatedBy { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Group tag of the device's Windows Autopilot registration in Intune, as the Autopilot
+        /// device validation read it from Microsoft Graph at session registration. Absent when that
+        /// validation did not admit the device, the tag is empty, or the session predates the
+        /// field — the key is omitted when null.
+        /// </summary>
+        public string? AutopilotGroupTag { get; set; }
+
+        /// <summary>Purchase order identifier of the Autopilot registration — same source and absence rules as <see cref="AutopilotGroupTag"/>.</summary>
+        public string? AutopilotPurchaseOrderId { get; set; }
+
+        /// <summary>Device name set on the Autopilot registration in Intune — same source and absence rules as <see cref="AutopilotGroupTag"/>.</summary>
+        public string? AutopilotDisplayName { get; set; }
+
+        /// <summary>Object id of the Autopilot registration in Intune — same source and absence rules as <see cref="AutopilotGroupTag"/>.</summary>
+        public string? AutopilotDeviceId { get; set; }
+
+        /// <summary>
+        /// Whether a user is assigned to the Autopilot registration — only yes or no, never the
+        /// user's name. Null when the registration was not read (same rules as <see cref="AutopilotGroupTag"/>).
+        /// </summary>
+        public bool? AutopilotUserAssigned { get; set; }
+
         public int EventCount { get; set; }
         public int? DurationSeconds { get; set; }
 

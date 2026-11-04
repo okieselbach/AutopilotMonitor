@@ -43,6 +43,11 @@ namespace AutopilotMonitor.Shared.Models
         // property and are excluded (acceptable — they have no connection data).
         public string? ConnectionType { get; set; }
 
+        // Autopilot group tag of the session (AutopilotGroupTag). Case-insensitive exact match,
+        // applied after the scan — an OData eq could not ignore case, and Intune does not fix
+        // the casing of a tag. Sessions without a recorded tag never match a set filter.
+        public string? GroupTag { get; set; }
+
         // Free-text search (dashboard search box). Case-insensitive substring match,
         // applied server-side AFTER the OData scan, across the same field set the web
         // dashboard's client-side filter uses (device name, serial, manufacturer, model,
@@ -50,8 +55,6 @@ namespace AutopilotMonitor.Shared.Models
         // Azure Tables has no substring operator — so the scan path backfills pages
         // until it has pageSize matches (bounded rounds).
         public string? Q { get; set; }
-
-        public int Limit { get; set; } = 50;
 
         // Dynamic device property filters (key = "eventType.propertyName", value = filter expression)
         // Examples: "tpm_status.specVersion" = "2.0", "hardware_spec.ramTotalGB" = ">=8"

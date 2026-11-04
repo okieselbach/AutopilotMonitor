@@ -59,7 +59,14 @@ function formatMinutes(totalSeconds: number): string {
   return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
 }
 
-export default function TimeAttributionSection({ data }: { data: TimeAttributionResponseDto | null }) {
+export default function TimeAttributionSection({
+  data,
+  headerNote,
+}: {
+  data: TimeAttributionResponseDto | null;
+  /** Rendered after the title, e.g. the "not filtered by group tag" marker. */
+  headerNote?: React.ReactNode;
+}) {
   if (!data || !data.success) return null;
   const classes = data.classes ?? [];
 
@@ -73,6 +80,7 @@ export default function TimeAttributionSection({ data }: { data: TimeAttribution
         >
           last {data.windowDays} days · medians per enrollment class
         </span>
+        {headerNote}
       </h2>
 
       {classes.length === 0 ? (

@@ -11,6 +11,7 @@ import { ApiError, fetchJson } from "@/lib/apiClient";
 // backend FleetHealthMetrics DTO. Presentation-only derivations (bar maxima, axis
 // labels) stay in the page.
 import type { FleetHealthMetrics } from "@/lib/generated/wire-types.generated";
+import type { GroupTagExclusion } from "../lib/groupTagExclusion";
 
 export type FleetHealthData = FleetHealthMetrics;
 
@@ -39,6 +40,8 @@ interface UseFleetHealthParams {
   /** Opaque key that changes whenever the effective scope changes. */
   scopeKey: string;
   days: number;
+  /** The group-tag view filter; its sessions leave every figure except the group tag breakdown. */
+  groupTagExclusion: GroupTagExclusion;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
   signalR: SignalRApi;
 }
@@ -67,6 +70,7 @@ export function useFleetHealth({
   scopeInitialized,
   scopeKey,
   days,
+  groupTagExclusion,
   getAccessToken,
   signalR,
 }: UseFleetHealthParams): UseFleetHealthReturn {
@@ -79,6 +83,9 @@ export function useFleetHealth({
   const selectedTenantIdRef = useLatest(selectedTenantId);
   const tenantIdRef = useLatest(tenantId);
   const daysRef = useLatest(days);
+  const groupTagExclusionRef = useLatest(groupTagExclusion);
+  // Value key of the filter, so a re-parsed but equal filter does not refetch.
+  const groupTagKey = `${groupTagExclusion.tags.join(",")}|${groupTagExclusion.untagged}`;
 
   // Invalidates an in-flight fetch when scope/days shift mid-request.
   const fetchGenRef = useRef(0);
@@ -98,6 +105,7 @@ export function useFleetHealth({
           effectiveTenantId: tenantIdRef.current ?? "",
         },
         daysRef.current,
+        groupTagExclusionRef.current,
       );
 
       let body: FleetHealthData;
@@ -128,7 +136,7 @@ export function useFleetHealth({
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, routeGlobalRef, selectedTenantIdRef, tenantIdRef, daysRef]);
+  }, [getAccessToken, routeGlobalRef, selectedTenantIdRef, tenantIdRef, daysRef, groupTagExclusionRef]);
 
   const refresh = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -146,7 +154,7 @@ export function useFleetHealth({
     }, SIGNALR_DEBOUNCE_MS);
   }, [fetchData]);
 
-  // Initial fetch + refetch on scope/days change. Reset data synchronously so
+  // Initial fetch + refetch on scope/days/filter change. Reset data synchronously so
   // previous-scope numbers don't linger if the refetch errors out.
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -155,9 +163,9 @@ export function useFleetHealth({
       await fetchData();
     };
     void run();
-    // fetchData is stable; scopeKey/days drive the refetch.
+    // fetchData is stable; scopeKey/days/group-tag filter drive the refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, scopeKey, days]);
+  }, [scopeInitialized, scopeKey, days, groupTagKey]);
 
   // SignalR-triggered debounced refetch.
   useEffect(() => {

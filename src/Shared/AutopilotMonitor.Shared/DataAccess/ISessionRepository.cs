@@ -15,8 +15,9 @@ namespace AutopilotMonitor.Shared.DataAccess
     public interface ISessionRepository
     {
         // --- Session CRUD ---
+        /// <param name="serverFacts">What the backend established about the device (validator, Autopilot registration) — never taken from the agent's body.</param>
         /// <param name="ownerToStamp">SESSION-OWNER-BINDING: owner to bind the row to; null preserves the existing binding.</param>
-        Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null);
+        Task<bool> StoreSessionAsync(SessionRegistration registration, SessionServerFacts serverFacts, SessionOwner? ownerToStamp = null);
         /// <summary>SESSION-OWNER-BINDING: Merge-stamps the owner onto an existing row (ingest claim / rebind). Throws on storage failure.</summary>
         Task UpdateSessionOwnerAsync(string tenantId, string sessionId, SessionOwner owner);
         Task<SessionSummary?> GetSessionAsync(string tenantId, string sessionId);
@@ -351,13 +352,10 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // --- Search ---
         Task<List<QuickSearchResult>> QuickSearchSessionsAsync(string? tenantId, string query, int limit = 10);
-        Task<List<SessionSummary>> SearchSessionsAsync(string? tenantId, SessionSearchFilter filter);
 
         /// <summary>
-        /// Paged variant of <see cref="SearchSessionsAsync"/>. Used by the
-        /// <c>/api/search/sessions</c> + <c>/api/global/search/sessions</c> endpoints.
-        /// The <see cref="SessionSearchFilter.Limit"/> field is ignored — pagination
-        /// is driven by <paramref name="pageSize"/> + <paramref name="continuation"/>.
+        /// Session search behind the <c>/api/search/sessions</c> + <c>/api/global/search/sessions</c>
+        /// endpoints, paged by <paramref name="pageSize"/> + <paramref name="continuation"/>.
         /// </summary>
         Task<RawPage<SessionSummary>> SearchSessionsPageAsync(
             string? tenantId, SessionSearchFilter filter, int pageSize, string? continuation);

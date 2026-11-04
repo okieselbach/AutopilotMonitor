@@ -78,10 +78,13 @@ function weekStart(dateStr: string): string {
 export default function DeviceJourneySection({
   data,
   linkTenantId,
+  headerNote,
 }: {
   data: DeviceJourneyResponseDto | null;
   /** Carried into session links so a GA scoped to one tenant lands in that tenant. */
   linkTenantId?: string;
+  /** Rendered after the title, e.g. the "not filtered by group tag" marker. */
+  headerNote?: React.ReactNode;
 }) {
   const weekly = useMemo(() => {
     const byWeek = new Map<string, { completed: number; ftr: number }>();
@@ -120,6 +123,7 @@ export default function DeviceJourneySection({
         >
           last {data.windowDays} days · wipe-and-retry visibility
         </span>
+        {headerNote}
       </h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">

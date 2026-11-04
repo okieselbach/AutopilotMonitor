@@ -1613,6 +1613,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         isCloudPc: z.boolean().optional().describe('Filter Windows 365 Cloud PC sessions (agent-detected W365 markers, sticky-true; independent of ValidatedBy="CloudPc")'),
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
           .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
+        groupTag: z.string().optional().describe('Autopilot group tag recorded at registration (AutopilotGroupTag; exact, case-insensitive)'),
         fields: z.string().optional().describe('Keep-list of literal column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); PartitionKey + RowKey are always kept. Omit for the full raw row.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
@@ -1625,7 +1626,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, continuation } = args;
+          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, groupTag, fields, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
@@ -1633,7 +1634,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           basePath,
           { tenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
             imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, pageSize },
+            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, groupTag, fields, pageSize },
           continuation,
           { pageSize, fields },
         );

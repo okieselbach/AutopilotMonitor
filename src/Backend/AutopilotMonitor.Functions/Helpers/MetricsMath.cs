@@ -192,10 +192,19 @@ public static class MetricsMath
     /// it. Duration stats (average, median, P90) count every non-in-progress session that carries a
     /// positive duration (failures included); the cards lead with the median because enrollment
     /// durations are heavily right-skewed and a handful of multi-hour outliers make the mean
-    /// meaningless as a "typical enrollment" answer.
+    /// meaningless as a "typical enrollment" answer. The group-tag view filter takes its sessions out
+    /// of every figure except the group tag breakdown, which keeps them flagged so they can be shown
+    /// again; <see cref="FleetHealthMetrics.ExcludedSessions"/> says how many left.
     /// </summary>
-    public static FleetHealthMetrics BuildFleetHealthPayload(IReadOnlyList<SessionSummary> sessions, int days)
+    public static FleetHealthMetrics BuildFleetHealthPayload(
+        IReadOnlyList<SessionSummary> allSessions, int days, FleetGroupTagFilter? groupTagFilter = null)
     {
+        var filter = groupTagFilter ?? FleetGroupTagFilter.None;
+        var groupTagHealth = BuildFleetGroupTagHealth(allSessions, filter);
+        IReadOnlyList<SessionSummary> sessions = filter.IsActive
+            ? allSessions.Where(s => !filter.Excludes(s)).ToList()
+            : allSessions;
+
         int succeeded = 0, failed = 0, inProgress = 0, incomplete = 0;
         var completedDurationSeconds = new List<double>();
 
@@ -241,8 +250,58 @@ public static class MetricsMath
             ModelHealth = BuildFleetModelHealth(sessions),
             SlowestModels = BuildFleetSlowestModels(sessions),
             TopFailingModels = BuildFleetTopFailingModels(sessions),
+            GroupTagHealth = groupTagHealth,
+            ExcludedSessions = allSessions.Count - sessions.Count,
+            ExcludedGroupTags = filter.ExcludedTags.ToList(),
+            ExcludeUntagged = filter.ExcludeUntagged,
             ComputedAt = DateTime.UtcNow,
         };
+    }
+
+    /// <summary>Upper bound of the group tag breakdown; the global view spans every tenant's tags.</summary>
+    internal const int MaxGroupTagBuckets = 50;
+
+    /// <summary>
+    /// Sessions per group tag (trimmed, compared without case, shown in the most frequent spelling)
+    /// over the unfiltered window, so a bucket the view filter excluded stays visible and can be
+    /// shown again. Empty when no session carries a tag — the breakdown would be one "No group tag" row.
+    /// </summary>
+    private static List<FleetGroupTagHealth> BuildFleetGroupTagHealth(IReadOnlyList<SessionSummary> sessions, FleetGroupTagFilter filter)
+    {
+        if (!sessions.Any(s => FleetGroupTagFilter.KeyOf(s).Length > 0))
+            return new List<FleetGroupTagHealth>();
+
+        var buckets = new Dictionary<string, (FleetGroupTagHealth Row, Dictionary<string, int> Spellings)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in sessions)
+        {
+            var key = FleetGroupTagFilter.KeyOf(s);
+            if (!buckets.TryGetValue(key, out var bucket))
+            {
+                bucket = (new FleetGroupTagHealth { Excluded = filter.ExcludesKey(key) }, new Dictionary<string, int>(StringComparer.Ordinal));
+                buckets[key] = bucket;
+            }
+            bucket.Row.Total++;
+            if (s.Status == SessionStatus.Succeeded) bucket.Row.Succeeded++;
+            else if (s.Status == SessionStatus.Failed) bucket.Row.Failed++;
+            bucket.Spellings[key] = bucket.Spellings.TryGetValue(key, out var seen) ? seen + 1 : 1;
+        }
+
+        foreach (var (_, bucket) in buckets)
+        {
+            var spelling = bucket.Spellings
+                .OrderByDescending(kv => kv.Value)
+                .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                .First().Key;
+            bucket.Row.GroupTag = spelling;
+            bucket.Row.Label = spelling.Length == 0 ? "No group tag" : spelling;
+        }
+
+        return buckets.Values
+            .Select(b => b.Row)
+            .OrderByDescending(r => r.Total)
+            .ThenBy(r => r.Label, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxGroupTagBuckets)
+            .ToList();
     }
 
     /// <summary>

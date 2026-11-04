@@ -148,9 +148,9 @@ public class SearchSessionsFunction
             AgentVersionPrefix = query["agentVersionPrefix"],
             ImeAgentVersionPrefix = query["imeAgentVersionPrefix"],
             ConnectionType = query["connectionType"],
+            GroupTag = string.IsNullOrWhiteSpace(query["groupTag"]) ? null : query["groupTag"]!.Trim(),
             // Free-text search (dashboard search box); trimmed, empty → null.
             Q = string.IsNullOrWhiteSpace(query["q"]) ? null : query["q"]!.Trim(),
-            // Limit field is a no-op in the paged path — pagination drives count.
         };
 
         if (bool.TryParse(query["isPreProvisioned"], out var ipp)) filter.IsPreProvisioned = ipp;
@@ -225,6 +225,11 @@ public class SearchSessionsFunction
             if (fields.Contains("avgApiLatencyMs")) dict["avgApiLatencyMs"] = s.AvgApiLatencyMs;
             if (fields.Contains("apiRequestCount")) dict["apiRequestCount"] = s.ApiRequestCount;
             if (fields.Contains("connectionType")) dict["connectionType"] = s.ConnectionType;
+            if (fields.Contains("autopilotGroupTag")) dict["autopilotGroupTag"] = s.AutopilotGroupTag;
+            if (fields.Contains("autopilotPurchaseOrderId")) dict["autopilotPurchaseOrderId"] = s.AutopilotPurchaseOrderId;
+            if (fields.Contains("autopilotDisplayName")) dict["autopilotDisplayName"] = s.AutopilotDisplayName;
+            if (fields.Contains("autopilotDeviceId")) dict["autopilotDeviceId"] = s.AutopilotDeviceId;
+            if (fields.Contains("autopilotUserAssigned")) dict["autopilotUserAssigned"] = s.AutopilotUserAssigned;
 
             if (dict.Count == 0)
             {

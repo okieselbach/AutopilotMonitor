@@ -424,7 +424,7 @@ namespace AutopilotMonitor.Functions.Security
                 : null;
             // TLS-proven device identity: the Intune managedDevice id in the certificate CN.
             TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var certIntuneDeviceId);
-            string? autopilotDeviceId = null;
+            AutopilotRegistration? autopilotRegistration = null;
             bool deviceValidated = false;
             bool deviceValidationTransient = false;
             // Largest Retry-After any transient validator asked for (GraphAuthFailure: a fresh
@@ -448,7 +448,7 @@ namespace AutopilotMonitor.Functions.Security
                 if (autopilotResult.IsValid)
                 {
                     deviceValidated = true;
-                    autopilotDeviceId = autopilotResult.AutopilotDeviceId;
+                    autopilotRegistration = autopilotResult.Registration;
                     validatedBy = ValidatorType.AutopilotV1;
                 }
                 else
@@ -630,7 +630,7 @@ namespace AutopilotMonitor.Functions.Security
                 Manufacturer = manufacturer,
                 Model = model,
                 SerialNumber = serialNumber,
-                AutopilotDeviceId = autopilotDeviceId,
+                AutopilotRegistration = autopilotRegistration,
                 RateLimitResult = rateLimitResult,
                 ValidatedBy = validatedBy
             };
@@ -834,9 +834,10 @@ namespace AutopilotMonitor.Functions.Security
         public string? SerialNumber { get; set; }
 
         /// <summary>
-        /// Autopilot device ID from Intune (if Autopilot device validation is enabled and succeeded)
+        /// The device's Autopilot registration as the Autopilot validator read it — set only when that
+        /// validator admitted the device. Stored with the session as a server fact.
         /// </summary>
-        public string? AutopilotDeviceId { get; set; }
+        public AutopilotRegistration? AutopilotRegistration { get; set; }
 
         /// <summary>
         /// Rate limit result (if validation succeeded)

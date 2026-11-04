@@ -57,6 +57,20 @@ describe("CSV exports neutralize device-controlled fields", () => {
     expect(row).toContain(`"'=cmd|' /C calc'!A0"`);
   });
 
+  it("session export appends the Autopilot registration and neutralizes the group tag", () => {
+    const s: SessionCsvData = {
+      sessionId: "s1", tenantId: "t1", serialNumber: "SN", deviceName: "dev", manufacturer: "M", model: "Mod",
+      startedAt: "2026-01-01T00:00:00Z", currentPhase: 0, status: "Succeeded", eventCount: 0,
+      autopilotGroupTag: "=TEST", autopilotPurchaseOrderId: "PO-7", autopilotDisplayName: "LAB-01",
+      autopilotDeviceId: "ap-1", autopilotUserAssigned: true,
+    };
+    const [header, row] = generateSessionCsvExport(s).replace("﻿", "").split("\n");
+    expect(header.split(",").slice(-5)).toEqual([
+      "AutopilotGroupTag", "AutopilotPurchaseOrderId", "AutopilotDisplayName", "AutopilotDeviceId", "AutopilotUserAssigned",
+    ]);
+    expect(row.endsWith(`"'=TEST","PO-7","LAB-01","ap-1",true`)).toBe(true);
+  });
+
   it("rule results export", () => {
     const row = generateRuleResultsCsvExport([{
       resultId: "r", sessionId: "s", tenantId: "t", ruleId: "R", ruleTitle: "T",

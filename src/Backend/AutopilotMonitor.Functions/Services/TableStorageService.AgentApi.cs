@@ -549,23 +549,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Searches enrollment sessions by filter. Uses DeviceSnapshot index for hardware filters,
-        /// otherwise scans Sessions table with OData filtering.
-        /// </summary>
-        public async Task<List<SessionSummary>> SearchSessionsAsync(string? tenantId, SessionSearchFilter filter)
-        {
-            if (filter.HasDeviceSnapshotFilters)
-                return await SearchSessionsByDeviceSnapshotAsync(tenantId, filter);
-            else
-                return await SearchSessionsByScanAsync(tenantId, filter);
-        }
-
-        /// <summary>
-        /// Paged variant of <see cref="SearchSessionsAsync"/> backing
-        /// <c>/api/search/sessions</c> + <c>/api/global/search/sessions</c>.
-        /// The <c>filter.Limit</c> field is ignored — pagination uses
-        /// <paramref name="pageSize"/> + <paramref name="continuation"/>.
-        /// Both code paths (scan + device-snapshot) emit Azure-Tables raw
+        /// Session search backing <c>/api/search/sessions</c> + <c>/api/global/search/sessions</c>:
+        /// the DeviceSnapshot index for device-property filters, otherwise a SessionsIndex scan
+        /// with OData push-down. Pagination uses <paramref name="pageSize"/> +
+        /// <paramref name="continuation"/>. Both code paths (scan + device-snapshot) emit Azure-Tables raw
         /// continuation tokens; the caller's filter fingerprint must include
         /// the filter args so a token from one path can't be replayed into
         /// the other.
@@ -762,10 +749,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Client-side RebootCount range predicate. Applied on every search path that does NOT
-        /// push the bound to OData (device-snapshot batch-get and the legacy unpaged scan), and
-        /// redundantly on the OData scan paths as a correctness backstop. Keeps a
-        /// <c>deviceProperties + rebootCountMin</c> query from leaking sub-threshold sessions.
+        /// Client-side RebootCount range predicate. Applied on the search path that does NOT
+        /// push the bound to OData (device-snapshot batch-get), and redundantly on the OData scan
+        /// paths as a correctness backstop. Keeps a <c>deviceProperties + rebootCountMin</c> query
+        /// from leaking sub-threshold sessions.
         /// </summary>
         internal static bool MatchesRebootCountBounds(SessionSummary session, SessionSearchFilter filter)
         {
@@ -776,15 +763,40 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Client-side ConnectionType predicate — same backstop role as
-        /// <see cref="MatchesRebootCountBounds"/>: applied on the search paths that do NOT
-        /// push the filter to OData (device-snapshot batch-get, legacy unpaged scan) and
-        /// redundantly on the OData scan paths. Sessions without the projected column
-        /// (null) never match a set filter.
+        /// <see cref="MatchesRebootCountBounds"/>: applied on the search path that does NOT
+        /// push the filter to OData (device-snapshot batch-get) and redundantly on the OData
+        /// scan paths. Sessions without the projected column (null) never match a set filter.
         /// </summary>
         internal static bool MatchesConnectionType(SessionSummary session, SessionSearchFilter filter)
         {
             if (string.IsNullOrEmpty(filter.ConnectionType)) return true;
             return string.Equals(session.ConnectionType, filter.ConnectionType, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Group-tag predicate, applied on every search path (never pushed down: an OData eq could
+        /// not ignore case). Sessions without a recorded tag never match a set filter.
+        /// </summary>
+        internal static bool MatchesGroupTag(SessionSummary session, SessionSearchFilter filter)
+        {
+            if (string.IsNullOrWhiteSpace(filter.GroupTag)) return true;
+            return string.Equals(session.AutopilotGroupTag?.Trim(), filter.GroupTag.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// In-memory twin of the column filters <see cref="BuildSearchScanFilter"/> pushes to OData,
+        /// with the same (ordinal) semantics — for the device-snapshot path, whose rows come from
+        /// point reads and never pass through that OData filter.
+        /// </summary>
+        internal static bool MatchesPushedDownColumns(SessionSummary session, SessionSearchFilter filter)
+        {
+            if (!string.IsNullOrEmpty(filter.Status) && session.Status.ToString() != filter.Status) return false;
+            if (!string.IsNullOrEmpty(filter.Manufacturer) && !string.Equals(session.Manufacturer, filter.Manufacturer, StringComparison.Ordinal)) return false;
+            if (!string.IsNullOrEmpty(filter.Model) && !string.Equals(session.Model, filter.Model, StringComparison.Ordinal)) return false;
+            if (!string.IsNullOrEmpty(filter.EnrollmentType) && !string.Equals(session.EnrollmentType, filter.EnrollmentType, StringComparison.Ordinal)) return false;
+            if (!string.IsNullOrEmpty(filter.DeviceName) && (session.DeviceName == null || !session.DeviceName.StartsWith(filter.DeviceName, StringComparison.Ordinal))) return false;
+            if (!string.IsNullOrEmpty(filter.OsBuild) && (session.OsBuild == null || !session.OsBuild.StartsWith(filter.OsBuild, StringComparison.Ordinal))) return false;
+            return true;
         }
 
         /// <summary>
@@ -818,43 +830,11 @@ namespace AutopilotMonitor.Functions.Services
             // these are defensive backstops so the bound holds even if that push-down is ever weakened.
             if (!MatchesRebootCountBounds(session, filter)) return false;
             if (!MatchesConnectionType(session, filter)) return false;
+            if (!MatchesGroupTag(session, filter)) return false;
             // AgentVersion / ImeAgentVersion (exact + prefix) are pushed to OData
             // in BuildSearchScanFilter — the server has already filtered them out
             // before we see the page. No client-side check needed.
             return true;
-        }
-
-        private async Task<List<SessionSummary>> SearchSessionsByDeviceSnapshotAsync(string? tenantId, SessionSearchFilter filter)
-        {
-            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceSnapshot);
-            var oDataFilter = BuildDeviceSnapshotTenantFilter(tenantId);
-
-            var keys = new List<(string TenantId, string SessionId)>();
-            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: oDataFilter))
-            {
-                // Reconstruct properties from Props_* columns
-                var properties = ReconstructDeviceProperties(entity);
-                if (properties == null || properties.Count == 0) continue;
-
-                // Apply all device property filters
-                if (!MatchesAllDeviceFilters(properties, filter.DeviceProperties!))
-                    continue;
-
-                // PartitionKey = tenantId, RowKey = sessionId in DeviceSnapshot
-                if (!Guid.TryParse(entity.PartitionKey, out _) || !Guid.TryParse(entity.RowKey, out _)) continue;
-                keys.Add((entity.PartitionKey, entity.RowKey));
-                if (keys.Count >= filter.Limit * 3) break; // over-fetch to allow for missing sessions
-            }
-
-            if (keys.Count == 0) return new List<SessionSummary>();
-
-            // Batch-get SessionSummaries from Sessions table by point read
-            var sessions = await BatchGetSessionsByKeyAsync(keys);
-
-            // Apply any additional basic filters
-            sessions = ApplyBasicFilters(sessions, filter);
-
-            return sessions.Take(filter.Limit).ToList();
         }
 
         /// <summary>
@@ -986,84 +966,17 @@ namespace AutopilotMonitor.Functions.Services
             return value?.ToString() ?? "";
         }
 
-        private async Task<List<SessionSummary>> SearchSessionsByScanAsync(string? tenantId, SessionSearchFilter filter)
-        {
-            var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
-
-            var filterParts = new List<string>();
-            if (!string.IsNullOrEmpty(tenantId))
-                filterParts.Add($"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'");
-            if (!string.IsNullOrEmpty(filter.Status))
-                filterParts.Add($"Status eq '{ODataSanitizer.EscapeValue(filter.Status)}'");
-            if (!string.IsNullOrEmpty(filter.Manufacturer))
-                filterParts.Add($"Manufacturer eq '{ODataSanitizer.EscapeValue(filter.Manufacturer)}'");
-            if (!string.IsNullOrEmpty(filter.Model))
-                filterParts.Add($"Model eq '{ODataSanitizer.EscapeValue(filter.Model)}'");
-            if (!string.IsNullOrEmpty(filter.EnrollmentType))
-                filterParts.Add($"EnrollmentType eq '{ODataSanitizer.EscapeValue(filter.EnrollmentType)}'");
-            if (!string.IsNullOrEmpty(filter.DeviceName))
-            {
-                var safeName = ODataSanitizer.EscapeValue(filter.DeviceName);
-                filterParts.Add($"DeviceName ge '{safeName}' and DeviceName lt '{safeName}~'");
-            }
-            if (!string.IsNullOrEmpty(filter.OsBuild))
-            {
-                var safeBuild = ODataSanitizer.EscapeValue(filter.OsBuild);
-                filterParts.Add($"OsBuild ge '{safeBuild}' and OsBuild lt '{safeBuild}~'");
-            }
-
-            var oDataFilter = filterParts.Count > 0 ? string.Join(" and ", filterParts) : null;
-
-            var sessions = new List<SessionSummary>();
-            await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(filter: oDataFilter))
-            {
-                var session = MapIndexEntityToSessionSummary(entity);
-
-                // Client-side filters
-                if (!string.IsNullOrEmpty(filter.SerialNumber) &&
-                    !string.Equals(session.SerialNumber, filter.SerialNumber, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (filter.IsPreProvisioned.HasValue && session.IsPreProvisioned != filter.IsPreProvisioned.Value) continue;
-                if (filter.IsHybridJoin.HasValue && session.IsHybridJoin != filter.IsHybridJoin.Value) continue;
-                if (filter.IsSelfDeployingProfile.HasValue && session.IsSelfDeployingProfile != filter.IsSelfDeployingProfile.Value) continue;
-                if (filter.IsCloudPc.HasValue && session.IsCloudPc != filter.IsCloudPc.Value) continue;
-                if (!string.IsNullOrEmpty(filter.GeoCountry) &&
-                    !string.Equals(session.GeoCountry, filter.GeoCountry, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (filter.StartedAfter.HasValue && session.StartedAt < filter.StartedAfter.Value) continue;
-                if (filter.StartedBefore.HasValue && session.StartedAt > filter.StartedBefore.Value) continue;
-                if (!string.IsNullOrEmpty(filter.AgentVersion) &&
-                    !string.Equals(session.AgentVersion, filter.AgentVersion, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!string.IsNullOrEmpty(filter.ImeAgentVersion) &&
-                    !string.Equals(session.ImeAgentVersion, filter.ImeAgentVersion, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (string.IsNullOrEmpty(filter.AgentVersion)
-                    && !string.IsNullOrEmpty(filter.AgentVersionPrefix)
-                    && (session.AgentVersion == null
-                        || !session.AgentVersion.StartsWith(filter.AgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                if (string.IsNullOrEmpty(filter.ImeAgentVersion)
-                    && !string.IsNullOrEmpty(filter.ImeAgentVersionPrefix)
-                    && (session.ImeAgentVersion == null
-                        || !session.ImeAgentVersion.StartsWith(filter.ImeAgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                // RebootCount is not in this path's OData (filterParts above) — apply client-side.
-                if (!MatchesRebootCountBounds(session, filter)) continue;
-
-                sessions.Add(session);
-                if (sessions.Count >= filter.Limit) break;
-            }
-
-            return sessions;
-        }
-
+        /// <summary>
+        /// The device-snapshot path's filter over point-read sessions: every column filter the scan
+        /// path applies, pushed-down ones included, so both paths answer a filter the same way.
+        /// </summary>
         private List<SessionSummary> ApplyBasicFilters(List<SessionSummary> sessions, SessionSearchFilter filter)
         {
             var query = SessionSearchQuery.Parse(filter.Q);
             return sessions.Where(s =>
             {
-                if (!string.IsNullOrEmpty(filter.Status) && s.Status.ToString() != filter.Status) return false;
+                if (!MatchesPushedDownColumns(s, filter)) return false;
+                if (!MatchesGroupTag(s, filter)) return false;
                 if (!string.IsNullOrEmpty(filter.SerialNumber) &&
                     !string.Equals(s.SerialNumber, filter.SerialNumber, StringComparison.OrdinalIgnoreCase)) return false;
                 if (filter.IsPreProvisioned.HasValue && s.IsPreProvisioned != filter.IsPreProvisioned.Value) return false;

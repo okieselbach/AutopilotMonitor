@@ -60,7 +60,7 @@ public class StoreSessionReregistrationPreserveTests
             DeviceName   = "PC-1",
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.NotNull(harness.Written);
@@ -95,7 +95,7 @@ public class StoreSessionReregistrationPreserveTests
             DeviceName   = "PC-1",
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.NotNull(harness.Written);
@@ -134,7 +134,7 @@ public class StoreSessionReregistrationPreserveTests
             IsSelfDeployingProfile = false, // fresh read failed / degraded
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.True(harness.Written!.GetBoolean("IsSelfDeployingProfile"));
@@ -166,7 +166,7 @@ public class StoreSessionReregistrationPreserveTests
             IsSelfDeployingProfile = true,
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.True(harness.Written!.GetBoolean("IsSelfDeployingProfile"));
@@ -199,7 +199,7 @@ public class StoreSessionReregistrationPreserveTests
             IsCloudPc = false, // fresh marker read degraded
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.True(harness.Written!.GetBoolean("IsCloudPc"));
@@ -233,7 +233,7 @@ public class StoreSessionReregistrationPreserveTests
             EnrollmentType = "v1", // degraded registry read on restart
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.Equal("v2", harness.Written!.GetString("EnrollmentType"));
@@ -265,7 +265,7 @@ public class StoreSessionReregistrationPreserveTests
             EnrollmentType = "v2",
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.Equal("v2", harness.Written!.GetString("EnrollmentType"));
@@ -295,7 +295,7 @@ public class StoreSessionReregistrationPreserveTests
             IsCloudPc = true,
         };
 
-        var ok = await harness.Sut.StoreSessionAsync(registration);
+        var ok = await harness.Store(registration);
 
         Assert.True(ok);
         Assert.True(harness.Written!.GetBoolean("IsCloudPc"));
@@ -327,7 +327,7 @@ public class StoreSessionReregistrationPreserveTests
         existing.ETag = new ETag("0xEXISTING");
         var harness = new Harness(existing);
 
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
@@ -358,7 +358,7 @@ public class StoreSessionReregistrationPreserveTests
         var harness = new Harness(existing);
 
         var boundAt = new DateTime(2026, 1, 1, 9, 0, 1, DateTimeKind.Utc);
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
@@ -401,7 +401,7 @@ public class StoreSessionReregistrationPreserveTests
             .ReturnsAsync(Response.FromValue(initial, new Mock<Response>().Object))
             .ReturnsAsync(Response.FromValue(fresh, new Mock<Response>().Object));
 
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 3, 8, 0, 0, DateTimeKind.Utc),
@@ -419,7 +419,7 @@ public class StoreSessionReregistrationPreserveTests
     public async Task StoreSessionAsync_fresh_row_carries_the_stamped_owner()
     {
         var harness = new Harness(existing: null);
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
@@ -450,7 +450,7 @@ public class StoreSessionReregistrationPreserveTests
         existing.ETag = new ETag("0xEXISTING");
         var harness = new Harness(existing);
 
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
@@ -516,7 +516,7 @@ public class StoreSessionReregistrationPreserveTests
                 return Task.FromResult(new Mock<Response>().Object);
             });
 
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
@@ -544,7 +544,7 @@ public class StoreSessionReregistrationPreserveTests
         existing.ETag = new ETag("0xEXISTING");
         var harness = new Harness(existing);
 
-        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        var ok = await harness.Store(new SessionRegistration
         {
             TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
             StartedAt = new DateTime(2026, 1, 2, 9, 0, 0, DateTimeKind.Utc),
@@ -554,6 +554,89 @@ public class StoreSessionReregistrationPreserveTests
         Assert.Equal("InProgress", harness.Written!.GetString("Status"));
         Assert.False(harness.Written.ContainsKey("CompletionSource"));
         Assert.False(harness.Written.ContainsKey("FailureSnapshotJson"));
+    }
+
+    // ── Server facts: validator and Autopilot registration ──────────────────
+
+    private static SessionRegistration Reregistration() => new()
+    {
+        TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+        StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+    };
+
+    private static TableEntity ExistingRow(params (string Column, object Value)[] columns)
+    {
+        var row = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+        };
+        foreach (var (column, value) in columns)
+            row[column] = value;
+        row.ETag = new ETag("0xEXISTING");
+        return row;
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_writes_the_autopilot_registration_of_a_new_session()
+    {
+        var harness = new Harness(existing: null);
+
+        var ok = await harness.Store(Reregistration(), facts: new SessionServerFacts
+        {
+            ValidatedBy = ValidatorType.AutopilotV1,
+            AutopilotRegistration = new AutopilotRegistration
+            {
+                DeviceId = "ap-1", GroupTag = "TEST", PurchaseOrderId = "PO-7", DisplayName = "LAB-01", UserAssigned = true,
+            },
+        });
+
+        Assert.True(ok);
+        Assert.Equal("AutopilotV1", harness.Written!.GetString("ValidatedBy"));
+        Assert.Equal("ap-1", harness.Written.GetString("AutopilotDeviceId"));
+        Assert.Equal("TEST", harness.Written.GetString("AutopilotGroupTag"));
+        Assert.Equal("PO-7", harness.Written.GetString("AutopilotPurchaseOrderId"));
+        Assert.Equal("LAB-01", harness.Written.GetString("AutopilotDisplayName"));
+        Assert.True(harness.Written.GetBoolean("AutopilotUserAssigned"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_a_fresh_autopilot_registration_replaces_the_stored_one_whole()
+    {
+        // The group tag was removed in Intune between two agent starts: the column clears.
+        var harness = new Harness(ExistingRow(
+            ("AutopilotDeviceId", "ap-1"), ("AutopilotGroupTag", "OLD"), ("AutopilotPurchaseOrderId", "PO-1"),
+            ("AutopilotDisplayName", "LAB-01"), ("AutopilotUserAssigned", true)));
+
+        var ok = await harness.Store(Reregistration(), facts: new SessionServerFacts
+        {
+            ValidatedBy = ValidatorType.AutopilotV1,
+            AutopilotRegistration = new AutopilotRegistration { DeviceId = "ap-1", PurchaseOrderId = "PO-2" },
+        });
+
+        Assert.True(ok);
+        Assert.False(harness.Written!.ContainsKey("AutopilotGroupTag"));
+        Assert.False(harness.Written.ContainsKey("AutopilotDisplayName"));
+        Assert.Equal("PO-2", harness.Written.GetString("AutopilotPurchaseOrderId"));
+        Assert.False(harness.Written.GetBoolean("AutopilotUserAssigned"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_without_an_autopilot_registration_keeps_the_stored_one_and_the_validator()
+    {
+        // A re-registration another path admitted (or with validation switched off) proves nothing
+        // about the Autopilot registration: the stored values and the recorded validator stay.
+        var harness = new Harness(ExistingRow(
+            ("ValidatedBy", "AutopilotV1"), ("AutopilotDeviceId", "ap-1"), ("AutopilotGroupTag", "TEST"),
+            ("AutopilotUserAssigned", false)));
+
+        var ok = await harness.Store(Reregistration(), facts: new SessionServerFacts());
+
+        Assert.True(ok);
+        Assert.Equal("AutopilotV1", harness.Written!.GetString("ValidatedBy"));
+        Assert.Equal("ap-1", harness.Written.GetString("AutopilotDeviceId"));
+        Assert.Equal("TEST", harness.Written.GetString("AutopilotGroupTag"));
+        Assert.False(harness.Written.GetBoolean("AutopilotUserAssigned"));
     }
 
     private sealed class Harness
@@ -608,5 +691,9 @@ public class StoreSessionReregistrationPreserveTests
 
             Sut = new TableStorageService(mockServiceClient.Object, NullLogger<TableStorageService>.Instance);
         }
+
+        /// <summary>Stores with no server facts unless a test hands them in.</summary>
+        public Task<bool> Store(SessionRegistration registration, SessionOwner? owner = null, SessionServerFacts? facts = null)
+            => Sut.StoreSessionAsync(registration, facts ?? new SessionServerFacts(), owner);
     }
 }

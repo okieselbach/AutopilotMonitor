@@ -195,6 +195,14 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   // historic sessions, sticky-true) OR the event's own isCloudPc marker (newer agents).
   const profileMissingIsCloudPc =
     session?.isCloudPc === true || `${autopilotProfileMissingEvent?.isCloudPc}` === "true";
+  // The device's Autopilot registration in Intune, read by the Autopilot device validation at
+  // registration (server fact, not the device's own profile cache shown below it).
+  const hasAutopilotRegistration = !!(
+    session?.autopilotGroupTag ||
+    session?.autopilotPurchaseOrderId ||
+    session?.autopilotDisplayName ||
+    session?.autopilotUserAssigned != null
+  );
   const aadJoinStatus = getEventData("aad_join_status");
   const imeVersion = getEventData<ImeVersionData>("ime_agent_version");
   // realmjoin_detected carries the MSI-shipped build; the tray often self-updates minutes later
@@ -512,6 +520,18 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 )}
                 {(deviceLocation?.timezone || deviceLocation?.Timezone) && (
                   <DetailRow label="Timezone" value={(deviceLocation.timezone ?? deviceLocation.Timezone)!} />
+                )}
+              </DetailSection>
+            )}
+
+            {/* Autopilot Registration (Intune) */}
+            {hasAutopilotRegistration && (
+              <DetailSection title="Autopilot Registration (Intune)">
+                {session?.autopilotGroupTag && <DetailRow label="Group Tag" value={session.autopilotGroupTag} />}
+                {session?.autopilotPurchaseOrderId && <DetailRow label="Purchase Order" value={session.autopilotPurchaseOrderId} />}
+                {session?.autopilotDisplayName && <DetailRow label="Autopilot Device Name" value={session.autopilotDisplayName} />}
+                {session?.autopilotUserAssigned != null && (
+                  <DetailRow label="User Assigned" value={session.autopilotUserAssigned ? "Yes" : "No"} />
                 )}
               </DetailSection>
             )}

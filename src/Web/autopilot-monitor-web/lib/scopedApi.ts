@@ -34,8 +34,16 @@ const globalTenantParam = (sel: TenantScopeSelection): string | undefined =>
   asGuidOrUndefined(sel.selectedTenantId.trim());
 
 export const scopedApi = {
-  fleetHealth: (sel: TenantScopeSelection, days: number) =>
-    sel.routeGlobal ? api.metrics.globalFleetHealth(days, globalTenantParam(sel)) : api.metrics.fleetHealth(days),
+  fleetHealth: (
+    sel: TenantScopeSelection,
+    days: number,
+    groupTags: { readonly tags: readonly string[]; readonly untagged: boolean } = { tags: [], untagged: false },
+  ) => {
+    const excludeGroupTags = groupTags.tags.join(",");
+    return sel.routeGlobal
+      ? api.metrics.globalFleetHealth(days, globalTenantParam(sel), excludeGroupTags, groupTags.untagged)
+      : api.metrics.fleetHealth(days, excludeGroupTags, groupTags.untagged);
+  },
 
   appMetrics: (sel: TenantScopeSelection, days: number) =>
     sel.routeGlobal ? api.metrics.globalApp(days, globalTenantParam(sel)) : api.metrics.app(sel.effectiveTenantId, days),
