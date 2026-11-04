@@ -431,6 +431,131 @@ public class StoreSessionReregistrationPreserveTests
         Assert.False(harness.Written.ContainsKey("OwnerThumbprint"));
     }
 
+    // ── Carry-over of the columns the registration does not own ─────────────
+
+    [Fact]
+    public async Task StoreSessionAsync_carries_every_declared_column_it_does_not_own()
+    {
+        // Driven by the manifest: a column added to SessionIndexFieldManifest later is carried
+        // through an agent restart without anyone touching StoreSessionAsync. Merge-written columns
+        // such as ImeAgentVersion, LastIngestAt, ExcessiveEventsAlerted, Block* and the pending
+        // server actions used to be dropped by the Replace.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+        };
+        foreach (var column in TableStorageService.CarriedColumns)
+            existing[column] = $"carried:{column}";
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.True(ok);
+        Assert.Contains("ImeAgentVersion", TableStorageService.CarriedColumns);
+        Assert.Contains("PendingActionsJson", TableStorageService.CarriedColumns);
+        foreach (var column in TableStorageService.CarriedColumns)
+            Assert.Equal($"carried:{column}", harness.Written![column]);
+    }
+
+    [Fact]
+    public void RegistrationOwnedColumns_name_only_declared_columns()
+    {
+        // A typo in the owned list would silently turn a column into a carried one.
+        var declared = SessionIndexFieldManifest.All
+            .Concat(SessionIndexFieldManifest.PrimaryOnly)
+            .Append("IndexRowKey") // Sessions-only bookkeeping, deliberately outside the index manifest
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(TableStorageService.RegistrationOwnedColumns, column => Assert.Contains(column, declared));
+        Assert.Equal(
+            TableStorageService.RegistrationOwnedColumns.Length,
+            TableStorageService.RegistrationOwnedColumns.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_cas_retry_carries_the_values_of_its_own_fresh_read()
+    {
+        var startedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc));
+        var initial = new TableEntity(TenantId, SessionId) { ["StartedAt"] = startedAt, ["Status"] = "InProgress" };
+        initial.ETag = new ETag("0xINITIAL");
+        var firstFresh = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = startedAt, ["Status"] = "InProgress",
+            ["ImeAgentVersion"] = "1.0", ["LastIngestAt"] = startedAt.AddMinutes(5),
+        };
+        firstFresh.ETag = new ETag("0xFRESH1");
+        var secondFresh = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = startedAt, ["Status"] = "InProgress",
+            ["ImeAgentVersion"] = "2.0",
+        };
+        secondFresh.ETag = new ETag("0xFRESH2");
+
+        var harness = new Harness(initial);
+        harness.Sessions.SetupSequence(t => t.GetEntityAsync<TableEntity>(
+                TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(initial, new Mock<Response>().Object))
+            .ReturnsAsync(Response.FromValue(firstFresh, new Mock<Response>().Object))
+            .ReturnsAsync(Response.FromValue(secondFresh, new Mock<Response>().Object));
+
+        var attempts = 0;
+        TableEntity? written = null;
+        harness.Sessions.Setup(t => t.UpdateEntityAsync(
+                It.IsAny<TableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+            .Returns<TableEntity, ETag, TableUpdateMode, CancellationToken>((e, _, _, _) =>
+            {
+                if (++attempts == 1)
+                    return Task.FromException<Response>(new RequestFailedException(412, "ConditionNotMet"));
+                written = e;
+                return Task.FromResult(new Mock<Response>().Object);
+            });
+
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.True(ok);
+        Assert.Equal(2, attempts);
+        Assert.Equal("2.0", written!.GetString("ImeAgentVersion"));
+        // Carried by the failed attempt, gone from the second fresh read: not carried again.
+        Assert.False(written.ContainsKey("LastIngestAt"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_does_not_carry_the_terminal_tuple_of_a_non_terminal_row()
+    {
+        // The terminal tuple is owned: it is re-stamped only while the fresh status is terminal.
+        // A WhiteGlove Part 1 row resuming into Part 2 keeps the old behaviour of dropping it.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "Pending",
+            ["CompletionSource"] = "whiteglove_part1",
+            ["FailureSnapshotJson"] = "{}",
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 2, 9, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.True(ok);
+        Assert.Equal("InProgress", harness.Written!.GetString("Status"));
+        Assert.False(harness.Written.ContainsKey("CompletionSource"));
+        Assert.False(harness.Written.ContainsKey("FailureSnapshotJson"));
+    }
+
     private sealed class Harness
     {
         public Mock<TableClient> Sessions { get; }

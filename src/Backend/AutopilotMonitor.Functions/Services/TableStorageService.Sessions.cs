@@ -498,7 +498,72 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Stores a session registration.
+        /// Columns <see cref="StoreSessionAsync"/> writes under its own rules: taken from the
+        /// registration, derived from the existing row (sticky flags, earliest StartedAt, preserved
+        /// counters and verdict), or re-stamped from the fresh read (cascade lock, owner, server time,
+        /// the terminal tuple only while the status is terminal). Every other Sessions column rides
+        /// through the Replace from the fresh read (<see cref="CarriedColumns"/>), so a column a Merge
+        /// writer adds later survives an agent restart by default. A column that must reset on
+        /// re-registration belongs here, together with its rule in <see cref="StoreSessionAsync"/>.
+        /// </summary>
+        internal static readonly string[] RegistrationOwnedColumns =
+        {
+            "SerialNumber", "Manufacturer", "Model", "DeviceName",
+            "OsName", "OsBuild", "OsDisplayVersion", "OsEdition", "OsLanguage",
+            "IsUserDriven", "AgentVersion",
+            "IsPreProvisioned", "IsHybridJoin", "IsSelfDeployingProfile", "IsCloudPc", "EnrollmentType",
+            "StartedAt", "Status", "CurrentPhase", "EventCount",
+            "PlatformScriptCount", "RemediationScriptCount", "RebootCount",
+            "CompletedAt", "FailureReason", "ReconcileReason", "DurationSeconds",
+            "VerdictPath", "PriorStatus", "PriorVerdictPath", "ValidatedBy",
+            "LastEventAt", "ResumedAt", "StalledAt",
+            "DiagnosticsBlobName", "DiagnosticsBlobDestination",
+            "GeoCountry", "GeoRegion", "GeoCity", "GeoLoc", "ConnectionType",
+            "IndexRowKey",
+            "DeletionState", "PendingDeletionManifestId",
+            SessionOwner.Columns.Kind, SessionOwner.Columns.Thumbprint, SessionOwner.Columns.DeviceId,
+            SessionOwner.Columns.BootstrapCode, SessionOwner.Columns.Serial, SessionOwner.Columns.BoundAt,
+            ServerTimeStateColumn, StartedAtServerColumn, ResumedAtServerColumn, CompletedAtServerColumn,
+            "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "EspSoftFailure", "CompletionSource",
+        };
+
+        /// <summary>
+        /// The declared Sessions columns (index manifest plus primary-only) that
+        /// <see cref="StoreSessionAsync"/> does not own: copied verbatim from the fresh read into the
+        /// Replace. Columns outside the manifest are not carried — the manifest is the column catalog.
+        /// </summary>
+        internal static readonly string[] CarriedColumns = SessionIndexFieldManifest.All
+            .Concat(SessionIndexFieldManifest.PrimaryOnly)
+            .Except(RegistrationOwnedColumns, StringComparer.Ordinal)
+            .ToArray();
+
+        /// <summary>
+        /// Copies <see cref="CarriedColumns"/> from <paramref name="fresh"/> onto the Replace entity.
+        /// Runs once per CAS attempt: the columns carried by the previous attempt are removed first, so
+        /// a retry carries the values of its own fresh read, never a stale one.
+        /// </summary>
+        internal static void CarryUnownedColumns(TableEntity target, TableEntity? fresh, HashSet<string> carriedByLastAttempt)
+        {
+            foreach (var column in carriedByLastAttempt)
+                target.Remove(column);
+            carriedByLastAttempt.Clear();
+            if (fresh == null)
+                return;
+
+            foreach (var column in CarriedColumns)
+            {
+                if (fresh.TryGetValue(column, out var value) && value is not null)
+                {
+                    target[column] = value;
+                    carriedByLastAttempt.Add(column);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stores a session registration. A re-registration rewrites the row with Replace: the
+        /// <see cref="RegistrationOwnedColumns"/> follow their rules below, every other declared
+        /// column is carried from the fresh read (<see cref="CarryUnownedColumns"/>).
         /// </summary>
         /// <param name="registration">Agent-supplied registration (server-stamped fields already applied by the caller).</param>
         /// <param name="ownerToStamp">
@@ -780,29 +845,18 @@ namespace AutopilotMonitor.Functions.Services
                 // onto our entity, and retries. The initial-read extract above is preserved as a
                 // best-effort hint; the per-iteration fresh read is what actually wins the race.
                 const int MaxStoreSessionCasAttempts = 5;
+                var carriedByLastAttempt = new HashSet<string>(StringComparer.Ordinal);
                 for (var casAttempt = 0; ; casAttempt++)
                 {
                     Azure.ETag? freshEtag = null;
                     TableEntity? freshEntity = null;
                     try
                     {
+                        // The whole row: the rules below re-stamp the cascade lock, the owner, the server
+                        // time and a just-landed terminal tuple from it, and every column the registration
+                        // does not own is carried from it (CarryUnownedColumns).
                         var freshResponse = await tableClient.GetEntityAsync<TableEntity>(
-                            registration.TenantId, registration.SessionId,
-                            select: new[]
-                            {
-                                "DeletionState", "PendingDeletionManifestId",
-                                // Terminal tuple — re-read so a terminal verdict that landed in the
-                                // fresh-read window isn't reverted by the Replace below (see guard).
-                                "Status", "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason",
-                                "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
-                                "EspSoftFailure", "CompletionSource", "VerdictPath", "PriorStatus", "PriorVerdictPath",
-                                // SESSION-OWNER-BINDING columns — a Merge-stamped owner (ingest claim /
-                                // rebind) that landed after the initial read must survive the Replace.
-                                SessionOwner.Columns.Kind, SessionOwner.Columns.Thumbprint, SessionOwner.Columns.DeviceId,
-                                SessionOwner.Columns.BootstrapCode, SessionOwner.Columns.Serial, SessionOwner.Columns.BoundAt,
-                                // Server-time tracker + twins (see ServerTimeTwinColumns).
-                                ServerTimeStateColumn, StartedAtServerColumn, ResumedAtServerColumn, CompletedAtServerColumn,
-                            });
+                            registration.TenantId, registration.SessionId);
                         freshEtag = freshResponse.Value.ETag;
                         freshEntity = freshResponse.Value;
                     }
@@ -868,6 +922,8 @@ namespace AutopilotMonitor.Functions.Services
                         }
                         _logger.LogInformation($"Session {registration.SessionId}: terminal '{freshStatus}' landed during re-registration, preserving it over the Replace");
                     }
+
+                    CarryUnownedColumns(entity, freshEntity, carriedByLastAttempt);
 
                     try
                     {
