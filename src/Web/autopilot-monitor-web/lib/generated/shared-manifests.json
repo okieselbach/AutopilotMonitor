@@ -9027,7 +9027,7 @@
     },
     "DistressReportListResponse": {
       "kind": "object",
-      "doc": "Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin).",
+      "doc": "Success body of GET global/distress-reports: the newest pre-auth distress reports across all tenants, newest first (Global Admin).",
       "fields": [
         {
           "name": "success",
@@ -9052,6 +9052,14 @@
               "name": "DistressReportEntry"
             }
           }
+        },
+        {
+          "name": "truncated",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the table held more reports than the list carries (the oldest are left out)."
         }
       ]
     },

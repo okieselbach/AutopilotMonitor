@@ -255,7 +255,7 @@ public class ReportsWireParityTests
     }
 
     // =========================================================================
-    // GetDistressReportsFunction — { success, count, reports }
+    // GetDistressReportsFunction — { success, count, reports, truncated }
     // =========================================================================
 
     [Fact]
@@ -287,13 +287,15 @@ public class ReportsWireParityTests
             {
                 success = true,
                 count = reports.Count,
-                reports
+                reports,
+                truncated = false
             },
             new DistressReportListResponse
             {
                 Success = true,
                 Count = reports.Count,
-                Reports = reports
+                Reports = reports,
+                Truncated = false
             });
     }
 

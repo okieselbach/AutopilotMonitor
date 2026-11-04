@@ -1819,11 +1819,13 @@ export interface DistressReportEntry {
   deviceBootUtc?: string;
 }
 
-/** Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin). */
+/** Success body of GET global/distress-reports: the newest pre-auth distress reports across all tenants, newest first (Global Admin). */
 export interface DistressReportListResponse {
   success: boolean;
   count: number;
   reports: DistressReportEntry[];
+  /** True when the table held more reports than the list carries (the oldest are left out). */
+  truncated: boolean;
 }
 
 /** Body of POST diagnostics/download-ticket and POST global/session-reports/download-ticket. */

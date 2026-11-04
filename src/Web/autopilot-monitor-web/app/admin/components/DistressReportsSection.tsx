@@ -6,7 +6,9 @@ import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { DistressReportEntry, DistressReportListResponse } from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
+import { SearchInput } from "@/components/SearchInput";
 import { CopyButton } from "./CopyButton";
+import { matchesDistressSearch } from "./distressSearch";
 
 /** One stored distress report — the wire shape (optional where the agent sent nothing). */
 type DistressReport = DistressReportEntry;
@@ -75,6 +77,8 @@ export function DistressReportsSection({
   setError,
 }: DistressReportsSectionProps) {
   const [reports, setReports] = useState<DistressReport[]>([]);
+  // The backend capped the list: the oldest reports are not loaded and not searchable.
+  const [truncated, setTruncated] = useState(false);
   // true from the start: the fetch fires on mount, and a false initial value
   // flashes the "No distress reports" empty state for one paint.
   const [loading, setLoading] = useState(true);
@@ -82,7 +86,13 @@ export function DistressReportsSection({
   const [currentPage, setCurrentPage] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("ingestedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [searchQuery, setSearchQuery] = useState("");
   const pageSize = 15;
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setCurrentPage(0);
+  };
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -94,7 +104,10 @@ export function DistressReportsSection({
     setCurrentPage(0);
   };
 
-  const sortedReports = [...reports].sort((a, b) => {
+  const filteredReports = reports.filter(r =>
+    matchesDistressSearch(r, searchQuery, ERROR_TYPE_LABELS[r.errorType]?.label));
+
+  const sortedReports = [...filteredReports].sort((a, b) => {
     const av = a[sortKey];
     const bv = b[sortKey];
     // nulls last
@@ -118,6 +131,8 @@ export function DistressReportsSection({
       // 404 = the table does not exist yet: no reports, not an error.
       const data = await fetchJson<DistressReportListResponse>(api.distressReports.list(), getAccessToken).catch(nullOn404);
       setReports(data?.reports ?? []);
+      // Absent from a backend that predates the field: nothing was cut.
+      setTruncated(data?.truncated ?? false);
     } catch (err) {
       setError(apiErrorText(err, "Failed to load distress reports"));
     } finally {
@@ -199,6 +214,28 @@ export function DistressReportsSection({
 
       {/* Reports Table */}
       <div className="p-6">
+        {!loading && reports.length > 0 && (
+          <div className="mb-3 flex items-center gap-3 flex-wrap">
+            <SearchInput
+              value={searchQuery}
+              onChange={handleSearch}
+              placeholder="Search serial, tenant..."
+              ariaLabel="Search distress reports"
+              name="distress-search"
+              tone="amber"
+            />
+            {searchQuery.trim() && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {filteredReports.length} of {reports.length} reports
+              </span>
+            )}
+            {truncated && (
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                Showing the newest {reports.length.toLocaleString()} reports; older ones are not loaded.
+              </span>
+            )}
+          </div>
+        )}
         {loading ? (
           <TableSkeleton columns={7} rows={15} />
         ) : reports.length === 0 ? (
@@ -208,6 +245,10 @@ export function DistressReportsSection({
             </svg>
             <p className="text-sm">No distress reports in the last 14 days.</p>
           </div>
+        ) : filteredReports.length === 0 ? (
+          <p className="text-center py-8 text-sm text-gray-500 dark:text-gray-400">
+            No distress reports match &quot;{searchQuery.trim()}&quot;.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -256,10 +297,10 @@ export function DistressReportsSection({
             </table>
 
             {/* Pagination */}
-            {reports.length > pageSize && (
+            {filteredReports.length > pageSize && (
               <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-b-md">
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {currentPage * pageSize + 1}&ndash;{Math.min((currentPage + 1) * pageSize, reports.length)} of {reports.length}
+                  {currentPage * pageSize + 1}&ndash;{Math.min((currentPage + 1) * pageSize, filteredReports.length)} of {filteredReports.length}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -270,11 +311,11 @@ export function DistressReportsSection({
                     Previous
                   </button>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {currentPage + 1} / {Math.ceil(reports.length / pageSize)}
+                    {currentPage + 1} / {Math.ceil(filteredReports.length / pageSize)}
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => p + 1)}
-                    disabled={(currentPage + 1) * pageSize >= reports.length}
+                    disabled={(currentPage + 1) * pageSize >= filteredReports.length}
                     className="px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Next

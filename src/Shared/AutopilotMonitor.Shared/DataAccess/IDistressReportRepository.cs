@@ -12,7 +12,11 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         Task SaveDistressReportAsync(string tenantId, DistressReportEntry entry);
         Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, int maxResults = 100);
-        Task<List<DistressReportEntry>> GetAllDistressReportsAsync(int maxResults = 500);
+        /// <summary>
+        /// The newest <paramref name="maxResults"/> reports across all tenants, newest first.
+        /// Truncated is true when the table held more rows than were returned.
+        /// </summary>
+        Task<(List<DistressReportEntry> Reports, bool Truncated)> GetNewestDistressReportsAsync(int maxResults);
         Task<int> DeleteDistressReportsOlderThanAsync(string tenantId, DateTime cutoff);
     }
 

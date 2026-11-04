@@ -78,18 +78,44 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return result;
         }
 
-        public async Task<List<DistressReportEntry>> GetAllDistressReportsAsync(int maxResults = 500)
+        public Task<(List<DistressReportEntry> Reports, bool Truncated)> GetNewestDistressReportsAsync(int maxResults)
         {
-            var result = new List<DistressReportEntry>();
+            // A cross-partition query returns rows in tenant order, so the first N rows are not the
+            // newest N: the whole table is read (bounded by the 14-day cleanup) and ranked here.
+            return KeepNewestAsync(MapAll(_table.QueryAsync<TableEntity>(maxPerPage: 1000)), maxResults);
+        }
 
-            await foreach (var entity in _table.QueryAsync<TableEntity>(maxPerPage: maxResults))
+        private static async IAsyncEnumerable<DistressReportEntry> MapAll(IAsyncEnumerable<TableEntity> entities)
+        {
+            await foreach (var entity in entities)
+                yield return MapToEntry(entity);
+        }
+
+        /// <summary>
+        /// The newest <paramref name="maxResults"/> entries by IngestedAt, newest first. A min-heap keeps
+        /// memory at <paramref name="maxResults"/> however many rows the source yields.
+        /// </summary>
+        internal static async Task<(List<DistressReportEntry> Reports, bool Truncated)> KeepNewestAsync(
+            IAsyncEnumerable<DistressReportEntry> entries, int maxResults)
+        {
+            var newest = new PriorityQueue<DistressReportEntry, DateTime>();
+            var seen = 0;
+
+            await foreach (var entry in entries)
             {
-                result.Add(MapToEntry(entity));
-                if (result.Count >= maxResults)
-                    break;
+                seen++;
+                if (newest.Count < maxResults)
+                    newest.Enqueue(entry, entry.IngestedAt);
+                else
+                    newest.EnqueueDequeue(entry, entry.IngestedAt);
             }
 
-            return result;
+            var reports = new List<DistressReportEntry>(newest.Count);
+            while (newest.TryDequeue(out var entry, out _))
+                reports.Add(entry);
+            reports.Reverse();
+
+            return (reports, seen > maxResults);
         }
 
         public async Task<int> DeleteDistressReportsOlderThanAsync(string tenantId, DateTime cutoff)

@@ -272,7 +272,8 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin).
+    /// Success body of GET global/distress-reports: the newest pre-auth distress reports across all
+    /// tenants, newest first (Global Admin).
     /// </summary>
     // Declaration order == wire order.
     public class DistressReportListResponse : IApiResponse
@@ -280,6 +281,9 @@ namespace AutopilotMonitor.Shared.Models
         public bool Success { get; set; }
         public int Count { get; set; }
         public IReadOnlyList<DistressReportEntry> Reports { get; set; } = default!;
+
+        /// <summary>True when the table held more reports than the list carries (the oldest are left out).</summary>
+        public bool Truncated { get; set; }
     }
 
     /// <summary>

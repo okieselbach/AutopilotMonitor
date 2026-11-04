@@ -9,11 +9,15 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Reports
 {
     /// <summary>
-    /// Global Admin endpoint: returns all distress reports from the DistressReports table.
+    /// Global Admin endpoint: returns the newest distress reports from the DistressReports table.
     /// Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
     /// </summary>
     public class GetDistressReportsFunction
     {
+        // About twice the rows a 14-day retention window holds at today's peak rate; the portal
+        // searches this list client-side, so it should normally hold the whole table.
+        private const int MaxReports = 2000;
+
         private readonly ILogger<GetDistressReportsFunction> _logger;
         private readonly IDistressReportRepository _repository;
 
@@ -31,14 +35,15 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         {
             try
             {
-                var reports = await _repository.GetAllDistressReportsAsync(maxResults: 500);
+                var (reports, truncated) = await _repository.GetNewestDistressReportsAsync(MaxReports);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new DistressReportListResponse
                 {
                     Success = true,
                     Count = reports.Count,
-                    Reports = reports
+                    Reports = reports,
+                    Truncated = truncated
                 });
                 return response;
             }
