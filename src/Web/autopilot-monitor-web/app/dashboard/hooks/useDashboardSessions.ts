@@ -181,7 +181,7 @@ export function useDashboardSessions({
   const lastServerSearchRef = useRef<string | null>(null);
 
   const hasInitialFetch = useRef(false);
-  const hasGlobalModeInitialized = useRef(false);
+  const prevGlobalAdminModeRef = useRef(globalAdminMode);
   const hasJoinedGroup = useRef(false);
 
   const fetchBlockedDevices = useCallback(async (currentSessions: Session[]) => {
@@ -584,12 +584,13 @@ export function useDashboardSessions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
-  // Refetch + reset visible state when Global Admin mode toggles (after first init)
+  // Refetch + reset visible state when Global Admin mode changes. Compares against the previous
+  // value instead of skipping the first run: StrictMode runs every effect twice on mount in
+  // development, and a skipped-first-run latch read the second run as a toggle and fetched
+  // before sign-in was ready.
   useEffect(() => {
-    if (!hasGlobalModeInitialized.current) {
-      hasGlobalModeInitialized.current = true;
-      return;
-    }
+    if (prevGlobalAdminModeRef.current === globalAdminMode) return;
+    prevGlobalAdminModeRef.current = globalAdminMode;
 
     fetchGenRef.current++; // invalidate any in-flight loadMore from the previous mode
     lastServerSearchRef.current = null; // new backend scope → server search may run again
