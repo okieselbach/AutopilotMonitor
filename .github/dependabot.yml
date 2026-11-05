@@ -24,6 +24,11 @@ updates:
       dotnet-security:
         applies-to: security-updates
         patterns: ['*']
+    # Application Insights 3 is the OpenTelemetry rewrite (no telemetry processors, another sampling
+    # model) and the Functions worker integration still builds on 2.x: a planned migration, not a bump.
+    ignore:
+      - dependency-name: 'Microsoft.ApplicationInsights.WorkerService'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: npm
     directory: /src/Web/autopilot-monitor-web

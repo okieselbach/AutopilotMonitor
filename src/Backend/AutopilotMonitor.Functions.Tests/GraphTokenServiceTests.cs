@@ -451,7 +451,7 @@ public class GraphTokenServiceTests
         logger.Verify(l => l.Log(
             Microsoft.Extensions.Logging.LogLevel.Warning,
             Moq.It.IsAny<Microsoft.Extensions.Logging.EventId>(),
-            Moq.It.Is<Moq.It.IsAnyType>((state, _) => state.ToString()!.Contains("rejected by Entra") && state.ToString()!.Contains("AADSTS53003")),
+            Moq.It.Is<Moq.It.IsAnyType>((state, _) => state != null && state.ToString()!.Contains("rejected by Entra") && state.ToString()!.Contains("AADSTS53003")),
             Moq.It.IsAny<Exception?>(),
             Moq.It.IsAny<Func<Moq.It.IsAnyType, Exception?, string>>()), Moq.Times.Once);
     }

@@ -54,6 +54,9 @@
     <PackageReference Include="Azure.Storage.Queues" Version="12.25.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.Identity.Web" Version="4.3.0" />
+    <!-- Transitive via Microsoft.Identity.Web's token cache, lifted past GHSA-846f-f764-76mx and
+         GHSA-2fmv-rv2c-59x7. Remove once Microsoft.Identity.Web is 4.17.0 or later (it brings 10.0.13). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="8.0.25" />
   </ItemGroup>
