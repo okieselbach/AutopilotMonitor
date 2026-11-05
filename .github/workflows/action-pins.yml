@@ -5,8 +5,9 @@ name: Workflow gates
 #                    version comment (stricter than zizmor's unpinned-uses audit).
 #   * zizmor      -- static analysis of every workflow (permissions, credential
 #                    persistence, template injection, ...). Configuration and the
-#                    reasoned ignores live in zizmor.yml at the repository root; the
-#                    same run is expected locally before a workflow change is committed.
+#                    reasoned ignores live in .github/zizmor.yml, which zizmor finds on
+#                    its own; the same run is expected locally before a workflow change
+#                    is committed.
 #   * hosts       -- no workflow or .github/scripts helper spells out a host; every one
 #                    comes from .github/scripts/Get-Endpoints.ps1, CI's member of the URL
 #                    registry (the C#, web and MCP registries have guard tests of their own).
@@ -39,10 +40,10 @@ name: Workflow gates
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', 'zizmor.yml']
+    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', '.github/zizmor.yml']
   pull_request:
     branches: [main]
-    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', 'zizmor.yml']
+    paths: ['.github/workflows/**', '.github/scripts/**', '.github/dependabot.yml', '.github/zizmor.yml']
   workflow_dispatch:
 
 permissions:

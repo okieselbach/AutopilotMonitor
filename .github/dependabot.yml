@@ -101,8 +101,9 @@ updates:
   # SWA CLI for the deploy job of deploy-web.yml, which installs it from this lockfile next to
   # the production deploy token: a version reaches that job only through a reviewed bump here.
   # deploy-web watches this folder, so a merged bump redeploys and proves the new CLI at once.
+  # Not under .github/: there Dependabot's update PR was refused as an unauthorized change.
   - package-ecosystem: npm
-    directory: /.github/tools/swa-cli
+    directory: /tools/swa-cli
     schedule:
       interval: weekly
     cooldown:

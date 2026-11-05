@@ -1,6 +1,6 @@
 name: Deploy Web (Static Web App)
 
-# Build here, upload with the SWA CLI from its own lockfile (.github/tools/swa-cli). No
+# Build here, upload with the SWA CLI from its own lockfile (tools/swa-cli). No
 # third-party action sees the deploy token, the build runs on the same path ci.yml tests
 # (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the action's container,
 # and the exported site is attested like the agent ZIP and the MSI.
@@ -19,7 +19,7 @@ on:
       - main
     paths:
       - 'src/Web/autopilot-monitor-web/**'
-      - '.github/tools/swa-cli/**'
+      - 'tools/swa-cli/**'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -173,7 +173,7 @@ jobs:
       # --no-use-keychain keeps unloaded. Before the artifact arrives, so nothing from the
       # build zone can touch the install.
       - name: Install the SWA CLI from its lockfile
-        working-directory: .github/tools/swa-cli
+        working-directory: tools/swa-cli
         run: npm ci --ignore-scripts
 
       - name: Download build artifact
@@ -193,7 +193,7 @@ jobs:
         env:
           SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
         run: |
-          .github/tools/swa-cli/node_modules/.bin/swa deploy \
+          tools/swa-cli/node_modules/.bin/swa deploy \
             --app-location "$WEB_DIR" \
             --output-location out \
             --swa-config-location "$WEB_DIR" \

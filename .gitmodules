@@ -1,9 +1,15 @@
+# The three submodules are private. "update = none" makes recursive clones skip them (the
+# public, Dependabot's NuGet updater); a clone with access sets
+# submodule.<name>.update = checkout once, or runs git submodule update --init --checkout.
 [submodule ".claude/commands"]
 	path = .claude/commands
 	url = https://github.com/okieselbach/Autopilot-Monitor-dotclaude.git
+	update = none
 [submodule "docs"]
 	path = internal
 	url = https://github.com/okieselbach/Autopilot-Monitor-internal.git
+	update = none
 [submodule "infra"]
 	path = infra
 	url = https://github.com/okieselbach/Autopilot-Monitor-infra.git
+	update = none

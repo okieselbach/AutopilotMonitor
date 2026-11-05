@@ -1,8 +1,0 @@
-{
-  "name": "autopilot-monitor-swa-cli",
-  "private": true,
-  "description": "Azure Static Web Apps CLI for the deploy job of deploy-web.yml - installed from this lockfile with --ignore-scripts, because that job holds the production deploy token.",
-  "devDependencies": {
-    "@azure/static-web-apps-cli": "2.0.10"
-  }
-}
