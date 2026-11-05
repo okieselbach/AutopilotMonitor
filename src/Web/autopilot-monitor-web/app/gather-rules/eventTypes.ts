@@ -53,7 +53,7 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
   { value: "keep_awake_engaged", label: "keep_awake_engaged", category: "enrollment",
     description: "Opt-in keep-awake hold engaged on entering the User-ESP (AccountSetup) phase — device is kept awake (system + display) so standby/sleep cannot stall app installs or account setup. Reboots are unaffected. Off by default per tenant." },
   { value: "keep_awake_released", label: "keep_awake_released", category: "enrollment",
-    description: "Keep-awake hold released — reason is account_setup_complete (User-ESP finished), host_stop (session teardown), or safety_cap (the backstop timer elapsed without completion)." },
+    description: "Keep-awake hold released — reason is user_esp_exited (the User-ESP page closed), realmjoin_started (RealmJoin started its deployment; with the RealmJoin Watcher on, the hold waits for it after the page closed), realmjoin_not_started (RealmJoin did not start within 30 minutes after the page closed), host_stop (session teardown), or safety_cap (the backstop timer elapsed without completion)." },
 
   // -------- Stall detection (Ebene 2) --------
   { value: "session_stalled", label: "session_stalled", category: "stall",

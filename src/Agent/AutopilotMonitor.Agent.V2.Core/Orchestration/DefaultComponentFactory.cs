@@ -356,28 +356,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             hosts.Add(aadJoinHost);
             aadJoinHostRef = aadJoinHost;
 
-            // RealmJoin support is opt-in per tenant (portal toggle → AnalyzerConfiguration.
-            // EnableRealmJoinWatcher, default off). When disabled, leave realmJoinHost null:
-            // the DesktopArrival observer above already null-guards it, so the HKU watcher is
-            // never armed and no RealmJoin signals are produced. The compile-time const
-            // RealmJoinHost.RealmJoinTrackingEnabled remains a build-time master kill-switch;
-            // the effective enable is (remote flag AND const).
             var analyzers = _remoteConfig.Analyzers ?? new AnalyzerConfiguration();
-            if (analyzers.EnableRealmJoinWatcher && RealmJoinHost.RealmJoinTrackingEnabled)
-            {
-                realmJoinHost = new RealmJoinHost(logger, ingress, clock);
-                hosts.Add(realmJoinHost);
-            }
-            else
-            {
-                logger.Info($"DefaultComponentFactory: RealmJoinHost not created (EnableRealmJoinWatcher={analyzers.EnableRealmJoinWatcher}, RealmJoinTrackingEnabled={RealmJoinHost.RealmJoinTrackingEnabled})");
-            }
 
             // Keep-awake during User-ESP — opt-in per tenant (portal toggle → AnalyzerConfiguration.
             // KeepAwakeDuringUserEsp, default off). The host observes the signal rail and holds the
-            // device awake (system + display) from AccountSetup entry until provisioning completes
-            // (or a safety cap), so idle standby cannot stall app installs / account setup. Reboots
+            // device awake (system + display) from AccountSetup entry until the user-ESP page
+            // closes — with the RealmJoin Watcher on, until RealmJoin starts its deployment (D-413) —
+            // or a safety cap, so idle standby cannot stall app installs / account setup. Reboots
             // are unaffected; the OS auto-clears the hold on process exit.
+            // ORDER: before the RealmJoinHost — after an agent restart the watcher posts
+            // realmjoin_detected from its own Start, and this host must already be subscribed.
             if (analyzers.KeepAwakeDuringUserEsp)
             {
                 hosts.Add(new UserEspKeepAwakeHost(
@@ -387,6 +375,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     // q8n: release on the user-ESP page exit, i.e. a Shell-Core 62407 that arrives
                     // after the AccountSetup registry left notStarted — never on the handoff exit.
                     accountSetupProgressProbe: () => espAndHelloHost.HasAccountSetupProgress));
+            }
+
+            // RealmJoin support is opt-in per tenant (portal toggle → AnalyzerConfiguration.
+            // EnableRealmJoinWatcher, default off). When disabled, leave realmJoinHost null:
+            // the DesktopArrival observer above already null-guards it, so the HKU watcher is
+            // never armed and no RealmJoin signals are produced. The compile-time const
+            // RealmJoinHost.RealmJoinTrackingEnabled remains a build-time master kill-switch;
+            // the effective enable is (remote flag AND const).
+            if (analyzers.EnableRealmJoinWatcher && RealmJoinHost.RealmJoinTrackingEnabled)
+            {
+                realmJoinHost = new RealmJoinHost(logger, ingress, clock);
+                hosts.Add(realmJoinHost);
+            }
+            else
+            {
+                logger.Info($"DefaultComponentFactory: RealmJoinHost not created (EnableRealmJoinWatcher={analyzers.EnableRealmJoinWatcher}, RealmJoinTrackingEnabled={RealmJoinHost.RealmJoinTrackingEnabled})");
             }
 
             // OOBE-console / Shift+F10 detection — opt-OUT per tenant (portal toggle →

@@ -27,6 +27,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
     ///     already in flight misses its wake.</item>
     ///   <item>DesktopArrivalHost before AadJoinHost — the AadJoinHost ctor takes the desktop
     ///     host's RequestResetForRealUserSwitch callback, so the target must exist first.</item>
+    ///   <item>UserEspKeepAwakeHost before RealmJoinHost — after an agent restart the RealmJoin
+    ///     watcher posts realmjoin_detected from its own Start; the keep-awake host hands its
+    ///     hold over to RealmJoin (D-413) and must already observe the rail.</item>
     /// </list>
     /// </summary>
     public sealed class DefaultComponentFactoryOrderingTests : IDisposable
@@ -133,6 +136,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 // over the ImeLogHost reference, which is assigned during the same factory call —
                 // the host must therefore exist in the returned list.
                 Assert.Equal(1, hosts.Count(h => h is ImeLogHost));
+            }
+            finally
+            {
+                foreach (var host in hosts)
+                {
+                    try { host.Dispose(); } catch { /* construction-only test — best-effort cleanup */ }
+                }
+            }
+        }
+
+        [Fact]
+        public void Keep_awake_host_subscribes_before_the_RealmJoin_watcher_starts()
+        {
+            var hosts = CreateSurfaces(new AnalyzerConfiguration
+            {
+                EnableRealmJoinWatcher = true,
+                KeepAwakeDuringUserEsp = true,
+            }).Hosts;
+            try
+            {
+                AssertBefore<UserEspKeepAwakeHost, RealmJoinHost>(
+                    hosts,
+                    "D-413 — a realmjoin_detected posted from the watcher's Start (agent restart with " +
+                    "RealmJoin installed) must reach the keep-awake host, or it waits for a start it missed.");
             }
             finally
             {

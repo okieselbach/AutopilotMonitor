@@ -114,6 +114,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// fire once; <see cref="RealmJoinPackageStarted"/> / <see cref="RealmJoinPackageCompleted"/>
     /// fire once per <c>(scope, packageId)</c>.
     /// </para>
+    /// <para>
+    /// <see cref="RealmJoinDetected"/> carries the phase RJ is in when the service key is first
+    /// seen in this process — Blank (0) only while the value is not written yet. After an agent
+    /// restart RJ may already be deploying: the engine's restart path and the keep-awake
+    /// hand-over to RJ both read the phase from Detected, because no PhaseChanged follows when
+    /// the phase does not change again.
+    /// </para>
     /// </remarks>
     internal sealed class RealmJoinWatcher : IDisposable
     {
@@ -127,6 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal delegate bool KeyExistsDelegate(RegistryHive hive, string subPath);
         internal delegate RealmJoinVersionInfo ReadVersionInfoDelegate();
         internal delegate string? ReadUninstallDisplayVersionDelegate();
+        internal delegate int? ReadDeploymentPhaseDelegate();
 
         /// <summary>
         /// Debounce for the Uninstall-key watcher. Longer than <see cref="DebounceMilliseconds"/>:
@@ -141,6 +149,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly KeyExistsDelegate _keyExists;
         private readonly ReadVersionInfoDelegate _readVersionInfo;
         private readonly ReadUninstallDisplayVersionDelegate _readUninstallDisplayVersion;
+        private readonly ReadDeploymentPhaseDelegate _readDeploymentPhase;
         private readonly object _stateLock = new object();
 
         // Auto-update stage (armed once Detected fired, held until Stop).
@@ -204,7 +213,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             TryReadPackageDelegate tryReadPackage,
             KeyExistsDelegate keyExists,
             ReadVersionInfoDelegate? readVersionInfo = null,
-            ReadUninstallDisplayVersionDelegate? readUninstallDisplayVersion = null)
+            ReadUninstallDisplayVersionDelegate? readUninstallDisplayVersion = null,
+            ReadDeploymentPhaseDelegate? readDeploymentPhase = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _enumeratePackageIds = enumeratePackageIds ?? throw new ArgumentNullException(nameof(enumeratePackageIds));
@@ -212,6 +222,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _keyExists = keyExists ?? throw new ArgumentNullException(nameof(keyExists));
             _readVersionInfo = readVersionInfo ?? RealmJoinInfo.TryReadRealmJoinVersionInfo;
             _readUninstallDisplayVersion = readUninstallDisplayVersion ?? RealmJoinInfo.TryReadUninstallDisplayVersion;
+            _readDeploymentPhase = readDeploymentPhase ?? (() => RealmJoinInfo.TryReadDeploymentPhase(RegistryHive.LocalMachine));
         }
 
         public void Start()
@@ -452,14 +463,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 }
             }
 
-            // The appearance of Services\realmjoin is itself the RJ-detected signal —
-            // surface it even if Parameters\DeploymentPhase isn't populated yet. The package
-            // watchers (HKLM + HKU SOFTWARE\RealmJoin) intentionally stay disarmed here:
-            // NotifyRealmJoinPresence arms them once DeploymentPhase >= PhaseRunningThresholdMin
-            // is observed. Before that the same subtree may still receive in-flight IME
-            // package writes that are not part of RJ's lifecycle.
-            NotifyRealmJoinPresence(phase: null);
-            CheckParameters();
+            NotifyServiceStageAttached();
+        }
+
+        /// <summary>
+        /// The appearance of Services\realmjoin is itself the RJ-detected signal — surfaced even
+        /// if Parameters\DeploymentPhase isn't populated yet. One read feeds Detected, so it
+        /// carries the phase RJ is in right now (see the class remarks). The package watchers
+        /// (HKLM + HKU SOFTWARE\RealmJoin) stay disarmed below PhaseRunningThresholdMin: before
+        /// that the same subtree may still receive in-flight IME package writes that are not
+        /// part of RJ's lifecycle.
+        /// </summary>
+        private void NotifyServiceStageAttached()
+        {
+            int? phase = null;
+            try { phase = _readDeploymentPhase(); }
+            catch (Exception ex) { _logger.Warning($"RealmJoinWatcher: DeploymentPhase read at attach threw: {ex.Message}"); }
+            NotifyRealmJoinPresence(phase);
         }
 
         private void AttachMachineRealmJoinSubtreeWatcher()
@@ -550,7 +570,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                var phase = RealmJoinInfo.TryReadDeploymentPhase(RegistryHive.LocalMachine);
+                var phase = _readDeploymentPhase();
                 if (phase == null) return;
                 NotifyRealmJoinPresence(phase);
             }
@@ -579,6 +599,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 fireDetected = !_detectedFired;
                 if (fireDetected) _detectedFired = true;
+
+                // Detected reports Blank (0) while the value is not written yet. That report is
+                // the baseline, so a first real value of 100+ surfaces as PhaseChanged instead of
+                // silently setting _lastPhase.
+                if (fireDetected && !phase.HasValue && !_lastPhase.HasValue) _lastPhase = 0;
 
                 if (phase.HasValue)
                 {
@@ -926,6 +951,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         // Test seams — drive the read paths deterministically without touching the real registry.
         internal void TriggerCheckParametersFromTest() => CheckParameters();
+        internal void TriggerServiceStageAttachedFromTest() => NotifyServiceStageAttached();
         internal void TriggerCheckMachinePackagesFromTest() => CheckMachinePackages();
         internal void TriggerCheckUserPackagesFromTest() => CheckUserPackages();
 

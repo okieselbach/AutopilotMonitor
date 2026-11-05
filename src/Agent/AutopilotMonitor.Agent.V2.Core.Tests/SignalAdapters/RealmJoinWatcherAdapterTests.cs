@@ -600,6 +600,111 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
         }
 
+        // ---- Detected carries the current phase (service-key attach) -------------------------
+
+        private sealed class PhaseHarness : IDisposable
+        {
+            private readonly TempDirectory _tmp = new TempDirectory();
+            public FakeSignalIngressSink Ingress { get; } = new FakeSignalIngressSink();
+            public int? Phase;
+            public RealmJoinWatcher Watcher { get; }
+            public RealmJoinWatcherAdapter Adapter { get; }
+
+            public PhaseHarness()
+            {
+                var registry = new FakeRealmJoinRegistry();
+                Watcher = new RealmJoinWatcher(
+                    new AgentLogger(_tmp.Path, AgentLogLevel.Info),
+                    enumeratePackageIds: registry.Enumerate,
+                    tryReadPackage: registry.TryRead,
+                    keyExists: registry.KeyExists,
+                    readVersionInfo: () => RealmJoinVersionInfo.Empty,
+                    readUninstallDisplayVersion: () => null,
+                    readDeploymentPhase: () => Phase);
+                Adapter = new RealmJoinWatcherAdapter(Watcher, Ingress, new VirtualClock(Fixed));
+            }
+
+            public string DetectedPhase() =>
+                Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinDetected)
+                    .Payload![DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase];
+
+            public void Dispose()
+            {
+                Adapter.Dispose();
+                Watcher.Dispose();
+                _tmp.Dispose();
+            }
+        }
+
+        [Theory]
+        [InlineData(101)]
+        [InlineData(200)]
+        public void Detected_carries_the_phase_RealmJoin_is_in_when_the_service_key_attaches(int phase)
+        {
+            // Agent restarted while RJ deploys. Detected used to say Blank, which reset the
+            // engine's persisted LastDeploymentPhase and hid from the keep-awake host that RJ had
+            // started — no PhaseChanged follows while the phase stays put.
+            using var h = new PhaseHarness { Phase = phase };
+
+            h.Watcher.TriggerServiceStageAttachedFromTest();
+
+            Assert.Equal(phase.ToString(), h.DetectedPhase());
+            Assert.True(h.Watcher.PackageWatchersArmedForTest);
+            Assert.DoesNotContain(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPhaseChanged);
+        }
+
+        [Fact]
+        public void Detected_with_a_completed_phase_resolves_in_the_same_pass()
+        {
+            using var h = new PhaseHarness { Phase = RealmJoinInfo.PhaseCompletedFirstDeployment };
+
+            h.Watcher.TriggerServiceStageAttachedFromTest();
+
+            Assert.Equal("110", h.DetectedPhase());
+            var kinds = h.Ingress.Posted
+                .Where(p => p.Kind == DecisionSignalKind.RealmJoinDetected || p.Kind == DecisionSignalKind.RealmJoinResolved)
+                .Select(p => p.Kind)
+                .ToList();
+            Assert.Equal(new[] { DecisionSignalKind.RealmJoinDetected, DecisionSignalKind.RealmJoinResolved }, kinds);
+        }
+
+        [Fact]
+        public void Phase_not_written_at_attach_reports_Blank_and_the_first_value_surfaces_as_PhaseChanged()
+        {
+            // Detected says Blank while Parameters\DeploymentPhase is missing; that report is the
+            // baseline, so a first value of 101 must not be swallowed silently.
+            using var h = new PhaseHarness { Phase = null };
+
+            h.Watcher.TriggerServiceStageAttachedFromTest();
+            Assert.Equal("0", h.DetectedPhase());
+            Assert.False(h.Watcher.PackageWatchersArmedForTest);
+
+            h.Phase = 101;
+            h.Watcher.TriggerCheckParametersFromTest();
+
+            var changed = Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPhaseChanged);
+            Assert.Equal("101", changed.Payload![DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase]);
+            Assert.Equal("0", changed.Payload[DecisionEngine.RealmJoinPayloadKeys.PreviousPhase]);
+            Assert.True(h.Watcher.PackageWatchersArmedForTest);
+        }
+
+        [Fact]
+        public void Blank_at_attach_then_running_fires_one_PhaseChanged()
+        {
+            // The common first-run shape (RJ installed during the ESP, deployment starts after
+            // the user-ESP page closed): Blank on attach, 0 -> 101 later.
+            using var h = new PhaseHarness { Phase = 0 };
+
+            h.Watcher.TriggerServiceStageAttachedFromTest();
+            h.Watcher.TriggerCheckParametersFromTest();   // same value again — no change
+            h.Phase = 101;
+            h.Watcher.TriggerCheckParametersFromTest();
+
+            Assert.Equal("0", h.DetectedPhase());
+            var changed = Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPhaseChanged);
+            Assert.Equal("0", changed.Payload![DecisionEngine.RealmJoinPayloadKeys.PreviousPhase]);
+        }
+
 
         // ---- auto-update (Uninstall\RealmJoin) -----------------------------------------------
 

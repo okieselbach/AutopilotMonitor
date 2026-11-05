@@ -196,7 +196,7 @@ export default function AgentParametersSection({
         <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
           <div>
             <p className="font-medium text-gray-900">Keep Awake During User-ESP</p>
-            <p className="text-sm text-gray-500">Hold the device awake (system and display) during the User-ESP (Account Setup) phase so idle standby or sleep cannot stall app installs and account provisioning. Reboots are unaffected; the hold is released once the phase completes.</p>
+            <p className="text-sm text-gray-500">Hold the device awake (system and display) during the User-ESP (Account Setup) phase so idle standby or sleep cannot stall app installs and account provisioning. Reboots are unaffected. The hold ends when the User-ESP page closes. With the RealmJoin Watcher on, it lasts until RealmJoin starts its deployment, at most 30 minutes longer.</p>
           </div>
           <button onClick={() => setKeepAwakeDuringUserEsp(!keepAwakeDuringUserEsp)}
             className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${keepAwakeDuringUserEsp ? 'bg-violet-500' : 'bg-gray-300'}`}>

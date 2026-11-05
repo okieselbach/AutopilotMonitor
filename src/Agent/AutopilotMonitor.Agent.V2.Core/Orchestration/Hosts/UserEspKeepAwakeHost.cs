@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -26,6 +27,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     ///     registry shows progress (the real user-ESP page exit — see below), on
     ///     <see cref="Stop"/> (session teardown), or on the safety-cap timer (a backstop so a
     ///     device is never held awake for the agent's full max-lifetime).</item>
+    ///   <item><b>RealmJoin hand-over</b> (D-413): RealmJoin signals only exist when the tenant runs
+    ///     the RealmJoin Watcher. When RealmJoin was detected and is still Blank as the user-ESP
+    ///     page closes, the hold stays until RealmJoin leaves Blank (it keeps the device awake
+    ///     itself from there), bounded by <see cref="RealmJoinStartWaitMinutes"/>. RealmJoin
+    ///     leaving Blank ends any hold; once it has, the host does not engage in this process.</item>
     /// </list>
     /// The hold itself is owned by <see cref="KeepAwakeController"/>; the OS also auto-clears it
     /// on process exit / reboot, so it can never leak.
@@ -57,7 +63,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// than host construction) means the ESP policy is already present in the registry. When the
     /// value is unavailable (ESP skipped, WDP v2 with no ESP, or unreadable) the cap falls back to
     /// <see cref="DefaultFallbackCapMinutes"/>. The resolved cap and its source are reported on the
-    /// <c>keep_awake_engaged</c> event for fleet-wide observability.
+    /// <c>keep_awake_engaged</c> event for fleet-wide observability. The RealmJoin wait replaces
+    /// this cap when the page closes: one timer, one bound per phase of the hold.
     /// </para>
     /// </summary>
     internal sealed class UserEspKeepAwakeHost : ICollectorHost
@@ -78,9 +85,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         internal const int EspCapMarginMinutes = 30;
 
+        /// <summary>
+        /// How long the hold waits for RealmJoin to leave Blank after the user-ESP page closed
+        /// (D-413 has the measured start delays behind the value).
+        /// </summary>
+        internal const int RealmJoinStartWaitMinutes = 30;
+
         // Release reasons (carried on the keep_awake_released event payload). "account_setup_complete"
         // (release on the synthesized completion signal) was retired with q8n — see the class doc.
         internal const string ReasonUserEspExited = "user_esp_exited";
+        internal const string ReasonRealmJoinStarted = "realmjoin_started";
+        internal const string ReasonRealmJoinNotStarted = "realmjoin_not_started";
         internal const string ReasonHostStop = "host_stop";
         internal const string ReasonSafetyCap = "safety_cap";
 
@@ -92,11 +107,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private static readonly string AccountSetupPhaseName = EnrollmentPhase.AccountSetup.ToString();
 
         private readonly AgentLogger _logger;
+        private readonly IClock _clock;
         private readonly InformationalEventPost _post;
         private readonly KeepAwakeController _controller;
         private readonly SignalIngress? _observableIngress;
         private readonly int _fallbackCapMinutes;
         private readonly TimeSpan? _safetyCapOverride;
+        private readonly TimeSpan _realmJoinStartWait;
         private readonly Func<int?> _espTimeoutProvider;
         private readonly Func<bool> _accountSetupProgressProbe;
 
@@ -107,7 +124,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private Timer? _safetyCapTimer;
         private HoldState _state = HoldState.Idle;  // guarded by _gate
         private int _activeCapMinutes;              // guarded by _gate — for the cap-elapsed log line
+        private int _capGeneration;                 // guarded by _gate — a superseded timer callback is ignored
+        private bool _awaitingRealmJoin;            // guarded by _gate — page closed, RealmJoin still Blank
+        private DateTime _userEspExitedUtc;         // guarded by _gate — valid while _awaitingRealmJoin
         private int _disposed;
+
+        // RealmJoin observations of this process. Monotonic, written on the posting thread so the
+        // ThreadPool work that follows always sees them (0/1 for Volatile/Interlocked).
+        private int _realmJoinDetected;
+        private int _realmJoinStarted;
 
         public UserEspKeepAwakeHost(
             ISignalIngressSink ingress,
@@ -117,17 +142,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             KeepAwakeController? controller = null,
             TimeSpan? safetyCapOverride = null,
             Func<int?>? espTimeoutProvider = null,
-            Func<bool>? accountSetupProgressProbe = null)
+            Func<bool>? accountSetupProgressProbe = null,
+            TimeSpan? realmJoinStartWaitOverride = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
-            if (clock == null) throw new ArgumentNullException(nameof(clock));
+            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _post = new InformationalEventPost(ingress, clock, logger);
             _controller = controller ?? new KeepAwakeController(logger);
             _observableIngress = ingress as SignalIngress;
             _fallbackCapMinutes = fallbackCapMinutes > 0 ? fallbackCapMinutes : DefaultFallbackCapMinutes;
-            // safetyCapOverride is a test seam for a fixed (e.g. sub-second) cap.
+            // safetyCapOverride / realmJoinStartWaitOverride are test seams for fixed (e.g. sub-second) bounds.
             _safetyCapOverride = safetyCapOverride;
+            _realmJoinStartWait = realmJoinStartWaitOverride ?? TimeSpan.FromMinutes(RealmJoinStartWaitMinutes);
             // The ESP SyncFailureTimeout is read at engage time (the ESP policy is present by then).
             _espTimeoutProvider = espTimeoutProvider
                 ?? (() => EspSkipConfigurationProbe.ReadFull(_logger).SyncFailureTimeoutMinutes);
@@ -180,21 +207,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // (which briefly waits on the keep-awake thread) is dispatched to the ThreadPool.
             try
             {
-                if (kind == DecisionSignalKind.EspExiting)
+                switch (kind)
                 {
-                    // Only the user-ESP page exit releases: the Device→Account handoff 62407 arrives
-                    // before any AccountSetup subcategory has left notStarted, the real exit after.
-                    // Cheap to skip while idle; the probe is a locked dictionary scan.
-                    if (IsEngagedOrEngaging() && ProbeAccountSetupProgress())
-                        ThreadPool.QueueUserWorkItem(_ => SafeRelease(ReasonUserEspExited, EventSeverity.Info));
-                    return;
+                    case DecisionSignalKind.EspExiting:
+                        // Only the user-ESP page exit counts: the Device→Account handoff 62407 arrives
+                        // before any AccountSetup subcategory has left notStarted, the real exit after.
+                        // Cheap to skip while idle; the probe is a locked dictionary scan.
+                        if (IsEngagedOrEngaging() && ProbeAccountSetupProgress())
+                            ThreadPool.QueueUserWorkItem(_ => SafeRun(OnUserEspPageClosed, "user-ESP exit"));
+                        return;
+
+                    case DecisionSignalKind.RealmJoinDetected:
+                    case DecisionSignalKind.RealmJoinPhaseChanged:
+                    case DecisionSignalKind.RealmJoinResolved:
+                        ObserveRealmJoin(kind, payload);
+                        return;
                 }
 
                 if (payload != null
                     && payload.TryGetValue(SignalPayloadKeys.EspPhase, out var phaseName)
                     && string.Equals(phaseName, AccountSetupPhaseName, StringComparison.OrdinalIgnoreCase))
                 {
-                    ThreadPool.QueueUserWorkItem(_ => SafeEngage());
+                    ThreadPool.QueueUserWorkItem(_ => SafeRun(Engage, "engage"));
                 }
             }
             catch (Exception ex)
@@ -203,10 +237,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
         }
 
-        private void SafeEngage()
+        /// <summary>
+        /// Records what the RealmJoin Watcher reported. The flags are set here, on the posting
+        /// thread, before any work is queued: the ThreadPool items run in no fixed order, and each
+        /// re-checks the hold state under <see cref="_gate"/>, so no hand-over is lost.
+        /// </summary>
+        private void ObserveRealmJoin(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
         {
-            try { Engage(); }
-            catch (Exception ex) { _logger.Error("UserEspKeepAwakeHost: engage failed.", ex); }
+            Volatile.Write(ref _realmJoinDetected, 1);
+
+            // Resolved is phase 110 by definition; Detected and PhaseChanged carry the phase.
+            var leftBlank = kind == DecisionSignalKind.RealmJoinResolved
+                || (payload != null
+                    && payload.TryGetValue(DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase, out var raw)
+                    && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var phase)
+                    && phase >= RealmJoinInfo.PhaseRunningThresholdMin);
+
+            if (leftBlank && Interlocked.Exchange(ref _realmJoinStarted, 1) == 0)
+                ThreadPool.QueueUserWorkItem(_ => SafeRun(OnRealmJoinStarted, "RealmJoin hand-over"));
+        }
+
+        private void SafeRun(Action work, string what)
+        {
+            try { work(); }
+            catch (Exception ex) { _logger.Error($"UserEspKeepAwakeHost: {what} failed.", ex); }
         }
 
         private bool IsEngagedOrEngaging()
@@ -224,12 +278,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
         }
 
-        private void SafeRelease(string reason, EventSeverity severity)
-        {
-            try { Release(reason, severity, emit: true); }
-            catch (Exception ex) { _logger.Error("UserEspKeepAwakeHost: release failed.", ex); }
-        }
-
         /// <summary>Engage the hold exactly once (Idle → Engaging → Engaged). No-op from any other state.</summary>
         private void Engage()
         {
@@ -239,6 +287,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             lock (_gate)
             {
                 if (_state != HoldState.Idle) return;
+                if (Volatile.Read(ref _realmJoinStarted) == 1)
+                {
+                    // Only after an agent restart: RealmJoin deploys (or is done) before the
+                    // AccountSetup phase is seen again — nothing left to hand over.
+                    _state = HoldState.Released;
+                    _logger.Info("UserEspKeepAwakeHost: RealmJoin has already started its deployment — keep-awake not engaged.");
+                    return;
+                }
                 // L16 (delta review 2026-07-02): claim the transition, but run the controller's
                 // Engage OUTSIDE the lock — it can block up to ~5 s on the keep-awake thread's
                 // ready-wait, and holding _gate across that stalled a concurrent Stop→Release.
@@ -272,8 +328,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 }
 
                 _activeCapMinutes = capMinutes;
-                // One-shot backstop (NOT periodic): fire once after the cap, then release.
-                _safetyCapTimer = new Timer(OnSafetyCapElapsed, null, cap, Timeout.InfiniteTimeSpan);
+                // One-shot backstop (NOT periodic). The page may have closed while engaging — then
+                // the RealmJoin wait is the bound already.
+                ArmCapTimer(_awaitingRealmJoin ? _realmJoinStartWait : cap);
                 _state = HoldState.Engaged;
             }
 
@@ -281,7 +338,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             {
                 ["osAccepted"] = osAccepted ? "true" : "false",
                 ["scope"] = "system+display",
-                ["capMinutes"] = capMinutes.ToString(),
+                ["capMinutes"] = capMinutes.ToString(CultureInfo.InvariantCulture),
                 ["capSource"] = capSource,
             });
         }
@@ -297,40 +354,128 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
+        /// The user-ESP page closed. Without RealmJoin, or with RealmJoin already past Blank, the
+        /// hold ends here. With RealmJoin still Blank it waits for the hand-over: the ESP-sized cap
+        /// gives way to the RealmJoin wait.
+        /// </summary>
+        private void OnUserEspPageClosed()
+        {
+            lock (_gate)
+            {
+                if (_state != HoldState.Engaging && _state != HoldState.Engaged) return;
+                if (_awaitingRealmJoin) return; // a repeated exit signal
+
+                if (Volatile.Read(ref _realmJoinDetected) == 1 && Volatile.Read(ref _realmJoinStarted) == 0)
+                {
+                    _awaitingRealmJoin = true;
+                    _userEspExitedUtc = _clock.UtcNow;
+                    // While Engaging, Engage arms the wait when it completes.
+                    if (_state == HoldState.Engaged) ArmCapTimer(_realmJoinStartWait);
+                    _logger.Info($"UserEspKeepAwakeHost: user-ESP page closed before RealmJoin started its deployment — holding keep-awake until it starts (max {_realmJoinStartWait.TotalMinutes:0} min).");
+                    return;
+                }
+            }
+
+            Release(ReasonUserEspExited, EventSeverity.Info);
+        }
+
+        /// <summary>RealmJoin left Blank — it keeps the device awake from here.</summary>
+        private void OnRealmJoinStarted()
+        {
+            Dictionary<string, string>? extra = null;
+            lock (_gate)
+            {
+                if (_state == HoldState.Released) return;
+                if (_state == HoldState.Idle)
+                {
+                    // Only after an agent restart (RealmJoin starts after the user-ESP page closed):
+                    // no hold to hand over, and none to take up later in this process.
+                    _state = HoldState.Released;
+                    _logger.Info("UserEspKeepAwakeHost: RealmJoin has already started its deployment — keep-awake will not engage.");
+                    return;
+                }
+                if (_awaitingRealmJoin)
+                {
+                    var waited = Math.Max(0, (_clock.UtcNow - _userEspExitedUtc).TotalSeconds);
+                    extra = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["waitedSeconds"] = ((long)waited).ToString(CultureInfo.InvariantCulture),
+                    };
+                }
+            }
+
+            Release(ReasonRealmJoinStarted, EventSeverity.Info, extra);
+        }
+
+        /// <summary>
         /// Release the hold exactly once (Idle/Engaging/Engaged → Released). Idempotent — a second
         /// call (or a competing completion / cap / stop trigger) is a no-op. A release that lands
         /// while an Engage is mid-flight (Engaging) wins: the engage path detects the final state
         /// after its blocking controller call and rolls the OS hold back (L16).
         /// </summary>
-        private void Release(string reason, EventSeverity severity, bool emit)
+        private void Release(string reason, EventSeverity severity, IReadOnlyDictionary<string, string>? extra = null)
         {
             bool wasEngaged;
             lock (_gate)
             {
                 if (_state == HoldState.Released) return;
-                DisarmSafetyCap();
+                DisarmCapTimer();
                 wasEngaged = _controller.Release();
                 _state = HoldState.Released;
             }
 
-            if (wasEngaged && emit)
+            if (!wasEngaged) return;
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = reason };
+            if (extra != null)
             {
-                Emit(Constants.EventTypes.KeepAwakeReleased, severity, new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["reason"] = reason,
-                });
+                foreach (var kv in extra) data[kv.Key] = kv.Value;
             }
+            Emit(Constants.EventTypes.KeepAwakeReleased, severity, data);
         }
 
-        private void OnSafetyCapElapsed(object? state)
+        private void OnCapTimerElapsed(object? timerState)
         {
-            _logger.Warning($"UserEspKeepAwakeHost: safety cap ({_activeCapMinutes} min) elapsed without User-ESP completion — releasing keep-awake.");
-            SafeRelease(ReasonSafetyCap, EventSeverity.Warning);
+            string reason;
+            EventSeverity severity;
+            Dictionary<string, string>? extra = null;
+            lock (_gate)
+            {
+                // A timer replaced at the page exit can still fire once — only the current one counts.
+                if (!(timerState is int generation) || generation != _capGeneration || _state == HoldState.Released) return;
+
+                if (_awaitingRealmJoin)
+                {
+                    reason = ReasonRealmJoinNotStarted;
+                    severity = EventSeverity.Info;
+                    extra = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["waitMinutes"] = ((int)Math.Round(_realmJoinStartWait.TotalMinutes)).ToString(CultureInfo.InvariantCulture),
+                    };
+                    _logger.Info($"UserEspKeepAwakeHost: RealmJoin did not start within {_realmJoinStartWait.TotalMinutes:0} min after the user-ESP page closed — releasing keep-awake.");
+                }
+                else
+                {
+                    reason = ReasonSafetyCap;
+                    severity = EventSeverity.Warning;
+                    _logger.Warning($"UserEspKeepAwakeHost: safety cap ({_activeCapMinutes} min) elapsed without User-ESP completion — releasing keep-awake.");
+                }
+            }
+
+            SafeRun(() => Release(reason, severity, extra), "release");
         }
 
         // Must be called under _gate.
-        private void DisarmSafetyCap()
+        private void ArmCapTimer(TimeSpan dueIn)
         {
+            DisarmCapTimer();
+            _safetyCapTimer = new Timer(OnCapTimerElapsed, _capGeneration, dueIn, Timeout.InfiniteTimeSpan);
+        }
+
+        // Must be called under _gate.
+        private void DisarmCapTimer()
+        {
+            _capGeneration++;
             var timer = _safetyCapTimer;
             _safetyCapTimer = null;
             try { timer?.Dispose(); } catch { }
@@ -369,7 +514,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             // Release synchronously on teardown. If a completion/cap release already won, this is a
             // no-op (state already Released). Emit is best-effort — the ingress may already be down.
-            Release(ReasonHostStop, EventSeverity.Info, emit: true);
+            Release(ReasonHostStop, EventSeverity.Info);
         }
 
         public void Dispose()
@@ -377,6 +522,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
             Stop();
             try { _controller.Dispose(); } catch { }
+        }
+
+        // Test seam — the page closed while RealmJoin was still Blank and the hold now waits for it.
+        internal bool AwaitingRealmJoinForTest
+        {
+            get { lock (_gate) { return _awaitingRealmJoin; } }
         }
     }
 }

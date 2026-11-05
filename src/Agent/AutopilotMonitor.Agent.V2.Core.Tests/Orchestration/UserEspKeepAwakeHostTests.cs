@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Persistence;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
+using SharedEventTypes = AutopilotMonitor.Shared.Constants.EventTypes;
 using Xunit;
 
 // ManualResetEventSlim.Wait inside the controller is driven deterministically here; SpinUntil is
@@ -294,6 +295,232 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
             // No completion signal — the safety cap must release the hold on its own.
             Assert.True(WaitFor(() => api.AllowCount == 1), "safety cap should release the keep-awake hold");
+            Assert.False(controller.IsEngaged);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        // -------- RealmJoin hand-over (D-413) --------
+
+        /// <summary>Records keep_awake_released payloads from the rail (posted on ThreadPool threads).</summary>
+        private sealed class ReleaseRecorder
+        {
+            private readonly object _lock = new object();
+            private readonly List<Dictionary<string, string>> _released = new List<Dictionary<string, string>>();
+
+            public ReleaseRecorder(SignalIngress ing) => ing.SignalPosted += OnPosted;
+
+            private void OnPosted(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
+            {
+                if (kind != DecisionSignalKind.InformationalEvent || payload == null) return;
+                if (!payload.TryGetValue(SignalPayloadKeys.EventType, out var eventType)
+                    || eventType != SharedEventTypes.KeepAwakeReleased) return;
+                var copy = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var kv in payload) copy[kv.Key] = kv.Value;
+                lock (_lock) { _released.Add(copy); }
+            }
+
+            public List<Dictionary<string, string>> Snapshot()
+            {
+                lock (_lock) { return new List<Dictionary<string, string>>(_released); }
+            }
+        }
+
+        private static void PostRealmJoin(SignalIngress ing, DecisionSignalKind kind, int? phase)
+        {
+            var payload = new Dictionary<string, string>();
+            if (phase.HasValue) payload[DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = phase.Value.ToString();
+            ing.Post(kind, At, "RealmJoinWatcher", Raw("rj"), payload: payload);
+        }
+
+        private UserEspKeepAwakeHost NewHost(
+            SignalIngress ing,
+            VirtualClock clock,
+            KeepAwakeController controller,
+            Func<bool>? progress = null,
+            TimeSpan? safetyCap = null,
+            TimeSpan? realmJoinWait = null) =>
+            new UserEspKeepAwakeHost(ing, clock, NewLogger(),
+                controller: controller,
+                safetyCapOverride: safetyCap,
+                espTimeoutProvider: () => null,
+                accountSetupProgressProbe: progress ?? (() => true),
+                realmJoinStartWaitOverride: realmJoinWait);
+
+        [Fact]
+        public void Page_exit_with_RealmJoin_still_Blank_holds_until_RealmJoin_starts()
+        {
+            // The common RealmJoin shape: detected during the ESP, deployment starts after the
+            // user-ESP page closed. The gap in between is what the hold now covers.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var recorder = new ReleaseRecorder(ing);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller, realmJoinWait: TimeSpan.FromMinutes(5));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinDetected, 0);
+
+            PostEspExiting(ing);
+            Assert.True(WaitFor(() => host.AwaitingRealmJoinForTest), "the page exit must start the RealmJoin wait");
+            PostEspExiting(ing); // a repeated exit changes nothing
+            Assert.False(WaitFor(() => api.AllowCount > 0, 500), "the hold must outlive the page exit while RealmJoin is Blank");
+            Assert.True(controller.IsEngaged);
+
+            clock.Advance(TimeSpan.FromSeconds(90));
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinPhaseChanged, 101);
+
+            Assert.True(WaitFor(() => api.AllowCount == 1), "RealmJoin leaving Blank must release the hold");
+            Assert.True(WaitFor(() => recorder.Snapshot().Count == 1));
+            var released = recorder.Snapshot()[0];
+            Assert.Equal(UserEspKeepAwakeHost.ReasonRealmJoinStarted, released["reason"]);
+            Assert.Equal("90", released["waitedSeconds"]);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void RealmJoin_wait_bound_releases_when_RealmJoin_never_starts()
+        {
+            // RealmJoin may never leave Blank in the session — the wait is bounded.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var recorder = new ReleaseRecorder(ing);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller, realmJoinWait: TimeSpan.FromMilliseconds(150));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinDetected, 0);
+            PostEspExiting(ing);
+
+            Assert.True(WaitFor(() => api.AllowCount == 1), "the RealmJoin wait must end the hold");
+            Assert.True(WaitFor(() => recorder.Snapshot().Count == 1));
+            var released = recorder.Snapshot()[0];
+            Assert.Equal(UserEspKeepAwakeHost.ReasonRealmJoinNotStarted, released["reason"]);
+            Assert.True(released.ContainsKey("waitMinutes"));
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void Page_exit_replaces_the_ESP_safety_cap_with_the_RealmJoin_wait()
+        {
+            // One timer, one bound per phase of the hold: once the page closed, the ESP-sized cap
+            // must not end the RealmJoin wait.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var recorder = new ReleaseRecorder(ing);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller,
+                safetyCap: TimeSpan.FromSeconds(1), realmJoinWait: TimeSpan.FromMinutes(5));
+
+            ing.Start();
+            host.Start();
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinDetected, 0);
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            PostEspExiting(ing);
+            Assert.True(WaitFor(() => host.AwaitingRealmJoinForTest));
+
+            Assert.False(WaitFor(() => api.AllowCount > 0, 1500), "the superseded ESP cap must not fire");
+
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinPhaseChanged, 101);
+            Assert.True(WaitFor(() => api.AllowCount == 1));
+            Assert.True(WaitFor(() => recorder.Snapshot().Count == 1));
+            Assert.Equal(UserEspKeepAwakeHost.ReasonRealmJoinStarted, recorder.Snapshot()[0]["reason"]);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void Page_exit_without_RealmJoin_releases_as_before()
+        {
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var recorder = new ReleaseRecorder(ing);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller, realmJoinWait: TimeSpan.FromMinutes(5));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            PostEspExiting(ing);
+
+            Assert.True(WaitFor(() => api.AllowCount == 1));
+            Assert.True(WaitFor(() => recorder.Snapshot().Count == 1));
+            Assert.Equal(UserEspKeepAwakeHost.ReasonUserEspExited, recorder.Snapshot()[0]["reason"]);
+            Assert.False(host.AwaitingRealmJoinForTest);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Theory]
+        [InlineData(DecisionSignalKind.RealmJoinPhaseChanged, 100)]
+        [InlineData(DecisionSignalKind.RealmJoinPhaseChanged, 210)]
+        [InlineData(DecisionSignalKind.RealmJoinResolved, null)]
+        public void RealmJoin_leaving_Blank_before_the_page_exit_releases_the_hold(DecisionSignalKind kind, int? phase)
+        {
+            // RealmJoin can start shortly before the page closes; it keeps the device awake from
+            // there. Resolved carries no phase and still means "left Blank".
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var recorder = new ReleaseRecorder(ing);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller, realmJoinWait: TimeSpan.FromMinutes(5));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinDetected, 0);
+            Assert.False(WaitFor(() => api.AllowCount > 0, 300), "detection alone must not release");
+
+            PostRealmJoin(ing, kind, phase);
+
+            Assert.True(WaitFor(() => api.AllowCount == 1));
+            Assert.True(WaitFor(() => recorder.Snapshot().Count == 1));
+            var released = recorder.Snapshot()[0];
+            Assert.Equal(UserEspKeepAwakeHost.ReasonRealmJoinStarted, released["reason"]);
+            Assert.False(released.ContainsKey("waitedSeconds"));
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void RealmJoin_already_deploying_before_AccountSetup_prevents_the_engage()
+        {
+            // Agent restart: the watcher reports the running phase from its start, and the
+            // AccountSetup phase is posted again afterwards — there is nothing to hand over.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = NewHost(ing, clock, controller, realmJoinWait: TimeSpan.FromMinutes(5));
+
+            ing.Start();
+            host.Start();
+            PostRealmJoin(ing, DecisionSignalKind.RealmJoinDetected, 101);
+            PostAccountSetupPhase(ing);
+
+            Assert.False(WaitFor(() => api.PreventCount > 0, 500), "no hold once RealmJoin deploys");
             Assert.False(controller.IsEngaged);
 
             host.Dispose();
