@@ -1054,20 +1054,23 @@ namespace AutopilotMonitor.Functions.Services
                 });
 
         /// <summary>
-        /// An analysis run stopped a rule (D-410): a regex hit its match timeout, or the run used up
-        /// its time budget in this rule and left <paramref name="skippedRules"/> later rules
-        /// unevaluated. Warning for a tenant's custom rule, Error for a built-in or community rule.
-        /// <c>RuleEvaluationStopReporter</c> throttles it; every stop is also in the Warning trace.
+        /// An analysis run stopped a rule (D-410): a regex hit its match timeout, the rule used up
+        /// its share of the run, or the run used up its whole budget in this rule (<paramref name="endsRun"/>)
+        /// and left <paramref name="skippedRules"/> later rules unevaluated. Warning for a tenant's
+        /// custom rule, Error for a built-in or community rule. <c>RuleEvaluationStopReporter</c>
+        /// throttles it; every stop is also in the Warning trace.
         /// </summary>
         public Task RecordRuleEvaluationStoppedAsync(
-            string tenantId, string sessionId, string ruleId, string reason, bool isCatalogRule, string runKind, int skippedRules)
+            string tenantId, string sessionId, string ruleId, string reason, bool isCatalogRule, bool endsRun, string runKind, int skippedRules)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.RuleEvaluationStopped,
                 isCatalogRule ? OpsEventSeverity.Error : OpsEventSeverity.Warning,
-                reason == EvaluationStopReasons.RegexTimeout
-                    ? $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: a regex hit its 1 s match timeout; the rule kept its previous result"
-                    : $"The {runKind} analysis of session {sessionId} used up its time budget in rule {ruleId}; {skippedRules} later rule(s) were not evaluated and kept their previous results",
+                endsRun
+                    ? $"The {runKind} analysis of session {sessionId} used up its time budget in rule {ruleId}; {skippedRules} later rule(s) were not evaluated and kept their previous results"
+                    : reason == EvaluationStopReasons.RegexTimeout
+                        ? $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: a regex hit its 1 s match timeout; the rule kept its previous result, the run went on"
+                        : $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: it used up its share of the run's time; the rule kept its previous result, the run went on",
                 tenantId, "System.RuleEngine",
-                new { ruleId, reason, catalogRule = isCatalogRule, sessionId, runKind, skippedRules });
+                new { ruleId, reason, catalogRule = isCatalogRule, endsRun, sessionId, runKind, skippedRules });
 
         /// <summary>
         /// App-version duration regression radar: an app's newest version installs with a median

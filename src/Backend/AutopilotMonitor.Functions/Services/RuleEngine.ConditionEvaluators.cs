@@ -873,7 +873,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (RegexMatchTimeoutException)
             {
-                throw new RuleEvaluationStoppedException(EvaluationStopReasons.RegexTimeout);
+                throw new RuleEvaluationStoppedException(EvaluationStopReasons.RegexTimeout, endsRun: false);
             }
             catch (ArgumentException)
             {

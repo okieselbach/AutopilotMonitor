@@ -46,7 +46,7 @@ public class RuleEvaluationBudgetTests
         // One timed-out match, not 200 of them.
         Assert.True(clock.ElapsedMilliseconds < 4000, $"took {clock.ElapsedMilliseconds} ms");
         var stop = Assert.Single(outcome.Stops);
-        Assert.Equal(new RuleEvaluationStop("TEST-REDOS", EvaluationStopReasons.RegexTimeout, IsCatalogRule: false), stop);
+        Assert.Equal(new RuleEvaluationStop("TEST-REDOS", EvaluationStopReasons.RegexTimeout, IsCatalogRule: false, EndsRun: false), stop);
         Assert.Empty(outcome.SkippedRuleIds);
         Assert.Equal(new[] { "TEST-NEXT" }, outcome.Results.Select(r => r.RuleId));
     }
@@ -74,12 +74,35 @@ public class RuleEvaluationBudgetTests
         var stop = Assert.Single(outcome.Stops);
         Assert.Equal("TEST-A", stop.RuleId);
         Assert.Equal(EvaluationStopReasons.TimeBudget, stop.Reason);
+        Assert.True(stop.EndsRun);
         Assert.Equal(new[] { "TEST-B", "TEST-C" }, outcome.SkippedRuleIds);
         Assert.Empty(outcome.Results);
         Assert.Empty(outcome.ResolvedResults); // a stop is no evidence that a finding went away
         Assert.Equal(new[] { interimA, interimB }, outcome.KeptResults);
         Assert.Null(interimA.ResolvedAt);
         Assert.True(interimA.IsInterim);
+    }
+
+    [Fact]
+    public async Task A_rule_that_spends_its_share_stops_alone_and_the_next_rule_still_runs()
+    {
+        // One expensive rule must not use up the run for every rule after it (a device can make
+        // catalog rules slow by flooding its own session): its share ends, the run goes on.
+        var events = new List<EnrollmentEvent> { Event("app_install_failed", 1, ("appId", "app-1")) };
+        var expensive = CustomRule("TEST-EXPENSIVE", new RuleCondition
+        {
+            Signal = "a", Source = "event_data", EventType = "app_install_failed",
+            DataField = "appId", Operator = "equals", Value = "app-1", Required = true,
+        });
+        var next = CustomRule("TEST-NEXT", ExistsCondition("app_install_failed"));
+
+        var outcome = await Harness(events, expensive, next).Engine(ruleBudget: TimeSpan.Zero)
+            .AnalyzeSessionAsync(TenantId, SessionId);
+
+        var stop = Assert.Single(outcome.Stops);
+        Assert.Equal(new RuleEvaluationStop("TEST-EXPENSIVE", EvaluationStopReasons.TimeBudget, IsCatalogRule: false, EndsRun: false), stop);
+        Assert.Empty(outcome.SkippedRuleIds);
+        Assert.Equal(new[] { "TEST-NEXT" }, outcome.Results.Select(r => r.RuleId));
     }
 
     /// <summary>
@@ -303,10 +326,11 @@ public class RuleEvaluationBudgetTests
 
         private AnalyzeRuleService Service() => new(Rules.Object, NullLogger<AnalyzeRuleService>.Instance);
 
-        public RuleEngine Engine(TimeSpan? runBudget = null) =>
+        public RuleEngine Engine(TimeSpan? runBudget = null, TimeSpan? ruleBudget = null) =>
             new(Service(), Rules.Object, Sessions.Object, NullLogger<RuleEvaluationBudgetTests>.Instance)
             {
                 RunBudget = runBudget ?? RuleEvaluationBudget.AnalysisRun,
+                RuleBudget = ruleBudget ?? RuleEvaluationBudget.AnalysisRule,
             };
 
         public GetRuleResultsFunction Function(ReanalyzeGate gate, List<OpsEventEntry> opsEvents) =>

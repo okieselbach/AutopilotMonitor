@@ -67,8 +67,8 @@ public class RuleWorkGateTests
     {
         var reporter = new RuleEvaluationStopReporter(TestNotifications.CapturingOpsEvents(_opsEvents));
         var outcome = new AnalysisOutcome();
-        outcome.Stops.Add(new RuleEvaluationStop("CUSTOM-1", EvaluationStopReasons.RegexTimeout, IsCatalogRule: false));
-        outcome.Stops.Add(new RuleEvaluationStop("ANALYZE-APP-002", EvaluationStopReasons.TimeBudget, IsCatalogRule: true));
+        outcome.Stops.Add(new RuleEvaluationStop("CUSTOM-1", EvaluationStopReasons.RegexTimeout, IsCatalogRule: false, EndsRun: false));
+        outcome.Stops.Add(new RuleEvaluationStop("ANALYZE-APP-002", EvaluationStopReasons.TimeBudget, IsCatalogRule: true, EndsRun: true));
         outcome.SkippedRuleIds.AddRange(new[] { "CUSTOM-2", "CUSTOM-3" });
 
         await reporter.ReportAsync("tenant-a", "session-1", AnalyzeRunKind.Terminal, outcome);
@@ -89,22 +89,41 @@ public class RuleWorkGateTests
         var reporter = new RuleEvaluationStopReporter(TestNotifications.CapturingOpsEvents(_opsEvents));
         var start = new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc);
 
-        Assert.True(reporter.Take("tenant-a", "CUSTOM-1", start));
-        Assert.False(reporter.Take("tenant-a", "CUSTOM-1", start.AddMinutes(59)));
-        Assert.True(reporter.Take("tenant-b", "CUSTOM-1", start.AddMinutes(1)));
-        Assert.True(reporter.Take("tenant-a", "CUSTOM-1", start + RuleEvaluationStopReporter.Window));
+        Assert.True(reporter.Take("tenant-a", "CUSTOM-1", isCatalogRule: false, start));
+        Assert.False(reporter.Take("tenant-a", "CUSTOM-1", isCatalogRule: false, start.AddMinutes(59)));
+        Assert.True(reporter.Take("tenant-b", "CUSTOM-1", isCatalogRule: false, start.AddMinutes(1)));
+        Assert.True(reporter.Take("tenant-a", "CUSTOM-1", isCatalogRule: false, start + RuleEvaluationStopReporter.Window));
     }
 
     [Fact]
-    public void A_tenant_with_many_rules_cannot_flood_the_alarm()
+    public void A_tenant_with_many_rules_cannot_flood_the_alarm_or_silence_others()
     {
         var reporter = new RuleEvaluationStopReporter(TestNotifications.CapturingOpsEvents(_opsEvents));
         var start = new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc);
 
-        var taken = Enumerable.Range(0, 1000).Count(i => reporter.Take("tenant-a", $"CUSTOM-{i}", start.AddSeconds(i)));
+        var noisyTenant = Enumerable.Range(0, 1000).Count(i => reporter.Take("tenant-noisy", $"CUSTOM-{i}", false, start.AddSeconds(i)));
+        Assert.Equal(RuleEvaluationStopReporter.MaxCustomEventsPerTenant, noisyTenant);
 
-        Assert.Equal(RuleEvaluationStopReporter.MaxEventsPerWindow, taken);
-        Assert.True(reporter.Take("tenant-a", "CUSTOM-new", start + RuleEvaluationStopReporter.Window));
+        // Another tenant and the catalog keep their own room.
+        Assert.True(reporter.Take("tenant-quiet", "CUSTOM-1", false, start.AddMinutes(20)));
+        Assert.True(reporter.Take("tenant-noisy", "ANALYZE-SEC-005", isCatalogRule: true, start.AddMinutes(21)));
+
+        // A new window starts over.
+        Assert.True(reporter.Take("tenant-noisy", "CUSTOM-new", false, start + RuleEvaluationStopReporter.Window));
+    }
+
+    [Fact]
+    public void Custom_rule_stops_of_all_tenants_never_take_the_catalog_slots()
+    {
+        var reporter = new RuleEvaluationStopReporter(TestNotifications.CapturingOpsEvents(_opsEvents));
+        var start = new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc);
+
+        var custom = Enumerable.Range(0, 100).Count(t =>
+            Enumerable.Range(0, 10).Count(r => reporter.Take($"tenant-{t}", $"CUSTOM-{r}", false, start)) > 0);
+        var catalog = Enumerable.Range(0, 100).Count(r => reporter.Take("tenant-0", $"ANALYZE-X-{r:D3}", true, start));
+
+        Assert.Equal(RuleEvaluationStopReporter.MaxCustomEventsPerWindow / RuleEvaluationStopReporter.MaxCustomEventsPerTenant, custom);
+        Assert.Equal(RuleEvaluationStopReporter.MaxCatalogEventsPerWindow, catalog);
     }
 
     private RuleWorkGate Gate(string name, int limit)

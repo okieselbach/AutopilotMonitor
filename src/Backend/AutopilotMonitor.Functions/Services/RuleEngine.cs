@@ -27,6 +27,9 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>Time budget of one analysis run (<see cref="RuleEvaluationBudget.AnalysisRun"/>); tests shrink it.</summary>
         internal TimeSpan RunBudget { get; init; } = RuleEvaluationBudget.AnalysisRun;
 
+        /// <summary>One rule's share of the run (<see cref="RuleEvaluationBudget.AnalysisRule"/>); tests shrink it.</summary>
+        internal TimeSpan RuleBudget { get; init; } = RuleEvaluationBudget.AnalysisRule;
+
         /// <summary>
         /// Evaluates analyze rules against the full session event stream. Fetches events internally.
         /// Legacy overload — maps to <see cref="AnalyzeRunKind.Terminal"/> (or
@@ -75,10 +78,11 @@ namespace AutopilotMonitor.Functions.Services
         /// </para>
         /// <para>
         /// <b>Evaluation budget (D-410):</b> the run gets <see cref="RunBudget"/> for all rules
-        /// together. A regex match timeout stops that rule and the run goes on; a spent budget
-        /// stops the rule and leaves every later rule unevaluated. A rule that does not finish
-        /// keeps its stored row untouched (<see cref="AnalysisOutcome.KeptResults"/>) and is
-        /// listed in <see cref="AnalysisOutcome.Stops"/> / <see cref="AnalysisOutcome.SkippedRuleIds"/>.
+        /// together and each rule <see cref="RuleBudget"/> of it. A regex match timeout or a spent
+        /// share stops that rule and the run goes on; a spent run budget stops the rule and leaves
+        /// every later rule unevaluated. A rule that does not finish keeps its stored row untouched
+        /// (<see cref="AnalysisOutcome.KeptResults"/>) and is listed in
+        /// <see cref="AnalysisOutcome.Stops"/> / <see cref="AnalysisOutcome.SkippedRuleIds"/>.
         /// </para>
         /// </summary>
         public async Task<AnalysisOutcome> AnalyzeSessionAsync(string tenantId, string sessionId, AnalyzeRunContext context)
@@ -128,7 +132,8 @@ namespace AutopilotMonitor.Functions.Services
 
             var now = DateTime.UtcNow;
 
-            // One budget for the whole run, started after the storage reads. Global rules
+            // One budget for the whole run, started after the storage reads, and a share of it per
+            // rule, so one expensive rule stops alone instead of using up the run. Global rules
             // (built-in, community) come before the tenant's custom rules — the merge order of
             // GetAllRulesForTenantAsync — so a run that spends its budget runs out on the
             // custom rules. A change to that order changes who pays (D-410).
@@ -146,7 +151,7 @@ namespace AutopilotMonitor.Functions.Services
                     // Track that this rule was evaluated (for telemetry)
                     outcome.EvaluatedRules.Add(rule);
 
-                    var result = EvaluateRule(rule, allEvents, budget);
+                    var result = EvaluateRule(rule, allEvents, budget.ForRule(RuleBudget));
                     if (result != null)
                     {
                         result.SessionId = sessionId;
@@ -196,12 +201,13 @@ namespace AutopilotMonitor.Functions.Services
                     // The rule did not finish: whatever is stored for it stays as it is — a stop is
                     // no evidence that the finding went away.
                     KeepStoredRow(outcome, existing);
-                    outcome.Stops.Add(new RuleEvaluationStop(rule.RuleId, stop.Reason, rule.IsBuiltIn || rule.IsCommunity));
+                    outcome.Stops.Add(new RuleEvaluationStop(rule.RuleId, stop.Reason, rule.IsBuiltIn || rule.IsCommunity, stop.EndsRun));
 
-                    if (stop.Reason == EvaluationStopReasons.RegexTimeout)
+                    if (!stop.EndsRun)
                     {
+                        // A regex timeout or the rule's own share: only this rule stops.
                         _logger.LogWarning(
-                            "Rule evaluation stopped: {Reason} in rule {RuleId} for session {SessionId} of tenant {TenantId} ({Kind}) after {ElapsedMs} ms of the run",
+                            "Rule evaluation stopped: {Reason} in rule {RuleId} for session {SessionId} of tenant {TenantId} ({Kind}) after {ElapsedMs} ms of the run; the run goes on",
                             stop.Reason, rule.RuleId, sessionId, tenantId, context.Kind, (long)budget.Elapsed.TotalMilliseconds);
                         continue;
                     }
@@ -511,9 +517,10 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// One rule a pass stopped: <paramref name="Reason"/> is regex_timeout or time_budget
     /// (EvaluationStopReasons); <paramref name="IsCatalogRule"/> tells a built-in or community
-    /// rule (our pattern) from a tenant's custom rule (the author's).
+    /// rule (our pattern) from a tenant's custom rule (the author's); <paramref name="EndsRun"/>
+    /// is true when the run's budget ran out in this rule and the later rules were skipped.
     /// </summary>
-    public sealed record RuleEvaluationStop(string RuleId, string Reason, bool IsCatalogRule);
+    public sealed record RuleEvaluationStop(string RuleId, string Reason, bool IsCatalogRule, bool EndsRun);
 
     /// <summary>Which flavor of analyze run is executing — decides rule scope, dedupe and KO behavior.</summary>
     public enum AnalyzeRunKind
