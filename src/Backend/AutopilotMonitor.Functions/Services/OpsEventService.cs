@@ -1067,7 +1067,7 @@ namespace AutopilotMonitor.Functions.Services
                 endsRun
                     ? $"The {runKind} analysis of session {sessionId} used up its time budget in rule {ruleId}; {skippedRules} later rule(s) were not evaluated and kept their previous results"
                     : reason == EvaluationStopReasons.RegexTimeout
-                        ? $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: a regex hit its 1 s match timeout; the rule kept its previous result, the run went on"
+                        ? $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: a regex hit its match timeout; the rule kept its previous result, the run went on"
                         : $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: it used up its share of the run's time; the rule kept its previous result, the run went on",
                 tenantId, "System.RuleEngine",
                 new { ruleId, reason, catalogRule = isCatalogRule, endsRun, sessionId, runKind, skippedRules });

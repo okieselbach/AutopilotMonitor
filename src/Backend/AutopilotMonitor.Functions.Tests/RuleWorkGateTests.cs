@@ -56,8 +56,9 @@ public class RuleWorkGateTests
     public void Default_limits_never_refuse_a_person()
     {
         var ops = TestNotifications.CapturingOpsEvents(_opsEvents);
-        Assert.Equal(2, new RuleDryRunGate(ops, NullLogger<RuleDryRunGate>.Instance).Limit);
-        Assert.Equal(4, new ReanalyzeGate(ops, NullLogger<ReanalyzeGate>.Instance).Limit);
+        // One above the measured peak: 3 parallel dry-runs from one AI client on one instance.
+        Assert.Equal(4, new RuleDryRunGate(ops, NullLogger<RuleDryRunGate>.Instance).Limit);
+        Assert.Equal(5, new ReanalyzeGate(ops, NullLogger<ReanalyzeGate>.Instance).Limit);
     }
 
     // ===== RuleEvaluationStopReporter =====

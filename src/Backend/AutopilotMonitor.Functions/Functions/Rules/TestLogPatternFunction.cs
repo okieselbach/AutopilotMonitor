@@ -299,11 +299,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// construction to the end of the evaluation; a caller finding no free slot is answered 429
     /// at once, so this endpoint can never occupy more than <see cref="ConcurrencyGate.Limit"/>
     /// worker threads of an instance, whatever the request rate. Nothing but this test waits on
-    /// this gate. Retry-After 3 s: the 2 s budget plus one running match.
+    /// this gate; AI clients fire it in parallel (2 at once measured), so the limit sits one above.
+    /// Retry-After 3 s: the 2 s budget plus one running match.
     /// </summary>
     public sealed class TestLogPatternGate : RuleWorkGate
     {
-        internal const int DefaultLimit = 2;
+        internal const int DefaultLimit = 3;
 
         public TestLogPatternGate(OpsEventService opsEvents, ILogger<TestLogPatternGate> logger)
             : this(DefaultLimit, opsEvents, logger)

@@ -167,7 +167,7 @@ export default function AnalysisResultsSection({
                   : `${stoppedRuleIds.length} rules stopped at the time limit`}
               </div>
               <div className="mt-1 text-xs text-yellow-800">
-                They kept their previous result. A rule stops when one of its patterns takes longer than 1 second.
+                They kept their previous result. A rule stops when one of its patterns takes longer than 2 seconds.
               </div>
               <div className="mt-1 font-mono text-xs">
                 {stoppedRuleIds.join(", ")}

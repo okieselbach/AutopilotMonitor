@@ -163,12 +163,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// <summary>
     /// Per-instance cap on concurrent "Analyze now" rebuilds (singleton). A slot is held from the
     /// analysis to the last rewritten row. The button is the only caller and a rebuild takes a
-    /// fraction of a second, so four slots never refuse a person; they stop a request flood from
+    /// fraction of a second, so five slots never refuse a person; they stop a request flood from
     /// holding every thread of an instance. Retry-After 5 s: one run's budget.
     /// </summary>
     public sealed class ReanalyzeGate : RuleWorkGate
     {
-        internal const int DefaultLimit = 4;
+        internal const int DefaultLimit = 5;
 
         public ReanalyzeGate(OpsEventService opsEvents, ILogger<ReanalyzeGate> logger)
             : this(DefaultLimit, opsEvents, logger)

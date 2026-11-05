@@ -310,10 +310,10 @@ public class TestLogPatternFunctionTests
     }
 
     [Fact]
-    public void Gate_DefaultLimit_IsTwoPerInstance()
+    public void Gate_DefaultLimit_IsThreePerInstance()
     {
         var gate = new TestLogPatternGate(TestNotifications.CapturingOpsEvents(new()), Microsoft.Extensions.Logging.Abstractions.NullLogger<TestLogPatternGate>.Instance);
-        Assert.Equal(2, gate.Limit);
+        Assert.Equal(3, gate.Limit);
         Assert.Equal(TestLogPatternGate.DefaultLimit, gate.Limit);
     }
 }

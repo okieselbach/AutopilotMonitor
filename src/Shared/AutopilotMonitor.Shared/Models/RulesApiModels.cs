@@ -80,7 +80,7 @@ namespace AutopilotMonitor.Shared.Models
     /// </summary>
     public static class EvaluationStopReasons
     {
-        /// <summary>A regex hit its 1 s match timeout (catastrophic backtracking).</summary>
+        /// <summary>A regex hit its match timeout (catastrophic backtracking).</summary>
         public const string RegexTimeout = "regex_timeout";
 
         /// <summary>The evaluation as a whole used up its time budget.</summary>

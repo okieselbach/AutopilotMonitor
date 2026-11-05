@@ -152,7 +152,7 @@ public class RulesWireParityTests
             ConfidenceThreshold = 60,
             // D-410: verdict "stopped" — the trace keeps only the entries evaluated before the stop.
             StopReason = EvaluationStopReasons.RegexTimeout,
-            StopNote = "conditions[0] ('slow'): a regex hit the 1 s match timeout on this session's data",
+            StopNote = "conditions[0] ('slow'): a regex hit the 2 s match timeout on this session's data",
         };
 
         AssertParity(

@@ -101,7 +101,7 @@ describe('test_analyze_rule', () => {
       result: {
         verdict: 'stopped',
         stopReason: 'regex_timeout',
-        stopNote: "conditions[0] ('app_failure'): a regex hit the 1 s match timeout on this session's data",
+        stopNote: "conditions[0] ('app_failure'): a regex hit the 2 s match timeout on this session's data",
       },
     });
 

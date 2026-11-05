@@ -235,11 +235,13 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// Per-instance cap on concurrent analyze dry-runs (singleton). A slot is held from before the
     /// session is read to the response, so this endpoint never occupies more than
     /// <see cref="ConcurrencyGate.Limit"/> threads of an instance, whatever the request rate.
-    /// Retry-After 5 s: an event read plus the 2 s budget plus one running match.
+    /// The concurrency comes from AI clients firing several tool calls at once (3 within 50 ms
+    /// measured on one instance), so the limit sits one above that. Retry-After 5 s: an event read
+    /// plus the 2 s budget plus one running match.
     /// </summary>
     public sealed class RuleDryRunGate : RuleWorkGate
     {
-        internal const int DefaultLimit = 2;
+        internal const int DefaultLimit = 4;
 
         public RuleDryRunGate(OpsEventService opsEvents, ILogger<RuleDryRunGate> logger)
             : this(DefaultLimit, opsEvents, logger)

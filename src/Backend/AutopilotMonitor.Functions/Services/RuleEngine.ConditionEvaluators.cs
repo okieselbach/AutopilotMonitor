@@ -798,9 +798,12 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
-        /// <summary>Per-match timeout of a rule's regex. A constant: the static <see cref="Regex.IsMatch(string, string, RegexOptions, TimeSpan)"/>
-        /// caches by pattern, options AND timeout.</summary>
-        private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+        /// <summary>Per-match timeout of a rule's regex: above the longest process stall measured
+        /// (1.85 s), so a pause never stops a legitimate rule; a real match takes microseconds. A
+        /// constant: the static <see cref="Regex.IsMatch(string, string, RegexOptions, TimeSpan)"/>
+        /// caches by pattern, options AND timeout. Not the logparser pattern test's 1 s, which mirrors
+        /// the agent.</summary>
+        private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(2);
 
         /// <summary>
         /// Every operator evaluation of a rule passes through here, once per event (or array

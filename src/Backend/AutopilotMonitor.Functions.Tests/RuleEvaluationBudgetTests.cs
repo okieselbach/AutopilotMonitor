@@ -22,7 +22,7 @@ public class RuleEvaluationBudgetTests
     private const string TenantId = "tenant-budget";
     private const string SessionId = "session-budget";
 
-    /// <summary>Nested quantifier over input it cannot match: catastrophic backtracking, ends at the 1 s match timeout.</summary>
+    /// <summary>Nested quantifier over input it cannot match: catastrophic backtracking, ends at the match timeout (2 s).</summary>
     private const string CatastrophicPattern = @"^(\w+\s?)+$";
     private static readonly string NonMatchingInput = new string('a', 60) + "!";
 
@@ -43,8 +43,8 @@ public class RuleEvaluationBudgetTests
         var outcome = await Harness(events, redos, next).Engine().AnalyzeSessionAsync(TenantId, SessionId);
         clock.Stop();
 
-        // One timed-out match, not 200 of them.
-        Assert.True(clock.ElapsedMilliseconds < 4000, $"took {clock.ElapsedMilliseconds} ms");
+        // One timed-out match (2 s), not 200 of them.
+        Assert.True(clock.ElapsedMilliseconds < 5000, $"took {clock.ElapsedMilliseconds} ms");
         var stop = Assert.Single(outcome.Stops);
         Assert.Equal(new RuleEvaluationStop("TEST-REDOS", EvaluationStopReasons.RegexTimeout, IsCatalogRule: false, EndsRun: false), stop);
         Assert.Empty(outcome.SkippedRuleIds);
@@ -163,7 +163,7 @@ public class RuleEvaluationBudgetTests
 
         Assert.Equal(RuleDryRunVerdict.Stopped, dry.Verdict);
         Assert.Equal(EvaluationStopReasons.RegexTimeout, dry.StopReason);
-        Assert.StartsWith("conditions[1] ('slow'): a regex hit the 1 s match timeout", dry.StopNote);
+        Assert.StartsWith("conditions[1] ('slow'): a regex hit the 2 s match timeout", dry.StopNote);
         // Only what finished before the stop; no half-evaluated evidence map.
         Assert.Equal(new[] { "exists_app_install_failed" }, dry.Conditions.Select(c => c.Signal));
         Assert.Null(dry.MatchedConditions);
