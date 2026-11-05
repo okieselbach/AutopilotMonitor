@@ -21,7 +21,10 @@ namespace AutopilotMonitor.Functions.Functions.Raw
     /// </summary>
     public class AccessProbeFunction
     {
-        [Function("GlobalAccessProbe")]
+        /// <summary>Its request rows carry a tool name for a call that never ran; usage counts leave them out by it.</summary>
+        internal const string FunctionName = "GlobalAccessProbe";
+
+        [Function(FunctionName)]
         public async Task<HttpResponseData> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/raw/access-probe")] HttpRequestData req,
             FunctionContext context)

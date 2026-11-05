@@ -136,18 +136,18 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             // See memory project_ingest_request_multiplication_429 for the full diagnosis.
 
             // Business context from downstream middleware
-            requestTelemetry.Properties["Source"] = "WorkerMiddleware";
-            requestTelemetry.Properties["FunctionName"] = functionName;
-            requestTelemetry.Properties["HttpMethod"] = method;
-            requestTelemetry.Properties["HttpPath"] = httpContext.Request.Path.Value ?? "";
+            requestTelemetry.Properties[RequestRowDimensions.Source] = RequestRowDimensions.WorkerMiddleware;
+            requestTelemetry.Properties[RequestRowDimensions.FunctionName] = functionName;
+            requestTelemetry.Properties[RequestRowDimensions.HttpMethod] = method;
+            requestTelemetry.Properties[RequestRowDimensions.HttpPath] = httpContext.Request.Path.Value ?? "";
 
             var clientSource = httpContext.Request.Headers["X-Client-Source"].FirstOrDefault();
             if (!string.IsNullOrEmpty(clientSource))
-                requestTelemetry.Properties["ClientSource"] = clientSource;
+                requestTelemetry.Properties[RequestRowDimensions.ClientSource] = clientSource;
 
             var mcpToolName = httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault();
             if (!string.IsNullOrEmpty(mcpToolName))
-                requestTelemetry.Properties["McpToolName"] = mcpToolName;
+                requestTelemetry.Properties[RequestRowDimensions.McpToolName] = mcpToolName;
 
             // APPLICATION PRINCIPALS — the request-row dimension that lets KQL separate automation
             // (app-only tokens) from people: "app" plus the calling client id, nothing for a person.
@@ -167,7 +167,7 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
                 requestTelemetry.Properties["ClientAppId"] = clientAppId;
 
             if (context.Items.TryGetValue("CorrelationId", out var corrId) && corrId is string correlationId)
-                requestTelemetry.Properties["CorrelationId"] = correlationId;
+                requestTelemetry.Properties[RequestRowDimensions.CorrelationId] = correlationId;
 
             // THROTTLE SURFACE — set by UserRateLimitMiddleware from the signed client-auth claim
             // (portal = public client, integration = confidential client / app-only). Next to the
@@ -217,11 +217,11 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
                 httpContext.Request.Path.Value ?? string.Empty,
                 httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault());
             if (!string.IsNullOrEmpty(tenantId))
-                requestTelemetry.Properties["TenantId"] = tenantId;
+                requestTelemetry.Properties[RequestRowDimensions.TenantId] = tenantId;
             if (!string.IsNullOrEmpty(reqCtx.UserPrincipalName))
-                requestTelemetry.Properties["UserId"] = reqCtx.UserPrincipalName;
+                requestTelemetry.Properties[RequestRowDimensions.UserId] = reqCtx.UserPrincipalName;
             if (!string.IsNullOrEmpty(reqCtx.UserRole))
-                requestTelemetry.Properties["UserRole"] = reqCtx.UserRole;
+                requestTelemetry.Properties[RequestRowDimensions.UserRole] = reqCtx.UserRole;
 
             if (caughtException != null)
                 requestTelemetry.Properties["ExceptionType"] = caughtException.GetType().Name;

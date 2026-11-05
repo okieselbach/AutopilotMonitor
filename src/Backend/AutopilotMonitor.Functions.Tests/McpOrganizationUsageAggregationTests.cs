@@ -96,7 +96,7 @@ public class McpOrganizationUsageAggregationTests
             Row(Member, "20260903", 7),         // read window past today (range only)
         };
 
-        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+        var quota = McpQuotaNodes.BuildOrganizationQuota(
             rows, new McpQuotaService.TenantPlanLimits("pro", 1500, 15000), "20260902", "20260901");
 
         Assert.Equal("pro", quota.TenantPlan);
@@ -114,7 +114,7 @@ public class McpOrganizationUsageAggregationTests
     public void OrganizationQuota_PurchasedSlots_CarryTheBreakdown()
     {
         // 3 000 + 3 × 900 = 5 700 — the limits arrive grown; the slot fields let the page show the sum.
-        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+        var quota = McpQuotaNodes.BuildOrganizationQuota(
             new[] { Row(Member, "20260902", 3) },
             new McpQuotaService.TenantPlanLimits("pro", 5700, 114000, PurchasedDelegatedSlots: 3, SlotTenantDailyLimit: 900, SlotTenantMonthlyLimit: 18000),
             "20260902", "20260901");
@@ -145,7 +145,7 @@ public class McpOrganizationUsageAggregationTests
     [Fact]
     public void OrganizationQuota_LiftedWindows_StillReportTheCounters()
     {
-        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+        var quota = McpQuotaNodes.BuildOrganizationQuota(
             new[] { Row(Member, "20260902", 3) }, new McpQuotaService.TenantPlanLimits("pro", 0, 0), "20260902", "20260901");
 
         Assert.Equal(0, quota.DailyLimit);

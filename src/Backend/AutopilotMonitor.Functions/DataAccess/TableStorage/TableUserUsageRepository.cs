@@ -251,19 +251,27 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 return records;
 
             await foreach (var entity in _tenantTableClient.QueryAsync<TableEntity>(filter: BuildTenantCounterFilter(tenantId, dateFrom, dateTo)))
-            {
-                records.Add(new TenantUsageRecord
-                {
-                    TenantId = entity.PartitionKey,
-                    UserId = entity.GetString("UserId") ?? string.Empty,
-                    UserPrincipalName = entity.GetString("UserPrincipalName") ?? string.Empty,
-                    Date = entity.GetString("Date") ?? entity.RowKey.Split('_')[0],
-                    RequestCount = entity.TryGetValue("RequestCount", out var rc) ? Convert.ToInt64(rc) : 0L,
-                    LastRequestAt = entity.GetDateTimeOffset("LastRequestAt")?.UtcDateTime,
-                });
-            }
+                records.Add(MapTenantRecord(entity));
             return records;
         }
+
+        public async Task<List<TenantUsageRecord>> GetAllTenantUsageAsync(string dateFrom, string dateTo)
+        {
+            var records = new List<TenantUsageRecord>();
+            await foreach (var entity in _tenantTableClient.QueryAsync<TableEntity>(filter: BuildDayRangeFilter(dateFrom, dateTo)))
+                records.Add(MapTenantRecord(entity));
+            return records;
+        }
+
+        private static TenantUsageRecord MapTenantRecord(TableEntity entity) => new()
+        {
+            TenantId = entity.PartitionKey,
+            UserId = entity.GetString("UserId") ?? string.Empty,
+            UserPrincipalName = entity.GetString("UserPrincipalName") ?? string.Empty,
+            Date = entity.GetString("Date") ?? entity.RowKey.Split('_')[0],
+            RequestCount = entity.TryGetValue("RequestCount", out var rc) ? Convert.ToInt64(rc) : 0L,
+            LastRequestAt = entity.GetDateTimeOffset("LastRequestAt")?.UtcDateTime,
+        };
 
         /// <summary>
         /// Partition + RowKey range filter for McpTenantUsage: the RowKey starts with the yyyyMMdd day, so a
@@ -272,11 +280,19 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         internal static string BuildTenantCounterFilter(string tenantId, string? dateFrom, string? dateTo)
         {
             var filter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'";
+            var days = BuildDayRangeFilter(dateFrom, dateTo);
+            return days.Length == 0 ? filter : $"{filter} and {days}";
+        }
+
+        /// <summary>The RowKey day range of McpTenantUsage without a partition — empty when neither bound is set.</summary>
+        internal static string BuildDayRangeFilter(string? dateFrom, string? dateTo)
+        {
+            var clauses = new List<string>(2);
             if (!string.IsNullOrEmpty(dateFrom))
-                filter += $" and RowKey ge '{ODataSanitizer.EscapeValue(dateFrom.Replace("-", ""))}'";
+                clauses.Add($"RowKey ge '{ODataSanitizer.EscapeValue(dateFrom.Replace("-", ""))}'");
             if (!string.IsNullOrEmpty(dateTo))
-                filter += $" and RowKey lt '{ODataSanitizer.EscapeValue(dateTo.Replace("-", ""))}~'";
-            return filter;
+                clauses.Add($"RowKey lt '{ODataSanitizer.EscapeValue(dateTo.Replace("-", ""))}~'");
+            return string.Join(" and ", clauses);
         }
 
         public async Task<int> DeleteTenantRecordsOlderThanAsync(string dateCutoff)

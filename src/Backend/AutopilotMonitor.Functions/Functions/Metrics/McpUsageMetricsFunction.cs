@@ -22,17 +22,70 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         private readonly IUserUsageRepository _userUsageRepo;
         private readonly McpUserService _mcpUserService;
         private readonly McpQuotaService _quotaService;
+        private readonly McpUsageOverviewService _overviewService;
 
         public McpUsageMetricsFunction(
             ILogger<McpUsageMetricsFunction> logger,
             IUserUsageRepository userUsageRepo,
             McpUserService mcpUserService,
-            McpQuotaService quotaService)
+            McpQuotaService quotaService,
+            McpUsageOverviewService overviewService)
         {
             _logger = logger;
             _userUsageRepo = userUsageRepo;
             _mcpUserService = mcpUserService;
             _quotaService = quotaService;
+            _overviewService = overviewService;
+        }
+
+        /// <summary>
+        /// GET /api/global/metrics/mcp-usage/overview?days=&amp;platformAdmins= — the all-tenant MCP usage overview of
+        /// the Global Admin metrics page: tenants with accounts and quota state, the tool ranking, quota refusals,
+        /// per-minute peaks and the daily trend (see <see cref="McpUsageOverviewService"/>). <c>days</c> = 1–90 (the
+        /// telemetry keeps 90 days), default 30; <c>platformAdmins=include</c> counts Global Admins and Global Readers,
+        /// left out by default.
+        /// </summary>
+        [Function("GetGlobalMcpUsageOverview")]
+        public async Task<HttpResponseData> GetGlobalUsageOverview(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/mcp-usage/overview")] HttpRequestData req)
+        {
+            var query = ParseOverviewQuery(req.Query["days"], req.Query["platformAdmins"]);
+            if (query.Error != null)
+            {
+                return await req.BadRequestAsync(query.Error);
+            }
+
+            try
+            {
+                var overview = await _overviewService.BuildAsync(query.Days, query.IncludePlatformAdmins);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(overview);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
+            }
+        }
+
+        /// <summary>
+        /// Pure: the overview's query string. <c>days</c> defaults to 30 and must be an integer from 1 to
+        /// <see cref="McpUsageOverviewService.MaxDays"/>; <c>platformAdmins</c> is <c>include</c> or <c>exclude</c>
+        /// (the default). Anything else names the problem in <c>Error</c>.
+        /// </summary>
+        internal static (int Days, bool IncludePlatformAdmins, string? Error) ParseOverviewQuery(string? rawDays, string? platformAdmins)
+        {
+            if (!QueryParams.TryInt(rawDays, "days", 1, McpUsageOverviewService.MaxDays, out var days, out var error))
+            {
+                return (0, false, error);
+            }
+
+            if (!string.IsNullOrWhiteSpace(platformAdmins) && platformAdmins is not ("include" or "exclude"))
+            {
+                return (0, false, "platformAdmins must be include or exclude");
+            }
+
+            return (days ?? 30, platformAdmins == "include", null);
         }
 
         /// <summary>
@@ -87,11 +140,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                         TenantMonthlyLimit = quota.TenantMonthlyLimit,
                         TenantDailyUsed = quota.TenantDailyUsed,
                         TenantMonthlyUsed = quota.TenantMonthlyUsed,
-                        PurchasedDelegatedSlots = WithSlots(quota.PurchasedDelegatedSlots, quota.PurchasedDelegatedSlots),
-                        SlotDailyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotDailyLimit),
-                        SlotMonthlyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotMonthlyLimit),
-                        SlotTenantDailyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantDailyLimit),
-                        SlotTenantMonthlyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantMonthlyLimit),
+                        PurchasedDelegatedSlots = McpQuotaNodes.WithSlots(quota.PurchasedDelegatedSlots, quota.PurchasedDelegatedSlots),
+                        SlotDailyLimit = McpQuotaNodes.WithSlots(quota.PurchasedDelegatedSlots, quota.SlotDailyLimit),
+                        SlotMonthlyLimit = McpQuotaNodes.WithSlots(quota.PurchasedDelegatedSlots, quota.SlotMonthlyLimit),
+                        SlotTenantDailyLimit = McpQuotaNodes.WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantDailyLimit),
+                        SlotTenantMonthlyLimit = McpQuotaNodes.WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantMonthlyLimit),
                     },
                     Records = records
                 });
@@ -165,7 +218,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     DateFrom = dateFrom,
                     DateTo = dateTo,
                     Users = AggregateOrganizationUsage(records, dateFrom, dateTo, today, monthStart),
-                    Quota = BuildOrganizationQuota(records, limits, today, monthStart),
+                    Quota = McpQuotaNodes.BuildOrganizationQuota(records, limits, today, monthStart),
                     Daily = BuildOrganizationDaily(records, dateFrom, dateTo),
                 });
                 return response;
@@ -190,37 +243,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             return byDay.Select(kv => new McpOrganizationDailyItem { Date = kv.Key, Requests = kv.Value }).ToList();
         }
-
-        /// <summary>
-        /// Pure: the tenant's organization windows from the same counter rows — today's and this month's total over
-        /// every account charged to the tenant, against the tenant plan's limits (0 = unlimited).
-        /// </summary>
-        internal static McpOrganizationQuotaNode BuildOrganizationQuota(
-            IEnumerable<TenantUsageRecord> records, McpQuotaService.TenantPlanLimits limits, string today, string monthStart)
-        {
-            long dailyUsed = 0, monthlyUsed = 0;
-            foreach (var record in records)
-            {
-                if (record.Date == today) dailyUsed += record.RequestCount;
-                if (string.CompareOrdinal(record.Date, monthStart) >= 0 && string.CompareOrdinal(record.Date, today) <= 0)
-                    monthlyUsed += record.RequestCount;
-            }
-
-            return new McpOrganizationQuotaNode
-            {
-                TenantPlan = limits.TenantPlan,
-                DailyLimit = limits.TenantDailyLimit,
-                MonthlyLimit = limits.TenantMonthlyLimit,
-                DailyUsed = dailyUsed,
-                MonthlyUsed = monthlyUsed,
-                PurchasedDelegatedSlots = WithSlots(limits.PurchasedDelegatedSlots, limits.PurchasedDelegatedSlots),
-                SlotDailyLimit = WithSlots(limits.PurchasedDelegatedSlots, limits.SlotTenantDailyLimit),
-                SlotMonthlyLimit = WithSlots(limits.PurchasedDelegatedSlots, limits.SlotTenantMonthlyLimit),
-            };
-        }
-
-        /// <summary>The slot breakdown is only worth sending when a slot was actually purchased.</summary>
-        private static int? WithSlots(int purchasedSlots, int value) => purchasedSlots > 0 ? value : null;
 
         /// <summary>
         /// Pure: folds the organization counter rows into one item per account, ordered by this month's usage.

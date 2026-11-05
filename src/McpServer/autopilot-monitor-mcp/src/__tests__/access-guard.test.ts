@@ -12,8 +12,17 @@
  * No live backend or real token is needed: fetch is stubbed and JWTs are
  * hand-built (the proxy does not verify signatures — the backend does).
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
+
+/** The refusal line start the backend's usage overview matches (tests/fixtures/mcp-log-lines). */
+function refusalLinePrefix(): string {
+  const contract = JSON.parse(
+    readFileSync(new URL('../../../../../tests/fixtures/mcp-log-lines/fields.json', import.meta.url), 'utf8'),
+  ) as { prefixes: { mcp_refusal: string } };
+  return contract.prefixes.mcp_refusal;
+}
 
 // RATE_LIMIT_PER_MINUTE is read from the environment at module import. Set a low cap so
 // the 429 path is cheap to drive, BEFORE the dynamic import resolves.
@@ -155,6 +164,7 @@ function uniqueUpn(): string {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('accessGuard — 401 (authentication failures)', () => {
@@ -387,6 +397,7 @@ describe('accessGuard — 429 (rate limit) and caching', () => {
     const upn = uniqueUpn();
     const token = validToken(upn);
     stubBackend({ body: { allowed: true } });
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const first = await runGuard(mockReq(`Bearer ${token}`));
     const second = await runGuard(mockReq(`Bearer ${token}`));
@@ -397,6 +408,9 @@ describe('accessGuard — 429 (rate limit) and caching', () => {
     expect(third.nextCalled).toBe(false);
     expect(third.status).toBe(429);
     expect((third.body as { retryAfterSeconds: number }).retryAfterSeconds).toBe(60);
+    // The GA usage overview counts these refusals by the line start and the key (tests/fixtures/mcp-log-lines).
+    const refusal = logSpy.mock.calls.map((call) => String(call[0])).find((line) => line.startsWith('[mcp-auth] 429'));
+    expect(refusal?.startsWith(`${refusalLinePrefix()}key=${upn} `)).toBe(true);
   });
 
   it('serves the cached access decision (one backend call across repeat requests)', async () => {

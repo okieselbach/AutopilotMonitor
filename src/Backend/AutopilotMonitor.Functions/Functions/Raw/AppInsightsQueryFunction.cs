@@ -1,15 +1,9 @@
-using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared;
-using Azure.Core;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -43,19 +37,16 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
         private readonly ILogger<AppInsightsQueryFunction> _logger;
         private readonly LogQuerySourceCatalog _sources;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly TokenCredential _credential;
+        private readonly LogQueryExecutor _executor;
 
         public AppInsightsQueryFunction(
             ILogger<AppInsightsQueryFunction> logger,
             LogQuerySourceCatalog sources,
-            IHttpClientFactory httpClientFactory,
-            TokenCredential credential)
+            LogQueryExecutor executor)
         {
             _logger = logger;
             _sources = sources;
-            _httpClientFactory = httpClientFactory;
-            _credential = credential;
+            _executor = executor;
         }
 
         /// <summary>
@@ -88,63 +79,49 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
             var timespan = string.IsNullOrWhiteSpace(body.Timespan) ? "PT1H" : body.Timespan.Trim();
             var budget = ClampBudget(body.BudgetSeconds);
-            var stopwatch = Stopwatch.StartNew();
 
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(budget));
+                var outcome = await _executor.ExecuteAsync(source!, body.Query, timespan, budget);
 
-                var token = await _credential.GetTokenAsync(new TokenRequestContext(new[] { source!.TokenScope }), cts.Token);
-
-                using var upstreamRequest = new HttpRequestMessage(HttpMethod.Post, source.QueryUri);
-                upstreamRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
-                // Ask the store to keep working as long as we are willing to wait (default server wait is shorter).
-                upstreamRequest.Headers.TryAddWithoutValidation("Prefer", $"wait={budget}");
-                upstreamRequest.Content = new StringContent(
-                    JsonSerializer.Serialize(new KustoQuery(body.Query, timespan)), Encoding.UTF8, "application/json");
-
-                var client = _httpClientFactory.CreateClient(LogQuerySourceCatalog.HttpClientName);
-                using var upstreamResponse = await client.SendAsync(upstreamRequest, cts.Token);
-                var responseText = await upstreamResponse.Content.ReadAsStringAsync(cts.Token);
-                stopwatch.Stop();
-
-                if (!upstreamResponse.IsSuccessStatusCode)
+                if (!outcome.Succeeded)
                 {
+                    var upstreamStatus = outcome.UpstreamStatus ?? HttpStatusCode.BadGateway;
+                    var responseText = outcome.UpstreamBody ?? string.Empty;
                     _logger.LogWarning("Log query ({Source}) failed: {StatusCode} {Response}",
-                        source.Name, upstreamResponse.StatusCode, LogSanitizer.Clean(Cap(responseText, 2048)));
+                        source!.Name, upstreamStatus, LogSanitizer.Clean(Cap(responseText, 2048)));
 
-                    var (errorMessage, errorCode) = ExtractError(responseText);
+                    var (errorMessage, errorCode) = LogQueryExecutor.ExtractError(responseText);
                     // A query the store rejected is the CALLER's error (400): the MCP renders 4xx bodies in
                     // full (message, hint, upstream) but sanitizes every 5xx down to the error code — and a
                     // KQL syntax error hidden behind "retry later" is exactly the parity loss this proxy
                     // exists to avoid. Store-side failures (5xx) and a missing read grant (401/403 — the
                     // managed identity, not the caller) stay 502.
-                    var status = MapUpstreamFailure(upstreamResponse.StatusCode);
+                    var status = MapUpstreamFailure(upstreamStatus);
                     return await req.ErrorAsync(status, new QueryBackendLogsErrorResponse
                     {
                         Error = errorMessage ?? "The telemetry store rejected the query.",
                         Code = ApiErrorWriter.DefaultCode(status),
                         UpstreamCode = errorCode,
-                        StatusCode = (int)upstreamResponse.StatusCode,
+                        StatusCode = (int)upstreamStatus,
                         Source = source.Name,
-                        Hint = UpstreamHint(upstreamResponse.StatusCode, errorCode, source.Name),
+                        Hint = UpstreamHint(upstreamStatus, errorCode, source.Name),
                         // Everything the store said, so nothing the CLI would print is lost.
                         Upstream = Cap(responseText, UpstreamErrorCap),
                     });
                 }
 
-                var (tables, partialReason) = ParseKustoBody(responseText);
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new QueryBackendLogsResponse
                 {
                     Success = true,
-                    Source = source.Name,
+                    Source = source!.Name,
                     Timespan = timespan,
                     BudgetSeconds = budget,
-                    ElapsedMs = stopwatch.ElapsedMilliseconds,
-                    Partial = partialReason != null ? true : null,
-                    PartialReason = partialReason,
-                    Tables = tables,
+                    ElapsedMs = outcome.ElapsedMs,
+                    Partial = outcome.PartialReason != null ? true : null,
+                    PartialReason = outcome.PartialReason,
+                    Tables = outcome.Tables!,
                 });
                 return response;
             }
@@ -196,110 +173,6 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             return Math.Clamp(requested.Value, MinBudgetSeconds, MaxBudgetSeconds);
         }
 
-        /// <summary>
-        /// Kusto REST success body → typed tables plus the store's partial-result note. A 200 can carry
-        /// <c>"error": { "code": "PartialError", ... }</c> next to <c>tables</c> when the result was cut
-        /// (size cap, shard timeout); that used to pass through unread. Cells are cloned out of the
-        /// document so they outlive it.
-        /// </summary>
-        internal static (IReadOnlyList<KqlTable> Tables, string? PartialReason) ParseKustoBody(string json)
-        {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            var tables = new List<KqlTable>();
-
-            if (root.TryGetProperty("tables", out var tablesEl) && tablesEl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var t in tablesEl.EnumerateArray())
-                {
-                    var columns = new List<KqlColumn>();
-                    if (t.TryGetProperty("columns", out var colsEl) && colsEl.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var c in colsEl.EnumerateArray())
-                        {
-                            columns.Add(new KqlColumn
-                            {
-                                Name = c.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty,
-                                Type = c.TryGetProperty("type", out var ty) ? ty.GetString() ?? string.Empty : string.Empty,
-                            });
-                        }
-                    }
-
-                    var rows = new List<IReadOnlyList<JsonElement>>();
-                    if (t.TryGetProperty("rows", out var rowsEl) && rowsEl.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var r in rowsEl.EnumerateArray())
-                        {
-                            var cells = new List<JsonElement>(columns.Count);
-                            if (r.ValueKind == JsonValueKind.Array)
-                                foreach (var cell in r.EnumerateArray())
-                                    cells.Add(cell.Clone());
-                            rows.Add(cells);
-                        }
-                    }
-
-                    tables.Add(new KqlTable
-                    {
-                        Name = t.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
-                        Columns = columns,
-                        Rows = rows,
-                    });
-                }
-            }
-
-            string? partialReason = null;
-            if (root.TryGetProperty("error", out var errorEl) && errorEl.ValueKind == JsonValueKind.Object)
-            {
-                var (message, code) = ExtractError(errorEl);
-                partialReason = string.IsNullOrEmpty(code) ? message : $"{code}: {message}";
-            }
-
-            return (tables, partialReason);
-        }
-
-        /// <summary>
-        /// Message + code from a Kusto error body — <c>innererror</c> first (the specific reason), then the
-        /// outer <c>error</c>. Tolerates non-JSON.
-        /// </summary>
-        internal static (string Message, string? Code) ExtractError(string body)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(body);
-                if (doc.RootElement.TryGetProperty("error", out var errorObj) && errorObj.ValueKind == JsonValueKind.Object)
-                    return ExtractError(errorObj);
-            }
-            catch (JsonException)
-            {
-                // not JSON — keep the generic message
-            }
-            return ("Telemetry store query failed", null);
-        }
-
-        private static (string Message, string? Code) ExtractError(JsonElement errorObj)
-        {
-            var message = "Telemetry store query failed";
-            string? code = null;
-
-            if (errorObj.TryGetProperty("innererror", out var inner) && inner.ValueKind == JsonValueKind.Object)
-            {
-                if (inner.TryGetProperty("message", out var innerMsg) && innerMsg.ValueKind == JsonValueKind.String)
-                    message = innerMsg.GetString() ?? message;
-                if (inner.TryGetProperty("code", out var innerCode) && innerCode.ValueKind == JsonValueKind.String)
-                    code = innerCode.GetString();
-            }
-            if (message == "Telemetry store query failed" && errorObj.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
-                message = msg.GetString() ?? message;
-            if (code == null && errorObj.TryGetProperty("code", out var outerCode) && outerCode.ValueKind == JsonValueKind.String)
-                code = outerCode.GetString();
-
-            return (message, code);
-        }
-
         private static string Cap(string s, int max) => s.Length <= max ? s : s[..max] + "…";
-        /// <summary>Kusto REST request body — both App Insights and Log Analytics accept exactly this.</summary>
-        private sealed record KustoQuery(
-            [property: JsonPropertyName("query")] string Query,
-            [property: JsonPropertyName("timespan")] string Timespan);
     }
 }

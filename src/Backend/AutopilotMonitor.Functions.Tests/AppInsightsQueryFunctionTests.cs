@@ -2,6 +2,7 @@ using System.Text.Json;
 using AutopilotMonitor.Functions.Functions.Raw;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -71,7 +72,7 @@ public class AppInsightsQueryFunctionTests
             "rows":[["2026-09-04T10:00:00Z",42,"{\"TenantId\":\"t1\"}",null]]}]}
             """;
 
-        var (tables, partial) = AppInsightsQueryFunction.ParseKustoBody(body);
+        var (tables, partial) = LogQueryExecutor.ParseKustoBody(body);
 
         Assert.Null(partial);
         var table = Assert.Single(tables);
@@ -97,7 +98,7 @@ public class AppInsightsQueryFunctionTests
              "error":{"code":"PartialError","message":"There were some errors when processing your query.","innererror":{"code":"E_QUERY_RESULT_SET_TOO_LARGE","message":"Query result set has exceeded the internal record count limit 500000."}}}
             """;
 
-        var (tables, partial) = AppInsightsQueryFunction.ParseKustoBody(body);
+        var (tables, partial) = LogQueryExecutor.ParseKustoBody(body);
 
         Assert.Single(tables);
         Assert.Equal("E_QUERY_RESULT_SET_TOO_LARGE: Query result set has exceeded the internal record count limit 500000.", partial);
@@ -106,7 +107,7 @@ public class AppInsightsQueryFunctionTests
     [Fact]
     public void Empty_or_shapeless_body_yields_no_tables_and_no_partial()
     {
-        var (tables, partial) = AppInsightsQueryFunction.ParseKustoBody("{}");
+        var (tables, partial) = LogQueryExecutor.ParseKustoBody("{}");
         Assert.Empty(tables);
         Assert.Null(partial);
     }
@@ -115,16 +116,16 @@ public class AppInsightsQueryFunctionTests
     [Fact]
     public void Error_extraction_prefers_innererror_and_tolerates_non_json()
     {
-        var (msg, code) = AppInsightsQueryFunction.ExtractError(
+        var (msg, code) = LogQueryExecutor.ExtractError(
             """{"error":{"message":"The request had some invalid properties","code":"BadArgumentError","innererror":{"code":"SyntaxError","message":"Query could not be parsed at 'foo'"}}}""");
         Assert.Equal("SyntaxError", code);
         Assert.Equal("Query could not be parsed at 'foo'", msg);
 
-        var (outerMsg, outerCode) = AppInsightsQueryFunction.ExtractError("""{"error":{"message":"Forbidden","code":"InsufficientAccessError"}}""");
+        var (outerMsg, outerCode) = LogQueryExecutor.ExtractError("""{"error":{"message":"Forbidden","code":"InsufficientAccessError"}}""");
         Assert.Equal("InsufficientAccessError", outerCode);
         Assert.Equal("Forbidden", outerMsg);
 
-        var (plainMsg, plainCode) = AppInsightsQueryFunction.ExtractError("<html>502 Bad Gateway</html>");
+        var (plainMsg, plainCode) = LogQueryExecutor.ExtractError("<html>502 Bad Gateway</html>");
         Assert.Null(plainCode);
         Assert.Equal("Telemetry store query failed", plainMsg);
     }

@@ -200,6 +200,222 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// The all-tenant MCP usage overview of the Global Admin metrics page (GetGlobalMcpUsageOverview) over whole UTC
+    /// days: tenants with their accounts and quota state, the tool ranking, the quota refusals, the per-minute peaks
+    /// and the daily trend. "Calls" are tool calls (request telemetry, one MCP correlation id per call); "requests"
+    /// are backend requests charged to the quota (the quota counters). What a telemetry store did not answer is
+    /// empty and named in <see cref="Telemetry"/>.
+    /// </summary>
+    // Declaration order == wire order.
+    public class GetGlobalMcpUsageOverviewResponse : IApiResponse
+    {
+        /// <summary>First day of the window (yyyyMMdd, UTC).</summary>
+        public string DateFrom { get; set; } = default!;
+        /// <summary>Last day of the window (yyyyMMdd, UTC) — today.</summary>
+        public string DateTo { get; set; } = default!;
+        /// <summary>False when Global Admins and Global Readers are left out of every number.</summary>
+        public bool IncludesPlatformAdmins { get; set; }
+        public McpUsageTelemetryStatus Telemetry { get; set; } = default!;
+        /// <summary>One item per day of the window, oldest first.</summary>
+        public IReadOnlyList<McpUsageDayItem> Daily { get; set; } = default!;
+        /// <summary>Every tenant with MCP use in the window, most calls first.</summary>
+        public IReadOnlyList<McpUsageTenantItem> Tenants { get; set; } = default!;
+        /// <summary>Every tool called in the window, most calls first.</summary>
+        public IReadOnlyList<McpUsageToolItem> Tools { get; set; } = default!;
+        /// <summary>Refusals by the daily or monthly quota, one item per day, account and window, newest first.</summary>
+        public IReadOnlyList<McpUsageQuotaHitItem> QuotaHits { get; set; } = default!;
+        public McpUsageMinuteLimits MinuteLimits { get; set; } = default!;
+    }
+
+    /// <summary>Which telemetry store answered, nested in <see cref="GetGlobalMcpUsageOverviewResponse"/>.</summary>
+    // Declaration order == wire order.
+    public class McpUsageTelemetryStatus
+    {
+        /// <summary>The backend's request telemetry answered: calls, reach, routes, refusals and per-minute peaks are filled.</summary>
+        public bool RequestsAvailable { get; set; }
+        /// <summary>The MCP server's log answered: tool quality, MCP-only tools, the MCP limit and its refusals are filled.</summary>
+        public bool McpLogAvailable { get; set; }
+        /// <summary>First day (yyyyMMdd) the MCP log covers when that lies after the window start; absent when it covers the window.</summary>
+        public string? McpLogFrom { get; set; }
+        /// <summary>True when a store cut a result (size cap, shard timeout), so its numbers are a lower bound; absent otherwise.</summary>
+        public bool? Partial { get; set; }
+    }
+
+    /// <summary>One day of the overview trend.</summary>
+    // Declaration order == wire order.
+    public class McpUsageDayItem
+    {
+        /// <summary>yyyyMMdd.</summary>
+        public string Date { get; set; } = default!;
+        public long Calls { get; set; }
+        public long Requests { get; set; }
+        /// <summary>Accounts with a call or a charged request that day.</summary>
+        public int Accounts { get; set; }
+        /// <summary>The day's calls by the usage plan of the caller's tenant, most first.</summary>
+        public IReadOnlyList<McpUsagePlanCallsItem> CallsByPlan { get; set; } = default!;
+    }
+
+    /// <summary>Calls of one usage plan on one day.</summary>
+    // Declaration order == wire order.
+    public class McpUsagePlanCallsItem
+    {
+        public string Plan { get; set; } = default!;
+        public long Calls { get; set; }
+    }
+
+    /// <summary>One tenant of the overview with its organization windows and its accounts.</summary>
+    // Declaration order == wire order.
+    public class McpUsageTenantItem
+    {
+        public string TenantId { get; set; } = default!;
+        /// <summary>The organization windows (tenant plan, limits, today / this month) from the tenant's quota counters.</summary>
+        public McpOrganizationQuotaNode Quota { get; set; } = default!;
+        public long Calls { get; set; }
+        public long Requests { get; set; }
+        /// <summary>Quota refusals of the tenant's accounts and of the organization window in the window.</summary>
+        public int QuotaHits { get; set; }
+        /// <summary>Absent when no counter row carries a timestamp.</summary>
+        public DateTime? LastRequestAt { get; set; }
+        /// <summary>Accounts with MCP use in the window, most calls first.</summary>
+        public IReadOnlyList<McpUsageAccountItem> Accounts { get; set; } = default!;
+    }
+
+    /// <summary>One account (person or service principal) of a tenant in the overview.</summary>
+    // Declaration order == wire order.
+    public class McpUsageAccountItem
+    {
+        /// <summary>Entra object id; absent for an account known only from request telemetry (every request refused).</summary>
+        public string? UserId { get; set; }
+        /// <summary>UPN, or <c>app:&lt;client-id&gt;</c> for a service principal.</summary>
+        public string Principal { get; set; } = default!;
+        /// <summary>Role on its latest request (Admin, Operator, Viewer, DelegatedReader, GlobalReader, GlobalAdmin); absent without request telemetry.</summary>
+        public string? Role { get; set; }
+        /// <summary>A Global Admin or Global Reader; listed only when platform admins are included.</summary>
+        public bool IsPlatformAdmin { get; set; }
+        /// <summary>The account's plan and windows as its next request meets them; absent without an object id.</summary>
+        public McpUsageAccountQuotaNode? Quota { get; set; }
+        public long Calls { get; set; }
+        public long Requests { get; set; }
+        /// <summary>The day (yyyyMMdd) with the most charged requests in the window; absent without requests.</summary>
+        public string? PeakDay { get; set; }
+        /// <summary>Charged requests on <see cref="PeakDay"/>; absent without requests.</summary>
+        public long? PeakDayRequests { get; set; }
+        /// <summary>Days on which the account met a quota refusal of its own window.</summary>
+        public int QuotaHits { get; set; }
+        /// <summary>The account's most called tools, at most three, most first.</summary>
+        public IReadOnlyList<McpUsageToolCallsItem> TopTools { get; set; } = default!;
+        /// <summary>Absent when neither the counters nor the telemetry carry a timestamp.</summary>
+        public DateTime? LastRequestAt { get; set; }
+    }
+
+    /// <summary>The account's own windows (0 = unlimited; purchased-slot growth included).</summary>
+    // Declaration order == wire order.
+    public class McpUsageAccountQuotaNode
+    {
+        /// <summary>The account's usage plan: its personal override, else the tenant plan.</summary>
+        public string Plan { get; set; } = default!;
+        public int DailyLimit { get; set; }
+        public int MonthlyLimit { get; set; }
+        public long DailyUsed { get; set; }
+        public long MonthlyUsed { get; set; }
+    }
+
+    /// <summary>Calls of one tool by one account.</summary>
+    // Declaration order == wire order.
+    public class McpUsageToolCallsItem
+    {
+        public string Tool { get; set; } = default!;
+        public long Calls { get; set; }
+    }
+
+    /// <summary>One MCP tool in the overview ranking.</summary>
+    // Declaration order == wire order.
+    public class McpUsageToolItem
+    {
+        public string Tool { get; set; } = default!;
+        public long Calls { get; set; }
+        /// <summary>Accounts that called it; absent for a tool that never reaches the backend.</summary>
+        public int? Accounts { get; set; }
+        /// <summary>Tenants whose accounts called it; absent for a tool that never reaches the backend.</summary>
+        public int? Tenants { get; set; }
+        /// <summary>Backend requests one served call costs the quota on average; 0 for a tool that runs in the MCP server alone.</summary>
+        public double RequestsPerCall { get; set; }
+        /// <summary>Share of calls (0–1) that ended as an error, soft errors included; absent without the MCP log.</summary>
+        public double? ErrorRate { get; set; }
+        /// <summary>95th-percentile duration of a call; absent without the MCP log.</summary>
+        public long? P95DurationMs { get; set; }
+        /// <summary>Mean size of the answer in characters; absent without the MCP log.</summary>
+        public long? AvgResultChars { get; set; }
+        /// <summary>Calls whose page exceeded the tool's size cap; absent without the MCP log.</summary>
+        public long? OverCapCalls { get; set; }
+        /// <summary>The backend routes its calls requested, most requests first.</summary>
+        public IReadOnlyList<McpUsageRouteItem> Routes { get; set; } = default!;
+    }
+
+    /// <summary>One backend route of a tool: method plus path with ids as <c>{id}</c>.</summary>
+    // Declaration order == wire order.
+    public class McpUsageRouteItem
+    {
+        public string Route { get; set; } = default!;
+        public long Requests { get; set; }
+    }
+
+    /// <summary>Quota refusals of one account (level user) or organization (level tenant) on one day and window.</summary>
+    // Declaration order == wire order.
+    public class McpUsageQuotaHitItem
+    {
+        /// <summary>yyyyMMdd.</summary>
+        public string Date { get; set; } = default!;
+        public string TenantId { get; set; } = default!;
+        /// <summary>The refused account; absent when the request row carried no principal.</summary>
+        public string? Principal { get; set; }
+        /// <summary><c>user</c> (the account's window) or <c>tenant</c> (the organization's).</summary>
+        public string Level { get; set; } = default!;
+        /// <summary><c>daily</c> or <c>monthly</c>.</summary>
+        public string Scope { get; set; } = default!;
+        public string Plan { get; set; } = default!;
+        /// <summary>The window's limit; absent when the refusal line carried none.</summary>
+        public long? Limit { get; set; }
+        /// <summary>The window's count at the first refusal of the day; absent when the refusal line carried none.</summary>
+        public long? Used { get; set; }
+        public long Refused { get; set; }
+        public DateTime FirstAt { get; set; }
+        public DateTime LastAt { get; set; }
+    }
+
+    /// <summary>The two per-minute limits an MCP account meets and how close the accounts came to them.</summary>
+    // Declaration order == wire order.
+    public class McpUsageMinuteLimits
+    {
+        /// <summary>MCP messages per minute the MCP server admits per account, from its newest start line; absent until a server reported it.</summary>
+        public int? McpServerLimit { get; set; }
+        /// <summary>Every account with request telemetry in the window, closest to a limit first.</summary>
+        public IReadOnlyList<McpUsageMinuteItem> Accounts { get; set; } = default!;
+    }
+
+    /// <summary>One account's busiest 60 seconds against both per-minute limits, and its refusals.</summary>
+    // Declaration order == wire order.
+    public class McpUsageMinuteItem
+    {
+        public string TenantId { get; set; } = default!;
+        public string Principal { get; set; } = default!;
+        /// <summary>Most tool calls the account started inside 60 seconds (measured in 10-second steps).</summary>
+        public long PeakCalls { get; set; }
+        public DateTime? PeakCallsAt { get; set; }
+        /// <summary>Messages the MCP server refused because of its per-minute limit.</summary>
+        public long McpRefused { get; set; }
+        public DateTime? McpLastRefusedAt { get; set; }
+        /// <summary>Most backend requests the account sent inside 60 seconds (measured in 10-second steps).</summary>
+        public long PeakRequests { get; set; }
+        public DateTime? PeakRequestsAt { get; set; }
+        /// <summary>Backend requests per minute the account may send in its home tenant (override, else the default raised to the edition floor).</summary>
+        public int BackendLimit { get; set; }
+        /// <summary>Requests the backend refused because of its per-minute limit.</summary>
+        public long BackendRefused { get; set; }
+        public DateTime? BackendLastRefusedAt { get; set; }
+    }
+
+    /// <summary>
     /// Global per-tenant MCP/API usage envelope (GetGlobalMcpUsage). The MCP server paginates
     /// over the <c>records</c> key — its name is wire-critical.
     /// </summary>

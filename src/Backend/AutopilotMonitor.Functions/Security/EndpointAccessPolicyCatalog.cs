@@ -581,6 +581,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/mcp-usage/organization", EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/metrics/mcp-usage/overview", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),
         // The operator's report queue: GA-only AdminNote, the submitter's comment and contact data. ?tenantId= is a
         // filter the handler reads itself; None, so no delegated reader reaches it.

@@ -47,8 +47,6 @@ public class TypedRequestGuardTests
         ["Functions/Diagnostics/GetDiagnosticsUploadUrlFunction.cs"] = "agent route (D-200)",
         // Foreign schema: Azure Monitor common alert schema, not our contract.
         ["Functions/Infrastructure/AzureMonitorAlertWebhookFunction.cs"] = "Azure Monitor alert schema",
-        // Parses the UPSTREAM Kusto response, not the request body.
-        ["Functions/Raw/AppInsightsQueryFunction.cs"] = "upstream response parse",
         // Not request bodies at all: telemetry item payloads (agent wire, D-200) and stored table columns.
         ["Functions/Ingest/TelemetryPayloadParser.cs"] = "telemetry item PayloadJson (agent wire, D-200)",
         ["Functions/Config/ListTenantConfigBackupsFunction.cs"] = "stored backup diff column",

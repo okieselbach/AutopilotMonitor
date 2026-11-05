@@ -1,0 +1,12 @@
+{
+  "_comment": "Lines of the MCP server's console log that the backend's MCP usage overview reads with KQL (McpUsageTelemetryQueries). The MCP suite proves the server writes every field and every line start listed here; the backend suite proves its queries read nothing that is not listed.",
+  "prefixes": {
+    "tool_call": "{\"type\":\"tool_call\"",
+    "boot": "{\"type\":\"boot\"",
+    "mcp_refusal": "[mcp-auth] 429 kind=upn "
+  },
+  "fields": {
+    "tool_call": ["type", "tool", "durationMs", "isError", "cancelled", "resultChars", "overCap", "scope"],
+    "boot": ["type", "rateLimitPerMinute"]
+  }
+}

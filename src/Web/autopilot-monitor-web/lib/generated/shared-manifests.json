@@ -10961,6 +10961,94 @@
         }
       ]
     },
+    "GetGlobalMcpUsageOverviewResponse": {
+      "kind": "object",
+      "doc": "The all-tenant MCP usage overview of the Global Admin metrics page (GetGlobalMcpUsageOverview) over whole UTC days: tenants with their accounts and quota state, the tool ranking, the quota refusals, the per-minute peaks and the daily trend. \"Calls\" are tool calls (request telemetry, one MCP correlation id per call); \"requests\" are backend requests charged to the quota (the quota counters). What a telemetry store did not answer is empty and named in Telemetry.",
+      "fields": [
+        {
+          "name": "dateFrom",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "First day of the window (yyyyMMdd, UTC)."
+        },
+        {
+          "name": "dateTo",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Last day of the window (yyyyMMdd, UTC) — today."
+        },
+        {
+          "name": "includesPlatformAdmins",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "False when Global Admins and Global Readers are left out of every number."
+        },
+        {
+          "name": "telemetry",
+          "type": {
+            "kind": "ref",
+            "name": "McpUsageTelemetryStatus"
+          }
+        },
+        {
+          "name": "daily",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageDayItem"
+            }
+          },
+          "doc": "One item per day of the window, oldest first."
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageTenantItem"
+            }
+          },
+          "doc": "Every tenant with MCP use in the window, most calls first."
+        },
+        {
+          "name": "tools",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageToolItem"
+            }
+          },
+          "doc": "Every tool called in the window, most calls first."
+        },
+        {
+          "name": "quotaHits",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageQuotaHitItem"
+            }
+          },
+          "doc": "Refusals by the daily or monthly quota, one item per day, account and window, newest first."
+        },
+        {
+          "name": "minuteLimits",
+          "type": {
+            "kind": "ref",
+            "name": "McpUsageMinuteLimits"
+          }
+        }
+      ]
+    },
     "GetGlobalMcpUsageResponse": {
       "kind": "object",
       "doc": "Global per-tenant MCP/API usage envelope (GetGlobalMcpUsage). The MCP server paginates over the records key — its name is wire-critical.",
@@ -15852,6 +15940,434 @@
         }
       ]
     },
+    "McpUsageAccountItem": {
+      "kind": "object",
+      "doc": "One account (person or service principal) of a tenant in the overview.",
+      "fields": [
+        {
+          "name": "userId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Entra object id; absent for an account known only from request telemetry (every request refused)."
+        },
+        {
+          "name": "principal",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UPN, or app:<client-id> for a service principal."
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Role on its latest request (Admin, Operator, Viewer, DelegatedReader, GlobalReader, GlobalAdmin); absent without request telemetry."
+        },
+        {
+          "name": "isPlatformAdmin",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "A Global Admin or Global Reader; listed only when platform admins are included."
+        },
+        {
+          "name": "quota",
+          "type": {
+            "kind": "ref",
+            "name": "McpUsageAccountQuotaNode"
+          },
+          "optional": true,
+          "doc": "The account's plan and windows as its next request meets them; absent without an object id."
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "peakDay",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The day (yyyyMMdd) with the most charged requests in the window; absent without requests."
+        },
+        {
+          "name": "peakDayRequests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Charged requests on PeakDay; absent without requests."
+        },
+        {
+          "name": "quotaHits",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Days on which the account met a quota refusal of its own window."
+        },
+        {
+          "name": "topTools",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageToolCallsItem"
+            }
+          },
+          "doc": "The account's most called tools, at most three, most first."
+        },
+        {
+          "name": "lastRequestAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent when neither the counters nor the telemetry carry a timestamp."
+        }
+      ]
+    },
+    "McpUsageAccountQuotaNode": {
+      "kind": "object",
+      "doc": "The account's own windows (0 = unlimited; purchased-slot growth included).",
+      "fields": [
+        {
+          "name": "plan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The account's usage plan: its personal override, else the tenant plan."
+        },
+        {
+          "name": "dailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "monthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "dailyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "monthlyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "McpUsageDayItem": {
+      "kind": "object",
+      "doc": "One day of the overview trend.",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "yyyyMMdd."
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "accounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Accounts with a call or a charged request that day."
+        },
+        {
+          "name": "callsByPlan",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsagePlanCallsItem"
+            }
+          },
+          "doc": "The day's calls by the usage plan of the caller's tenant, most first."
+        }
+      ]
+    },
+    "McpUsageMinuteItem": {
+      "kind": "object",
+      "doc": "One account's busiest 60 seconds against both per-minute limits, and its refusals.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "principal",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "peakCalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Most tool calls the account started inside 60 seconds (measured in 10-second steps)."
+        },
+        {
+          "name": "peakCallsAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "mcpRefused",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Messages the MCP server refused because of its per-minute limit."
+        },
+        {
+          "name": "mcpLastRefusedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "peakRequests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Most backend requests the account sent inside 60 seconds (measured in 10-second steps)."
+        },
+        {
+          "name": "peakRequestsAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "backendLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Backend requests per minute the account may send in its home tenant (override, else the default raised to the edition floor)."
+        },
+        {
+          "name": "backendRefused",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Requests the backend refused because of its per-minute limit."
+        },
+        {
+          "name": "backendLastRefusedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "McpUsageMinuteLimits": {
+      "kind": "object",
+      "doc": "The two per-minute limits an MCP account meets and how close the accounts came to them.",
+      "fields": [
+        {
+          "name": "mcpServerLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "MCP messages per minute the MCP server admits per account, from its newest start line; absent until a server reported it."
+        },
+        {
+          "name": "accounts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageMinuteItem"
+            }
+          },
+          "doc": "Every account with request telemetry in the window, closest to a limit first."
+        }
+      ]
+    },
+    "McpUsagePlanCallsItem": {
+      "kind": "object",
+      "doc": "Calls of one usage plan on one day.",
+      "fields": [
+        {
+          "name": "plan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "McpUsageQuotaHitItem": {
+      "kind": "object",
+      "doc": "Quota refusals of one account (level user) or organization (level tenant) on one day and window.",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "yyyyMMdd."
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "principal",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The refused account; absent when the request row carried no principal."
+        },
+        {
+          "name": "level",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "user (the account's window) or tenant (the organization's)."
+        },
+        {
+          "name": "scope",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "daily or monthly."
+        },
+        {
+          "name": "plan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "The window's limit; absent when the refusal line carried none."
+        },
+        {
+          "name": "used",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "The window's count at the first refusal of the day; absent when the refusal line carried none."
+        },
+        {
+          "name": "refused",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "McpUsageQuotaNode": {
       "kind": "object",
       "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their HOME tenant (shared by every member; 0 = unlimited). Every MCP request the caller makes — reads into managed tenants included — draws on these windows. The limits already contain the growth from purchased delegation slots; the slot fields let a client show the breakdown (base = limit − slots × slot value) and are absent when the tenant has no purchased slot.",
@@ -15968,6 +16484,242 @@
             "name": "number"
           },
           "optional": true
+        }
+      ]
+    },
+    "McpUsageRouteItem": {
+      "kind": "object",
+      "doc": "One backend route of a tool: method plus path with ids as {id}.",
+      "fields": [
+        {
+          "name": "route",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "McpUsageTelemetryStatus": {
+      "kind": "object",
+      "doc": "Which telemetry store answered, nested in GetGlobalMcpUsageOverviewResponse.",
+      "fields": [
+        {
+          "name": "requestsAvailable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "The backend's request telemetry answered: calls, reach, routes, refusals and per-minute peaks are filled."
+        },
+        {
+          "name": "mcpLogAvailable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "The MCP server's log answered: tool quality, MCP-only tools, the MCP limit and its refusals are filled."
+        },
+        {
+          "name": "mcpLogFrom",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "First day (yyyyMMdd) the MCP log covers when that lies after the window start; absent when it covers the window."
+        },
+        {
+          "name": "partial",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "True when a store cut a result (size cap, shard timeout), so its numbers are a lower bound; absent otherwise."
+        }
+      ]
+    },
+    "McpUsageTenantItem": {
+      "kind": "object",
+      "doc": "One tenant of the overview with its organization windows and its accounts.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "quota",
+          "type": {
+            "kind": "ref",
+            "name": "McpOrganizationQuotaNode"
+          },
+          "doc": "The organization windows (tenant plan, limits, today / this month) from the tenant's quota counters."
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "quotaHits",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Quota refusals of the tenant's accounts and of the organization window in the window."
+        },
+        {
+          "name": "lastRequestAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent when no counter row carries a timestamp."
+        },
+        {
+          "name": "accounts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageAccountItem"
+            }
+          },
+          "doc": "Accounts with MCP use in the window, most calls first."
+        }
+      ]
+    },
+    "McpUsageToolCallsItem": {
+      "kind": "object",
+      "doc": "Calls of one tool by one account.",
+      "fields": [
+        {
+          "name": "tool",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "McpUsageToolItem": {
+      "kind": "object",
+      "doc": "One MCP tool in the overview ranking.",
+      "fields": [
+        {
+          "name": "tool",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "accounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Accounts that called it; absent for a tool that never reaches the backend."
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenants whose accounts called it; absent for a tool that never reaches the backend."
+        },
+        {
+          "name": "requestsPerCall",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Backend requests one served call costs the quota on average; 0 for a tool that runs in the MCP server alone."
+        },
+        {
+          "name": "errorRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Share of calls (0–1) that ended as an error, soft errors included; absent without the MCP log."
+        },
+        {
+          "name": "p95DurationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "95th-percentile duration of a call; absent without the MCP log."
+        },
+        {
+          "name": "avgResultChars",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Mean size of the answer in characters; absent without the MCP log."
+        },
+        {
+          "name": "overCapCalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Calls whose page exceeded the tool's size cap; absent without the MCP log."
+        },
+        {
+          "name": "routes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpUsageRouteItem"
+            }
+          },
+          "doc": "The backend routes its calls requested, most requests first."
         }
       ]
     },

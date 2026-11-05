@@ -48,6 +48,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Tenant-wide MCP counters (one row per user and day) within an optional yyyyMMdd range.</summary>
         Task<List<TenantUsageRecord>> GetTenantUsageAsync(string tenantId, string? dateFrom = null, string? dateTo = null);
 
+        /// <summary>
+        /// The tenant-wide MCP counters of EVERY tenant within a yyyyMMdd range — the source of the all-tenant
+        /// usage overview. One row per account and day (no endpoint dimension), so this reads a fraction of the
+        /// per-user log for the same window.
+        /// </summary>
+        Task<List<TenantUsageRecord>> GetAllTenantUsageAsync(string dateFrom, string dateTo);
+
         /// <summary>Deletes tenant-wide MCP counters older than the specified date (yyyyMMdd). Returns the count deleted.</summary>
         Task<int> DeleteTenantRecordsOlderThanAsync(string dateCutoff);
     }

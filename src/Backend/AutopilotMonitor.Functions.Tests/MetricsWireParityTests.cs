@@ -832,6 +832,236 @@ public class MetricsWireParityTests
             });
     }
 
+    // ---- GetGlobalMcpUsageOverview ------------------------------------------------------
+
+    [Fact]
+    public void GetGlobalMcpUsageOverviewResponse_matches_the_overview_shape()
+    {
+        // One tenant with one account, one tool with one route, one quota refusal, one per-minute row — every
+        // optional slot filled, so every key is pinned in its wire position.
+        var at = new DateTime(2026, 11, 5, 10, 0, 0, DateTimeKind.Utc);
+        var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
+        var quota = new McpOrganizationQuotaNode { TenantPlan = "community", DailyLimit = 100, MonthlyLimit = 250, DailyUsed = 35, MonthlyUsed = 60 };
+
+        AssertParity(
+            new
+            {
+                dateFrom = "20261103",
+                dateTo = "20261105",
+                includesPlatformAdmins = false,
+                telemetry = new { requestsAvailable = true, mcpLogAvailable = true, mcpLogFrom = "20261104", partial = true },
+                daily = new[] { new { date = "20261105", calls = 10L, requests = 35L, accounts = 3, callsByPlan = new[] { new { plan = "community", calls = 10L } } } },
+                tenants = new[]
+                {
+                    new
+                    {
+                        tenantId,
+                        quota,
+                        calls = 7L,
+                        requests = 50L,
+                        quotaHits = 1,
+                        lastRequestAt = at,
+                        accounts = new[]
+                        {
+                            new
+                            {
+                                userId = "oid-1",
+                                principal = "admin@contoso.com",
+                                role = "Admin",
+                                isPlatformAdmin = false,
+                                quota = new { plan = "community", dailyLimit = 50, monthlyLimit = 250, dailyUsed = 30L, monthlyUsed = 60L },
+                                calls = 7L,
+                                requests = 50L,
+                                peakDay = "20261105",
+                                peakDayRequests = 30L,
+                                quotaHits = 1,
+                                topTools = new[] { new { tool = "get_session_events", calls = 3L } },
+                                lastRequestAt = at,
+                            },
+                        },
+                    },
+                },
+                tools = new[]
+                {
+                    new
+                    {
+                        tool = "get_session_summary",
+                        calls = 3L,
+                        accounts = 2,
+                        tenants = 1,
+                        requestsPerCall = 5.0,
+                        errorRate = 0.0,
+                        p95DurationMs = 600L,
+                        avgResultChars = 19000L,
+                        overCapCalls = 0L,
+                        routes = new[] { new { route = "GET sessions/{id}", requests = 3L } },
+                    },
+                },
+                quotaHits = new[]
+                {
+                    new
+                    {
+                        date = "20261105", tenantId, principal = "admin@contoso.com", level = "user", scope = "daily", plan = "community",
+                        limit = 50L, used = 50L, refused = 3L, firstAt = at, lastAt = at,
+                    },
+                },
+                minuteLimits = new
+                {
+                    mcpServerLimit = 60,
+                    accounts = new[]
+                    {
+                        new
+                        {
+                            tenantId, principal = "admin@contoso.com",
+                            peakCalls = 12L, peakCallsAt = at, mcpRefused = 7L, mcpLastRefusedAt = at,
+                            peakRequests = 40L, peakRequestsAt = at, backendLimit = 120, backendRefused = 2L, backendLastRefusedAt = at,
+                        },
+                    },
+                },
+            },
+            new GetGlobalMcpUsageOverviewResponse
+            {
+                DateFrom = "20261103",
+                DateTo = "20261105",
+                IncludesPlatformAdmins = false,
+                Telemetry = new McpUsageTelemetryStatus { RequestsAvailable = true, McpLogAvailable = true, McpLogFrom = "20261104", Partial = true },
+                Daily = new List<McpUsageDayItem>
+                {
+                    new() { Date = "20261105", Calls = 10, Requests = 35, Accounts = 3, CallsByPlan = new List<McpUsagePlanCallsItem> { new() { Plan = "community", Calls = 10 } } },
+                },
+                Tenants = new List<McpUsageTenantItem>
+                {
+                    new()
+                    {
+                        TenantId = tenantId,
+                        Quota = quota,
+                        Calls = 7,
+                        Requests = 50,
+                        QuotaHits = 1,
+                        LastRequestAt = at,
+                        Accounts = new List<McpUsageAccountItem>
+                        {
+                            new()
+                            {
+                                UserId = "oid-1",
+                                Principal = "admin@contoso.com",
+                                Role = "Admin",
+                                IsPlatformAdmin = false,
+                                Quota = new McpUsageAccountQuotaNode { Plan = "community", DailyLimit = 50, MonthlyLimit = 250, DailyUsed = 30, MonthlyUsed = 60 },
+                                Calls = 7,
+                                Requests = 50,
+                                PeakDay = "20261105",
+                                PeakDayRequests = 30,
+                                QuotaHits = 1,
+                                TopTools = new List<McpUsageToolCallsItem> { new() { Tool = "get_session_events", Calls = 3 } },
+                                LastRequestAt = at,
+                            },
+                        },
+                    },
+                },
+                Tools = new List<McpUsageToolItem>
+                {
+                    new()
+                    {
+                        Tool = "get_session_summary",
+                        Calls = 3,
+                        Accounts = 2,
+                        Tenants = 1,
+                        RequestsPerCall = 5.0,
+                        ErrorRate = 0.0,
+                        P95DurationMs = 600,
+                        AvgResultChars = 19000,
+                        OverCapCalls = 0,
+                        Routes = new List<McpUsageRouteItem> { new() { Route = "GET sessions/{id}", Requests = 3 } },
+                    },
+                },
+                QuotaHits = new List<McpUsageQuotaHitItem>
+                {
+                    new()
+                    {
+                        Date = "20261105", TenantId = tenantId, Principal = "admin@contoso.com", Level = "user", Scope = "daily", Plan = "community",
+                        Limit = 50, Used = 50, Refused = 3, FirstAt = at, LastAt = at,
+                    },
+                },
+                MinuteLimits = new McpUsageMinuteLimits
+                {
+                    McpServerLimit = 60,
+                    Accounts = new List<McpUsageMinuteItem>
+                    {
+                        new()
+                        {
+                            TenantId = tenantId, Principal = "admin@contoso.com",
+                            PeakCalls = 12, PeakCallsAt = at, McpRefused = 7, McpLastRefusedAt = at,
+                            PeakRequests = 40, PeakRequestsAt = at, BackendLimit = 120, BackendRefused = 2, BackendLastRefusedAt = at,
+                        },
+                    },
+                },
+            });
+    }
+
+    [Fact]
+    public void GetGlobalMcpUsageOverviewResponse_omits_what_a_store_did_not_answer()
+    {
+        // Telemetry down, an account known only from the telemetry shape (no object id, no quota), an MCP-only
+        // tool (no reach, no quality), no MCP limit reported yet: every nullable key vanishes.
+        var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
+        var quota = new McpOrganizationQuotaNode { TenantPlan = "community", DailyLimit = 100, MonthlyLimit = 250, DailyUsed = 0, MonthlyUsed = 0 };
+
+        AssertParity(
+            new
+            {
+                dateFrom = "20261105",
+                dateTo = "20261105",
+                includesPlatformAdmins = true,
+                telemetry = new { requestsAvailable = false, mcpLogAvailable = false },
+                daily = Array.Empty<object>(),
+                tenants = new[]
+                {
+                    new
+                    {
+                        tenantId,
+                        quota,
+                        calls = 4L,
+                        requests = 0L,
+                        quotaHits = 0,
+                        accounts = new[]
+                        {
+                            new { principal = "app:11111111-2222-3333-4444-555555555555", isPlatformAdmin = false, calls = 4L, requests = 0L, quotaHits = 0, topTools = Array.Empty<object>() },
+                        },
+                    },
+                },
+                tools = new[] { new { tool = "search_docs", calls = 4L, requestsPerCall = 0.0, routes = Array.Empty<object>() } },
+                quotaHits = Array.Empty<object>(),
+                minuteLimits = new { accounts = Array.Empty<object>() },
+            },
+            new GetGlobalMcpUsageOverviewResponse
+            {
+                DateFrom = "20261105",
+                DateTo = "20261105",
+                IncludesPlatformAdmins = true,
+                Telemetry = new McpUsageTelemetryStatus { RequestsAvailable = false, McpLogAvailable = false },
+                Daily = new List<McpUsageDayItem>(),
+                Tenants = new List<McpUsageTenantItem>
+                {
+                    new()
+                    {
+                        TenantId = tenantId,
+                        Quota = quota,
+                        Calls = 4,
+                        Requests = 0,
+                        QuotaHits = 0,
+                        Accounts = new List<McpUsageAccountItem>
+                        {
+                            new() { Principal = "app:11111111-2222-3333-4444-555555555555", Calls = 4, TopTools = new List<McpUsageToolCallsItem>() },
+                        },
+                    },
+                },
+                Tools = new List<McpUsageToolItem> { new() { Tool = "search_docs", Calls = 4, RequestsPerCall = 0, Routes = new List<McpUsageRouteItem>() } },
+                QuotaHits = new List<McpUsageQuotaHitItem>(),
+                MinuteLimits = new McpUsageMinuteLimits { Accounts = new List<McpUsageMinuteItem>() },
+            });
+    }
+
     // ---- GetGrowthMetrics ---------------------------------------------------------------
 
     private static GrowthMetricsResponse GrowthResponse(double? median, IReadOnlyList<GrowthTenantRow>? tenants) => new()

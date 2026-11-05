@@ -2285,6 +2285,26 @@ export interface GetGlobalMcpUsageDailyResponse {
   summaries: UserUsageDailySummary[];
 }
 
+/** The all-tenant MCP usage overview of the Global Admin metrics page (GetGlobalMcpUsageOverview) over whole UTC days: tenants with their accounts and quota state, the tool ranking, the quota refusals, the per-minute peaks and the daily trend. "Calls" are tool calls (request telemetry, one MCP correlation id per call); "requests" are backend requests charged to the quota (the quota counters). What a telemetry store did not answer is empty and named in Telemetry. */
+export interface GetGlobalMcpUsageOverviewResponse {
+  /** First day of the window (yyyyMMdd, UTC). */
+  dateFrom: string;
+  /** Last day of the window (yyyyMMdd, UTC) — today. */
+  dateTo: string;
+  /** False when Global Admins and Global Readers are left out of every number. */
+  includesPlatformAdmins: boolean;
+  telemetry: McpUsageTelemetryStatus;
+  /** One item per day of the window, oldest first. */
+  daily: McpUsageDayItem[];
+  /** Every tenant with MCP use in the window, most calls first. */
+  tenants: McpUsageTenantItem[];
+  /** Every tool called in the window, most calls first. */
+  tools: McpUsageToolItem[];
+  /** Refusals by the daily or monthly quota, one item per day, account and window, newest first. */
+  quotaHits: McpUsageQuotaHitItem[];
+  minuteLimits: McpUsageMinuteLimits;
+}
+
 /** Global per-tenant MCP/API usage envelope (GetGlobalMcpUsage). The MCP server paginates over the records key — its name is wire-critical. */
 export interface GetGlobalMcpUsageResponse {
   /** Echo of the request filter; absent when the caller passed no tenantId. */
@@ -3362,6 +3382,109 @@ export interface McpQuotaExceededResponse {
   resetUtc: string;
 }
 
+/** One account (person or service principal) of a tenant in the overview. */
+export interface McpUsageAccountItem {
+  /** Entra object id; absent for an account known only from request telemetry (every request refused). */
+  userId?: string;
+  /** UPN, or app:<client-id> for a service principal. */
+  principal: string;
+  /** Role on its latest request (Admin, Operator, Viewer, DelegatedReader, GlobalReader, GlobalAdmin); absent without request telemetry. */
+  role?: string;
+  /** A Global Admin or Global Reader; listed only when platform admins are included. */
+  isPlatformAdmin: boolean;
+  /** The account's plan and windows as its next request meets them; absent without an object id. */
+  quota?: McpUsageAccountQuotaNode;
+  calls: number;
+  requests: number;
+  /** The day (yyyyMMdd) with the most charged requests in the window; absent without requests. */
+  peakDay?: string;
+  /** Charged requests on PeakDay; absent without requests. */
+  peakDayRequests?: number;
+  /** Days on which the account met a quota refusal of its own window. */
+  quotaHits: number;
+  /** The account's most called tools, at most three, most first. */
+  topTools: McpUsageToolCallsItem[];
+  /** Absent when neither the counters nor the telemetry carry a timestamp. */
+  lastRequestAt?: string;
+}
+
+/** The account's own windows (0 = unlimited; purchased-slot growth included). */
+export interface McpUsageAccountQuotaNode {
+  /** The account's usage plan: its personal override, else the tenant plan. */
+  plan: string;
+  dailyLimit: number;
+  monthlyLimit: number;
+  dailyUsed: number;
+  monthlyUsed: number;
+}
+
+/** One day of the overview trend. */
+export interface McpUsageDayItem {
+  /** yyyyMMdd. */
+  date: string;
+  calls: number;
+  requests: number;
+  /** Accounts with a call or a charged request that day. */
+  accounts: number;
+  /** The day's calls by the usage plan of the caller's tenant, most first. */
+  callsByPlan: McpUsagePlanCallsItem[];
+}
+
+/** One account's busiest 60 seconds against both per-minute limits, and its refusals. */
+export interface McpUsageMinuteItem {
+  tenantId: string;
+  principal: string;
+  /** Most tool calls the account started inside 60 seconds (measured in 10-second steps). */
+  peakCalls: number;
+  peakCallsAt?: string;
+  /** Messages the MCP server refused because of its per-minute limit. */
+  mcpRefused: number;
+  mcpLastRefusedAt?: string;
+  /** Most backend requests the account sent inside 60 seconds (measured in 10-second steps). */
+  peakRequests: number;
+  peakRequestsAt?: string;
+  /** Backend requests per minute the account may send in its home tenant (override, else the default raised to the edition floor). */
+  backendLimit: number;
+  /** Requests the backend refused because of its per-minute limit. */
+  backendRefused: number;
+  backendLastRefusedAt?: string;
+}
+
+/** The two per-minute limits an MCP account meets and how close the accounts came to them. */
+export interface McpUsageMinuteLimits {
+  /** MCP messages per minute the MCP server admits per account, from its newest start line; absent until a server reported it. */
+  mcpServerLimit?: number;
+  /** Every account with request telemetry in the window, closest to a limit first. */
+  accounts: McpUsageMinuteItem[];
+}
+
+/** Calls of one usage plan on one day. */
+export interface McpUsagePlanCallsItem {
+  plan: string;
+  calls: number;
+}
+
+/** Quota refusals of one account (level user) or organization (level tenant) on one day and window. */
+export interface McpUsageQuotaHitItem {
+  /** yyyyMMdd. */
+  date: string;
+  tenantId: string;
+  /** The refused account; absent when the request row carried no principal. */
+  principal?: string;
+  /** user (the account's window) or tenant (the organization's). */
+  level: string;
+  /** daily or monthly. */
+  scope: string;
+  plan: string;
+  /** The window's limit; absent when the refusal line carried none. */
+  limit?: number;
+  /** The window's count at the first refusal of the day; absent when the refusal line carried none. */
+  used?: number;
+  refused: number;
+  firstAt: string;
+  lastAt: string;
+}
+
 /** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their HOME tenant (shared by every member; 0 = unlimited). Every MCP request the caller makes — reads into managed tenants included — draws on these windows. The limits already contain the growth from purchased delegation slots; the slot fields let a client show the breakdown (base = limit − slots × slot value) and are absent when the tenant has no purchased slot. */
 export interface McpUsageQuotaNode {
   dailyLimit: number;
@@ -3382,6 +3505,67 @@ export interface McpUsageQuotaNode {
   /** Organization daily growth per purchased slot; absent when no slot was purchased. */
   slotTenantDailyLimit?: number;
   slotTenantMonthlyLimit?: number;
+}
+
+/** One backend route of a tool: method plus path with ids as {id}. */
+export interface McpUsageRouteItem {
+  route: string;
+  requests: number;
+}
+
+/** Which telemetry store answered, nested in GetGlobalMcpUsageOverviewResponse. */
+export interface McpUsageTelemetryStatus {
+  /** The backend's request telemetry answered: calls, reach, routes, refusals and per-minute peaks are filled. */
+  requestsAvailable: boolean;
+  /** The MCP server's log answered: tool quality, MCP-only tools, the MCP limit and its refusals are filled. */
+  mcpLogAvailable: boolean;
+  /** First day (yyyyMMdd) the MCP log covers when that lies after the window start; absent when it covers the window. */
+  mcpLogFrom?: string;
+  /** True when a store cut a result (size cap, shard timeout), so its numbers are a lower bound; absent otherwise. */
+  partial?: boolean;
+}
+
+/** One tenant of the overview with its organization windows and its accounts. */
+export interface McpUsageTenantItem {
+  tenantId: string;
+  /** The organization windows (tenant plan, limits, today / this month) from the tenant's quota counters. */
+  quota: McpOrganizationQuotaNode;
+  calls: number;
+  requests: number;
+  /** Quota refusals of the tenant's accounts and of the organization window in the window. */
+  quotaHits: number;
+  /** Absent when no counter row carries a timestamp. */
+  lastRequestAt?: string;
+  /** Accounts with MCP use in the window, most calls first. */
+  accounts: McpUsageAccountItem[];
+}
+
+/** Calls of one tool by one account. */
+export interface McpUsageToolCallsItem {
+  tool: string;
+  calls: number;
+}
+
+/** One MCP tool in the overview ranking. */
+export interface McpUsageToolItem {
+  tool: string;
+  calls: number;
+  /** Accounts that called it; absent for a tool that never reaches the backend. */
+  accounts?: number;
+  /** Tenants whose accounts called it; absent for a tool that never reaches the backend. */
+  tenants?: number;
+  /** Backend requests one served call costs the quota on average; 0 for a tool that runs in the MCP server alone. */
+  requestsPerCall: number;
+  /** Share of calls (0–1) that ended as an error, soft errors included; absent without the MCP log. */
+  errorRate?: number;
+  /** 95th-percentile duration of a call; absent without the MCP log. */
+  p95DurationMs?: number;
+  /** Mean size of the answer in characters; absent without the MCP log. */
+  avgResultChars?: number;
+  /** Calls whose page exceeded the tool's size cap; absent without the MCP log. */
+  overCapCalls?: number;
+  /** The backend routes its calls requested, most requests first. */
+  routes: McpUsageRouteItem[];
 }
 
 export interface McpUserEntry {
