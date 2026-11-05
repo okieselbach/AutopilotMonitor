@@ -344,6 +344,11 @@ public class RulePresentationTests
         Assert.Equal(RulePresentationLimits.TemplateMaxLength, fact.GetProperty("value").GetProperty("maxLength").GetInt32());
         Assert.Equal(RulePresentationLimits.TemplateMaxLength, subject.GetProperty("key").GetProperty("maxLength").GetInt32());
         Assert.Equal(RulePresentationLimits.TemplateMaxLength, subject.GetProperty("name").GetProperty("maxLength").GetInt32());
+
+        // The rule-shape counts (D-410): the schema lets validate_rule refuse what the backend refuses.
+        var analyzeRule = defs.GetProperty("analyzeRule").GetProperty("properties");
+        Assert.Equal(AnalyzeRuleLimits.MaxConditions, analyzeRule.GetProperty("conditions").GetProperty("maxItems").GetInt32());
+        Assert.Equal(AnalyzeRuleLimits.MaxPreconditions, analyzeRule.GetProperty("preconditions").GetProperty("maxItems").GetInt32());
     }
 
     private static string[] Strings(JsonElement array) => array.EnumerateArray().Select(e => e.GetString()!).ToArray();

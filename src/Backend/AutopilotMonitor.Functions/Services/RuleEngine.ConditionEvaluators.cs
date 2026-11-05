@@ -29,7 +29,7 @@ namespace AutopilotMonitor.Functions.Services
         ///     (e.g. "skip when an enrollment_complete event exists"). Any other operator without a
         ///     field has nothing to compare → fail closed.
         /// </summary>
-        private bool EvaluatePrecondition(RulePrecondition precondition, List<EnrollmentEvent> events)
+        private bool EvaluatePrecondition(RulePrecondition precondition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             if (!string.Equals(precondition.Source, "event_data", StringComparison.OrdinalIgnoreCase))
             {
@@ -69,34 +69,34 @@ namespace AutopilotMonitor.Functions.Services
             return matchingEvents.Any(e =>
             {
                 var fieldValue = GetDataFieldValue(e, precondition.DataField);
-                return fieldValue != null && MatchesOperator(fieldValue, precondition.Operator ?? string.Empty, precondition.Value ?? string.Empty);
+                return fieldValue != null && MatchesOperator(fieldValue, precondition.Operator ?? string.Empty, precondition.Value ?? string.Empty, budget);
             });
         }
 
-        private (bool matched, object evidence) EvaluateCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             switch (condition.Source)
             {
                 case "event_type":
-                    return EvaluateEventTypeCondition(condition, events);
+                    return EvaluateEventTypeCondition(condition, events, budget);
 
                 case "event_data":
-                    return EvaluateEventDataCondition(condition, events);
+                    return EvaluateEventDataCondition(condition, events, budget);
 
                 case "event_data_array":
-                    return EvaluateEventDataArrayCondition(condition, events);
+                    return EvaluateEventDataArrayCondition(condition, events, budget);
 
                 case "event_count":
-                    return EvaluateEventCountCondition(condition, events);
+                    return EvaluateEventCountCondition(condition, events, budget);
 
                 case "phase_duration":
                     return EvaluatePhaseDurationCondition(condition, events);
 
                 case "app_install_duration":
-                    return EvaluateAppInstallDurationCondition(condition, events);
+                    return EvaluateAppInstallDurationCondition(condition, events, budget);
 
                 case "event_correlation":
-                    return EvaluateEventCorrelationCondition(condition, events);
+                    return EvaluateEventCorrelationCondition(condition, events, budget);
 
                 case "clock_skew":
                     return EvaluateClockSkewCondition(condition, events);
@@ -106,7 +106,7 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private (bool matched, object evidence) EvaluateEventTypeCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateEventTypeCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
 
@@ -148,10 +148,10 @@ namespace AutopilotMonitor.Functions.Services
                 foreach (var evt in matchingEvents)
                 {
                     var fieldValue = GetDataFieldValue(evt, condition.DataField);
-                    if (fieldValue != null && MatchesOperator(fieldValue, condition.Operator, condition.Value))
+                    if (fieldValue != null && MatchesOperator(fieldValue, condition.Operator, condition.Value, budget))
                     {
                         // Check suppressByEvent: skip this match if a resolving event exists
-                        if (IsSuppressedByEvent(evt, condition.SuppressByEvent, events))
+                        if (IsSuppressedByEvent(evt, condition.SuppressByEvent, events, budget))
                             continue;
 
                         var evidence = new Dictionary<string, object>
@@ -174,7 +174,7 @@ namespace AutopilotMonitor.Functions.Services
             // Filter out suppressed events
             if (condition.SuppressByEvent != null)
             {
-                matchingEvents = matchingEvents.Where(e => !IsSuppressedByEvent(e, condition.SuppressByEvent, events)).ToList();
+                matchingEvents = matchingEvents.Where(e => !IsSuppressedByEvent(e, condition.SuppressByEvent, events, budget)).ToList();
                 if (!matchingEvents.Any())
                     return (false, "all matches suppressed by resolving events");
             }
@@ -204,19 +204,19 @@ namespace AutopilotMonitor.Functions.Services
         /// A missing filter field stringifies to empty, so <c>equals</c> excludes the event
         /// and <c>not_equals</c> keeps it. No filter configured = unchanged behaviour.
         /// </summary>
-        private List<EnrollmentEvent> ApplyValueFilter(RuleCondition condition, List<EnrollmentEvent> matchingEvents)
+        private List<EnrollmentEvent> ApplyValueFilter(RuleCondition condition, List<EnrollmentEvent> matchingEvents, RuleEvaluationBudget budget)
         {
             if (string.IsNullOrEmpty(condition.FilterField) || string.IsNullOrEmpty(condition.FilterOperator))
                 return matchingEvents;
 
             return matchingEvents
-                .Where(e => MatchesOperator(GetDataFieldValue(e, condition.FilterField) ?? string.Empty, condition.FilterOperator, condition.FilterValue))
+                .Where(e => MatchesOperator(GetDataFieldValue(e, condition.FilterField) ?? string.Empty, condition.FilterOperator, condition.FilterValue, budget))
                 .ToList();
         }
 
-        private (bool matched, object evidence) EvaluateEventDataCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateEventDataCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
-            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList(), budget);
 
             // Field-absence gate — see EvaluateEventTypeCondition; here it applies to the
             // filtered event set, so "no event with filterField=x carries dataField" is expressible.
@@ -226,7 +226,7 @@ namespace AutopilotMonitor.Functions.Services
             foreach (var evt in matchingEvents)
             {
                 var fieldValue = GetDataFieldValue(evt, condition.DataField);
-                if (fieldValue != null && MatchesOperator(fieldValue, condition.Operator, condition.Value))
+                if (fieldValue != null && MatchesOperator(fieldValue, condition.Operator, condition.Value, budget))
                 {
                     var evidence = new Dictionary<string, object>
                     {
@@ -288,9 +288,9 @@ namespace AutopilotMonitor.Functions.Services
         /// fire only for array elements NOT on the list. Evidence carries the matched item value
         /// under <c>field</c>=ItemField (so <c>{{itemField}}</c> interpolates) plus a capped sample.
         /// </summary>
-        private (bool matched, object evidence) EvaluateEventDataArrayCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateEventDataArrayCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
-            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList(), budget);
 
             foreach (var evt in matchingEvents)
             {
@@ -302,7 +302,7 @@ namespace AutopilotMonitor.Functions.Services
                 foreach (var element in items)
                 {
                     var itemValue = GetItemFieldValue(element, condition.ItemField);
-                    if (itemValue != null && MatchesOperator(itemValue, condition.Operator, condition.Value))
+                    if (itemValue != null && MatchesOperator(itemValue, condition.Operator, condition.Value, budget))
                         matchedValues.Add(itemValue);
                 }
 
@@ -436,11 +436,11 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private (bool matched, object evidence) EvaluateEventCountCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateEventCountCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             // Optional value filter: count only events whose FilterField satisfies FilterOperator/FilterValue
             // (e.g. only performance_snapshot events with memory_used_percent > 90).
-            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList(), budget);
 
             // count_per_group_gte: group by DataField value (e.g. appId), fire if any group >= threshold
             if (condition.Operator == "count_per_group_gte" && !string.IsNullOrEmpty(condition.DataField) && int.TryParse(condition.Value, out var groupThreshold))
@@ -656,9 +656,11 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Checks if a matched event is suppressed by a resolving event (e.g., app_install_completed
-        /// suppresses app_install_failed when both share the same appId).
+        /// suppresses app_install_failed when both share the same appId). One call scans every event,
+        /// so a condition that calls it per matching event is quadratic in the session size — hence
+        /// the budget check before the scan.
         /// </summary>
-        private bool IsSuppressedByEvent(EnrollmentEvent matchedEvent, SuppressByEventConfig? config, List<EnrollmentEvent> allEvents)
+        private bool IsSuppressedByEvent(EnrollmentEvent matchedEvent, SuppressByEventConfig? config, List<EnrollmentEvent> allEvents, RuleEvaluationBudget budget)
         {
             if (config == null || string.IsNullOrEmpty(config.EventType) || string.IsNullOrEmpty(config.JoinField))
                 return false;
@@ -667,6 +669,7 @@ namespace AutopilotMonitor.Functions.Services
             if (string.IsNullOrEmpty(joinValue))
                 return false;
 
+            budget.ThrowIfSpent();
             return allEvents.Any(e =>
                 MatchesEventType(e, config.EventType) &&
                 string.Equals(GetDataFieldValue(e, config.JoinField), joinValue, StringComparison.OrdinalIgnoreCase));
@@ -795,8 +798,18 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
-        private bool MatchesOperator(string fieldValue, string op, string compareValue)
+        /// <summary>Per-match timeout of a rule's regex. A constant: the static <see cref="Regex.IsMatch(string, string, RegexOptions, TimeSpan)"/>
+        /// caches by pattern, options AND timeout.</summary>
+        private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+
+        /// <summary>
+        /// Every operator evaluation of a rule passes through here, once per event (or array
+        /// element) its condition looks at — so this is where the pass's budget is checked.
+        /// </summary>
+        private static bool MatchesOperator(string fieldValue, string op, string compareValue, RuleEvaluationBudget budget)
         {
+            budget.ThrowIfSpent();
+
             switch (op?.ToLower())
             {
                 case "equals":
@@ -812,24 +825,10 @@ namespace AutopilotMonitor.Functions.Services
                     return fieldValue.IndexOf(compareValue, StringComparison.OrdinalIgnoreCase) < 0;
 
                 case "regex":
-                    try
-                    {
-                        return Regex.IsMatch(fieldValue, compareValue, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                    }
-                    catch
-                    {
-                        return false;
-                    }
+                    return MatchesRegex(fieldValue, compareValue) == true;
 
                 case "not_regex":
-                    try
-                    {
-                        return !Regex.IsMatch(fieldValue, compareValue, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                    }
-                    catch
-                    {
-                        return false;
-                    }
+                    return MatchesRegex(fieldValue, compareValue) == false;
 
                 case "gt":
                     return double.TryParse(fieldValue, out var gt1) && double.TryParse(compareValue, out var gt2) && gt1 > gt2;
@@ -860,6 +859,28 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Case-insensitive match of a rule's pattern; null for a pattern that does not parse (one
+        /// saved before create and update checked them), which neither regex nor not_regex counts
+        /// as a match. A match timeout ends the rule (D-410): it used to read as "no match", and
+        /// every further event paid the same second again.
+        /// </summary>
+        private static bool? MatchesRegex(string fieldValue, string pattern)
+        {
+            try
+            {
+                return Regex.IsMatch(fieldValue, pattern, RegexOptions.IgnoreCase, RegexMatchTimeout);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                throw new RuleEvaluationStoppedException(EvaluationStopReasons.RegexTimeout);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
         private static bool MatchesInList(string fieldValue, string compareValue)
         {
             if (string.IsNullOrEmpty(fieldValue) || string.IsNullOrEmpty(compareValue))
@@ -876,7 +897,7 @@ namespace AutopilotMonitor.Functions.Services
             return false;
         }
 
-        private (bool matched, object evidence) EvaluateAppInstallDurationCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateAppInstallDurationCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             // Ordering key is Sequence, never Timestamp: Sequence is a persisted, strictly
             // monotonic per-session counter assigned at emit time and is immune to every clock
@@ -901,6 +922,10 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var completionEvent in completionEvents)
             {
+                // Each completion scans the session for its start event; the operator below is
+                // skipped for unmatched apps, so the budget is checked here.
+                budget.ThrowIfSpent();
+
                 var appId = GetDataFieldValue(completionEvent, "appId");
                 var appName = GetDataFieldValue(completionEvent, "appName");
                 var appKey = !string.IsNullOrWhiteSpace(appId) ? appId : appName;
@@ -929,7 +954,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var durationSeconds = Math.Max(0, (completionEvent.Timestamp - startEvent.Timestamp).TotalSeconds);
 
-                if (!MatchesOperator(durationSeconds.ToString(), condition.Operator, condition.Value))
+                if (!MatchesOperator(durationSeconds.ToString(), condition.Operator, condition.Value, budget))
                     continue;
 
                 return (true, new Dictionary<string, object>
@@ -1169,7 +1194,7 @@ namespace AutopilotMonitor.Functions.Services
         ///   DataField/Operator/Value       = optional filter on Event B
         ///   EventAFilterField/Operator/Value = optional filter on Event A
         /// </summary>
-        private (bool matched, object evidence) EvaluateEventCorrelationCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        private (bool matched, object evidence) EvaluateEventCorrelationCondition(RuleCondition condition, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             if (string.IsNullOrEmpty(condition.EventType) ||
                 string.IsNullOrEmpty(condition.CorrelateEventType) ||
@@ -1194,7 +1219,7 @@ namespace AutopilotMonitor.Functions.Services
                     if (string.IsNullOrEmpty(condition.EventAFilterField))
                         return true;
                     var val = GetDataFieldValue(e, condition.EventAFilterField);
-                    return val != null && MatchesOperator(val, condition.EventAFilterOperator ?? "exists", condition.EventAFilterValue ?? "");
+                    return val != null && MatchesOperator(val, condition.EventAFilterOperator ?? "exists", condition.EventAFilterValue ?? "", budget);
                 })
                 .ToList();
 
@@ -1206,7 +1231,7 @@ namespace AutopilotMonitor.Functions.Services
                     if (string.IsNullOrEmpty(condition.DataField))
                         return true;
                     var val = GetDataFieldValue(e, condition.DataField);
-                    return val != null && MatchesOperator(val, condition.Operator ?? "exists", condition.Value ?? "");
+                    return val != null && MatchesOperator(val, condition.Operator ?? "exists", condition.Value ?? "", budget);
                 })
                 .ToList();
 
@@ -1226,6 +1251,10 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var eventB in eventBList)
             {
+                // Pairing scans the A events sharing the join key, so one shared key makes this
+                // loop quadratic without a single operator call.
+                budget.ThrowIfSpent();
+
                 var bKey = GetDataFieldValue(eventB, condition.JoinField);
                 if (string.IsNullOrEmpty(bKey) || !eventAByJoinKey.ContainsKey(bKey))
                     continue;

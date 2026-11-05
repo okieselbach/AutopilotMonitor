@@ -56,10 +56,11 @@ public class ReportUploadGateTests
         var gate = CreateGate(limit: 1);
         var start = new DateTime(2026, 10, 29, 12, 0, 0, DateTimeKind.Utc);
 
-        Assert.True(gate.TakeAlert(start));
-        Assert.False(gate.TakeAlert(start.AddMinutes(59)));
-        Assert.True(gate.TakeAlert(start + ReportUploadGate.AlertWindow));
-        Assert.False(gate.TakeAlert(start + ReportUploadGate.AlertWindow));
+        var window = ReportUploadGate.AlertWindow;
+        Assert.True(gate.TakeAlert(start, window));
+        Assert.False(gate.TakeAlert(start.AddMinutes(59), window));
+        Assert.True(gate.TakeAlert(start + window, window));
+        Assert.False(gate.TakeAlert(start + window, window));
     }
 
     [Fact]

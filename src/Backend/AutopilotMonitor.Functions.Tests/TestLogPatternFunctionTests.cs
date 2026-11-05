@@ -227,7 +227,7 @@ public class TestLogPatternFunctionTests
         Assert.Equal(1, result.TimeoutCount);
         Assert.Single(result.Lines);
         Assert.Equal("regex_timeout", result.Lines[0].Outcome);
-        Assert.Equal(TestLogPatternFunction.StopReasonRegexTimeout, result.StopReason);
+        Assert.Equal(EvaluationStopReasons.RegexTimeout, result.StopReason);
         Assert.Contains(result.Notes, n => n.Contains("line 1 hit") && n.Contains("lines 2-200 were not evaluated"));
         Assert.DoesNotContain(result.Notes, n => n.Contains("case-SENSITIVE"));
         Assert.True(sw.ElapsedMilliseconds < 4000, $"catastrophic request took {sw.ElapsedMilliseconds} ms");
@@ -259,7 +259,7 @@ public class TestLogPatternFunctionTests
 
         Assert.Single(result.Lines);
         Assert.Equal("matched", result.Lines[0].Outcome);
-        Assert.Equal(TestLogPatternFunction.StopReasonTimeBudget, result.StopReason);
+        Assert.Equal(EvaluationStopReasons.TimeBudget, result.StopReason);
         Assert.Contains(result.Notes, n => n.Contains("after line 1") && n.Contains("lines 2-3 were not evaluated"));
 
         var twoLines = TestLogPatternFunction.EvaluatePattern(
@@ -282,16 +282,19 @@ public class TestLogPatternFunctionTests
             TestLogPatternFunction.EvaluationBudget, cts.Token);
 
         Assert.Empty(result.Lines);
-        Assert.Equal(TestLogPatternFunction.StopReasonCancelled, result.StopReason);
+        Assert.Equal(EvaluationStopReasons.Cancelled, result.StopReason);
         Assert.Equal(0, result.MatchCount);
     }
 
     // ===== the per-instance gate =====
 
+    private static TestLogPatternGate Gate(int limit)
+        => new(limit, TestNotifications.CapturingOpsEvents(new()), Microsoft.Extensions.Logging.Abstractions.NullLogger<TestLogPatternGate>.Instance);
+
     [Fact]
     public void Gate_HandsOutLimitSlots_AndTakesThemBackOnDispose()
     {
-        var gate = new TestLogPatternGate(1);
+        var gate = Gate(1);
         Assert.Equal(1, gate.Limit);
 
         var first = gate.TryEnter();
@@ -309,7 +312,7 @@ public class TestLogPatternFunctionTests
     [Fact]
     public void Gate_DefaultLimit_IsTwoPerInstance()
     {
-        var gate = new TestLogPatternGate();
+        var gate = new TestLogPatternGate(TestNotifications.CapturingOpsEvents(new()), Microsoft.Extensions.Logging.Abstractions.NullLogger<TestLogPatternGate>.Instance);
         Assert.Equal(2, gate.Limit);
         Assert.Equal(TestLogPatternGate.DefaultLimit, gate.Limit);
     }

@@ -29,9 +29,17 @@ describe("verdictLabel", () => {
     ["fired", "Would fire"],
     ["required_condition_not_met", "A required condition did not match"],
     ["below_confidence_threshold", "Below the confidence threshold"],
+    ["stopped", "Stopped at an evaluation limit"],
     ["some_future_verdict", "some_future_verdict"],
   ])("%s → %s", (verdict, label) => {
     expect(verdictLabel(verdict)).toBe(label);
+  });
+});
+
+describe("confidenceSummary of a stopped dry-run", () => {
+  it("names no score — the evaluation never reached the confidence stage", () => {
+    expect(confidenceSummary({ ...base, verdict: "stopped", finalConfidence: undefined, confidenceFactors: [], stopReason: "regex_timeout" }))
+      .toBe("not scored (threshold 70)");
   });
 });
 

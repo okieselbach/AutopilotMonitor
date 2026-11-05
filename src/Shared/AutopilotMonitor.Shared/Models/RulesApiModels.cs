@@ -67,6 +67,27 @@ namespace AutopilotMonitor.Shared.Models
         public const string NoConditionsMatched = "no_conditions_matched";
         public const string BelowConfidenceThreshold = "below_confidence_threshold";
         public const string NoEvents = "no_events";
+
+        /// <summary>The evaluation hit a limit before it finished; <see cref="RuleDryRun.StopReason"/>
+        /// says which and <see cref="RuleDryRun.StopNote"/> where.</summary>
+        public const string Stopped = "stopped";
+    }
+
+    /// <summary>
+    /// Why an evaluation of caller-authored patterns ended early — the values of
+    /// <see cref="RuleDryRun.StopReason"/> and <see cref="LogPatternTestResult.StopReason"/>.
+    /// Stable API contract.
+    /// </summary>
+    public static class EvaluationStopReasons
+    {
+        /// <summary>A regex hit its 1 s match timeout (catastrophic backtracking).</summary>
+        public const string RegexTimeout = "regex_timeout";
+
+        /// <summary>The evaluation as a whole used up its time budget.</summary>
+        public const string TimeBudget = "time_budget";
+
+        /// <summary>The caller went away (client disconnect, host shutdown).</summary>
+        public const string Cancelled = "cancelled";
     }
 
     /// <summary>Full diagnostic trace of one dry-run evaluation. Serialized camelCase to clients.</summary>
@@ -102,6 +123,14 @@ namespace AutopilotMonitor.Shared.Models
         /// preview {{token}} interpolation of explanation/remediation. Values are heterogeneous
         /// evidence objects by design.</summary>
         public Dictionary<string, object>? MatchedConditions { get; set; }
+
+        /// <summary>Set with verdict "stopped": regex_timeout | time_budget | cancelled. The
+        /// trace then holds only the entries evaluated before the stop. Null otherwise.</summary>
+        public string? StopReason { get; set; }
+
+        /// <summary>Set with verdict "stopped": which precondition or condition the evaluation
+        /// stopped at, and what to change.</summary>
+        public string? StopNote { get; set; }
     }
 
     // Declaration order == wire order.
@@ -169,6 +198,11 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Rule ids that failed to persist during the reanalyze — the key is omitted
         /// entirely when there were no failures (the happy-path contract stays unchanged).</summary>
         public IReadOnlyList<string>? PersistFailureRuleIds { get; set; }
+
+        /// <summary>Rule ids the reanalyze could not evaluate within its time limit (a regex
+        /// timed out, or the run's budget ran out first); their previous results are kept. The
+        /// key is omitted when every rule was evaluated.</summary>
+        public IReadOnlyList<string>? StoppedRuleIds { get; set; }
     }
 
     /// <summary>Response of POST rules/ime-log-patterns/reseed (Global Admin only).</summary>
@@ -204,10 +238,11 @@ namespace AutopilotMonitor.Shared.Models
         public int ParseFailureCount { get; set; }
         public int TimeoutCount { get; set; }
 
-        /// <summary>Set when the test ended before the last sample line was evaluated:
-        /// regex_timeout (the first line that hit the agent's 1 s match timeout ends the test) |
-        /// time_budget (the whole test exceeded its time budget) | cancelled. Lines after the stop
-        /// have no row; a note names them. Null when every line was evaluated.</summary>
+        /// <summary>Set when the test ended before the last sample line was evaluated
+        /// (EvaluationStopReasons): regex_timeout (the first line that hit the agent's 1 s match
+        /// timeout ends the test) | time_budget (the whole test exceeded its time budget) |
+        /// cancelled. Lines after the stop have no row; a note names them. Null when every line
+        /// was evaluated.</summary>
         public string? StopReason { get; set; }
 
         public List<LogPatternLineResult> Lines { get; } = new();

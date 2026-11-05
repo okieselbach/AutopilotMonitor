@@ -553,6 +553,18 @@ namespace AutopilotMonitor.Functions.Services
                 new { route, limit, windowMinutes = (int)window.TotalMinutes, upn });
 
         /// <summary>
+        /// Every slot of a rule-work gate of this instance was taken and a caller got 429
+        /// (<c>RuleWorkGate</c>: dry-run, re-analysis or pattern test, D-410). Raised for the first
+        /// refusal of a window only; the gate keeps the rest in the Warning trace. Recorded against
+        /// the refused caller's tenant.
+        /// </summary>
+        public Task RecordRuleEvaluationLimitReachedAsync(string gate, int limit, TimeSpan window, string? tenantId, string? upn)
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.RuleEvaluationLimitReached, OpsEventSeverity.Warning,
+                $"Rule work limit reached: the {gate} gate has {limit} evaluations running on this instance and a caller got 429; further refusals in the next {window.TotalMinutes:0} min stay in the Warning trace",
+                tenantId, upn ?? "System.RuleWorkGate",
+                new { gate, limit, windowMinutes = (int)window.TotalMinutes, upn });
+
+        /// <summary>
         /// The reporter's per-instance budget is spent: one Critical marker (same event type, so the same
         /// alert rule pushes it) that says further denials this window are trace-only. A storm is a
         /// stronger signal than any single denial — either someone is sweeping the GA surface with a
@@ -1040,6 +1052,22 @@ namespace AutopilotMonitor.Functions.Services
                     baselineRatePct,
                     lift,
                 });
+
+        /// <summary>
+        /// An analysis run stopped a rule (D-410): a regex hit its match timeout, or the run used up
+        /// its time budget in this rule and left <paramref name="skippedRules"/> later rules
+        /// unevaluated. Warning for a tenant's custom rule, Error for a built-in or community rule.
+        /// <c>RuleEvaluationStopReporter</c> throttles it; every stop is also in the Warning trace.
+        /// </summary>
+        public Task RecordRuleEvaluationStoppedAsync(
+            string tenantId, string sessionId, string ruleId, string reason, bool isCatalogRule, string runKind, int skippedRules)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.RuleEvaluationStopped,
+                isCatalogRule ? OpsEventSeverity.Error : OpsEventSeverity.Warning,
+                reason == EvaluationStopReasons.RegexTimeout
+                    ? $"Rule {ruleId} stopped in the {runKind} analysis of session {sessionId}: a regex hit its 1 s match timeout; the rule kept its previous result"
+                    : $"The {runKind} analysis of session {sessionId} used up its time budget in rule {ruleId}; {skippedRules} later rule(s) were not evaluated and kept their previous results",
+                tenantId, "System.RuleEngine",
+                new { ruleId, reason, catalogRule = isCatalogRule, sessionId, runKind, skippedRules });
 
         /// <summary>
         /// App-version duration regression radar: an app's newest version installs with a median

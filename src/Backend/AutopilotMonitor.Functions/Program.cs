@@ -158,8 +158,13 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ResiliencePolicies>();
 builder.Services.AddSingleton<TableStorageService>();
-// Per-instance cap on concurrent logparser pattern tests (caller-controlled regex work, D-379).
+// Per-instance caps on rule work a caller starts synchronously, each with an ops event when it is
+// hit: logparser pattern tests (D-379), analyze dry-runs and "Analyze now" rebuilds (D-410).
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Rules.TestLogPatternGate>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Rules.RuleDryRunGate>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Rules.ReanalyzeGate>();
+// Throttled ops events for rules the analysis budget stopped (D-410).
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.RuleEvaluationStopReporter>();
 // Per-instance cap on concurrent report uploads (20 MiB bodies), with an ops event when it is hit.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Reports.ReportUploadGate>();
 // Shared QueueClient bootstrap (code-quality audit D2): single Managed-Identity/connection-string

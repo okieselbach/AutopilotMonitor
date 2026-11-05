@@ -116,6 +116,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// unusual load or someone aiming large bodies at the worker.
         /// </summary>
         public const string ReportUploadLimitReached             = "ReportUploadLimitReached";
+        /// <summary>
+        /// Every slot of a rule-work gate of an instance was taken and a caller was answered 429:
+        /// the analyze dry-run, the manual re-analysis or the logparser pattern test (details:
+        /// <c>gate</c>). Warning; at most one per instance, gate and hour, further refusals stay in
+        /// the Warning trace. Legitimate use never fills a gate, so this is load aimed at it.
+        /// </summary>
+        public const string RuleEvaluationLimitReached           = "RuleEvaluationLimitReached";
 
         // ── Tenant ── Tenant lifecycle: offboarding, trials, plan changes, regression radars, config toggles.
         public const string OffboardingFeedbackReceived   = "OffboardingFeedbackReceived";
@@ -169,6 +176,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string CollectLogsQuickConfigEnabled = "CollectLogsQuickConfigEnabled";
         public const string DiagnosticsUploadEnabled      = "DiagnosticsUploadEnabled";
         public const string DiagnosticsUploadDisabled     = "DiagnosticsUploadDisabled";
+        /// <summary>
+        /// An analysis run stopped a rule because a regex hit its match timeout, or used up its time
+        /// budget in it (details: <c>reason</c>, <c>skippedRules</c>). Warning for a tenant's custom
+        /// rule (the author's pattern), Error for a built-in or community rule (ours met data it
+        /// cannot handle, or the instance stalled). At most one per instance, tenant and rule per
+        /// hour and 20 per instance and hour; every stop is in the Warning trace.
+        /// </summary>
+        public const string RuleEvaluationStopped         = "RuleEvaluationStopped";
 
         // ── Agent ── Agent + device-side health signals.
         public const string SessionActionQueued          = "SessionActionQueued";
@@ -215,8 +230,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         {
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles, GraphAccessRejected, GraphAccessRecovered, GraphAppCredentialRejected, AddOnPermissionMissing, AddOnPermissionResolved,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed,
-            DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen, ReportUploadLimitReached,
-            OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
+            DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen, ReportUploadLimitReached, RuleEvaluationLimitReached,
+            OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled, RuleEvaluationStopped,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert, PushDeliveryFailed, PushEndpointRefused,

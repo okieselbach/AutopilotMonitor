@@ -51,6 +51,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         private readonly TenantConfigurationService _configService;
         private readonly Notifications.NotificationChannelDispatcher _channelDispatcher;
         private readonly Deletion.SessionDeletionGuard _deletionGuard;
+        private readonly RuleEvaluationStopReporter _stopReporter;
         private readonly ILogger<AnalyzeOnEnrollmentEndHandler> _logger;
 
         public const string ReasonEnrollmentComplete     = "enrollment_complete";
@@ -68,6 +69,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             TenantConfigurationService configService,
             Notifications.NotificationChannelDispatcher channelDispatcher,
             Deletion.SessionDeletionGuard deletionGuard,
+            RuleEvaluationStopReporter stopReporter,
             ILogger<AnalyzeOnEnrollmentEndHandler> logger)
         {
             _ruleService = ruleService;
@@ -78,6 +80,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             _configService = configService;
             _channelDispatcher = channelDispatcher;
             _deletionGuard = deletionGuard;
+            _stopReporter = stopReporter;
             _logger = logger;
         }
 
@@ -130,6 +133,10 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             // message un-deleted for retry.
             var ruleEngine = new RuleEngine(_ruleService, _ruleRepo, _sessionRepo, _logger);
             var outcome = await ruleEngine.AnalyzeSessionAsync(envelope.TenantId, envelope.SessionId, context).ConfigureAwait(false);
+
+            // Rules the evaluation budget stopped (D-410) become throttled ops events. Their stored
+            // rows were left alone by the engine; this path only upserts, so KeptResults is moot.
+            await _stopReporter.ReportAsync(envelope.TenantId, envelope.SessionId, context.Kind, outcome).ConfigureAwait(false);
 
             foreach (var result in outcome.Results.Concat(outcome.ResolvedResults))
             {

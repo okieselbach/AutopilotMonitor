@@ -10,6 +10,7 @@ namespace AutopilotMonitor.Functions.Helpers;
 public abstract class ConcurrencyGate
 {
     private readonly SemaphoreSlim _slots;
+    private long _nextAlertTicks;
 
     protected ConcurrencyGate(int limit)
     {
@@ -21,6 +22,17 @@ public abstract class ConcurrencyGate
 
     /// <summary>A slot to dispose when the work ends, or null when every slot is taken.</summary>
     public IDisposable? TryEnter() => _slots.Wait(0) ? new Slot(_slots) : null;
+
+    /// <summary>
+    /// True for the first refusal of an alert window, the one that raises the gate's ops event;
+    /// later refusals in that window get false, so a full gate can never flood the alarm.
+    /// </summary>
+    internal bool TakeAlert(DateTime utcNow, TimeSpan window)
+    {
+        var next = Interlocked.Read(ref _nextAlertTicks);
+        return utcNow.Ticks >= next
+            && Interlocked.CompareExchange(ref _nextAlertTicks, utcNow.Add(window).Ticks, next) == next;
+    }
 
     private sealed class Slot : IDisposable
     {

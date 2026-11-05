@@ -10,10 +10,12 @@ export function useSessionAnalysis(
   sessionId: string,
   sessionTenantId: string | null,
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>,
-  /** withVulnerabilityReport false: a page without the report (diagnosis) never reads it, also not on pushes. */
-  opts?: { withVulnerabilityReport?: boolean }
+  /** withVulnerabilityReport false: a page without the report (diagnosis) never reads it, also not on pushes.
+   *  notifyError: shows a failed "Analyze Now" click (busy backend, error) to the user; reads stay silent. */
+  opts?: { withVulnerabilityReport?: boolean; notifyError?: (title: string, err: unknown, key?: string, fallback?: string) => void }
 ) {
   const withVulnerabilityReport = opts?.withVulnerabilityReport ?? true;
+  const notifyError = opts?.notifyError;
   const [analysisResults, setAnalysisResults] = useState<RuleResult[]>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   // True after the first successful read: before it (and after only failed reads) an empty list means
@@ -24,6 +26,8 @@ export function useSessionAnalysis(
   // Backend reports them in /sessions/{id}/analysis response so the UI can render
   // a warning banner without blocking the rules that DID persist.
   const [persistFailureRuleIds, setPersistFailureRuleIds] = useState<string[]>([]);
+  // Rule IDs the most recent reanalyze stopped at its time limit; they kept their previous result.
+  const [stoppedRuleIds, setStoppedRuleIds] = useState<string[]>([]);
 
   const fetchAnalysisResults = useCallback(async (reanalyze = false) => {
     if (!sessionTenantId || !isGuid(sessionTenantId)) return;
@@ -41,13 +45,16 @@ export function useSessionAnalysis(
       // more StoreRuleResultAsync calls returned false during the reanalyze loop. We always
       // set it so a successful retry clears a previous warning.
       setPersistFailureRuleIds(Array.isArray(data.persistFailureRuleIds) ? data.persistFailureRuleIds : []);
+      setStoppedRuleIds(Array.isArray(data.stoppedRuleIds) ? data.stoppedRuleIds : []);
       setAnalysisLoaded(true);
     } catch (error) {
       console.error("Failed to fetch analysis results:", error);
+      // A click deserves an answer: the server's text says whether trying again in a moment helps.
+      if (reanalyze) notifyError?.("Re-analysis failed", error, "reanalyze-error", "The analysis could not be started.");
     } finally {
       setLoadingAnalysis(false);
     }
-  }, [sessionId, sessionTenantId, getAccessToken]);
+  }, [sessionId, sessionTenantId, getAccessToken, notifyError]);
 
   const fetchVulnerabilityReport = useCallback(async (rescan = false) => {
     if (!withVulnerabilityReport || !sessionTenantId || !isGuid(sessionTenantId)) return;
@@ -85,5 +92,6 @@ export function useSessionAnalysis(
     fetchAnalysisResults,
     fetchVulnerabilityReport,
     persistFailureRuleIds,
+    stoppedRuleIds,
   };
 }

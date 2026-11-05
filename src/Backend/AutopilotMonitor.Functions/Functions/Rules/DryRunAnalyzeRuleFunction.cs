@@ -19,6 +19,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// modified (the engine's dry-run path has no MarkSessionAsFailed side effect by construction).
     /// Global-scope callers may dry-run against any tenant's session — the tenant is resolved from
     /// the session, same as GetRuleResultsFunction.
+    ///
+    /// The draft is caller-authored work on the shared app, so it is bounded (D-410): the draft's
+    /// size is capped (<see cref="AnalyzeRuleService.ShapeLimitErrors"/>), the evaluation stops at
+    /// the first regex match timeout, at the 2 s budget or when the caller goes away (verdict
+    /// "stopped"), and <see cref="RuleDryRunGate"/> caps how many dry-runs run per instance.
     /// </summary>
     public class DryRunAnalyzeRuleFunction
     {
@@ -26,21 +31,25 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         private readonly IRuleRepository _ruleRepo;
         private readonly ISessionRepository _sessionRepo;
         private readonly AnalyzeRuleService _analyzeRuleService;
+        private readonly RuleDryRunGate _gate;
 
         public DryRunAnalyzeRuleFunction(
             ILogger<DryRunAnalyzeRuleFunction> logger,
             IRuleRepository ruleRepo,
             ISessionRepository sessionRepo,
-            AnalyzeRuleService analyzeRuleService)
+            AnalyzeRuleService analyzeRuleService,
+            RuleDryRunGate gate)
         {
             _logger = logger;
             _ruleRepo = ruleRepo;
             _sessionRepo = sessionRepo;
             _analyzeRuleService = analyzeRuleService;
+            _gate = gate;
         }
         [Function("DryRunAnalyzeRule")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "rules/analyze/dryrun")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "rules/analyze/dryrun")] HttpRequestData req,
+            CancellationToken cancellationToken)
         {
             // Authentication + TenantAdminOrGlobalReader authorization enforced by PolicyEnforcementMiddleware.
             // Read-only diagnostic, so the read-only Global Reader is admitted alongside Tenant Admins and GAs.
@@ -66,6 +75,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var sessionId = request.SessionId!.Trim();
             var rule = request.Rule!;
 
+            // A slot of this instance before any tenant data is read; held to the response.
+            using var slot = _gate.TryEnter();
+            if (slot == null)
+                return await _gate.RefuseAsync(req, requestCtx.TenantId, requestCtx.UserPrincipalName);
+
             // Global-scope cross-tenant fallback: resolve the session's actual tenant so a GA /
             // Global Reader can dry-run against any tenant's session (mirrors GetRuleResultsFunction).
             effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
@@ -77,11 +91,23 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
 
             var ruleEngine = new RuleEngine(_analyzeRuleService, _ruleRepo, _sessionRepo, _logger);
-            var result = await ruleEngine.DryRunRuleAsync(effectiveTenantId, sessionId, rule);
+            var result = await ruleEngine.DryRunRuleAsync(effectiveTenantId, sessionId, rule, cancellationToken);
 
-            _logger.LogInformation(
-                "Dry-run of draft rule {RuleId} against session {SessionId}: verdict={Verdict}, confidence={Confidence}",
-                string.IsNullOrEmpty(rule.RuleId) ? "(no id)" : rule.RuleId, sessionId, result.Verdict, result.FinalConfidence);
+            var ruleLabel = string.IsNullOrEmpty(rule.RuleId) ? "(no id)" : rule.RuleId;
+            if (result.Verdict == RuleDryRunVerdict.Stopped)
+            {
+                // Warning so it reaches App Insights: one hit is an author with a broken rule, a
+                // cluster from one caller is load aimed at this endpoint (the gate reports that).
+                _logger.LogWarning(
+                    "Analyze dry-run stopped: {Reason} for draft rule {RuleId} against session {SessionId} ({EventCount} events): {Note}",
+                    result.StopReason, ruleLabel, sessionId, result.EventCount, result.StopNote);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Dry-run of draft rule {RuleId} against session {SessionId}: verdict={Verdict}, confidence={Confidence}",
+                    ruleLabel, sessionId, result.Verdict, result.FinalConfidence);
+            }
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new DryRunAnalyzeRuleResponse { Success = true, SessionId = sessionId, Result = result });
@@ -124,8 +150,9 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         /// <summary>
         /// Structural validation of a draft rule before evaluation. Returns human-readable errors
         /// (empty list = valid). Deliberately limited to what would make the dry-run silently
-        /// meaningless or throw — full authoring lint (schema, guardrails, event-type catalog)
-        /// lives client-side in the MCP `validate_rule` tool.
+        /// meaningless or throw, plus the size limits every write path enforces too — full
+        /// authoring lint (schema, guardrails, event-type catalog) lives client-side in the MCP
+        /// `validate_rule` tool. Also the gate of community rule submissions.
         /// </summary>
         internal static List<string> ValidateDraftRule(AnalyzeRule? rule)
         {
@@ -185,21 +212,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                             System.Globalization.CultureInfo.InvariantCulture, out var skewThreshold) || skewThreshold <= 0)
                         errors.Add($"{label}: clock_skew requires a positive numeric value (threshold in seconds)");
                 }
-
-                if ((string.Equals(c.Operator, "regex", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(c.Operator, "not_regex", StringComparison.OrdinalIgnoreCase))
-                    && !string.IsNullOrEmpty(c.Value))
-                {
-                    try
-                    {
-                        _ = new Regex(c.Value, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                    }
-                    catch (ArgumentException ex)
-                    {
-                        errors.Add($"{label}: value is not a valid regex: {ex.Message}");
-                    }
-                }
             }
+
+            // Counts and every regex-bearing value (length first, then it must parse).
+            errors.AddRange(AnalyzeRuleService.ShapeLimitErrors(rule));
 
             for (var i = 0; i < (rule.ConfidenceFactors?.Count ?? 0); i++)
             {
@@ -212,6 +228,29 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
 
             return errors;
+        }
+    }
+
+    /// <summary>
+    /// Per-instance cap on concurrent analyze dry-runs (singleton). A slot is held from before the
+    /// session is read to the response, so this endpoint never occupies more than
+    /// <see cref="ConcurrencyGate.Limit"/> threads of an instance, whatever the request rate.
+    /// Retry-After 5 s: an event read plus the 2 s budget plus one running match.
+    /// </summary>
+    public sealed class RuleDryRunGate : RuleWorkGate
+    {
+        internal const int DefaultLimit = 2;
+
+        public RuleDryRunGate(OpsEventService opsEvents, ILogger<RuleDryRunGate> logger)
+            : this(DefaultLimit, opsEvents, logger)
+        {
+        }
+
+        internal RuleDryRunGate(int limit, OpsEventService opsEvents, ILogger<RuleDryRunGate> logger)
+            : base(limit, "dry-run",
+                "Too many rule tests are running right now.",
+                retryAfterSeconds: 5, opsEvents, logger)
+        {
         }
     }
 }

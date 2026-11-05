@@ -140,6 +140,26 @@ public class RulesWireParityTests
             new DryRunAnalyzeRuleResponse { Success = true, SessionId = sessionId, Result = result });
     }
 
+    [Fact]
+    public void DryRunAnalyzeRuleResponse_carries_a_stop_with_its_reason_and_note()
+    {
+        var sessionId = "7c1e2a90-1111-4b7c-a1d2-52f3bbbb0006";
+        var result = new RuleDryRun
+        {
+            Verdict = RuleDryRunVerdict.Stopped,
+            EventCount = 4200,
+            BaseConfidence = 50,
+            ConfidenceThreshold = 60,
+            // D-410: verdict "stopped" — the trace keeps only the entries evaluated before the stop.
+            StopReason = EvaluationStopReasons.RegexTimeout,
+            StopNote = "conditions[0] ('slow'): a regex hit the 1 s match timeout on this session's data",
+        };
+
+        AssertParity(
+            new { success = true, sessionId, result },
+            new DryRunAnalyzeRuleResponse { Success = true, SessionId = sessionId, Result = result });
+    }
+
     // ---- GetRuleResults ------------------------------------------------------------------
 
     [Fact]
@@ -178,6 +198,8 @@ public class RulesWireParityTests
         };
         var openResults = results.Where(r => r.ResolvedAt == null).ToList();
         var persistFailureRuleIds = new List<string> { "ANALYZE-NET-001" };
+        // D-410: rules the reanalyze stopped at its evaluation budget, omitted when there are none.
+        var stoppedRuleIds = new List<string> { "CUSTOM-SLOW-001" };
 
         AssertParity(
             new
@@ -190,7 +212,8 @@ public class RulesWireParityTests
                 highCount = openResults.Count(r => r.Severity == "high"),
                 warningCount = openResults.Count(r => r.Severity == "warning"),
                 persistFailureCount = persistFailureRuleIds.Count,
-                persistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
+                persistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null,
+                stoppedRuleIds = stoppedRuleIds.Count > 0 ? stoppedRuleIds : null
             },
             new GetRuleResultsResponse
             {
@@ -202,7 +225,8 @@ public class RulesWireParityTests
                 HighCount = openResults.Count(r => r.Severity == "high"),
                 WarningCount = openResults.Count(r => r.Severity == "warning"),
                 PersistFailureCount = persistFailureRuleIds.Count,
-                PersistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
+                PersistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null,
+                StoppedRuleIds = stoppedRuleIds.Count > 0 ? stoppedRuleIds : null
             });
     }
 

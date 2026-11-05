@@ -204,8 +204,9 @@ export const RULE_AUTHORING_GUIDE = {
       'gt', 'lt', 'gte', 'lte', 'exists', 'not_exists', 'count_gte', 'count_per_group_gte', 'in', 'not_in',
     ],
     operatorNotes:
-      'String comparisons are case-insensitive; regex runs case-insensitive with a 1s timeout ' +
-      '(.NET regex syntax); in/not_in take a comma-separated value list. exists/not_exists with a ' +
+      'String comparisons are case-insensitive; regex runs case-insensitive (.NET regex syntax, at most ' +
+      '2,000 characters) — a match that runs past 1 s stops the whole rule for that session (no finding), ' +
+      'so avoid nested or overlapping quantifiers; in/not_in take a comma-separated value list. exists/not_exists with a ' +
       'dataField test whether ANY event of the type carries a non-empty value there — not_exists ' +
       'matches when none does, also when the event type is absent (e.g. "the ESP failure carried no ' +
       'errorCode"); without a dataField they test only the presence of the event type. An operator ' +

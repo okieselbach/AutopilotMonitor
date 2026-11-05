@@ -69,7 +69,7 @@ public class RuleEvidenceKeysTests
             Required = true,
         };
 
-        var dry = Engine().DryRunEvaluate(Rule(condition), Events());
+        var dry = Engine().DryRunEvaluate(Rule(condition), Events(), new RuleEvaluationBudget(RuleEvaluationBudget.DryRun));
 
         var matched = Assert.IsAssignableFrom<IDictionary<string, object>>(dry.MatchedConditions);
         Assert.True(matched.ContainsKey("sig"), $"{source}/{op} did not match the fixture");

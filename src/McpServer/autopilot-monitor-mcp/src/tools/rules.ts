@@ -100,6 +100,8 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
         const data = await apiFetch<TestLogPatternResponse>('/api/rules/gather/test-pattern', {
           method: 'POST',
           body: jsonBody<TestLogPatternRequest>({ pattern: args.pattern, format: args.format, sampleLines: args.sampleLines }),
+          // Pure compute without side effects: a full per-instance gate (429) is waited out once.
+          retry: true,
         });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -116,7 +118,7 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
       description:
         'Dry-runs a DRAFT analyze rule against one real session\'s events and returns the full diagnostic trace: ' +
         'verdict (fired / required_condition_not_met / below_confidence_threshold / skipped_by_precondition / ' +
-        'no_conditions_matched / no_events), per-condition matched/evidence with matchingEventCount (how many session ' +
+        'no_conditions_matched / no_events / stopped: stopNote says why), per-condition matched/evidence with matchingEventCount (how many session ' +
         'events have that eventType at all — the first thing to check when a condition unexpectedly misses), the ' +
         'confidence breakdown per factor, and the interpolated explanation and presentation preview (facts the session ' +
         'did not record listed). NOTHING is persisted — safe to ' +
@@ -136,6 +138,8 @@ export function registerRuleTools(server: McpServer, ga: boolean, ruleDryRun: bo
           // The draft arrives as a loose object; the backend validates it (ValidateDraftRule) and
           // answers 400 with the reasons. The cast names the wire document the endpoint deserialises.
           body: jsonBody<DryRunAnalyzeRuleRequest>({ sessionId: args.sessionId, rule: args.rule as unknown as AnalyzeRule }),
+          // Side-effect free: a full per-instance gate (429) is waited out once.
+          retry: true,
         });
 
         const rule = args.rule as Record<string, unknown>;

@@ -93,6 +93,43 @@ describe('test_analyze_rule', () => {
     const res = await handlers.test_analyze_rule({ sessionId: SESSION, rule: ANALYZE_DRAFT });
     expect(res.isError).toBe(true);
   });
+
+  it('waits out a full gate once and hands a stop through with its reason and note', async () => {
+    apiFetchMock.mockResolvedValue({
+      success: true,
+      sessionId: SESSION,
+      result: {
+        verdict: 'stopped',
+        stopReason: 'regex_timeout',
+        stopNote: "conditions[0] ('app_failure'): a regex hit the 1 s match timeout on this session's data",
+      },
+    });
+
+    const handlers = captureToolHandlers(false);
+    const res = await handlers.test_analyze_rule({ sessionId: SESSION, rule: ANALYZE_DRAFT });
+
+    // The dry-run has no side effects, so apiFetch may retry the POST once on 429 (Retry-After ≤ 10 s).
+    const [, init] = apiFetchMock.mock.calls[0] as [string, { retry?: boolean }];
+    expect(init.retry).toBe(true);
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.result.verdict).toBe('stopped');
+    expect(payload.result.stopReason).toBe('regex_timeout');
+    expect(payload.result.stopNote).toContain('conditions[0]');
+  });
+});
+
+describe('test_log_pattern', () => {
+  it('waits out a full gate once: the pattern test is pure compute', async () => {
+    apiFetchMock.mockResolvedValue({ success: true, format: 'text', result: { matchCount: 1, parseFailureCount: 0, timeoutCount: 0, lines: [], notes: [] } });
+
+    const handlers = captureToolHandlers(false);
+    await handlers.test_log_pattern({ pattern: 'a', sampleLines: ['a'], format: 'text' });
+
+    const [path, init] = apiFetchMock.mock.calls[0] as [string, { method?: string; retry?: boolean }];
+    expect(path).toBe('/api/rules/gather/test-pattern');
+    expect(init.method).toBe('POST');
+    expect(init.retry).toBe(true);
+  });
 });
 
 describe('registration by role', () => {

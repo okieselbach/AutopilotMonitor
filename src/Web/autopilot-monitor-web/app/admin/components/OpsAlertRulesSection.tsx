@@ -144,6 +144,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // Every report-upload slot of an instance was taken (ReportUploadGate) and a caller got 429.
     // Warning, at most one per instance and hour; route it to a push channel to be told.
     "ReportUploadLimitReached",
+    // A rule-work gate of an instance was full (analyze dry-run, "Analyze now" or pattern test,
+    // details.gate) and a caller got 429. Warning, at most one per instance, gate and hour.
+    // Legitimate use never fills a gate: this is load aimed at it.
+    "RuleEvaluationLimitReached",
     "VersionBlocked",
     // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or
     // telemetry channel) — as opposed to DeviceBlocked/VersionBlocked which fire on rule
@@ -248,6 +252,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // through the quick-config dialog (PUT ?intent=collect-logs). Replaces
     // DiagnosticsUploadEnabled for that path only — the targeted push signal.
     "CollectLogsQuickConfigEnabled",
+    // An analysis run stopped a rule: a regex hit its match timeout, or the run's time budget ran
+    // out in it. Warning for a tenant's custom rule, Error for a built-in or community rule — route
+    // Error to a push channel. At most one per instance, tenant and rule per hour, 20 per hour.
+    "RuleEvaluationStopped",
   ],
   Agent: [
     "BlobStorageMissing",

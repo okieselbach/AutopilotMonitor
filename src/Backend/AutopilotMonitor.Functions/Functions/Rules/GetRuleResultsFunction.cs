@@ -13,6 +13,8 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// Returns analysis results (rule evaluations) for a session.
     /// Supports on-demand re-analysis via ?reanalyze=true query parameter.
     /// Global admins can request analysis for any tenant by passing ?tenantId=...
+    /// The re-analysis runs the tenant's rules synchronously, so it takes a slot of
+    /// <see cref="ReanalyzeGate"/> and its run is bounded by the evaluation budget (D-410).
     /// </summary>
     public class GetRuleResultsFunction
     {
@@ -21,19 +23,25 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly ISessionRepository _sessionRepo;
         private readonly AnalyzeRuleService _analyzeRuleService;
+        private readonly ReanalyzeGate _gate;
+        private readonly RuleEvaluationStopReporter _stopReporter;
 
         public GetRuleResultsFunction(
             ILogger<GetRuleResultsFunction> logger,
             IRuleRepository ruleRepo,
             IMaintenanceRepository maintenanceRepo,
             ISessionRepository sessionRepo,
-            AnalyzeRuleService analyzeRuleService)
+            AnalyzeRuleService analyzeRuleService,
+            ReanalyzeGate gate,
+            RuleEvaluationStopReporter stopReporter)
         {
             _logger = logger;
             _ruleRepo = ruleRepo;
             _maintenanceRepo = maintenanceRepo;
             _sessionRepo = sessionRepo;
             _analyzeRuleService = analyzeRuleService;
+            _gate = gate;
+            _stopReporter = stopReporter;
         }
 
         [Function("GetRuleResults")]
@@ -65,6 +73,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // and a 500 would blank the page even when most rules persisted fine.
             var persistFailureRuleIds = new List<string>();
 
+            // Rules the re-analysis could not evaluate within its budget; they keep their rows.
+            var stoppedRuleIds = new List<string>();
+
+            // A slot of this instance for the whole rebuild (analysis, delete, rewrite).
+            using var slot = reanalyze ? _gate.TryEnter() : null;
+            if (reanalyze && slot == null)
+                return await _gate.RefuseAsync(req, requestCtx.TenantId, requestCtx.UserPrincipalName);
+
             if (reanalyze)
             {
                 try
@@ -76,12 +92,16 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                     // channel notification. Rules that no longer fire come back as ResolvedResults
                     // (kept for audit) instead of silently vanishing.
                     var outcome = await ruleEngine.AnalyzeSessionAsync(effectiveTenantId, sessionId, reanalyze: true);
+                    stoppedRuleIds.AddRange(outcome.Stops.Select(s => s.RuleId).Concat(outcome.SkippedRuleIds));
+                    await _stopReporter.ReportAsync(effectiveTenantId, sessionId, AnalyzeRunKind.Reanalyze, outcome);
 
                     // Delete existing results so stale entries (e.g. rows from since-deleted or
-                    // disabled rules) don't persist after re-analysis
+                    // disabled rules) don't persist after re-analysis. Rows of rules the run could
+                    // not evaluate (KeptResults) go back unchanged — a stop is no evidence that a
+                    // finding went away.
                     await _maintenanceRepo.DeleteSessionRuleResultsAsync(effectiveTenantId, sessionId);
 
-                    foreach (var result in outcome.Results.Concat(outcome.ResolvedResults))
+                    foreach (var result in outcome.Results.Concat(outcome.ResolvedResults).Concat(outcome.KeptResults))
                     {
                         var stored = await _ruleRepo.StoreRuleResultAsync(result);
                         if (!stored)
@@ -133,9 +153,33 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 HighCount = openResults.Count(r => r.Severity == "high"),
                 WarningCount = openResults.Count(r => r.Severity == "warning"),
                 PersistFailureCount = persistFailureRuleIds.Count,
-                PersistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
+                PersistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null,
+                StoppedRuleIds = stoppedRuleIds.Count > 0 ? stoppedRuleIds : null
             });
             return response;
+        }
+    }
+
+    /// <summary>
+    /// Per-instance cap on concurrent "Analyze now" rebuilds (singleton). A slot is held from the
+    /// analysis to the last rewritten row. The button is the only caller and a rebuild takes a
+    /// fraction of a second, so four slots never refuse a person; they stop a request flood from
+    /// holding every thread of an instance. Retry-After 5 s: one run's budget.
+    /// </summary>
+    public sealed class ReanalyzeGate : RuleWorkGate
+    {
+        internal const int DefaultLimit = 4;
+
+        public ReanalyzeGate(OpsEventService opsEvents, ILogger<ReanalyzeGate> logger)
+            : this(DefaultLimit, opsEvents, logger)
+        {
+        }
+
+        internal ReanalyzeGate(int limit, OpsEventService opsEvents, ILogger<ReanalyzeGate> logger)
+            : base(limit, "re-analysis",
+                "Too many analyses are running right now.",
+                retryAfterSeconds: 5, opsEvents, logger)
+        {
         }
     }
 }

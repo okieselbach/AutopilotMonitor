@@ -5,6 +5,7 @@ using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Logging;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -61,15 +62,9 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         /// <summary>
         /// Wall-clock budget for one whole test. A legitimate pattern finishes 200 lines in
         /// milliseconds; the worst case per request is this budget plus one running match
-        /// (≤ <see cref="MatchTimeout"/>), which is what <see cref="RetryAfterSeconds"/> promises.
+        /// (≤ <see cref="MatchTimeout"/>), which is what the gate's Retry-After promises.
         /// </summary>
         internal static readonly TimeSpan EvaluationBudget = TimeSpan.FromSeconds(2);
-
-        private const int RetryAfterSeconds = 3;
-
-        internal const string StopReasonRegexTimeout = "regex_timeout";
-        internal const string StopReasonTimeBudget = "time_budget";
-        internal const string StopReasonCancelled = "cancelled";
 
         [Function("TestLogPattern")]
         public async Task<HttpResponseData> Run(
@@ -94,12 +89,8 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var slot = _gate.TryEnter();
             if (slot == null)
             {
-                _logger.LogWarning(
-                    "Log-pattern test refused: {Limit} evaluations already running on this instance",
-                    _gate.Limit);
-                return await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
-                    "too many pattern tests are running right now — retry in a few seconds",
-                    retryAfterSeconds: RetryAfterSeconds);
+                var requestCtx = req.GetRequestContext();
+                return await _gate.RefuseAsync(req, requestCtx.TenantId, requestCtx.UserPrincipalName);
             }
 
             using (slot)
@@ -190,7 +181,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    Stop(result, StopReasonCancelled,
+                    Stop(result, EvaluationStopReasons.Cancelled,
                         i == 0 ? "evaluation cancelled before the first line" : $"evaluation cancelled after line {i}",
                         i, lines.Count);
                     break;
@@ -198,7 +189,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 // Checked before every line but the first: the previous line spent the budget.
                 if (i > 0 && clock.Elapsed >= budget)
                 {
-                    Stop(result, StopReasonTimeBudget,
+                    Stop(result, EvaluationStopReasons.TimeBudget,
                         $"evaluation stopped after line {i}: the test exceeded its {budget.TotalSeconds:0.#} s budget — a pattern this slow would strain the device too; anchor it (^) and avoid unbounded .* scans",
                         i, lines.Count);
                     break;
@@ -236,7 +227,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 {
                     row.Outcome = "regex_timeout";
                     result.TimeoutCount++;
-                    Stop(result, StopReasonRegexTimeout,
+                    Stop(result, EvaluationStopReasons.RegexTimeout,
                         $"line {i + 1} hit the agent's {MatchTimeout.TotalSeconds:0.#} s match timeout (catastrophic backtracking) — on the device such lines are skipped and only counted as regex timeouts; remove nested or overlapping quantifiers before deploying",
                         i + 1, lines.Count);
                     break;
@@ -308,17 +299,21 @@ namespace AutopilotMonitor.Functions.Functions.Rules
     /// construction to the end of the evaluation; a caller finding no free slot is answered 429
     /// at once, so this endpoint can never occupy more than <see cref="ConcurrencyGate.Limit"/>
     /// worker threads of an instance, whatever the request rate. Nothing but this test waits on
-    /// this gate.
+    /// this gate. Retry-After 3 s: the 2 s budget plus one running match.
     /// </summary>
-    public sealed class TestLogPatternGate : ConcurrencyGate
+    public sealed class TestLogPatternGate : RuleWorkGate
     {
         internal const int DefaultLimit = 2;
 
-        public TestLogPatternGate() : this(DefaultLimit)
+        public TestLogPatternGate(OpsEventService opsEvents, ILogger<TestLogPatternGate> logger)
+            : this(DefaultLimit, opsEvents, logger)
         {
         }
 
-        internal TestLogPatternGate(int limit) : base(limit)
+        internal TestLogPatternGate(int limit, OpsEventService opsEvents, ILogger<TestLogPatternGate> logger)
+            : base(limit, "pattern-test",
+                "Too many pattern tests are running right now.",
+                retryAfterSeconds: 3, opsEvents, logger)
         {
         }
     }

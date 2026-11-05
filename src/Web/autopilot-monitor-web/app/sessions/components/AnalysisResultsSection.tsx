@@ -25,6 +25,9 @@ interface AnalysisResultsSectionProps {
    * persist" carries the underlying Storage error for diagnosis.
    */
   persistFailureRuleIds?: string[];
+  /** Rule IDs the most recent reanalyze stopped at its time limit (a regex took too long, or the run's
+   * budget ran out first). They keep their previous result; a yellow banner names them. */
+  stoppedRuleIds?: string[];
   /** Hides the "Analyze Now" control when false — a read-only cross-tenant (delegated/MSP) viewer must not
    * trigger a re-analysis. Defaults to true, so own-tenant / Global Admin behavior is unchanged. */
   canReanalyze?: boolean;
@@ -44,6 +47,7 @@ export default function AnalysisResultsSection({
   setAnalysisExpanded,
   onReanalyze,
   persistFailureRuleIds,
+  stoppedRuleIds,
   canReanalyze = true,
   sessionTenantId,
   emptyState,
@@ -135,7 +139,7 @@ export default function AnalysisResultsSection({
           {persistFailureRuleIds && persistFailureRuleIds.length > 0 && (
             <div
               role="alert"
-              className="mb-3 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900"
+              className="mb-3 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:text-yellow-100"
             >
               <div className="font-medium">
                 {persistFailureRuleIds.length === 1
@@ -149,6 +153,24 @@ export default function AnalysisResultsSection({
               </div>
               <div className="mt-1 font-mono text-xs">
                 {persistFailureRuleIds.join(", ")}
+              </div>
+            </div>
+          )}
+          {stoppedRuleIds && stoppedRuleIds.length > 0 && (
+            <div
+              role="alert"
+              className="mb-3 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:text-yellow-100"
+            >
+              <div className="font-medium">
+                {stoppedRuleIds.length === 1
+                  ? "1 rule stopped at the time limit"
+                  : `${stoppedRuleIds.length} rules stopped at the time limit`}
+              </div>
+              <div className="mt-1 text-xs text-yellow-800">
+                They kept their previous result. A rule stops when one of its patterns takes longer than 1 second.
+              </div>
+              <div className="mt-1 font-mono text-xs">
+                {stoppedRuleIds.join(", ")}
               </div>
             </div>
           )}

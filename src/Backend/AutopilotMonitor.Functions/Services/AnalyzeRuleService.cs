@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -334,6 +335,7 @@ namespace AutopilotMonitor.Functions.Services
             ValidateEvaluateOn(rule);
             ValidateRelatedDocs(rule);
             ValidatePresentation(rule);
+            ValidateShapeLimits(rule);
 
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
@@ -373,6 +375,7 @@ namespace AutopilotMonitor.Functions.Services
             ValidateEvaluateOn(rule);
             ValidateRelatedDocs(rule);
             ValidatePresentation(rule);
+            ValidateShapeLimits(rule);
 
             // Custom rules are fully tenant-owned: fold a notify override into the row default
             // (there is no separate RuleState for them) — mirrors how the UI edits Enabled.
@@ -472,6 +475,9 @@ namespace AutopilotMonitor.Functions.Services
                         break;
                 }
             }
+
+            // A template variable can carry the tenant's own regex (ANALYZE-SEC-006's allow-list).
+            ValidateShapeLimits(customRule);
 
             // Store the custom rule in the tenant partition
             var success = await _ruleRepo.StoreAnalyzeRuleAsync(customRule, tenantId);
@@ -824,6 +830,77 @@ namespace AutopilotMonitor.Functions.Services
 
         private static bool IsTemplateWithin(string? text, int maxLength)
             => !string.IsNullOrWhiteSpace(text) && text.Length <= maxLength;
+
+        /// <summary>
+        /// Rejects a rule over the <see cref="AnalyzeRuleLimits"/> with <see cref="ArgumentException"/>
+        /// (mapped to 400) naming every offending field. Runs on create, custom-rule update (also the
+        /// portal's enable/notify toggles, which send the whole rule) and template copy.
+        /// </summary>
+        internal static void ValidateShapeLimits(AnalyzeRule rule)
+        {
+            var errors = ShapeLimitErrors(rule);
+            if (errors.Count > 0)
+                throw new ArgumentException("Invalid rule: " + string.Join("; ", errors));
+        }
+
+        /// <summary>
+        /// The size limits of a tenant-authored rule (D-410): the number of conditions and
+        /// preconditions, and every value compared with regex or not_regex (condition value,
+        /// filter value, event A filter value, precondition value). The length is checked before a
+        /// Regex is built; a value within it must then parse. Returns user-facing errors, empty when
+        /// the rule fits. One implementation for the dry-run validation and every write path.
+        /// </summary>
+        internal static List<string> ShapeLimitErrors(AnalyzeRule rule)
+        {
+            var errors = new List<string>();
+            var conditions = rule.Conditions ?? new List<RuleCondition>();
+            var preconditions = rule.Preconditions ?? new List<RulePrecondition>();
+
+            if (conditions.Count > AnalyzeRuleLimits.MaxConditions)
+                errors.Add($"a rule holds at most {AnalyzeRuleLimits.MaxConditions} conditions (this one has {conditions.Count})");
+            if (preconditions.Count > AnalyzeRuleLimits.MaxPreconditions)
+                errors.Add($"a rule holds at most {AnalyzeRuleLimits.MaxPreconditions} preconditions (this one has {preconditions.Count})");
+
+            for (var i = 0; i < conditions.Count; i++)
+            {
+                var c = conditions[i];
+                if (c == null) continue;
+                CheckRegexValue(errors, $"conditions[{i}].value", c.Operator, c.Value);
+                CheckRegexValue(errors, $"conditions[{i}].filterValue", c.FilterOperator, c.FilterValue);
+                CheckRegexValue(errors, $"conditions[{i}].eventAFilterValue", c.EventAFilterOperator, c.EventAFilterValue);
+            }
+            for (var i = 0; i < preconditions.Count; i++)
+            {
+                var p = preconditions[i];
+                if (p == null) continue;
+                CheckRegexValue(errors, $"preconditions[{i}].value", p.Operator, p.Value);
+            }
+
+            return errors;
+        }
+
+        private static void CheckRegexValue(List<string> errors, string label, string? op, string? value)
+        {
+            if (string.IsNullOrEmpty(value)
+                || !(string.Equals(op, "regex", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(op, "not_regex", StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            if (value.Length > AnalyzeRuleLimits.MaxRegexLength)
+            {
+                errors.Add($"{label}: a regex may be at most {AnalyzeRuleLimits.MaxRegexLength} characters (this one has {value.Length})");
+                return;
+            }
+
+            try
+            {
+                _ = new Regex(value, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            }
+            catch (ArgumentException ex)
+            {
+                errors.Add($"{label}: value is not a valid regex: {ex.Message}");
+            }
+        }
 
         internal static bool IsAbsoluteHttpUrl(string? url)
         {

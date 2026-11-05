@@ -24,7 +24,6 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
         private readonly OpsEventService _opsEvents;
         private readonly ILogger<ReportUploadGate> _logger;
-        private long _nextAlertTicks;
 
         public ReportUploadGate(OpsEventService opsEvents, ILogger<ReportUploadGate> logger)
             : this(DefaultLimit, opsEvents, logger)
@@ -44,20 +43,12 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 "Report upload refused on {Route}: {Limit} uploads already in progress on this instance (tenant {TenantId})",
                 route, Limit, tenantId);
 
-            if (TakeAlert(DateTime.UtcNow))
+            if (TakeAlert(DateTime.UtcNow, AlertWindow))
                 await _opsEvents.RecordReportUploadLimitReachedAsync(route, Limit, AlertWindow, tenantId, upn);
 
             return await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
-                "Too many reports are being uploaded right now. Try again in a few seconds.",
+                "Too many reports are being uploaded right now.",
                 retryAfterSeconds: RetryAfterSeconds);
-        }
-
-        /// <summary>True for the first refusal of an alert window, the one that raises the ops event.</summary>
-        internal bool TakeAlert(DateTime utcNow)
-        {
-            var next = Interlocked.Read(ref _nextAlertTicks);
-            return utcNow.Ticks >= next
-                && Interlocked.CompareExchange(ref _nextAlertTicks, utcNow.Add(AlertWindow).Ticks, next) == next;
         }
     }
 }

@@ -1,6 +1,8 @@
 using System.Net.Http;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared.DataAccess;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -24,4 +26,15 @@ internal static class TestNotifications
 
     internal static OpsAlertDispatchService InertOpsAlertDispatch(AdminConfigurationService adminConfigService)
         => new(adminConfigService, InertDispatcher(), NullLogger<OpsAlertDispatchService>.Instance);
+
+    /// <summary>An <see cref="OpsEventService"/> that records every saved event in <paramref name="sink"/> and sends nothing.</summary>
+    internal static OpsEventService CapturingOpsEvents(List<OpsEventEntry> sink)
+    {
+        var repo = new Mock<IOpsEventRepository>();
+        repo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
+            .Returns<OpsEventEntry>(e => { lock (sink) sink.Add(e); return Task.CompletedTask; });
+        var adminConfig = new Mock<AdminConfigurationService>(
+            Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()));
+        return new OpsEventService(repo.Object, NullLogger<OpsEventService>.Instance, InertOpsAlertDispatch(adminConfig.Object));
+    }
 }

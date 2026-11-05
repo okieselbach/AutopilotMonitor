@@ -116,7 +116,7 @@ function SessionDetailContent() {
 
   // Session-scoped hooks (data/SignalR/derivations)
   const detail = useSessionDetail({ sessionId, tenantId, globalAdminMode, tenantIdOverride, user, getAccessToken, addNotification });
-  const analysis = useSessionAnalysis(sessionId, detail.sessionTenantId, getAccessToken);
+  const analysis = useSessionAnalysis(sessionId, detail.sessionTenantId, getAccessToken, { notifyError });
   const tenantConfig = useSessionTenantConfig(detail.sessionTenantId, getAccessToken);
   const eventsApi = useSessionEvents({
     sessionId,
@@ -183,7 +183,7 @@ function SessionDetailContent() {
   // Returns an empty map when the tenant hasn't granted DeviceManagementScripts.Read.All.
   // Map keys are "{Kind}:{Id}" -- the renderer uses lookupScriptDisplayName to read them.
   const scriptDisplayNamesByRefKey = useScriptDisplayNames(sessionTenantId ?? tenantId, events, getAccessToken);
-  const { analysisResults, loadingAnalysis, analysisLoaded, vulnerabilityReport, fetchAnalysisResults, fetchVulnerabilityReport, persistFailureRuleIds } = analysis;
+  const { analysisResults, loadingAnalysis, analysisLoaded, vulnerabilityReport, fetchAnalysisResults, fetchVulnerabilityReport, persistFailureRuleIds, stoppedRuleIds } = analysis;
   const { showScriptOutput, enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer } = tenantConfig;
   const {
     filteredEvents,
@@ -698,6 +698,7 @@ function SessionDetailContent() {
               // so it stays with Admin/GA/Operator (the backend serves it read-tier regardless).
               canReanalyze={!isReadOnlyView && ((user?.isTenantAdmin ?? false) || (user?.isGlobalAdmin ?? false) || user?.role === "Operator")}
               persistFailureRuleIds={persistFailureRuleIds}
+              stoppedRuleIds={stoppedRuleIds}
               sessionTenantId={sessionTenantId || undefined}
               emptyState={showInvestigateHint({
                 status: session?.status,

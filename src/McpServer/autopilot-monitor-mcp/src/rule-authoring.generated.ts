@@ -338,7 +338,8 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
           "items": {
             "$ref": "#/$defs/ruleCondition"
           },
-          "minItems": 1
+          "minItems": 1,
+          "maxItems": 20
         },
         "preconditions": {
           "type": "array",
@@ -346,6 +347,7 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
           "items": {
             "$ref": "#/$defs/rulePrecondition"
           },
+          "maxItems": 10,
           "default": []
         },
         "baseConfidence": {

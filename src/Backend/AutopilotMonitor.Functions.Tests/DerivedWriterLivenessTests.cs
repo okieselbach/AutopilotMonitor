@@ -95,6 +95,7 @@ public class DerivedWriterLivenessTests
             configService: null!,
             channelDispatcher: null!,
             GuardFor(row),
+            stopReporter: null!,
             NullLogger<AnalyzeOnEnrollmentEndHandler>.Instance);
 
         await handler.HandleAsync(new AnalyzeOnEnrollmentEndEnvelope
@@ -116,6 +117,7 @@ public class DerivedWriterLivenessTests
             ruleService: null!, Mock.Of<IRuleRepository>(), Mock.Of<ISessionRepository>(), Mock.Of<IMetricsRepository>(),
             signalRNotification: null!, configService: null!, channelDispatcher: null!,
             new SessionDeletionGuard(reader.Object, NullLogger<SessionDeletionGuard>.Instance),
+            stopReporter: null!,
             NullLogger<AnalyzeOnEnrollmentEndHandler>.Instance);
 
         await Assert.ThrowsAsync<Azure.RequestFailedException>(() => handler.HandleAsync(new AnalyzeOnEnrollmentEndEnvelope

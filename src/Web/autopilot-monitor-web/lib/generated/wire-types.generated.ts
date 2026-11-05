@@ -2406,6 +2406,8 @@ export interface GetRuleResultsResponse {
   persistFailureCount: number;
   /** Rule ids that failed to persist during the reanalyze — the key is omitted entirely when there were no failures (the happy-path contract stays unchanged). */
   persistFailureRuleIds?: string[];
+  /** Rule ids the reanalyze could not evaluate within its time limit (a regex timed out, or the run's budget ran out first); their previous results are kept. The key is omitted when every rule was evaluated. */
+  stoppedRuleIds?: string[];
 }
 
 /** Response of POST tenants/{tenantId}/scripts/display-names: resolved Intune script display names keyed by the canonical ref string. Always 200, possibly partial — unresolved refs stay in the dictionary with a null VALUE (dictionary values are NOT subject to WhenWritingNull, so the key is emitted with an explicit JSON null). */
@@ -3237,7 +3239,7 @@ export interface LogPatternTestResult {
   matchCount: number;
   parseFailureCount: number;
   timeoutCount: number;
-  /** Set when the test ended before the last sample line was evaluated: regex_timeout (the first line that hit the agent's 1 s match timeout ends the test) | time_budget (the whole test exceeded its time budget) | cancelled. Lines after the stop have no row; a note names them. Null when every line was evaluated. */
+  /** Set when the test ended before the last sample line was evaluated (EvaluationStopReasons): regex_timeout (the first line that hit the agent's 1 s match timeout ends the test) | time_budget (the whole test exceeded its time budget) | cancelled. Lines after the stop have no row; a note names them. Null when every line was evaluated. */
   stopReason?: string;
   readonly lines: LogPatternLineResult[];
   readonly notes: string[];
@@ -4189,6 +4191,10 @@ export interface RuleDryRun {
   wouldMarkSessionAsFailed: boolean;
   /** The evidence map exactly as the production path would persist it on a RuleResult — keys are condition signals (plus factor_* markers). Clients use it to preview {{token}} interpolation of explanation/remediation. Values are heterogeneous evidence objects by design. */
   matchedConditions?: Record<string, unknown>;
+  /** Set with verdict "stopped": regex_timeout | time_budget | cancelled. The trace then holds only the entries evaluated before the stop. Null otherwise. */
+  stopReason?: string;
+  /** Set with verdict "stopped": which precondition or condition the evaluation stopped at, and what to change. */
+  stopNote?: string;
 }
 
 export interface RuleDryRunCondition {

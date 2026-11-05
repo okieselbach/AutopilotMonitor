@@ -89,12 +89,14 @@
           "type": "array",
           "description": "Conditions evaluated against the event stream. All required conditions must match for the rule to fire.",
           "items": { "$ref": "#/$defs/ruleCondition" },
-          "minItems": 1
+          "minItems": 1,
+          "maxItems": 20
         },
         "preconditions": {
           "type": "array",
           "description": "Optional device-fact gates evaluated BEFORE conditions. ALL preconditions must pass; if any fails the rule is silently skipped — no result, no UI card. Useful for filtering out hardware/OS profiles where the rule does not apply (e.g. virtual machines).",
           "items": { "$ref": "#/$defs/rulePrecondition" },
+          "maxItems": 10,
           "default": []
         },
         "baseConfidence": {

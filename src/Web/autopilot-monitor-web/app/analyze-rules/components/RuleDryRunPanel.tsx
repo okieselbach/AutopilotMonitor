@@ -128,6 +128,9 @@ function DryRunResult({ outcome }: { outcome: Outcome }) {
         )}
       </div>
 
+      {/* Verdict "stopped": where the evaluation hit its limit and what to change. */}
+      {result.stopNote && <p className="mt-2 text-xs text-gray-700 break-words">{result.stopNote}</p>}
+
       {result.preconditions.length > 0 && (
         <ul className="mt-3 space-y-1 text-xs text-gray-600">
           {result.preconditions.map((p, i) => (
@@ -139,24 +142,26 @@ function DryRunResult({ outcome }: { outcome: Outcome }) {
         </ul>
       )}
 
-      <ul className="mt-3 divide-y divide-gray-200 rounded-md border border-gray-200 bg-white text-xs">
-        {result.conditions.map((c) => {
-          const evidence = evidenceText(c);
-          return (
-            <li key={c.signal} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2">
-              <span className={`font-bold ${c.matched ? "text-green-700" : "text-gray-400"}`} aria-hidden="true">
-                {c.matched ? "✓" : "✗"}
-              </span>
-              <span className="sr-only">{c.matched ? "Matched:" : "Not matched:"}</span>
-              <span className="font-mono font-medium text-gray-900">{c.signal}</span>
-              <span className="text-gray-500">
-                {[c.eventType ?? c.source, c.required ? "required" : "optional", eventCountText(c)].filter(Boolean).join(" · ")}
-              </span>
-              {evidence && <span className="basis-full pl-5 text-gray-600 break-words">{evidence}</span>}
-            </li>
-          );
-        })}
-      </ul>
+      {result.conditions.length > 0 && (
+        <ul className="mt-3 divide-y divide-gray-200 rounded-md border border-gray-200 bg-white text-xs">
+          {result.conditions.map((c) => {
+            const evidence = evidenceText(c);
+            return (
+              <li key={c.signal} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2">
+                <span className={`font-bold ${c.matched ? "text-green-700" : "text-gray-400"}`} aria-hidden="true">
+                  {c.matched ? "✓" : "✗"}
+                </span>
+                <span className="sr-only">{c.matched ? "Matched:" : "Not matched:"}</span>
+                <span className="font-mono font-medium text-gray-900">{c.signal}</span>
+                <span className="text-gray-500">
+                  {[c.eventType ?? c.source, c.required ? "required" : "optional", eventCountText(c)].filter(Boolean).join(" · ")}
+                </span>
+                {evidence && <span className="basis-full pl-5 text-gray-600 break-words">{evidence}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {fired && presentation && (
         <div className="mt-3">

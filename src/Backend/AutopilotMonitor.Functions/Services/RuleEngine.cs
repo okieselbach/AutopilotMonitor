@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -24,6 +23,9 @@ namespace AutopilotMonitor.Functions.Services
             _sessionRepo = sessionRepo;
             _logger = logger;
         }
+
+        /// <summary>Time budget of one analysis run (<see cref="RuleEvaluationBudget.AnalysisRun"/>); tests shrink it.</summary>
+        internal TimeSpan RunBudget { get; init; } = RuleEvaluationBudget.AnalysisRun;
 
         /// <summary>
         /// Evaluates analyze rules against the full session event stream. Fetches events internally.
@@ -70,6 +72,13 @@ namespace AutopilotMonitor.Functions.Services
         /// not abort the whole session pass. Rules that throw are simply absent from
         /// <see cref="AnalysisOutcome.Results"/>; they remain in <see cref="AnalysisOutcome.EvaluatedRules"/>
         /// so telemetry counts the attempt.
+        /// </para>
+        /// <para>
+        /// <b>Evaluation budget (D-410):</b> the run gets <see cref="RunBudget"/> for all rules
+        /// together. A regex match timeout stops that rule and the run goes on; a spent budget
+        /// stops the rule and leaves every later rule unevaluated. A rule that does not finish
+        /// keeps its stored row untouched (<see cref="AnalysisOutcome.KeptResults"/>) and is
+        /// listed in <see cref="AnalysisOutcome.Stops"/> / <see cref="AnalysisOutcome.SkippedRuleIds"/>.
         /// </para>
         /// </summary>
         public async Task<AnalysisOutcome> AnalyzeSessionAsync(string tenantId, string sessionId, AnalyzeRunContext context)
@@ -119,22 +128,25 @@ namespace AutopilotMonitor.Functions.Services
 
             var now = DateTime.UtcNow;
 
-            foreach (var rule in activeRules)
+            // One budget for the whole run, started after the storage reads. Global rules
+            // (built-in, community) come before the tenant's custom rules — the merge order of
+            // GetAllRulesForTenantAsync — so a run that spends its budget runs out on the
+            // custom rules. A change to that order changes who pays (D-410).
+            var budget = new RuleEvaluationBudget(RunBudget);
+
+            for (var i = 0; i < activeRules.Count; i++)
             {
+                var rule = activeRules[i];
+                existingByRuleId.TryGetValue(rule.RuleId, out var existing);
                 try
                 {
-                    existingByRuleId.TryGetValue(rule.RuleId, out var existing);
-
-                    // Classic dedupe: a FINAL row is settled — neither Terminal nor Interim
-                    // touches it again. Only Reanalyze (explicit user action) re-opens it.
-                    // Interim rows are always re-evaluated (refresh / finalize / resolve).
-                    if (context.Kind != AnalyzeRunKind.Reanalyze && existing != null && !existing.IsInterim)
+                    if (!IsEvaluatedIn(context.Kind, existing))
                         continue;
 
                     // Track that this rule was evaluated (for telemetry)
                     outcome.EvaluatedRules.Add(rule);
 
-                    var result = EvaluateRule(rule, allEvents);
+                    var result = EvaluateRule(rule, allEvents, budget);
                     if (result != null)
                     {
                         result.SessionId = sessionId;
@@ -179,17 +191,68 @@ namespace AutopilotMonitor.Functions.Services
                         }
                     }
                 }
+                catch (RuleEvaluationStoppedException stop)
+                {
+                    // The rule did not finish: whatever is stored for it stays as it is — a stop is
+                    // no evidence that the finding went away.
+                    KeepStoredRow(outcome, existing);
+                    outcome.Stops.Add(new RuleEvaluationStop(rule.RuleId, stop.Reason, rule.IsBuiltIn || rule.IsCommunity));
+
+                    if (stop.Reason == EvaluationStopReasons.RegexTimeout)
+                    {
+                        _logger.LogWarning(
+                            "Rule evaluation stopped: {Reason} in rule {RuleId} for session {SessionId} of tenant {TenantId} ({Kind}) after {ElapsedMs} ms of the run",
+                            stop.Reason, rule.RuleId, sessionId, tenantId, context.Kind, (long)budget.Elapsed.TotalMilliseconds);
+                        continue;
+                    }
+
+                    // The run's budget is spent: every later rule stays unevaluated, rows kept.
+                    foreach (var later in activeRules.Skip(i + 1))
+                    {
+                        existingByRuleId.TryGetValue(later.RuleId, out var laterExisting);
+                        if (!IsEvaluatedIn(context.Kind, laterExisting))
+                            continue;
+                        KeepStoredRow(outcome, laterExisting);
+                        outcome.SkippedRuleIds.Add(later.RuleId);
+                    }
+                    _logger.LogWarning(
+                        "Rule evaluation stopped: {Reason} in rule {RuleId} for session {SessionId} of tenant {TenantId} ({Kind}) after {ElapsedMs} ms of the run; {SkippedCount} later rule(s) not evaluated",
+                        stop.Reason, rule.RuleId, sessionId, tenantId, context.Kind, (long)budget.Elapsed.TotalMilliseconds, outcome.SkippedRuleIds.Count);
+                    break;
+                }
                 catch (Exception ex)
                 {
                     // Per-rule evaluation failures are isolated: a buggy rule must not kill the
                     // whole pass. Storage-layer exceptions from the surrounding code (rule loading,
                     // event reading, results lookup, KO-criterion side-effects) are NOT caught here
                     // and propagate to the caller — the queue worker depends on this for retry.
+                    KeepStoredRow(outcome, existing);
                     _logger.LogWarning(ex, $"Error evaluating rule {rule.RuleId}");
                 }
             }
 
             return outcome;
+        }
+
+        /// <summary>
+        /// Classic dedupe: a FINAL row is settled — neither Terminal nor Interim touches it again.
+        /// Only Reanalyze (explicit user action) re-opens it. Interim rows are always re-evaluated
+        /// (refresh / finalize / resolve).
+        /// </summary>
+        private static bool IsEvaluatedIn(AnalyzeRunKind kind, RuleResult? existing)
+            => kind == AnalyzeRunKind.Reanalyze || existing == null || existing.IsInterim;
+
+        /// <summary>
+        /// Hands the stored row of a rule this run could not evaluate back to the caller, unless
+        /// the rule already produced an outcome entry of its own.
+        /// </summary>
+        private static void KeepStoredRow(AnalysisOutcome outcome, RuleResult? existing)
+        {
+            if (existing == null
+                || outcome.Results.Any(r => r.RuleId == existing.RuleId)
+                || outcome.ResolvedResults.Contains(existing))
+                return;
+            outcome.KeptResults.Add(existing);
         }
 
         /// <summary>True when the rule's evaluateOn matches this interim run's trigger.</summary>
@@ -326,7 +389,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Evaluates a single rule against the full session event stream
         /// </summary>
-        private RuleResult? EvaluateRule(AnalyzeRule rule, List<EnrollmentEvent> events)
+        private RuleResult? EvaluateRule(AnalyzeRule rule, List<EnrollmentEvent> events, RuleEvaluationBudget budget)
         {
             // Preconditions gate (AND-semantics, silent skip): if any precondition fails the
             // rule is not evaluated at all — no result row, no UI card. Distinct from
@@ -335,7 +398,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 foreach (var pre in rule.Preconditions)
                 {
-                    if (!EvaluatePrecondition(pre, events))
+                    if (!EvaluatePrecondition(pre, events, budget))
                     {
                         _logger.LogDebug(
                             "Rule {RuleId} skipped by precondition (eventType={EventType}, field={Field}, op={Op}, value={Value})",
@@ -352,7 +415,7 @@ namespace AutopilotMonitor.Functions.Services
             // Evaluate each condition
             foreach (var condition in rule.Conditions)
             {
-                var (matched, evidence) = EvaluateCondition(condition, events);
+                var (matched, evidence) = EvaluateCondition(condition, events, budget);
 
                 if (condition.Required && !matched)
                 {
@@ -430,7 +493,27 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>All rules that were evaluated in this pass (includes rules that didn't fire)</summary>
         public List<AnalyzeRule> EvaluatedRules { get; set; } = new List<AnalyzeRule>();
+
+        /// <summary>
+        /// Stored rows of rules this pass could not evaluate to the end (stopped, skipped after the
+        /// budget ran out, or thrown), unchanged. A caller that replaces a session's rows wholesale
+        /// (the manual re-analysis) writes them back; the queue path upserts and leaves them alone.
+        /// </summary>
+        public List<RuleResult> KeptResults { get; set; } = new List<RuleResult>();
+
+        /// <summary>Rules the evaluation budget stopped in this pass (D-410); callers report them.</summary>
+        public List<RuleEvaluationStop> Stops { get; set; } = new List<RuleEvaluationStop>();
+
+        /// <summary>Rules never started because the pass's budget ran out before them.</summary>
+        public List<string> SkippedRuleIds { get; set; } = new List<string>();
     }
+
+    /// <summary>
+    /// One rule a pass stopped: <paramref name="Reason"/> is regex_timeout or time_budget
+    /// (EvaluationStopReasons); <paramref name="IsCatalogRule"/> tells a built-in or community
+    /// rule (our pattern) from a tenant's custom rule (the author's).
+    /// </summary>
+    public sealed record RuleEvaluationStop(string RuleId, string Reason, bool IsCatalogRule);
 
     /// <summary>Which flavor of analyze run is executing — decides rule scope, dedupe and KO behavior.</summary>
     public enum AnalyzeRunKind

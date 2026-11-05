@@ -1,6 +1,6 @@
 using System;
+using System.IO.Enumeration;
 using System.Linq;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Security
@@ -11,6 +11,13 @@ namespace AutopilotMonitor.Functions.Security
     /// </summary>
     public static class HardwareWhitelistValidator
     {
+        /// <summary>
+        /// Longest device value an entry other than "*" is compared with. Real SMBIOS manufacturer
+        /// and model strings are a few dozen characters; a longer header is not one, and the
+        /// comparison costs value × entry length on every agent request (D-411).
+        /// </summary>
+        internal const int MaxMatchedValueLength = 256;
+
         /// <summary>
         /// Validates hardware against whitelist
         /// </summary>
@@ -50,11 +57,11 @@ namespace AutopilotMonitor.Functions.Security
             var manufacturerMatch = manufacturerWhitelist.Any(pattern => MatchesWildcard(manufacturer, pattern));
             if (!manufacturerMatch)
             {
-                logger?.LogWarning($"Hardware rejected: Manufacturer '{manufacturer}' not in whitelist");
+                logger?.LogWarning($"Hardware rejected: Manufacturer '{Shorten(manufacturer)}' not in whitelist");
                 return new HardwareValidationResult
                 {
                     IsValid = false,
-                    ErrorMessage = $"Manufacturer '{manufacturer}' is not authorized",
+                    ErrorMessage = $"Manufacturer '{Shorten(manufacturer)}' is not authorized",
                     Manufacturer = manufacturer,
                     Model = model
                 };
@@ -64,11 +71,11 @@ namespace AutopilotMonitor.Functions.Security
             var modelMatch = modelWhitelist.Any(pattern => MatchesWildcard(model, pattern));
             if (!modelMatch)
             {
-                logger?.LogWarning($"Hardware rejected: Model '{model}' not in whitelist");
+                logger?.LogWarning($"Hardware rejected: Model '{Shorten(model)}' not in whitelist");
                 return new HardwareValidationResult
                 {
                     IsValid = false,
-                    ErrorMessage = $"Model '{model}' is not authorized",
+                    ErrorMessage = $"Model '{Shorten(model)}' is not authorized",
                     Manufacturer = manufacturer,
                     Model = model
                 };
@@ -84,30 +91,26 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// Matches a string against a wildcard pattern (supports * and ?)
+        /// Whole-value wildcard match, case-insensitive: '*' is any run of characters (also none),
+        /// '?' exactly one, everything else literal. The tenant writes the entries and the device
+        /// the value, so no Regex is built from them: the BCL's simple-expression matcher needs at
+        /// most value × entry steps and never backtracks (D-411). Its escape character is '\',
+        /// which is literal in an entry, so it is doubled first. Case folding is ordinal — SMBIOS
+        /// strings are ASCII.
         /// </summary>
-        private static bool MatchesWildcard(string text, string pattern)
+        internal static bool MatchesWildcard(string text, string pattern)
         {
             if (pattern == "*")
                 return true;
-
-            // Convert wildcard pattern to regex
-            // Escape regex special chars, then replace * and ?
-            var regexPattern = "^" + Regex.Escape(pattern)
-                .Replace("\\*", ".*")
-                .Replace("\\?", ".") + "$";
-
-            try
-            {
-                // Use timeout to prevent ReDoS attacks with pathological input
-                return Regex.IsMatch(text, regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                // Timeout indicates potential ReDoS attempt - treat as non-match
+            if (text.Length > MaxMatchedValueLength)
                 return false;
-            }
+
+            return FileSystemName.MatchesSimpleExpression(pattern.Replace("\\", "\\\\"), text, ignoreCase: true);
         }
+
+        /// <summary>The value as a rejection message shows it: never longer than a real hardware string.</summary>
+        private static string Shorten(string value)
+            => value.Length <= MaxMatchedValueLength ? value : value.Substring(0, MaxMatchedValueLength) + "…";
     }
 
     /// <summary>

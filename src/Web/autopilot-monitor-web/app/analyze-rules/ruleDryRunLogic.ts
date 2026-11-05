@@ -50,6 +50,7 @@ const VERDICT_LABELS: Record<string, string> = {
   no_conditions_matched: "No condition matched",
   below_confidence_threshold: "Below the confidence threshold",
   no_events: "The session has no events",
+  stopped: "Stopped at an evaluation limit",
 };
 
 export function verdictLabel(verdict: string): string {
