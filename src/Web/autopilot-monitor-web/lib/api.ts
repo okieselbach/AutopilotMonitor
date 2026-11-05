@@ -834,10 +834,9 @@ export const api = {
     /** One tenant's organization budget by account for a GA / Global Reader; tenantId is required (no aggregate). */
     globalOrganization: (tenantId: string, dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/global/metrics/mcp-usage/organization${qs({ tenantId, dateFrom, dateTo })}`,
-    global: (tenantId?: string, dateFrom?: string, dateTo?: string) =>
-      `${API_BASE_URL}/api/global/metrics/mcp-usage${qs({ tenantId, dateFrom, dateTo })}`,
-    daily: (tenantId?: string, dateFrom?: string, dateTo?: string) =>
-      `${API_BASE_URL}/api/global/metrics/mcp-usage/daily${qs({ tenantId, dateFrom, dateTo })}`,
+    /** All-tenant overview of the GA metrics page: tenants, accounts, tools, refusals, per-minute peaks over 1–90 days. */
+    overview: (days: number, platformAdmins: "include" | "exclude") =>
+      `${API_BASE_URL}/api/global/metrics/mcp-usage/overview${qs({ days: String(days), platformAdmins })}`,
     planTiers: () => `${API_BASE_URL}/api/global/config/plan-tiers`,
   },
 

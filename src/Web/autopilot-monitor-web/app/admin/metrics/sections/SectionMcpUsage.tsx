@@ -1,275 +1,282 @@
 "use client";
 
-import { SegmentedControl } from "@/components/SegmentedControl";
-import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
-import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
-import type { GetGlobalMcpUsageDailyResponse, GetGlobalMcpUsageResponse, UserUsageDailySummary } from "@/lib/generated/wire-types.generated";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { CalculatingDialog } from "@/components/CalculatingCard";
+import { chartColors } from "@/components/charts/chartTheme";
+import { useFetchProgress } from "@/hooks/useFetchProgress";
+import { useWindowDays } from "@/hooks/useWindowDays";
+import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
+import type {
+  GetGlobalMcpUsageOverviewResponse,
+  PlanTierDefinitionsResponse,
+  TenantConfiguration,
+} from "@/lib/generated/wire-types.generated";
+import { Stat } from "./Stat";
+import {
+  dailyChart,
+  formatDayKey,
+  MCP_USAGE_MAX_DAYS,
+  MCP_USAGE_VIEW_PARAM,
+  overviewTotals,
+  parseView,
+  planLegend,
+  tenantInfoMap,
+  type McpUsageView,
+  type TenantInfo,
+} from "./mcpUsage/mcpUsageLogic";
+import { TenantsTab } from "./mcpUsage/TenantsTab";
+import { ToolsTab } from "./mcpUsage/ToolsTab";
+import { LimitsTab } from "./mcpUsage/LimitsTab";
 
-interface UsageRecord {
-  userId: string;
-  userPrincipalName: string;
-  tenantId: string;
-  endpoint: string;
-  date: string;
-  requestCount: number;
-  lastRequestAt: string;
+function ChartPlaceholder() {
+  return <div className="flex h-56 items-center justify-center text-sm text-gray-400">Loading chart…</div>;
 }
 
-/** One per-day usage row (wire shape). */
-type DailySummary = UserUsageDailySummary;
+// recharts (~300 kB) loads only here: SectionClient imports every metrics section statically.
+const AppStackedBarChart = dynamic(() => import("@/components/charts/AppStackedBarChart"), { ssr: false, loading: ChartPlaceholder });
 
-function formatDate(yyyymmdd: string): string {
-  if (yyyymmdd.length !== 8) return yyyymmdd;
-  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
-}
+const DEFAULT_WINDOW_DAYS = 30;
+const RANGE_DAY: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" };
+const PLAN_COLORS: Record<string, string> = { community: chartColors.success, pro: chartColors.primary, msp: chartColors.warning };
+const NO_TENANT_INFO: ReadonlyMap<string, TenantInfo> = new Map();
 
-function getDateFrom(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10).replace(/-/g, "");
-}
-
-function getDateTo(): string {
-  return new Date().toISOString().slice(0, 10).replace(/-/g, "");
-}
-
-interface UserAggregate {
-  upn: string;
-  userId: string;
-  tenantId: string;
-  totalRequests: number;
-  lastActive: string;
-}
-
+/**
+ * GA metrics: MCP usage over every tenant (GET global/metrics/mcp-usage/overview). Who uses MCP (tenants,
+ * accounts, service principals), which tools and at what cost per call, and where the quota and the two
+ * per-minute limits bite. The window lives in ?days= (at most 90, the telemetry's reach), the tab in ?view=.
+ */
 export function SectionMcpUsage() {
+  // useSearchParams (?days=, ?view=) requires a Suspense boundary under the static export.
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <McpUsageContent />
+    </Suspense>
+  );
+}
+
+function McpUsageContent() {
   const { getAccessToken } = useAuth();
-  const [records, setRecords] = useState<UsageRecord[]>([]);
-  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
+  const searchParams = useSearchParams();
+  // Platform roles may ask for more; the telemetry keeps 90 days, so the page shows at most that.
+  const { days: requestedDays, setDays } = useWindowDays({ defaultDays: DEFAULT_WINDOW_DAYS, tenantId: undefined });
+  const days = Math.min(requestedDays, MCP_USAGE_MAX_DAYS);
+  const view = parseView(searchParams?.get(MCP_USAGE_VIEW_PARAM));
+  const [includePlatformAdmins, setIncludePlatformAdmins] = useState(false);
+  const [overview, setOverview] = useState<GetGlobalMcpUsageOverviewResponse | null>(null);
+  const [tenantRows, setTenantRows] = useState<{ tenants: TenantConfiguration[]; nowMs: number } | null>(null);
+  const [planTiers, setPlanTiers] = useState<PlanTierDefinitionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(30);
+  const { begin, finish, elapsedMs, estimateMs } = useFetchProgress("mcpUsageOverview.estimateMs", 10_000);
+  // A slower answer for an older window must never replace a newer one.
+  const requestRef = useRef(0);
 
-  const fetchData = useCallback(async (windowDays: number) => {
+  const setView = useCallback((next: McpUsageView) => {
+    const url = new URL(window.location.href);
+    if (next === "tenants") url.searchParams.delete(MCP_USAGE_VIEW_PARAM);
+    else url.searchParams.set(MCP_USAGE_VIEW_PARAM, next);
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
+  const fetchOverview = useCallback(async () => {
+    const request = ++requestRef.current;
     setLoading(true);
     setError(null);
+    begin();
+    let fresh = false;
     try {
-      const dateFrom = getDateFrom(windowDays);
-      const dateTo = getDateTo();
-
-      const [globalData, dailyData] = await Promise.all([
-        fetchJson<GetGlobalMcpUsageResponse>(api.mcpUsage.global(undefined, dateFrom, dateTo), getAccessToken),
-        fetchJson<GetGlobalMcpUsageDailyResponse>(api.mcpUsage.daily(undefined, dateFrom, dateTo), getAccessToken),
-      ]);
-
-      setRecords(globalData.records || []);
-      setDailySummaries(dailyData.summaries || []);
+      const data = await fetchJson<GetGlobalMcpUsageOverviewResponse>(
+        api.mcpUsage.overview(days, includePlatformAdmins ? "include" : "exclude"),
+        getAccessToken,
+      );
+      if (request === requestRef.current) {
+        setOverview(data);
+        fresh = true;
+      }
     } catch (err) {
-      setError(apiErrorText(err, "Failed to fetch usage data"));
+      if (request === requestRef.current) setError(apiErrorText(err, "Failed to load MCP usage"));
     } finally {
-      setLoading(false);
+      if (request === requestRef.current) {
+        setLoading(false);
+        finish(fresh);
+      }
     }
+  }, [days, includePlatformAdmins, getAccessToken, begin, finish]);
+
+  // Names, editions and the plan legend: once per visit. Without them the page shows tenant ids and no legend.
+  const fetchReferenceData = useCallback(async () => {
+    const [tenants, tiers] = await Promise.allSettled([
+      fetchJson<TenantConfiguration[]>(api.config.all(), getAccessToken),
+      fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken),
+    ]);
+    if (tenants.status === "fulfilled") setTenantRows({ tenants: tenants.value, nowMs: Date.now() });
+    if (tiers.status === "fulfilled") setPlanTiers(tiers.value);
   }, [getAccessToken]);
 
   useEffect(() => {
     const run = async () => {
-      await fetchData(days);
+      await fetchOverview();
     };
     void run();
-  }, [fetchData, days]);
+  }, [fetchOverview]);
 
-  // Aggregate by user
-  const userAggregates: UserAggregate[] = (() => {
-    const byUser = new Map<string, UserAggregate>();
-    for (const r of records) {
-      const key = r.userId || r.userPrincipalName;
-      const existing = byUser.get(key);
-      if (existing) {
-        existing.totalRequests += r.requestCount;
-        if (r.lastRequestAt > existing.lastActive) existing.lastActive = r.lastRequestAt;
-      } else {
-        byUser.set(key, {
-          upn: r.userPrincipalName,
-          userId: r.userId,
-          tenantId: r.tenantId,
-          totalRequests: r.requestCount,
-          lastActive: r.lastRequestAt,
-        });
-      }
-    }
-    return Array.from(byUser.values()).sort((a, b) => b.totalRequests - a.totalRequests);
-  })();
+  useEffect(() => {
+    const run = async () => {
+      await fetchReferenceData();
+    };
+    void run();
+  }, [fetchReferenceData]);
 
-  // Sorted daily summaries (newest first)
-  const sortedDaily = [...dailySummaries].sort((a, b) => b.date.localeCompare(a.date));
+  const info = useMemo(
+    () => (tenantRows ? tenantInfoMap(tenantRows.tenants, tenantRows.nowMs) : NO_TENANT_INFO),
+    [tenantRows],
+  );
+  const totals = useMemo(() => (overview ? overviewTotals(overview, info) : null), [overview, info]);
+  const chart = useMemo(() => (overview ? dailyChart(overview) : null), [overview]);
+  const plans = useMemo(() => planLegend(planTiers), [planTiers]);
 
-  const totalRequests = sortedDaily.reduce((sum, d) => sum + d.totalRequests, 0);
-  const uniqueUsersTotal = new Set(records.map(r => r.userId || r.userPrincipalName)).size;
-  const todayStr = getDateTo();
-  const todayRequests = sortedDaily.find(d => d.date === todayStr)?.totalRequests ?? 0;
-  const maxDaily = Math.max(...sortedDaily.map(d => d.totalRequests), 1);
+  const viewOptions: { value: McpUsageView; label: string }[] = [
+    { value: "tenants", label: "Tenants & accounts" },
+    { value: "tools", label: "Tools" },
+    { value: "limits", label: totals && totals.limitAccounts > 0 ? `Limits (${totals.limitAccounts})` : "Limits" },
+  ];
+
+  const telemetryDark = overview && !overview.telemetry.requestsAvailable && !overview.telemetry.mcpLogAvailable;
 
   return (
-    // Self-provides the max-w container the metrics layout used to supply (the other sections
-    // self-wrap with their own min-h-screen layout; this one is a plain content block).
+    // Self-provides the max-w container the metrics layout used to supply.
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Global MCP Usage</h2>
-          <p className="text-sm text-gray-500">API usage across all MCP-enabled users</p>
+          <h2 className="text-lg font-semibold text-gray-900">MCP Usage</h2>
+          <p className="text-sm text-gray-500">
+            {overview
+              ? `${formatDayKey(overview.dateFrom, RANGE_DAY)} – ${formatDayKey(overview.dateTo, RANGE_DAY)} · ${overview.includesPlatformAdmins ? "platform admins included" : "customers only"}`
+              : "MCP usage across all tenants"}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <SegmentedControl
-            options={WINDOW_PRESET_OPTIONS}
-            value={days}
-            onChange={setDays}
-          />
+          <label className="inline-flex items-center gap-2 text-sm text-gray-600" title="Global Admins and Global Readers">
+            <input
+              type="checkbox"
+              checked={includePlatformAdmins}
+              onChange={(e) => setIncludePlatformAdmins(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Include platform admins
+          </label>
+          <SegmentedControl options={WINDOW_PRESET_OPTIONS} value={days} onChange={setDays} />
           <button
-            onClick={() => fetchData(days)}
+            onClick={() => void fetchOverview()}
             disabled={loading}
             className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Refresh"}
+            Refresh
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-          <div className="text-sm text-gray-500 mb-1">Today</div>
-          <div className="text-2xl sm:text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <CalculatingDialog
+            title="Reading MCP usage"
+            subtitle="Quota counters and the request and MCP telemetry of every tenant"
+            elapsedMs={elapsedMs}
+            estimateMs={estimateMs}
+          />
         </div>
-        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-          <div className="text-sm text-gray-500 mb-1">Total ({days}d)</div>
-          <div className="text-2xl sm:text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-          <div className="text-sm text-gray-500 mb-1">Unique Users</div>
-          <div className="text-2xl sm:text-3xl font-bold text-green-600">{uniqueUsersTotal}</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-          <div className="text-sm text-gray-500 mb-1">Active Days</div>
-          <div className="text-2xl sm:text-3xl font-bold text-purple-600">{sortedDaily.length}</div>
-        </div>
-      </div>
+      ) : overview && totals && chart ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <Stat
+              label="Tool calls"
+              value={telemetryDark ? "—" : totals.calls.toLocaleString()}
+              hint={totals.mcpOnlyCalls > 0 ? `${totals.toolCount} tools · ${totals.mcpOnlyCalls.toLocaleString()} MCP-only` : `${totals.toolCount} tools`}
+            />
+            <Stat label="Requests" value={totals.requests.toLocaleString()} hint="charged to the quota" />
+            <Stat label="Tenants" value={totals.tenants.toLocaleString()} hint={`${totals.communityTenants} Community · ${totals.proTenants} Pro`} />
+            <Stat
+              label="Accounts"
+              value={totals.accounts.toLocaleString()}
+              hint={`${totals.accounts - totals.apps} people · ${totals.apps} ${totals.apps === 1 ? "app" : "apps"}`}
+            />
+            <button
+              type="button"
+              onClick={() => setView("limits")}
+              title="Show the limits"
+              className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <Stat
+                label="Limit hits"
+                value={totals.limitAccounts.toLocaleString()}
+                hint={`accounts · ${totals.quotaHitAccounts} quota · ${totals.minuteRefusedAccounts} per minute`}
+              />
+            </button>
+          </div>
 
-      {/* Daily Usage Chart */}
-      {sortedDaily.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-sm font-medium text-gray-900 mb-4">Daily Request Volume</h3>
-          <div className="space-y-2">
-            {sortedDaily.slice(0, 30).map((day) => (
-              <div key={day.date} className="flex items-center gap-2 sm:gap-3">
-                <div className="w-20 sm:w-24 text-xs text-gray-500 font-mono shrink-0">
-                  {formatDate(day.date)}
-                </div>
-                <div className="flex-1 bg-gray-100 rounded-full h-5 relative">
-                  <div
-                    className="bg-indigo-500 h-5 rounded-full transition-all"
-                    style={{ width: `${Math.max((day.totalRequests / maxDaily) * 100, 2)}%` }}
-                  />
-                </div>
-                <div className="w-12 sm:w-24 text-xs text-gray-600 text-right shrink-0">
-                  {day.totalRequests.toLocaleString()}
-                  <span className="hidden sm:inline"> / {day.uniqueUsers} users</span>
-                </div>
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-sm font-medium text-gray-500">Calls per day</h3>
+            {!overview.telemetry.requestsAvailable ? (
+              <p className="py-10 text-center text-sm text-gray-500">The request telemetry did not answer: the calls per day are missing.</p>
+            ) : chart.plans.length === 0 ? (
+              <p className="py-10 text-center text-sm text-gray-500">No tool calls in this window.</p>
+            ) : (
+              <div className="mt-4">
+                <AppStackedBarChart
+                  data={chart.rows}
+                  xKey="date"
+                  stacks={chart.plans.map((plan) => ({ dataKey: `plan:${plan}`, label: plan, color: PLAN_COLORS[plan] ?? chartColors.muted }))}
+                  height={220}
+                  formatXTick={(value) => formatDayKey(String(value))}
+                  renderTooltip={(row) => <DayTooltip row={row} plans={chart.plans} />}
+                />
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Top Endpoints (aggregated across all users) */}
-      {records.length > 0 && (() => {
-        const endpointTotals = new Map<string, number>();
-        for (const r of records) {
-          endpointTotals.set(r.endpoint, (endpointTotals.get(r.endpoint) || 0) + r.requestCount);
-        }
-        const topEndpoints = Array.from(endpointTotals.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 15);
-        return topEndpoints.length > 0 ? (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <h3 className="text-sm font-medium text-gray-900">Top Endpoints</h3>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {topEndpoints.map(([endpoint, count]) => {
-                // MCP tool calls are recorded as "toolname:/api/route" — show the
-                // tool name prominently and the route as a secondary line.
-                const sep = endpoint.indexOf(":");
-                const tool = sep > 0 ? endpoint.slice(0, sep) : endpoint;
-                const route = sep > 0 ? endpoint.slice(sep + 1) : null;
-                return (
-                  <div key={endpoint} className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
-                    <div className="min-w-0">
-                      <div className="text-sm font-mono text-gray-700 truncate">{tool}</div>
-                      {route && (
-                        <div className="text-xs font-mono text-gray-400 truncate">{route}</div>
-                      )}
-                    </div>
-                    <span className="text-sm text-gray-500 shrink-0">
-                      {count.toLocaleString()}
-                      <span className="hidden sm:inline"> requests</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null;
-      })()}
+          <SegmentedControl options={viewOptions} value={view} onChange={setView} className="w-fit max-w-full overflow-x-auto" />
 
-      {/* Top Users */}
-      {userAggregates.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-            <h3 className="text-sm font-medium text-gray-900">Top Users by Request Count</h3>
-          </div>
-          <div className="divide-y divide-gray-200">
-            {userAggregates.slice(0, 25).map((user) => (
-              <div key={user.userId || user.upn} className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
-                <div className="min-w-0">
-                  <div className="text-sm text-gray-900 truncate flex items-center gap-1.5">
-                    <span className="truncate">{user.upn ? principalLabel(user.upn) : user.userId}</span>
-                    {isApplicationKey(user.upn) && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 shrink-0" title="Service principal — automation calling with an app-only token">
-                        App
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-500 truncate">
-                    <span className="font-mono">{user.tenantId ? user.tenantId.slice(0, 8) : "—"}</span>
-                    {" · "}
-                    {user.lastActive ? new Date(user.lastActive).toLocaleDateString() : "—"}
-                  </div>
-                </div>
-                <div className="text-sm font-medium text-gray-900 shrink-0">
-                  {user.totalRequests.toLocaleString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+          {view === "tenants" && <TenantsTab tenants={overview.tenants} info={info} />}
+          {view === "tools" && <ToolsTab tools={overview.tools} telemetry={overview.telemetry} dateTo={overview.dateTo} />}
+          {view === "limits" && (
+            <LimitsTab
+              quotaHits={overview.quotaHits}
+              minuteLimits={overview.minuteLimits}
+              telemetry={overview.telemetry}
+              plans={plans}
+              info={info}
+            />
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
 
-      {/* Empty State */}
-      {!loading && records.length === 0 && !error && (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <p className="text-gray-500">No MCP usage data found for the selected period.</p>
-        </div>
-      )}
+function DayTooltip({ row, plans }: { row: Record<string, unknown>; plans: readonly string[] }) {
+  const line = (label: string, value: unknown, indent = false) => (
+    <p key={label} className={`flex justify-between gap-4 ${indent ? "pl-3 text-gray-300" : ""}`}>
+      <span>{label}</span>
+      <span className="font-semibold tabular-nums">{Number(value ?? 0).toLocaleString()}</span>
+    </p>
+  );
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{formatDayKey(String(row.date), { weekday: "short", day: "numeric", month: "short" })}</p>
+      {line("Tool calls", row.calls)}
+      {plans.map((plan) => line(plan, row[`plan:${plan}`], true))}
+      {line("Requests", row.requests)}
+      {line("Accounts", row.accounts)}
     </div>
   );
 }

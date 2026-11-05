@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -11,6 +12,7 @@ import {
   Legend,
 } from "recharts";
 import { chartColors, tooltipStyle, axisTick, axisLine, legendStyle } from "./chartTheme";
+import { RenderedTooltip } from "./RenderedTooltip";
 
 export interface StackedSeries {
   dataKey: string;
@@ -24,6 +26,8 @@ export interface AppStackedBarChartProps {
   stacks: StackedSeries[];
   height?: number;
   formatXTick?: (value: unknown) => string;
+  /** Replaces the tooltip content for the hovered row. */
+  renderTooltip?: (row: Record<string, unknown>) => ReactNode;
 }
 
 /**
@@ -39,6 +43,7 @@ export default function AppStackedBarChart({
   stacks,
   height = 260,
   formatXTick,
+  renderTooltip,
 }: AppStackedBarChartProps) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -64,6 +69,7 @@ export default function AppStackedBarChart({
           labelStyle={{ color: chartColors.tooltipText, marginBottom: 4 }}
           cursor={{ fill: chartColors.gridLine, opacity: 0.3 }}
           labelFormatter={formatXTick ? (l: unknown) => formatXTick(l) : undefined}
+          {...(renderTooltip ? { content: <RenderedTooltip render={renderTooltip} /> } : {})}
         />
         <Legend wrapperStyle={legendStyle} iconType="square" />
         {stacks.map((s) => (

@@ -18,6 +18,7 @@ import type {
   McpUsageQuotaNode,
 } from "@/lib/generated/wire-types.generated";
 import { isApplicationKey, principalLabel } from "@/lib/principalKeys";
+import { QuotaBar } from "@/components/QuotaBar";
 
 interface UsageRecord {
   userId: string;
@@ -49,33 +50,6 @@ function formatLastRequest(iso: string | undefined): string {
 function breakdownLabel(limit: number, slots: number | undefined, perSlot: number | undefined): string | null {
   const b = slotBreakdown(limit, slots, perSlot);
   return b && `${b.base.toLocaleString()} + ${b.slots} × ${b.perSlot.toLocaleString()}`;
-}
-
-function QuotaBar({ label, used, limit, breakdown }: { label: string; used: number; limit: number; breakdown?: string | null }) {
-  const unavailable = used < 0;
-  const unlimited = limit <= 0;
-  const pct = unavailable || unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
-  const tone = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-indigo-500";
-  return (
-    <div>
-      <div className="flex items-start justify-between text-xs text-gray-600 mb-1">
-        <span>{label}</span>
-        <span className="font-mono text-right">
-          {unavailable ? "n/a" : used.toLocaleString()}
-          {" / "}
-          {unlimited ? "unlimited" : limit.toLocaleString()}
-          {breakdown && (
-            <span className="block text-gray-400" title="Plan base + purchased delegation slots × growth per slot">
-              {breakdown}
-            </span>
-          )}
-        </span>
-      </div>
-      <div className="bg-gray-100 rounded-full h-2">
-        <div className={`${tone} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
 }
 
 function formatDate(yyyymmdd: string): string {
