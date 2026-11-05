@@ -1,14 +1,14 @@
 name: Deploy Web (Static Web App)
 
-# Build here, upload with the pinned SWA CLI. No third-party action sees the deploy token
-# (the CLI is Microsoft-published npm code at an exact version), the build runs on the same
-# path ci.yml tests (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the
-# action's container, and the exported site is attested like the agent ZIP and the MSI.
+# Build here, upload with the SWA CLI from its own lockfile (.github/tools/swa-cli). No
+# third-party action sees the deploy token, the build runs on the same path ci.yml tests
+# (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the action's container,
+# and the exported site is attested like the agent ZIP and the MSI.
 #
-# Three jobs, each holding only what it needs: build runs all third-party code without any
-# credential, deploy holds the SWA token alone, record attests, verifies and writes the
-# manifest. A failed record job is re-run on its own; it writes only once the live site
-# serves this commit.
+# Three jobs, each holding only what it needs: build runs the third-party build code without
+# any credential, deploy holds the SWA token alone and runs nothing but the locked CLI, record
+# attests, verifies and writes the manifest. A failed record job is re-run on its own; it
+# writes only once the live site serves this commit.
 #
 # PR preview environments were dropped with the action: their per-PR URLs are never
 # registered as redirect URIs, so nobody could log in on them anyway.
@@ -19,6 +19,7 @@ on:
       - main
     paths:
       - 'src/Web/autopilot-monitor-web/**'
+      - '.github/tools/swa-cli/**'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -32,9 +33,6 @@ permissions:
 # repository variable.
 env:
   WEB_DIR: src/Web/autopilot-monitor-web
-  # Exact version: `npx --package` resolves from the registry at run time, so the pin is the
-  # only thing that keeps the deploy step's code fixed. Bump deliberately.
-  SWA_CLI_VERSION: 2.0.10
 
 jobs:
   # Build zone: no login, no id-token. The one secret here is the Application Insights
@@ -155,8 +153,9 @@ jobs:
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
 
-  # Holds the SWA deployment token and nothing else -- deliberately no id-token: the SWA CLI
-  # is third-party npm code whose dependencies resolve at run time.
+  # Holds the SWA deployment token and nothing else -- deliberately no id-token. The token alone
+  # can replace the portal, so the SWA CLI, the one third-party code here, comes from a committed
+  # lockfile: a version published after the last reviewed bump never runs next to it.
   deploy:
     name: Deploy to Static Web App
     needs: build
@@ -164,10 +163,18 @@ jobs:
     environment: production
 
     steps:
-      # For staticwebapp.config.json only.
+      # For staticwebapp.config.json and the CLI's lockfile.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # npm ci, never npx or npm install: the lockfile pins every transitive package by hash.
+      # No lifecycle scripts: keytar, the only package with one, serves the keychain, which
+      # --no-use-keychain keeps unloaded. Before the artifact arrives, so nothing from the
+      # build zone can touch the install.
+      - name: Install the SWA CLI from its lockfile
+        working-directory: .github/tools/swa-cli
+        run: npm ci --ignore-scripts
 
       - name: Download build artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -186,7 +193,7 @@ jobs:
         env:
           SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
         run: |
-          npx --yes --package "@azure/static-web-apps-cli@${SWA_CLI_VERSION}" swa deploy \
+          .github/tools/swa-cli/node_modules/.bin/swa deploy \
             --app-location "$WEB_DIR" \
             --output-location out \
             --swa-config-location "$WEB_DIR" \

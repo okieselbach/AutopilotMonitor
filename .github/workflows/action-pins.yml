@@ -1,6 +1,6 @@
 name: Workflow gates
 
-# Three checks over the workflow files and their helper scripts:
+# Four checks over the workflow files and their helper scripts:
 #   * verify-pins -- every third-party action is referenced by a full commit SHA plus a
 #                    version comment (stricter than zizmor's unpinned-uses audit).
 #   * zizmor      -- static analysis of every workflow (permissions, credential
@@ -10,6 +10,8 @@ name: Workflow gates
 #   * hosts       -- no workflow or .github/scripts helper spells out a host; every one
 #                    comes from .github/scripts/Get-Endpoints.ps1, CI's member of the URL
 #                    registry (the C#, web and MCP registries have guard tests of their own).
+#   * packages    -- no workflow or helper fetches a package at a version the repository
+#                    does not fix, in the forms zizmor's adhoc-packages audit does not see.
 #
 # Every third-party action must be referenced by a full commit SHA, never by a tag.
 # Tags are mutable: whoever controls an action repository can repoint v4 at new code,
@@ -123,3 +125,51 @@ jobs:
       - name: No host literal outside .github/scripts/Get-Endpoints.ps1
         shell: pwsh
         run: ./.github/scripts/Assert-HostsFromRegistry.ps1
+
+  packages:
+    name: Packages only at a version the repository fixes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # npm packages come from a committed lockfile via npm ci; zizmor's adhoc-packages flags
+      # `npm install <pkg>` (also yarn, pnpm, gem), but not the forms below, which also fetch at
+      # run time:
+      #   * npx / npm exec without --no: in CI they install a missing package without asking.
+      #     The -- is load-bearing: without it npx hands the tool's own flags to npm.
+      #   * a .NET tool without an exact --version, a PowerShell module without -RequiredVersion.
+      # Other package managers (pip, cargo, dlx runners) are covered by neither check.
+      - name: No package fetched at a version the repository does not fix
+        run: |
+          set -uo pipefail
+          failed=0
+          fail() { echo "::error file=$1,line=$2::$3"; failed=1; }
+          while IFS=: read -r file line text; do
+            # YAML, shell and PowerShell comments alike start the line with #.
+            [[ "$text" =~ ^[[:space:]]*# ]] && continue
+
+            if [[ "$text" =~ (^|[^[:alnum:]_./-])(npx|npm[[:space:]]+(exec|x))([[:space:]]|$) ]] &&
+               ! [[ "$text" =~ (npx|npm[[:space:]]+(exec|x))[[:space:]]+--no[[:space:]]+--([[:space:]]|$) ]]; then
+              fail "$file" "$line" "Write 'npx --no -- <tool>' (or 'npm exec --no -- <tool>'): without --no a missing package is fetched from the registry, without -- the tool's flags go to npm."
+            fi
+
+            if [[ "$text" =~ dotnet[[:space:]]+tool[[:space:]]+(install|update) ]] &&
+               ! [[ "$text" =~ --version[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([^0-9.*]|$) ]]; then
+              fail "$file" "$line" "Give the .NET tool an exact --version X.Y.Z on the same line; a range or a missing version resolves at run time."
+            fi
+
+            if [[ "$text" =~ Install-(Module|PSResource)[[:space:]] ]] &&
+               ! [[ "$text" =~ -RequiredVersion[[:space:]]+[^[:space:]] || "$text" =~ -Version[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([^0-9.*]|$) ]]; then
+              fail "$file" "$line" "Give the PowerShell module an exact version on the same line, -RequiredVersion for Install-Module, -Version X.Y.Z for Install-PSResource; -MinimumVersion resolves at run time."
+            fi
+          # -H is load-bearing, as in verify-pins: with a single matching file grep omits the name.
+          done < <(grep -nHE 'npx|npm[[:space:]]+(exec|x)([[:space:]]|$)|dotnet[[:space:]]+tool[[:space:]]+(install|update)|Install-(Module|PSResource)' \
+                   .github/workflows/*.yml .github/scripts/*.ps1)
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Packages fetched at a version the repository does not fix -- fix them before this reaches main."
+            exit 1
+          fi
+          echo "Every package the workflows and their helpers fetch has a version the repository fixes."

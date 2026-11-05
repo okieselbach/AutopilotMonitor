@@ -65,11 +65,11 @@ jobs:
           persist-credentials: false
 
       # For all users: the SYSTEM pass below runs Pester as SYSTEM.
-      - name: Install Pester 5+
+      - name: Install Pester
         shell: powershell
         run: |
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
-          Install-Module Pester -Scope AllUsers -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+          Install-Module Pester -Scope AllUsers -Force -SkipPublisherCheck -RequiredVersion 6.2.0
 
       # Windows PowerShell 5.1 on purpose: that is the runtime IME uses to execute
       # platform scripts, so guard/relax logic is verified without resetting a device.

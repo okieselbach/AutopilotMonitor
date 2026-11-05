@@ -98,6 +98,23 @@ updates:
         applies-to: security-updates
         patterns: ['*']
 
+  # SWA CLI for the deploy job of deploy-web.yml, which installs it from this lockfile next to
+  # the production deploy token: a version reaches that job only through a reviewed bump here.
+  # deploy-web watches this folder, so a merged bump redeploys and proves the new CLI at once.
+  - package-ecosystem: npm
+    directory: /.github/tools/swa-cli
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      swa-cli:
+        patterns: ['*']
+      swa-cli-security:
+        applies-to: security-updates
+        patterns: ['*']
+
   # Every action is referenced by commit SHA with the version in a trailing comment;
   # action-pins.yml fails any workflow change that reintroduces a mutable tag. Dependabot
   # is what keeps those pins current: it rewrites the SHA and the comment together, so the

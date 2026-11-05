@@ -145,10 +145,10 @@ jobs:
       # next-env.d.ts + .next type stubs are gitignored (Next-managed since
       # v16); typegen generates them so tsc sees the same types as a build.
       - name: Generate Next.js types
-        run: npx next typegen
+        run: npx --no -- next typegen
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npx --no -- tsc --noEmit
 
       # Errors fail outright, and so does ANY warning: the codebase is
       # warning-clean and must stay that way — fix new findings, never
@@ -187,7 +187,7 @@ jobs:
       # tsconfig.json covers sources, tests and scripts; the build emits via
       # tsconfig.build.json.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npx --no -- tsc --noEmit
 
       # Same rule as the web job: any warning fails — fix new findings, never
       # raise the cap.
