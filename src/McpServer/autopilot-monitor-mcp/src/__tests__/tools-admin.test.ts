@@ -105,19 +105,13 @@ suite('get_agent_efficiency_metrics', () => {
 });
 
 suite('get_api_usage', () => {
-  it('should return daily usage summary', async () => {
-    const data = await apiFetch<any>(`/api/global/metrics/mcp-usage/daily`);
-    expect(Array.isArray(data.summaries)).toBe(true);
-    if (data.summaries.length > 0) {
-      expect(data.summaries[0]).toHaveProperty('date');
-      expect(data.summaries[0]).toHaveProperty('totalRequests');
-    }
-  });
-
-  it('should return global per-record usage', async () => {
-    const data = await apiFetch<any>(`/api/global/metrics/mcp-usage`);
-    // Response structure depends on implementation, just verify no error
-    expect(data).toBeDefined();
+  it('should return the all-tenant overview with its totals', async () => {
+    const data = await apiFetch<any>(`/api/global/metrics/mcp-usage/overview?days=7`);
+    expect(data).toHaveProperty('totals');
+    expect(typeof data.totals.requests).toBe('number');
+    expect(Array.isArray(data.tenants)).toBe(true);
+    expect(Array.isArray(data.tools)).toBe(true);
+    expect(Array.isArray(data.minuteLimits.accounts)).toBe(true);
   });
 });
 

@@ -8,7 +8,7 @@ import type {
   McpUsageQuotaHitItem,
   McpUsageTelemetryStatus,
 } from "@/lib/generated/wire-types.generated";
-import { formatDayKey, minuteRowsToShow, minuteShare, tenantLabel, type PlanLegendRow, type TenantInfo } from "./mcpUsageLogic";
+import { formatDayKey, minuteRowsToShow, tenantLabel, type PlanLegendRow, type TenantInfo } from "./mcpUsageLogic";
 import { DataNote, Pill } from "./parts";
 
 function limitText(value: number | undefined): string {
@@ -135,7 +135,7 @@ function MinuteSection({
 }) {
   const [showAll, setShowAll] = useState(false);
   const mcpLimit = minuteLimits.mcpServerLimit;
-  const close = minuteRowsToShow(minuteLimits.accounts, mcpLimit);
+  const close = minuteRowsToShow(minuteLimits.accounts);
   const rows = showAll ? minuteLimits.accounts : close;
 
   return (
@@ -170,7 +170,7 @@ function MinuteSection({
               <div className="min-w-0 text-sm text-gray-900">
                 <Principal principal={row.principal} />
                 <div className="text-xs text-gray-500">
-                  {tenantLabel(row.tenantId, info)} · busiest 60 s at {minuteShare(row, mcpLimit)} % of a limit
+                  {tenantLabel(row.tenantId, info)} · busiest 60 s at {row.sharePercent} % of a limit
                 </div>
               </div>
               <div>

@@ -15,9 +15,8 @@ import {
   formatDayKey,
   formatDuration,
   formatShare,
+  editionCounts,
   minuteRowsToShow,
-  minuteShare,
-  overviewTotals,
   parseView,
   planLegend,
   searchTenants,
@@ -154,6 +153,10 @@ function overview(over: Partial<GetGlobalMcpUsageOverviewResponse> = {}): GetGlo
     dateTo: "20261105",
     includesPlatformAdmins: false,
     telemetry: { requestsAvailable: true, mcpLogAvailable: true },
+    totals: {
+      calls: 0, mcpOnlyCalls: 0, tools: 0, requests: 0, tenants: 0, accounts: 0, servicePrincipals: 0,
+      quotaHitAccounts: 0, minuteRefusedAccounts: 0, limitAccounts: 0,
+    },
     daily: [],
     tenants: [],
     tools: [],
@@ -168,31 +171,15 @@ function tool(name: string, calls: number, over: Partial<McpUsageToolItem> = {})
 }
 
 function minute(principal: string, over: Partial<McpUsageMinuteItem> = {}): McpUsageMinuteItem {
-  return { tenantId: TENANT_A, principal, peakCalls: 0, mcpRefused: 0, peakRequests: 0, backendLimit: 120, backendRefused: 0, ...over };
+  return { tenantId: TENANT_A, principal, sharePercent: 0, peakCalls: 0, mcpRefused: 0, peakRequests: 0, backendLimit: 120, backendRefused: 0, ...over };
 }
 
-describe("overviewTotals", () => {
-  it("counts MCP-only calls in the total and every limited account once", () => {
-    const totals = overviewTotals(
-      overview({
-        tenants: [tenant(TENANT_A, [account("alice@contoso.com"), account("app:11111111-2222-3333-4444-555555555555")]), tenant(TENANT_B, [account("bob@fabrikam.com")])],
-        tools: [tool("get_session_summary", 10), tool("search_docs", 4, { accounts: undefined, tenants: undefined, requestsPerCall: 0 })],
-        quotaHits: [
-          { date: "20261105", tenantId: TENANT_A, principal: "alice@contoso.com", level: "user", scope: "daily", plan: "community", refused: 3, firstAt: "", lastAt: "" },
-          { date: "20261104", tenantId: TENANT_A, principal: "alice@contoso.com", level: "user", scope: "daily", plan: "community", refused: 1, firstAt: "", lastAt: "" },
-        ],
-        minuteLimits: { accounts: [minute("alice@contoso.com", { backendRefused: 2 }), minute("bob@fabrikam.com", { tenantId: TENANT_B, mcpRefused: 7 })] },
-      }),
-      INFO,
-    );
-
-    expect(totals.calls).toBe(14);
-    expect(totals.mcpOnlyCalls).toBe(4);
-    expect(totals.toolCount).toBe(2);
-    expect(totals.requests).toBe(30);
-    expect([totals.tenants, totals.communityTenants, totals.proTenants]).toEqual([2, 1, 1]);
-    expect([totals.accounts, totals.apps]).toEqual([3, 1]);
-    expect([totals.limitAccounts, totals.quotaHitAccounts, totals.minuteRefusedAccounts]).toEqual([2, 1, 2]);
+describe("editionCounts", () => {
+  it("counts the overview's tenants by their edition from config/all", () => {
+    const tenants = [tenant(TENANT_A, [account("alice@contoso.com")]), tenant(TENANT_B, [account("bob@fabrikam.com")])];
+    expect(editionCounts(overview({ tenants }), INFO)).toEqual({ community: 1, pro: 1 });
+    // A tenant missing from config/all counts toward neither edition.
+    expect(editionCounts(overview({ tenants: [tenant("cccccccc-0000-0000-0000-00000000000c", [])] }), INFO)).toEqual({ community: 0, pro: 0 });
   });
 });
 
@@ -213,20 +200,13 @@ describe("dailyChart", () => {
 });
 
 describe("per-minute rows", () => {
-  it("takes the higher share of the two limits", () => {
-    expect(minuteShare(minute("a", { peakCalls: 30, peakRequests: 108 }), 60)).toBe(90);
-    expect(minuteShare(minute("a", { peakCalls: 45, peakRequests: 12 }), 60)).toBe(75);
-    // No MCP limit reported yet: only the backend share counts.
-    expect(minuteShare(minute("a", { peakCalls: 59, peakRequests: 12 }), undefined)).toBe(10);
-  });
-
   it("shows a refusal at any peak, else a peak at half a limit", () => {
     const rows = [
-      minute("low", { peakCalls: 5, peakRequests: 10 }),
-      minute("refused", { peakRequests: 10, backendRefused: 1 }),
-      minute("close", { peakCalls: 30 }),
+      minute("low", { sharePercent: 9 }),
+      minute("refused", { sharePercent: 8, backendRefused: 1 }),
+      minute("close", { sharePercent: 50 }),
     ];
-    expect(minuteRowsToShow(rows, 60).map((r) => r.principal)).toEqual(["refused", "close"]);
+    expect(minuteRowsToShow(rows).map((r) => r.principal)).toEqual(["refused", "close"]);
   });
 });
 

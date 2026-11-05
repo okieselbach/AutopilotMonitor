@@ -216,6 +216,8 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>False when Global Admins and Global Readers are left out of every number.</summary>
         public bool IncludesPlatformAdmins { get; set; }
         public McpUsageTelemetryStatus Telemetry { get; set; } = default!;
+        /// <summary>The window's totals over the lists below, computed once for every consumer.</summary>
+        public McpUsageTotalsNode Totals { get; set; } = default!;
         /// <summary>One item per day of the window, oldest first.</summary>
         public IReadOnlyList<McpUsageDayItem> Daily { get; set; } = default!;
         /// <summary>Every tenant with MCP use in the window, most calls first.</summary>
@@ -239,6 +241,33 @@ namespace AutopilotMonitor.Shared.Models
         public string? McpLogFrom { get; set; }
         /// <summary>True when a store cut a result (size cap, shard timeout), so its numbers are a lower bound; absent otherwise.</summary>
         public bool? Partial { get; set; }
+    }
+
+    /// <summary>
+    /// The overview's totals, nested in <see cref="GetGlobalMcpUsageOverviewResponse"/>. "Calls" are tool calls,
+    /// "requests" are backend requests charged to the quota; an account is a person or a service principal of one
+    /// tenant.
+    /// </summary>
+    // Declaration order == wire order.
+    public class McpUsageTotalsNode
+    {
+        /// <summary>Tool calls in the window, MCP-only tools included; absent when the request telemetry did not answer.</summary>
+        public long? Calls { get; set; }
+        /// <summary>Calls of tools that run in the MCP server alone (part of <see cref="Calls"/>, attributed to no account); absent without the MCP log.</summary>
+        public long? McpOnlyCalls { get; set; }
+        /// <summary>Tools called in the window.</summary>
+        public int Tools { get; set; }
+        public long Requests { get; set; }
+        public int Tenants { get; set; }
+        public int Accounts { get; set; }
+        /// <summary>Accounts that are service principals (<c>app:&lt;client-id&gt;</c>).</summary>
+        public int ServicePrincipals { get; set; }
+        /// <summary>Accounts with at least one quota refusal in the window (daily or monthly, own or organization window).</summary>
+        public int QuotaHitAccounts { get; set; }
+        /// <summary>Accounts with at least one per-minute refusal in the window (MCP server or backend).</summary>
+        public int MinuteRefusedAccounts { get; set; }
+        /// <summary>Accounts that met any limit in the window — the union of the two above.</summary>
+        public int LimitAccounts { get; set; }
     }
 
     /// <summary>One day of the overview trend.</summary>
@@ -268,6 +297,8 @@ namespace AutopilotMonitor.Shared.Models
     public class McpUsageTenantItem
     {
         public string TenantId { get; set; } = default!;
+        /// <summary>The tenant's domain from its configuration; absent when it has none or the configuration was unreadable.</summary>
+        public string? DomainName { get; set; }
         /// <summary>The organization windows (tenant plan, limits, today / this month) from the tenant's quota counters.</summary>
         public McpOrganizationQuotaNode Quota { get; set; } = default!;
         public long Calls { get; set; }
@@ -399,6 +430,11 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string TenantId { get; set; } = default!;
         public string Principal { get; set; } = default!;
+        /// <summary>
+        /// How close the account came to a per-minute limit, in whole percent: the higher of its call peak against the MCP
+        /// server limit and its request peak against its backend limit (the list is ordered by it); 0 when neither limit is known.
+        /// </summary>
+        public int SharePercent { get; set; }
         /// <summary>Most tool calls the account started inside 60 seconds (measured in 10-second steps).</summary>
         public long PeakCalls { get; set; }
         public DateTime? PeakCallsAt { get; set; }
@@ -413,32 +449,6 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Requests the backend refused because of its per-minute limit.</summary>
         public long BackendRefused { get; set; }
         public DateTime? BackendLastRefusedAt { get; set; }
-    }
-
-    /// <summary>
-    /// Global per-tenant MCP/API usage envelope (GetGlobalMcpUsage). The MCP server paginates
-    /// over the <c>records</c> key — its name is wire-critical.
-    /// </summary>
-    // Declaration order == wire order.
-    public class GetGlobalMcpUsageResponse : IApiResponse
-    {
-        /// <summary>Echo of the request filter; absent when the caller passed no tenantId.</summary>
-        public string? TenantId { get; set; }
-
-        public IReadOnlyList<UserUsageRecord> Records { get; set; } = default!;
-    }
-
-    /// <summary>
-    /// Global daily MCP/API usage summaries envelope (GetGlobalMcpUsageDaily). The MCP server
-    /// paginates over the <c>summaries</c> key — its name is wire-critical.
-    /// </summary>
-    // Declaration order == wire order.
-    public class GetGlobalMcpUsageDailyResponse : IApiResponse
-    {
-        /// <summary>Echo of the request filter; absent when the caller passed no tenantId.</summary>
-        public string? TenantId { get; set; }
-
-        public IReadOnlyList<UserUsageDailySummary> Summaries { get; set; } = default!;
     }
 
     /// <summary>

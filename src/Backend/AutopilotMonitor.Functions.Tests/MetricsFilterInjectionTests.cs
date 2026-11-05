@@ -108,16 +108,10 @@ public class MetricsFilterInjectionTests
     }
 
     [Fact]
-    public void BuildTenantUsageFilter_TenantInjection_StaysInsideLiteral()
+    public void BuildUserUsageFilter_BothDates_NormalizeTheShapeAndBoundTheRange()
     {
-        var filter = TableUserUsageRepository.BuildTenantUsageFilter("' or TenantId ne '", null, null);
+        var filter = TableUserUsageRepository.BuildUserUsageFilter("user1", "2026-11-01", "2026-11-05");
 
-        Assert.Equal("TenantId eq ''' or TenantId ne '''", filter);
-    }
-
-    [Fact]
-    public void BuildTenantUsageFilter_NoScope_ReturnsNull()
-    {
-        Assert.Null(TableUserUsageRepository.BuildTenantUsageFilter(null, null, null));
+        Assert.Equal("PartitionKey eq 'user1' and Date ge '20261101' and Date le '20261105'", filter);
     }
 }

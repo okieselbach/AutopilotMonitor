@@ -575,11 +575,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/sla",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/rule-stats",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/vulnerability", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        // A named tenant's MCP use — its accounts (UPNs) and their tools, the daily counts, the organization view.
-        // The handlers read ?tenantId= themselves: deliberately None, not QueryParam, so the delegated path never
-        // reaches them.
-        new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin),
+        // MCP use across tenants: a named tenant's organization budget by account (UPNs) and the all-tenant overview
+        // with every tenant's accounts and tools. The organization handler reads ?tenantId= itself: deliberately None,
+        // not QueryParam, so the delegated path never reaches either.
         new("GET",    "global/metrics/mcp-usage/organization", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/mcp-usage/overview", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanWithTimeoutFallback, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, withEventTypeNote, RESOURCE_NAMES } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, ContinuationSchema, daysDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, ObjectIdSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, ContinuationSchema, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
 import { collectDeploymentState } from '../deployment-state.js';
@@ -93,6 +93,7 @@ export function buildFleetOverview(
   };
 }
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
+import { OVERVIEW_VIEWS, shapeAccount, shapeOrganization, shapeOverview, usageWindow } from '../api-usage-shape.js';
 import type {
   AgentEfficiencyMetricsResponse,
   AppMetricsResponse,
@@ -105,10 +106,9 @@ import type {
   GeographicMetricsResponse,
   GetAllTenantConfigurationsResponse,
   GetDeviceHistoryResponse,
-  GetGlobalMcpUsageDailyResponse,
-  GetGlobalMcpUsageResponse,
+  GetGlobalMcpUsageOverviewResponse,
+  GetMcpOrganizationUsageResponse,
   GetMcpUserUsageResponse,
-  GetMyMcpUsageResponse,
   GetSessionTimeAttributionResponse,
   GetTenantConfigFieldsSchemaResponse,
   GetUnmatchedSoftwareResponse,
@@ -333,49 +333,6 @@ export function platformWindowEcho(
 }
 
 /**
- * Page client-side over an MCP-usage payload. The mcp-usage endpoints return the
- * full set in one shot (no server-side cursor): the global per-record breakdown
- * alone can run to thousands of rows and overflow the inline response budget. We
- * slice whichever array the payload carries ("records" for the per-user and
- * global breakdowns, "summaries" for the daily view) and echo every other
- * top-level field (tenantId/userId/usagePlan) verbatim. The "continuation"
- * carries an integer offset (usage-offset:N); each page re-reads the same set,
- * so raise pageSize to amortize round-trips on a full sweep. Mirrors the
- * get_geographic_sessions client-side pager. Exported for unit testing.
- */
-export function paginateUsage(
-  data: unknown,
-  pageSize: number,
-  continuation?: string,
-): Record<string, unknown> {
-  if (!data || typeof data !== 'object') return { records: [], totalCount: 0, count: 0, offset: 0, nextLink: null };
-  const obj = data as Record<string, unknown>;
-  // The `satisfies` pins tie the sliced key names to the generated wire types —
-  // a backend rename of these wire-critical keys goes tsc-red here, not silent.
-  const arrayKey = Array.isArray(obj.records)
-    ? ('records' satisfies keyof GetGlobalMcpUsageResponse & keyof GetMcpUserUsageResponse & keyof GetMyMcpUsageResponse)
-    : Array.isArray(obj.summaries)
-      ? ('summaries' satisfies keyof GetGlobalMcpUsageDailyResponse)
-      : null;
-  if (!arrayKey) return obj; // unexpected shape — pass through untouched rather than mangle it
-  const all = obj[arrayKey] as unknown[];
-  const m = continuation ? /^usage-offset:(\d+)$/.exec(continuation) : null;
-  const offset = m ? parseInt(m[1], 10) : 0;
-  const slice = all.slice(offset, offset + pageSize);
-  const nextOffset = offset + pageSize;
-  const nextLink = nextOffset < all.length ? `usage-offset:${nextOffset}` : null;
-  const { records: _records, summaries: _summaries, ...rest } = obj;
-  return {
-    ...rest,
-    totalCount: all.length,
-    count: slice.length,
-    offset,
-    [arrayKey]: slice,
-    nextLink,
-  };
-}
-
-/**
  * Page client-side over a software-inventory payload. The inventory endpoints
  * ({@code /api/metrics/software-inventory}, {@code /api/vulnerability/software-inventory})
  * return the full per-tenant inventory in one shot (no server-side cursor): a busy
@@ -383,7 +340,8 @@ export function paginateUsage(
  * the {@code inventory} array and echo every other top-level field (success/tenantId/
  * total/matched/unmatched) verbatim. The "continuation" carries an integer offset
  * (inv-offset:N); each page re-reads the same set, so raise pageSize to amortize
- * round-trips on a full sweep. Mirrors {@link paginateUsage}. Exported for unit testing.
+ * round-trips on a full sweep. Mirrors the get_geographic_sessions client-side pager.
+ * Exported for unit testing.
  */
 export function paginateInventory(
   data: unknown,
@@ -392,7 +350,7 @@ export function paginateInventory(
 ): Record<string, unknown> {
   if (!data || typeof data !== 'object') return { inventory: [], total: 0, count: 0, offset: 0, nextLink: null };
   const obj = data as Record<string, unknown>;
-  // Same wire-key pin as paginateUsage: renaming `inventory` on the wire goes tsc-red here.
+  // The `satisfies` pin ties the sliced key to the generated wire type: renaming `inventory` on the wire goes tsc-red here.
   const inventoryKey = 'inventory' satisfies keyof SoftwareInventoryResponse;
   if (!Array.isArray(obj[inventoryKey])) return obj; // unexpected shape — pass through untouched rather than mangle it
   const all = obj[inventoryKey] as unknown[];
@@ -412,42 +370,61 @@ export function paginateInventory(
 }
 
 export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boolean = ga, delegated: boolean = false): void {
-  // Tool 11: get_api_usage — Global Admin only; not registered for normal users
-  // (the `if (ga)` guards the whole single server.registerTool(...) statement).
+  // Tool 11: get_api_usage — platform scope only (GA and Global Reader); not registered for tenant users
+  // (the `if (ga)` guards the whole single server.registerTool(...) statement). The shaping lives in
+  // api-usage-shape.ts; every figure is computed by the backend.
   if (ga) server.registerTool(
     'get_api_usage',
     {
-      title: 'API Usage',
+      title: 'MCP Usage',
       description:
-        'API/MCP usage statistics: request counts per endpoint per day. Use to monitor platform usage, identify ' +
-        'heavy users, or debug rate limiting. userId gives one user\'s view, daily=true a compact daily summary, ' +
-        'neither the global per-record breakdown (thousands of verbose rows — paged client-side over the full set, ' +
-        'so a larger pageSize saves round-trips). dateFrom/dateTo default to the full retention window.',
+        'MCP usage across all tenants, as on the GA page MCP Usage. A call is one tool call; a request is one backend ' +
+        'request charged to the daily/monthly quota (requestsPerCall = cost of a call). view=summary: totals, top tools ' +
+        'and tenants, newest quota refusals, accounts closest to a per-minute limit, each list cut to its first rows ' +
+        '(full lengths in `lists`). view=tools|tenants|quotaHits|minuteLimits|daily: that list in full. A quota hit is ' +
+        'one refused day per account or organization and window. Platform admins count only with ' +
+        'includePlatformAdmins=true. view=organization + tenantId: one tenant\'s budget by account and day (platform ' +
+        'admins included). view=account + userId: one account\'s requests by tool, path and day. Windows are ' +
+        '{used, limit}: limit 0 = unlimited, used null = unreadable. `telemetry` names a store that did not answer.',
       inputSchema: {
-        userId: z.string().optional().describe('Specific user object ID to query usage for'),
-        tenantId: z.string().optional().describe('Filter usage by tenant ID'),
-        dateFrom: z.string().optional().describe('Start date (YYYY-MM-DD)'),
-        dateTo: z.string().optional().describe('End date (YYYY-MM-DD)'),
-        daily: z.boolean().optional().default(false).describe('Return daily aggregated summary instead of per-endpoint breakdown'),
-        pageSize: z.coerce.number().int().min(1).max(2000).optional().default(50)
-          .describe(pageSizeDescription(50, 2000)),
-        continuation: ContinuationSchema.optional()
-          .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
+        view: z.enum([...OVERVIEW_VIEWS, 'organization', 'account']).optional().default('summary')
+          .describe('Default summary. organization needs tenantId, account needs userId.'),
+        days: z.coerce.number().int().min(1).max(90).optional().default(30)
+          .describe(daysDescription(30, 90)),
+        includePlatformAdmins: z.boolean().optional().default(false)
+          .describe('Overview views only: count Global Admins and Global Readers too.'),
+        tenantId: TenantGuidSchema.optional().describe('The tenant of view=organization.'),
+        userId: ObjectIdSchema.optional().describe('The account of view=account: its Entra object id (view=tenants lists them).'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_api_usage', args, async () => {
       try {
-        let data: GetMcpUserUsageResponse | GetGlobalMcpUsageDailyResponse | GetGlobalMcpUsageResponse;
-        const params: Record<string, string | undefined> = { tenantId: args.tenantId, dateFrom: args.dateFrom, dateTo: args.dateTo };
-        if (args.userId) {
-          data = await apiFetch<GetMcpUserUsageResponse>(`/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery(params)}`);
-        } else if (args.daily) {
-          data = await apiFetch<GetGlobalMcpUsageDailyResponse>(`/api/global/metrics/mcp-usage/daily${buildQuery(params)}`);
-        } else {
-          data = await apiFetch<GetGlobalMcpUsageResponse>(`/api/global/metrics/mcp-usage${buildQuery(params)}`);
+        const view = args.view;
+        const window = usageWindow(args.days);
+        if (view === 'organization') {
+          if (!args.tenantId) {
+            return toolError('get_api_usage', args, new Error(
+              'tenantId is required for view=organization; list_tenants resolves a tenant name to its id.'));
+          }
+          const data = await apiFetch<GetMcpOrganizationUsageResponse>(
+            `/api/global/metrics/mcp-usage/organization${buildQuery({ tenantId: args.tenantId, dateFrom: window.from, dateTo: window.to })}`);
+          return toolResultText(shapeOrganization(data), MAX_RESULT_SIZE_CHARS.adminStream);
         }
-        return toolResultText(paginateUsage(data, args.pageSize, args.continuation), MAX_RESULT_SIZE_CHARS.adminStream);
+        if (view === 'account') {
+          if (!args.userId) {
+            return toolError('get_api_usage', args, new Error(
+              'userId (the Entra object id) is required for view=account; view=tenants lists every account with its userId.'));
+          }
+          const data = await apiFetch<GetMcpUserUsageResponse>(
+            `/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery({ dateFrom: window.from, dateTo: window.to })}`);
+          return toolResultText(shapeAccount(data, window), MAX_RESULT_SIZE_CHARS.adminStream);
+        }
+        // Seven telemetry queries with a 60-s budget each run behind this route: outlast them.
+        const data = await apiFetch<GetGlobalMcpUsageOverviewResponse>(
+          `/api/global/metrics/mcp-usage/overview${buildQuery({ days: args.days, platformAdmins: args.includePlatformAdmins ? 'include' : 'exclude' })}`,
+          { signal: AbortSignal.timeout(90_000) });
+        return toolResultText(shapeOverview(data, view), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_api_usage', args, error);
       }

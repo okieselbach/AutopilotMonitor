@@ -341,59 +341,5 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
-
-        /// <summary>
-        /// GET /api/global/metrics/mcp-usage?tenantId=&amp;dateFrom=&amp;dateTo= — Global usage
-        /// </summary>
-        [Function("GetGlobalMcpUsage")]
-        public async Task<HttpResponseData> GetGlobalUsage(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/mcp-usage")] HttpRequestData req)
-        {
-            _logger.LogInformation("Global MCP usage requested");
-
-            try
-            {
-                var tenantId = req.Query["tenantId"];
-                var dateFrom = req.Query["dateFrom"];
-                var dateTo = req.Query["dateTo"];
-
-                var records = await _userUsageRepo.GetUsageByTenantAsync(tenantId ?? "", dateFrom, dateTo);
-
-                var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new GetGlobalMcpUsageResponse { TenantId = tenantId, Records = records });
-                return response;
-            }
-            catch (Exception ex)
-            {
-                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
-            }
-        }
-
-        /// <summary>
-        /// GET /api/global/metrics/mcp-usage/daily?tenantId=&amp;dateFrom=&amp;dateTo= — Daily summaries
-        /// </summary>
-        [Function("GetGlobalMcpUsageDaily")]
-        public async Task<HttpResponseData> GetGlobalUsageDaily(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/mcp-usage/daily")] HttpRequestData req)
-        {
-            _logger.LogInformation("Global MCP daily usage requested");
-
-            try
-            {
-                var tenantId = req.Query["tenantId"];
-                var dateFrom = req.Query["dateFrom"];
-                var dateTo = req.Query["dateTo"];
-
-                var summaries = await _userUsageRepo.GetDailySummaryAsync(tenantId, dateFrom, dateTo);
-
-                var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new GetGlobalMcpUsageDailyResponse { TenantId = tenantId, Summaries = summaries });
-                return response;
-            }
-            catch (Exception ex)
-            {
-                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
-            }
-        }
     }
 }

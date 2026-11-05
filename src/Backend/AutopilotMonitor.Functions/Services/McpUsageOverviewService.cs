@@ -1,4 +1,5 @@
 using System.Globalization;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -88,19 +89,47 @@ public class McpUsageOverviewService
             facts[(account.Tenant, principal)] = new AccountFacts(account.UserId, platformRole, state);
         });
 
+        // Every tenant the overview names — the per-minute rows included — with its plan and its configuration, read once.
         var tenants = counters.Select(r => r.TenantId.ToLowerInvariant())
             .Concat(telemetry.Calls.Select(r => r.Tenant))
+            .Concat(telemetry.Peaks.Select(p => p.Tenant))
+            .Concat(telemetry.Refusals.Select(r => r.Tenant))
             .Where(t => !string.IsNullOrEmpty(t))
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var tenantLimits = new System.Collections.Concurrent.ConcurrentDictionary<string, McpQuotaService.TenantPlanLimits>(StringComparer.Ordinal);
+        var tenantConfigs = new System.Collections.Concurrent.ConcurrentDictionary<string, TenantConfiguration?>(StringComparer.Ordinal);
         await Parallel.ForEachAsync(tenants, new ParallelOptions { MaxDegreeOfParallelism = AccountReadParallelism }, async (tenant, _) =>
-            tenantLimits[tenant] = await _quota.ResolveTenantPlanAsync(tenant));
+        {
+            tenantLimits[tenant] = await _quota.ResolveTenantPlanAsync(tenant);
+            tenantConfigs[tenant] = await ReadTenantConfigurationAsync(tenant);
+        });
 
-        var minuteLimits = await ResolveMinuteLimitsAsync(telemetry, facts, telemetryRoles);
+        var minuteLimits = await ResolveMinuteLimitsAsync(telemetry, facts, telemetryRoles, tenantConfigs);
+        var tenantNames = tenantConfigs
+            .Where(c => !string.IsNullOrWhiteSpace(c.Value?.DomainName))
+            .ToDictionary(c => c.Key, c => c.Value!.DomainName, StringComparer.Ordinal);
 
         return Assemble(new OverviewInputs(
-            dates, includePlatformAdmins, counters, facts, tenantLimits, telemetryRoles, minuteLimits, telemetry));
+            dates, includePlatformAdmins, counters, facts, tenantLimits, tenantNames, telemetryRoles, minuteLimits, telemetry));
+    }
+
+    /// <summary>
+    /// The tenant's configuration (cached) for its name and its per-minute override. A storage failure leaves both
+    /// out and is logged; it never fails the overview, which is about usage, not configuration.
+    /// </summary>
+    internal async Task<TenantConfiguration?> ReadTenantConfigurationAsync(string tenantId)
+    {
+        try
+        {
+            return await _tenantConfig.GetConfigurationIfExistsAsync(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[McpUsageOverview] Configuration of tenant {TenantId} unreadable: name and per-minute override left out",
+                LogSanitizer.Clean(tenantId));
+            return null;
+        }
     }
 
     // ── Telemetry ──────────────────────────────────────────────────────────────────
@@ -170,7 +199,8 @@ public class McpUsageOverviewService
     /// </summary>
     private async Task<Dictionary<(string Tenant, string Principal), int>> ResolveMinuteLimitsAsync(
         TelemetryResult telemetry, IReadOnlyDictionary<(string Tenant, string Principal), AccountFacts> facts,
-        IReadOnlyDictionary<(string Tenant, string Principal), string> telemetryRoles)
+        IReadOnlyDictionary<(string Tenant, string Principal), string> telemetryRoles,
+        IReadOnlyDictionary<string, TenantConfiguration?> tenantConfigs)
     {
         var config = await _adminConfig.GetConfigurationAsync();
         var keys = telemetry.Peaks.Select(p => (p.Tenant, p.Principal))
@@ -193,9 +223,8 @@ public class McpUsageOverviewService
             {
                 if (!perTenant.TryGetValue(key.Tenant, out tenantSide))
                 {
-                    var tenantConfig = await _tenantConfig.GetConfigurationIfExistsAsync(key.Tenant);
                     var entitlements = await _entitlements.GetEntitlementsAsync(key.Tenant);
-                    tenantSide = (tenantConfig?.CustomUserRateLimitRequestsPerMinute, entitlements.UserRateLimitPerMinute);
+                    tenantSide = (tenantConfigs.GetValueOrDefault(key.Tenant)?.CustomUserRateLimitRequestsPerMinute, entitlements.UserRateLimitPerMinute);
                     perTenant[key.Tenant] = tenantSide;
                 }
             }
@@ -262,6 +291,7 @@ public class McpUsageOverviewService
         IReadOnlyList<TenantUsageRecord> Counters,
         IReadOnlyDictionary<(string Tenant, string Principal), AccountFacts> Accounts,
         IReadOnlyDictionary<string, McpQuotaService.TenantPlanLimits> TenantLimits,
+        IReadOnlyDictionary<string, string> TenantNames,
         IReadOnlyDictionary<(string Tenant, string Principal), string> TelemetryRoles,
         IReadOnlyDictionary<(string Tenant, string Principal), int> MinuteLimits,
         TelemetryResult Telemetry);
@@ -386,6 +416,7 @@ public class McpUsageOverviewService
                 return new McpUsageTenantItem
                 {
                     TenantId = tenant,
+                    DomainName = input.TenantNames.GetValueOrDefault(tenant),
                     Quota = McpQuotaNodes.BuildOrganizationQuota(tenantRows, limits, dates.Today, dates.MonthStart),
                     Calls = members.Sum(a => a.Calls),
                     Requests = members.Sum(a => a.Requests),
@@ -466,6 +497,10 @@ public class McpUsageOverviewService
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var mcpLimit = telemetry.ServerFacts.RateLimitPerMinute;
+        // The higher of the two shares of a minute limit (0–1+); the list ranks by it and shows it in whole percent.
+        double MinuteShare(long peakCalls, long peakRequests, int backendLimit) => Math.Max(
+            mcpLimit is int limit && limit > 0 ? (double)peakCalls / limit : 0,
+            backendLimit > 0 ? (double)peakRequests / backendLimit : 0);
         var minuteItems = peaks.Keys.Concat(mcpRefusals.Keys).Concat(backendRefusals.Keys).Distinct()
             .Select(key =>
             {
@@ -474,25 +509,27 @@ public class McpUsageOverviewService
                 var requestPeak = accountPeaks?.FirstOrDefault(p => p.Metric == PeakRequests);
                 mcpRefusals.TryGetValue(key, out var mcpRefused);
                 var hasBackendRefusal = backendRefusals.TryGetValue(key, out var backendRefused);
-                return new McpUsageMinuteItem
+                var backendLimit = input.MinuteLimits.GetValueOrDefault(key);
+                var share = MinuteShare(callPeak?.Peak ?? 0, requestPeak?.Peak ?? 0, backendLimit);
+                return (Share: share, Item: new McpUsageMinuteItem
                 {
                     TenantId = key.Tenant,
                     Principal = key.Principal,
+                    SharePercent = (int)Math.Round(share * 100, MidpointRounding.AwayFromZero),
                     PeakCalls = callPeak?.Peak ?? 0,
                     PeakCallsAt = callPeak?.PeakAt,
                     McpRefused = mcpRefused?.Refused ?? 0,
                     McpLastRefusedAt = mcpRefused?.LastAt,
                     PeakRequests = requestPeak?.Peak ?? 0,
                     PeakRequestsAt = requestPeak?.PeakAt,
-                    BackendLimit = input.MinuteLimits.GetValueOrDefault(key),
+                    BackendLimit = backendLimit,
                     BackendRefused = hasBackendRefusal ? backendRefused.Refused : 0,
                     BackendLastRefusedAt = hasBackendRefusal ? backendRefused.LastAt : null,
-                };
+                });
             })
-            .OrderByDescending(m => Math.Max(
-                mcpLimit is int limit && limit > 0 ? (double)m.PeakCalls / limit : 0,
-                m.BackendLimit > 0 ? (double)m.PeakRequests / m.BackendLimit : 0))
-            .ThenBy(m => m.Principal, StringComparer.Ordinal)
+            .OrderByDescending(m => m.Share)
+            .ThenBy(m => m.Item.Principal, StringComparer.Ordinal)
+            .Select(m => m.Item)
             .ToList();
 
         var mcpLogFrom = telemetry.ServerFacts.Oldest is DateTime oldest
@@ -511,11 +548,43 @@ public class McpUsageOverviewService
                 McpLogFrom = mcpLogFrom != null && string.CompareOrdinal(mcpLogFrom, dates.From) > 0 ? mcpLogFrom : null,
                 Partial = telemetry.Partial ? true : null,
             },
+            Totals = BuildTotals(tenants, tools, quotaHits, minuteItems, telemetry),
             Daily = daily,
             Tenants = tenants,
             Tools = tools,
             QuotaHits = quotaHits,
             MinuteLimits = new McpUsageMinuteLimits { McpServerLimit = mcpLimit, Accounts = minuteItems },
+        };
+    }
+
+    /// <summary>
+    /// Pure: the totals over the assembled lists. Calls need the request telemetry and MCP-only calls the MCP log —
+    /// without the store the figure is absent, never a misleading partial sum. An account is a tenant and principal;
+    /// an organization-level refusal counts for the account that met it.
+    /// </summary>
+    private static McpUsageTotalsNode BuildTotals(
+        IReadOnlyList<McpUsageTenantItem> tenants, IReadOnlyList<McpUsageToolItem> tools,
+        IReadOnlyList<McpUsageQuotaHitItem> quotaHits, IReadOnlyList<McpUsageMinuteItem> minuteItems, TelemetryResult telemetry)
+    {
+        var accounts = tenants.SelectMany(t => t.Accounts).ToList();
+        var quotaHitAccounts = quotaHits.Select(h => (h.TenantId, Principal: h.Principal ?? string.Empty)).ToHashSet();
+        var minuteRefusedAccounts = minuteItems
+            .Where(m => m.McpRefused > 0 || m.BackendRefused > 0)
+            .Select(m => (m.TenantId, m.Principal))
+            .ToHashSet();
+
+        return new McpUsageTotalsNode
+        {
+            Calls = telemetry.RequestsAvailable ? tools.Sum(t => t.Calls) : null,
+            McpOnlyCalls = telemetry.McpLogAvailable ? tools.Where(t => t.Accounts == null).Sum(t => t.Calls) : null,
+            Tools = tools.Count,
+            Requests = tenants.Sum(t => t.Requests),
+            Tenants = tenants.Count,
+            Accounts = accounts.Count,
+            ServicePrincipals = accounts.Count(a => Constants.PrincipalKeys.IsApplication(a.Principal)),
+            QuotaHitAccounts = quotaHitAccounts.Count,
+            MinuteRefusedAccounts = minuteRefusedAccounts.Count,
+            LimitAccounts = quotaHitAccounts.Union(minuteRefusedAccounts).Count(),
         };
     }
 

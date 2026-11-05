@@ -1,6 +1,9 @@
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 using static AutopilotMonitor.Functions.Services.McpUsageOverviewService;
 using static AutopilotMonitor.Functions.Services.McpUsageTelemetryQueries;
@@ -102,9 +105,11 @@ public class McpUsageOverviewAssemblyTests
             [TenantA] = new("community", 100, 250),
             [TenantB] = new("pro", 1500, 15000),
         };
+        // TenantB has no readable configuration: no name.
+        var names = new Dictionary<string, string> { [TenantA] = "contoso.com" };
         var minute = new Dictionary<(string Tenant, string Principal), int> { [(TenantA, Alice)] = 120, [(TenantB, Bob)] = 150 };
 
-        return Assemble(new OverviewInputs(ThreeDays, includePlatformAdmins, Counters, facts, limits, LatestRoles(result.Calls), minute, result));
+        return Assemble(new OverviewInputs(ThreeDays, includePlatformAdmins, Counters, facts, limits, names, LatestRoles(result.Calls), minute, result));
     }
 
     [Fact]
@@ -225,6 +230,62 @@ public class McpUsageOverviewAssemblyTests
         Assert.Equal(new[] { Bob, Alice }, minute.Select(m => m.Principal)); // 120/150 before 40/120 and 12/60
         Assert.Equal((120L, 150, 2L), (minute[0].PeakRequests, minute[0].BackendLimit, minute[0].BackendRefused));
         Assert.Equal((TenantA, 12L, 7L, 0L), (minute[1].TenantId, minute[1].PeakCalls, minute[1].McpRefused, minute[1].BackendRefused));
+        // The share the list ranks by, in whole percent: the higher of calls/MCP limit and requests/backend limit.
+        Assert.Equal(new[] { 80, 33 }, minute.Select(m => m.SharePercent)); // 120/150; max(12/60, 40/120)
+    }
+
+    [Fact]
+    public void Totals_SumTheLists_OnceForEveryConsumer()
+    {
+        var totals = Overview().Totals;
+
+        Assert.Equal(18, totals.Calls);       // every tool of the ranking, search_docs' 4 MCP-only calls included
+        Assert.Equal(4, totals.McpOnlyCalls);
+        Assert.Equal(7, totals.Tools);
+        Assert.Equal(62, totals.Requests);    // tenant A 55, tenant B 7 — the operator's 100 left out
+        Assert.Equal(2, totals.Tenants);
+        Assert.Equal(4, totals.Accounts);     // alice, carol, the app, bob
+        Assert.Equal(1, totals.ServicePrincipals);
+        Assert.Equal(1, totals.QuotaHitAccounts);      // alice's daily window
+        Assert.Equal(2, totals.MinuteRefusedAccounts); // alice at the MCP server, bob at the backend
+        Assert.Equal(2, totals.LimitAccounts);
+    }
+
+    [Fact]
+    public void Totals_WithoutTheirStore_AreAbsent_NotAPartialSum()
+    {
+        var totals = Overview(telemetry: false).Totals;
+
+        Assert.Null(totals.Calls);
+        Assert.Null(totals.McpOnlyCalls);
+        Assert.Equal(0, totals.Tools);
+        Assert.Equal(62, totals.Requests); // the counters still answer
+        Assert.Equal(3, totals.Accounts);
+    }
+
+    [Fact]
+    public void Tenants_CarryTheirDomain_WhenTheConfigurationNamesOne()
+    {
+        var tenants = Overview().Tenants;
+
+        Assert.Equal("contoso.com", tenants.Single(t => t.TenantId == TenantA).DomainName);
+        Assert.Null(tenants.Single(t => t.TenantId == TenantB).DomainName);
+    }
+
+    [Fact]
+    public async Task AnUnreadableTenantConfiguration_LeavesOnlyTheNameOut()
+    {
+        var config = new Mock<TenantConfigurationService>(
+            Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()))
+        { CallBase = false };
+        config.Setup(c => c.GetConfigurationIfExistsAsync(TenantA)).ThrowsAsync(new InvalidOperationException("storage down"));
+        config.Setup(c => c.GetConfigurationIfExistsAsync(TenantB)).ReturnsAsync(new TenantConfiguration { TenantId = TenantB, DomainName = "fabrikam.com" });
+        // Only the configuration read is exercised; the other collaborators stay unused.
+        var service = new McpUsageOverviewService(
+            null!, null!, null!, null!, config.Object, null!, null!, null!, NullLogger<McpUsageOverviewService>.Instance, TimeProvider.System);
+
+        Assert.Null(await service.ReadTenantConfigurationAsync(TenantA));
+        Assert.Equal("fabrikam.com", (await service.ReadTenantConfigurationAsync(TenantB))?.DomainName);
     }
 
     [Theory]

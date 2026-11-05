@@ -826,8 +826,6 @@ export const api = {
   mcpUsage: {
     me: (dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/metrics/mcp-usage/me${qs({ dateFrom, dateTo })}`,
-    user: (userId: string, dateFrom?: string, dateTo?: string) =>
-      `${API_BASE_URL}/api/metrics/mcp-usage/user/${encodeURIComponent(userId)}${qs({ dateFrom, dateTo })}`,
     /** Own tenant's organization budget by account (its members and service principals; delegated reads into it are charged to the reader's home tenant). Tenant Admin / Global Reader. */
     organization: (dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/metrics/mcp-usage/organization${qs({ dateFrom, dateTo })}`,

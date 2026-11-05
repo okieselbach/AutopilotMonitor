@@ -10936,31 +10936,6 @@
         }
       ]
     },
-    "GetGlobalMcpUsageDailyResponse": {
-      "kind": "object",
-      "doc": "Global daily MCP/API usage summaries envelope (GetGlobalMcpUsageDaily). The MCP server paginates over the summaries key — its name is wire-critical.",
-      "fields": [
-        {
-          "name": "tenantId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true,
-          "doc": "Echo of the request filter; absent when the caller passed no tenantId."
-        },
-        {
-          "name": "summaries",
-          "type": {
-            "kind": "array",
-            "element": {
-              "kind": "ref",
-              "name": "UserUsageDailySummary"
-            }
-          }
-        }
-      ]
-    },
     "GetGlobalMcpUsageOverviewResponse": {
       "kind": "object",
       "doc": "The all-tenant MCP usage overview of the Global Admin metrics page (GetGlobalMcpUsageOverview) over whole UTC days: tenants with their accounts and quota state, the tool ranking, the quota refusals, the per-minute peaks and the daily trend. \"Calls\" are tool calls (request telemetry, one MCP correlation id per call); \"requests\" are backend requests charged to the quota (the quota counters). What a telemetry store did not answer is empty and named in Telemetry.",
@@ -10995,6 +10970,14 @@
             "kind": "ref",
             "name": "McpUsageTelemetryStatus"
           }
+        },
+        {
+          "name": "totals",
+          "type": {
+            "kind": "ref",
+            "name": "McpUsageTotalsNode"
+          },
+          "doc": "The window's totals over the lists below, computed once for every consumer."
         },
         {
           "name": "daily",
@@ -11045,31 +11028,6 @@
           "type": {
             "kind": "ref",
             "name": "McpUsageMinuteLimits"
-          }
-        }
-      ]
-    },
-    "GetGlobalMcpUsageResponse": {
-      "kind": "object",
-      "doc": "Global per-tenant MCP/API usage envelope (GetGlobalMcpUsage). The MCP server paginates over the records key — its name is wire-critical.",
-      "fields": [
-        {
-          "name": "tenantId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true,
-          "doc": "Echo of the request filter; absent when the caller passed no tenantId."
-        },
-        {
-          "name": "records",
-          "type": {
-            "kind": "array",
-            "element": {
-              "kind": "ref",
-              "name": "UserUsageRecord"
-            }
           }
         }
       ]
@@ -16157,6 +16115,14 @@
           }
         },
         {
+          "name": "sharePercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "How close the account came to a per-minute limit, in whole percent: the higher of its call peak against the MCP server limit and its request peak against its backend limit (the list is ordered by it); 0 when neither limit is known."
+        },
+        {
           "name": "peakCalls",
           "type": {
             "kind": "primitive",
@@ -16559,6 +16525,15 @@
           }
         },
         {
+          "name": "domainName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The tenant's domain from its configuration; absent when it has none or the configuration was unreadable."
+        },
+        {
           "name": "quota",
           "type": {
             "kind": "ref",
@@ -16720,6 +16695,91 @@
             }
           },
           "doc": "The backend routes its calls requested, most requests first."
+        }
+      ]
+    },
+    "McpUsageTotalsNode": {
+      "kind": "object",
+      "doc": "The overview's totals, nested in GetGlobalMcpUsageOverviewResponse. \"Calls\" are tool calls, \"requests\" are backend requests charged to the quota; an account is a person or a service principal of one tenant.",
+      "fields": [
+        {
+          "name": "calls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tool calls in the window, MCP-only tools included; absent when the request telemetry did not answer."
+        },
+        {
+          "name": "mcpOnlyCalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Calls of tools that run in the MCP server alone (part of Calls, attributed to no account); absent without the MCP log."
+        },
+        {
+          "name": "tools",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Tools called in the window."
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "accounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "servicePrincipals",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Accounts that are service principals (app:<client-id>)."
+        },
+        {
+          "name": "quotaHitAccounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Accounts with at least one quota refusal in the window (daily or monthly, own or organization window)."
+        },
+        {
+          "name": "minuteRefusedAccounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Accounts with at least one per-minute refusal in the window (MCP server or backend)."
+        },
+        {
+          "name": "limitAccounts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Accounts that met any limit in the window — the union of the two above."
         }
       ]
     },
@@ -28602,48 +28662,6 @@
             "name": "string"
           },
           "doc": "Note about availability"
-        }
-      ]
-    },
-    "UserUsageDailySummary": {
-      "kind": "object",
-      "doc": "Aggregated daily usage summary across endpoints (and optionally users).",
-      "fields": [
-        {
-          "name": "date",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        {
-          "name": "tenantId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true
-        },
-        {
-          "name": "totalRequests",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "uniqueUsers",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "uniqueEndpoints",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
         }
       ]
     },

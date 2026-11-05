@@ -20,10 +20,10 @@ import type {
 import { Stat } from "./Stat";
 import {
   dailyChart,
+  editionCounts,
   formatDayKey,
   MCP_USAGE_MAX_DAYS,
   MCP_USAGE_VIEW_PARAM,
-  overviewTotals,
   parseView,
   planLegend,
   tenantInfoMap,
@@ -137,17 +137,16 @@ function McpUsageContent() {
     () => (tenantRows ? tenantInfoMap(tenantRows.tenants, tenantRows.nowMs) : NO_TENANT_INFO),
     [tenantRows],
   );
-  const totals = useMemo(() => (overview ? overviewTotals(overview, info) : null), [overview, info]);
+  const editions = useMemo(() => (overview ? editionCounts(overview, info) : null), [overview, info]);
   const chart = useMemo(() => (overview ? dailyChart(overview) : null), [overview]);
   const plans = useMemo(() => planLegend(planTiers), [planTiers]);
+  const totals = overview?.totals;
 
   const viewOptions: { value: McpUsageView; label: string }[] = [
     { value: "tenants", label: "Tenants & accounts" },
     { value: "tools", label: "Tools" },
     { value: "limits", label: totals && totals.limitAccounts > 0 ? `Limits (${totals.limitAccounts})` : "Limits" },
   ];
-
-  const telemetryDark = overview && !overview.telemetry.requestsAvailable && !overview.telemetry.mcpLogAvailable;
 
   return (
     // Self-provides the max-w container the metrics layout used to supply.
@@ -195,20 +194,20 @@ function McpUsageContent() {
             estimateMs={estimateMs}
           />
         </div>
-      ) : overview && totals && chart ? (
+      ) : overview && totals && editions && chart ? (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <Stat
               label="Tool calls"
-              value={telemetryDark ? "—" : totals.calls.toLocaleString()}
-              hint={totals.mcpOnlyCalls > 0 ? `${totals.toolCount} tools · ${totals.mcpOnlyCalls.toLocaleString()} MCP-only` : `${totals.toolCount} tools`}
+              value={totals.calls == null ? "—" : totals.calls.toLocaleString()}
+              hint={totals.mcpOnlyCalls ? `${totals.tools} tools · ${totals.mcpOnlyCalls.toLocaleString()} MCP-only` : `${totals.tools} tools`}
             />
             <Stat label="Requests" value={totals.requests.toLocaleString()} hint="charged to the quota" />
-            <Stat label="Tenants" value={totals.tenants.toLocaleString()} hint={`${totals.communityTenants} Community · ${totals.proTenants} Pro`} />
+            <Stat label="Tenants" value={totals.tenants.toLocaleString()} hint={`${editions.community} Community · ${editions.pro} Pro`} />
             <Stat
               label="Accounts"
               value={totals.accounts.toLocaleString()}
-              hint={`${totals.accounts - totals.apps} people · ${totals.apps} ${totals.apps === 1 ? "app" : "apps"}`}
+              hint={`${totals.accounts - totals.servicePrincipals} people · ${totals.servicePrincipals} ${totals.servicePrincipals === 1 ? "app" : "apps"}`}
             />
             <button
               type="button"

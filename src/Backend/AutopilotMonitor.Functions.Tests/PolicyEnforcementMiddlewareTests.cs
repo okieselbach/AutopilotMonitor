@@ -1201,16 +1201,17 @@ public class PolicyEnforcementMiddlewareTests
 
     /// <summary>
     /// Operator reads whose ?tenantId= is a handler-side filter for a Global Admin / Global Reader: session reports
-    /// (GA-only AdminNote, submitter contact data), rule submissions (contact e-mail, reviewer, review comment), a
-    /// tenant's MCP usage (its accounts and their tools) and verdict calibration (classifier diagnostics, drift
-    /// alerts). None of it is the managed tenant's telemetry, so a delegated (MSP) reader never reaches them.
+    /// (GA-only AdminNote, submitter contact data), rule submissions (contact e-mail, reviewer, review comment), MCP
+    /// usage (a tenant's organization budget by account, the all-tenant overview with every tenant's accounts and
+    /// tools) and verdict calibration (classifier diagnostics, drift alerts). None of it is the managed tenant's
+    /// telemetry, so a delegated (MSP) reader never reaches them.
     /// </summary>
     public static TheoryData<string> OperatorFilterReads => new()
     {
         "/api/global/session-reports",
         "/api/global/rule-submissions",
-        "/api/global/metrics/mcp-usage",
-        "/api/global/metrics/mcp-usage/daily",
+        "/api/global/metrics/mcp-usage/organization",
+        "/api/global/metrics/mcp-usage/overview",
         "/api/global/metrics/verdict-calibration",
     };
 

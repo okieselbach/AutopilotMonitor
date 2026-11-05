@@ -326,7 +326,7 @@ function tenantIdFromNextLink(continuation?: string): string | undefined {
  * nextLink's embedded tenantId when present (it is what actually gets sent), else the explicit arg, and
  * validate THAT against the managed set — which also blocks a hand-crafted continuation pointing at an
  * unmanaged tenant (defense in depth on top of the backend bound). No-op for non-delegated callers and
- * for offset-only continuations (geo-offset:/inv-offset:/usage-offset:), which re-send the explicit
+ * for offset-only continuations (geo-offset:/inv-offset:), which re-send the explicit
  * tenantId every page anyway.
  */
 export function enforceDelegatedTenantForPage(tenantId?: string, continuation?: string): string | undefined {

@@ -88,44 +88,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return records;
         }
 
-        public async Task<List<UserUsageRecord>> GetUsageByTenantAsync(string tenantId, string? dateFrom = null, string? dateTo = null)
-        {
-            var filter = BuildTenantUsageFilter(tenantId, dateFrom, dateTo);
-
-            var records = new List<UserUsageRecord>();
-            await foreach (var entity in _tableClient.QueryAsync<TableEntity>(filter: filter))
-            {
-                records.Add(MapToRecord(entity));
-            }
-            return records;
-        }
-
-        public async Task<List<UserUsageDailySummary>> GetDailySummaryAsync(string? tenantId = null, string? dateFrom = null, string? dateTo = null)
-        {
-            var filter = BuildTenantUsageFilter(tenantId, dateFrom, dateTo);
-
-            var records = new List<UserUsageRecord>();
-            await foreach (var entity in _tableClient.QueryAsync<TableEntity>(filter: filter))
-            {
-                records.Add(MapToRecord(entity));
-            }
-
-            var grouped = records
-                .GroupBy(r => r.Date)
-                .Select(g => new UserUsageDailySummary
-                {
-                    Date = g.Key,
-                    TenantId = tenantId,
-                    TotalRequests = g.Sum(r => r.RequestCount),
-                    UniqueUsers = g.Select(r => r.UserId).Distinct().Count(),
-                    UniqueEndpoints = g.Select(r => r.Endpoint).Distinct().Count(),
-                })
-                .OrderByDescending(s => s.Date)
-                .ToList();
-
-            return grouped;
-        }
-
         /// <summary>
         /// Builds the OData filter for a per-user usage query. <paramref name="userId"/> is a route
         /// segment (AAD oid) and the dates are query params, so all values MUST be OData-escaped before
@@ -135,42 +97,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         internal static string BuildUserUsageFilter(string userId, string? dateFrom, string? dateTo)
         {
             var filter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(userId)}'";
-            return AppendDateFilter(filter, dateFrom, dateTo);
-        }
 
-        /// <summary>
-        /// Builds the OData filter for a per-tenant usage query. Same escaping requirement as
-        /// <see cref="BuildUserUsageFilter"/>; returns null when no tenant/date scope is supplied.
-        /// </summary>
-        internal static string? BuildTenantUsageFilter(string? tenantId, string? dateFrom, string? dateTo)
-        {
-            string? filter = !string.IsNullOrEmpty(tenantId)
-                ? $"TenantId eq '{ODataSanitizer.EscapeValue(tenantId)}'"
-                : null;
-            return AppendDateFilter(filter, dateFrom, dateTo);
-        }
-
-        private static string AppendDateFilter(string? existingFilter, string? dateFrom, string? dateTo)
-        {
-            var filter = existingFilter ?? "";
-
+            // .Replace("-","") only normalizes the date shape; it does NOT neutralize single quotes,
+            // so the value must still be OData-escaped before interpolation.
             if (!string.IsNullOrEmpty(dateFrom))
-            {
-                // .Replace("-","") only normalizes the date shape; it does NOT neutralize single quotes,
-                // so the value must still be OData-escaped before interpolation.
-                var dateVal = ODataSanitizer.EscapeValue(dateFrom.Replace("-", ""));
-                var clause = $"Date ge '{dateVal}'";
-                filter = string.IsNullOrEmpty(filter) ? clause : $"{filter} and {clause}";
-            }
-
+                filter += $" and Date ge '{ODataSanitizer.EscapeValue(dateFrom.Replace("-", ""))}'";
             if (!string.IsNullOrEmpty(dateTo))
-            {
-                var dateVal = ODataSanitizer.EscapeValue(dateTo.Replace("-", ""));
-                var clause = $"Date le '{dateVal}'";
-                filter = string.IsNullOrEmpty(filter) ? clause : $"{filter} and {clause}";
-            }
+                filter += $" and Date le '{ODataSanitizer.EscapeValue(dateTo.Replace("-", ""))}'";
 
-            return string.IsNullOrEmpty(filter) ? null! : filter;
+            return filter;
         }
 
         public async Task<int> DeleteRecordsOlderThanAsync(string dateCutoff)

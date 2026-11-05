@@ -22,16 +22,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<UserUsageRecord>> GetUsageByUserAsync(string userId, string? dateFrom = null, string? dateTo = null);
 
         /// <summary>
-        /// Gets usage records for all users belonging to a tenant within an optional date range.
-        /// </summary>
-        Task<List<UserUsageRecord>> GetUsageByTenantAsync(string tenantId, string? dateFrom = null, string? dateTo = null);
-
-        /// <summary>
-        /// Gets aggregated daily usage summaries, optionally filtered by tenant.
-        /// </summary>
-        Task<List<UserUsageDailySummary>> GetDailySummaryAsync(string? tenantId = null, string? dateFrom = null, string? dateTo = null);
-
-        /// <summary>
         /// Deletes all usage records older than the specified date (yyyyMMdd format).
         /// Returns the number of records deleted.
         /// </summary>
@@ -83,17 +73,5 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string Date { get; set; } = string.Empty;
         public long RequestCount { get; set; }
         public DateTime LastRequestAt { get; set; }
-    }
-
-    /// <summary>
-    /// Aggregated daily usage summary across endpoints (and optionally users).
-    /// </summary>
-    public class UserUsageDailySummary
-    {
-        public string Date { get; set; } = string.Empty;
-        public string? TenantId { get; set; }
-        public long TotalRequests { get; set; }
-        public int UniqueUsers { get; set; }
-        public int UniqueEndpoints { get; set; }
     }
 }

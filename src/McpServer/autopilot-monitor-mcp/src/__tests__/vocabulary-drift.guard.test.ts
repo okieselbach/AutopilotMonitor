@@ -35,6 +35,8 @@ const ALLOWED_INLINE_ENUMS: Record<string, string> = {
     'search_knowledge corpus selector — MCP-side, spans two backend catalogs plus the error-code catalog.',
   "'inventory', 'unmatched'":
     'get_software_inventory scope selector — an MCP-side view switch.',
+  "...OVERVIEW_VIEWS, 'organization', 'account'":
+    'get_api_usage view selector — an MCP-side view switch over three backend routes (api-usage-shape.ts).',
   "'cmtrace', 'text'":
     'test_log_pattern input format — an MCP-side parser switch.',
   "'analyze', 'gather'":

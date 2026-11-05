@@ -42,7 +42,9 @@ interface Role {
 const ROLES: Role[] = [
   // Raised 2026-10-28 by +1,100 each: the platform-only get_growth_metrics (measured 1,106 chars).
   { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 93_100 },
-  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 78_100 },
+  // Raised 2026-11-05 by +200: get_api_usage reads the MCP usage overview — eight views, the window, the
+  // platform-admin switch and two drill-down ids (measured 78,205 chars; the Global Admin catalog stayed under).
+  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 78_300 },
   // Raised 2026-11-04 by +400: search_sessions gained the groupTag filter and five Autopilot
   // projection keys (measured 53,318 chars; the other roles stayed under their ceilings).
   { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_400 },
@@ -56,8 +58,9 @@ const ROLES: Role[] = [
  * Shared-mechanics arguments should read the same everywhere (shared.ts helpers); each distinct
  * wording is one more contract the model has to reconcile. Ratchet on the variant count in the
  * Global Admin catalog (2026-09-22 post-diet baseline; pre-diet: tenantId 28, pageSize 14, continuation 10).
+ * days 10 since 2026-11-05: get_api_usage's window is bounded by the 90 days the request telemetry keeps.
  */
-const MAX_ARG_DESCRIPTION_VARIANTS: Record<string, number> = { tenantId: 13, pageSize: 8, continuation: 3, days: 9 };
+const MAX_ARG_DESCRIPTION_VARIANTS: Record<string, number> = { tenantId: 13, pageSize: 8, continuation: 3, days: 10 };
 
 /**
  * Domains a description may name. Anything else that looks like a domain is treated as a

@@ -548,64 +548,6 @@ public class MetricsWireParityTests
             new GetMcpUserUsageResponse { UserId = userId, Records = records });
     }
 
-    // ---- GetGlobalMcpUsage ---------------------------------------------------------------
-
-    [Fact]
-    public void GetGlobalMcpUsageResponse_matches_the_tenant_usage_shape()
-    {
-        string? tenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d";
-        var records = SampleUsageRecords("9cc42e33-0004-4b7c-a1d2-52f3aaaa0010");
-
-        AssertParity(
-            new { tenantId, records },
-            new GetGlobalMcpUsageResponse { TenantId = tenantId, Records = records });
-    }
-
-    [Fact]
-    public void GetGlobalMcpUsageResponse_omits_a_null_tenantId()
-    {
-        string? tenantId = null;
-        var records = new List<UserUsageRecord>();
-
-        AssertParity(
-            new { tenantId, records },
-            new GetGlobalMcpUsageResponse { TenantId = null, Records = records });
-    }
-
-    // ---- GetGlobalMcpUsageDaily ----------------------------------------------------------
-
-    [Fact]
-    public void GetGlobalMcpUsageDailyResponse_matches_the_daily_summary_shape()
-    {
-        string? tenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d";
-        var summaries = new List<UserUsageDailySummary>
-        {
-            new UserUsageDailySummary
-            {
-                Date = "20260830",
-                TenantId = tenantId,
-                TotalRequests = 321,
-                UniqueUsers = 4,
-                UniqueEndpoints = 11,
-            },
-        };
-
-        AssertParity(
-            new { tenantId, summaries },
-            new GetGlobalMcpUsageDailyResponse { TenantId = tenantId, Summaries = summaries });
-    }
-
-    [Fact]
-    public void GetGlobalMcpUsageDailyResponse_omits_a_null_tenantId()
-    {
-        string? tenantId = null;
-        var summaries = new List<UserUsageDailySummary>();
-
-        AssertParity(
-            new { tenantId, summaries },
-            new GetGlobalMcpUsageDailyResponse { TenantId = null, Summaries = summaries });
-    }
-
     // ---- MetricsSummary / MetricsSummaryGlobal -------------------------------------------
 
     [Fact]
@@ -850,12 +792,18 @@ public class MetricsWireParityTests
                 dateTo = "20261105",
                 includesPlatformAdmins = false,
                 telemetry = new { requestsAvailable = true, mcpLogAvailable = true, mcpLogFrom = "20261104", partial = true },
+                totals = new
+                {
+                    calls = 10L, mcpOnlyCalls = 4L, tools = 2, requests = 50L, tenants = 1, accounts = 1, servicePrincipals = 0,
+                    quotaHitAccounts = 1, minuteRefusedAccounts = 1, limitAccounts = 1,
+                },
                 daily = new[] { new { date = "20261105", calls = 10L, requests = 35L, accounts = 3, callsByPlan = new[] { new { plan = "community", calls = 10L } } } },
                 tenants = new[]
                 {
                     new
                     {
                         tenantId,
+                        domainName = "contoso.com",
                         quota,
                         calls = 7L,
                         requests = 50L,
@@ -912,7 +860,7 @@ public class MetricsWireParityTests
                     {
                         new
                         {
-                            tenantId, principal = "admin@contoso.com",
+                            tenantId, principal = "admin@contoso.com", sharePercent = 33,
                             peakCalls = 12L, peakCallsAt = at, mcpRefused = 7L, mcpLastRefusedAt = at,
                             peakRequests = 40L, peakRequestsAt = at, backendLimit = 120, backendRefused = 2L, backendLastRefusedAt = at,
                         },
@@ -925,6 +873,11 @@ public class MetricsWireParityTests
                 DateTo = "20261105",
                 IncludesPlatformAdmins = false,
                 Telemetry = new McpUsageTelemetryStatus { RequestsAvailable = true, McpLogAvailable = true, McpLogFrom = "20261104", Partial = true },
+                Totals = new McpUsageTotalsNode
+                {
+                    Calls = 10, McpOnlyCalls = 4, Tools = 2, Requests = 50, Tenants = 1, Accounts = 1, ServicePrincipals = 0,
+                    QuotaHitAccounts = 1, MinuteRefusedAccounts = 1, LimitAccounts = 1,
+                },
                 Daily = new List<McpUsageDayItem>
                 {
                     new() { Date = "20261105", Calls = 10, Requests = 35, Accounts = 3, CallsByPlan = new List<McpUsagePlanCallsItem> { new() { Plan = "community", Calls = 10 } } },
@@ -934,6 +887,7 @@ public class MetricsWireParityTests
                     new()
                     {
                         TenantId = tenantId,
+                        DomainName = "contoso.com",
                         Quota = quota,
                         Calls = 7,
                         Requests = 50,
@@ -990,7 +944,7 @@ public class MetricsWireParityTests
                     {
                         new()
                         {
-                            TenantId = tenantId, Principal = "admin@contoso.com",
+                            TenantId = tenantId, Principal = "admin@contoso.com", SharePercent = 33,
                             PeakCalls = 12, PeakCallsAt = at, McpRefused = 7, McpLastRefusedAt = at,
                             PeakRequests = 40, PeakRequestsAt = at, BackendLimit = 120, BackendRefused = 2, BackendLastRefusedAt = at,
                         },
@@ -1014,6 +968,7 @@ public class MetricsWireParityTests
                 dateTo = "20261105",
                 includesPlatformAdmins = true,
                 telemetry = new { requestsAvailable = false, mcpLogAvailable = false },
+                totals = new { tools = 1, requests = 0L, tenants = 1, accounts = 1, servicePrincipals = 1, quotaHitAccounts = 0, minuteRefusedAccounts = 0, limitAccounts = 0 },
                 daily = Array.Empty<object>(),
                 tenants = new[]
                 {
@@ -1040,6 +995,7 @@ public class MetricsWireParityTests
                 DateTo = "20261105",
                 IncludesPlatformAdmins = true,
                 Telemetry = new McpUsageTelemetryStatus { RequestsAvailable = false, McpLogAvailable = false },
+                Totals = new McpUsageTotalsNode { Tools = 1, Requests = 0, Tenants = 1, Accounts = 1, ServicePrincipals = 1 },
                 Daily = new List<McpUsageDayItem>(),
                 Tenants = new List<McpUsageTenantItem>
                 {

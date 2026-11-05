@@ -92,12 +92,11 @@ export const SUMMARY_EVENT_FIELDS =
  * to a different endpoint. The strict GUID pattern blocks both that path-
  * traversal vector and accidental garbage inputs.
  */
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const SessionIdSchema = z
   .string()
-  .regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    'sessionId must be a UUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")',
-  );
+  .regex(GUID_PATTERN, 'sessionId must be a UUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")');
 
 /**
  * Read-side guard for the historical / in-flight `script_failed` rows that the agent
@@ -192,10 +191,16 @@ export function tenantIdDescription(
  */
 export const TenantGuidSchema = z
   .string()
-  .regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    'tenantId must be a GUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")',
-  );
+  .regex(GUID_PATTERN, 'tenantId must be a GUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")');
+
+/**
+ * Zod validator for an account's Entra object id interpolated into a backend URL path
+ * (`/api/metrics/mcp-usage/user/{userId}`) — same path-traversal rationale as SessionIdSchema. It also
+ * turns a UPN passed by mistake into an error instead of an empty answer that reads as "no usage".
+ */
+export const ObjectIdSchema = z
+  .string()
+  .regex(GUID_PATTERN, 'userId must be an Entra object id (a GUID such as "e259c121-1234-4abc-9def-0123456789ab"), not a UPN');
 
 /** Read-only query tool — no side effects, idempotent, closed-world (our backend only). */
 export const READ_ONLY: ToolAnnotations = {

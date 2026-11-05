@@ -5,7 +5,6 @@
  * quota — the page never mixes the two in one figure.
  */
 import { effectiveEdition, type PlanEdition } from "../../../components/tenantFilters";
-import { isApplicationKey } from "@/lib/principalKeys";
 import type {
   GetGlobalMcpUsageOverviewResponse,
   McpUsageAccountItem,
@@ -183,45 +182,20 @@ export function searchTenants(
   return result;
 }
 
-// ── Totals (the tiles) ────────────────────────────────────────────────────────
+// ── Editions (the Tenants tile) ───────────────────────────────────────────────
 
-export interface OverviewTotals {
-  calls: number;
-  /** Calls of tools that run in the MCP server alone — counted in `calls`, attributed to no account. */
-  mcpOnlyCalls: number;
-  toolCount: number;
-  requests: number;
-  tenants: number;
-  communityTenants: number;
-  proTenants: number;
-  accounts: number;
-  apps: number;
-  /** Accounts that met any limit in the window. */
-  limitAccounts: number;
-  quotaHitAccounts: number;
-  minuteRefusedAccounts: number;
-}
-
-export function overviewTotals(overview: GetGlobalMcpUsageOverviewResponse, info: ReadonlyMap<string, TenantInfo>): OverviewTotals {
-  const accounts = overview.tenants.flatMap((t) => t.accounts);
+/**
+ * The overview's tenants by edition, trials resolved from config/all. The other tile figures come from
+ * `overview.totals`, which the backend computes once for every consumer; the edition is the one the page adds.
+ */
+export function editionCounts(
+  overview: GetGlobalMcpUsageOverviewResponse,
+  info: ReadonlyMap<string, TenantInfo>,
+): { community: number; pro: number } {
   const editionOf = (tenantId: string) => info.get(tenantId.toLowerCase())?.edition;
-  const quotaHit = new Set(overview.quotaHits.map((h) => `${h.tenantId}|${h.principal ?? ""}`));
-  const minuteRefused = new Set(
-    overview.minuteLimits.accounts.filter((m) => m.mcpRefused > 0 || m.backendRefused > 0).map((m) => `${m.tenantId}|${m.principal}`),
-  );
   return {
-    calls: overview.tools.reduce((sum, t) => sum + t.calls, 0),
-    mcpOnlyCalls: overview.tools.filter((t) => t.accounts == null).reduce((sum, t) => sum + t.calls, 0),
-    toolCount: overview.tools.length,
-    requests: overview.tenants.reduce((sum, t) => sum + t.requests, 0),
-    tenants: overview.tenants.length,
-    communityTenants: overview.tenants.filter((t) => editionOf(t.tenantId) === "community").length,
-    proTenants: overview.tenants.filter((t) => editionOf(t.tenantId)?.startsWith("pro")).length,
-    accounts: accounts.length,
-    apps: accounts.filter((a) => isApplicationKey(a.principal)).length,
-    limitAccounts: new Set([...quotaHit, ...minuteRefused]).size,
-    quotaHitAccounts: quotaHit.size,
-    minuteRefusedAccounts: minuteRefused.size,
+    community: overview.tenants.filter((t) => editionOf(t.tenantId) === "community").length,
+    pro: overview.tenants.filter((t) => editionOf(t.tenantId)?.startsWith("pro")).length,
   };
 }
 
@@ -251,16 +225,9 @@ export function dailyChart(overview: GetGlobalMcpUsageOverviewResponse): DailyCh
 /** A peak counts as close from here; below it an account only shows with a refusal. */
 export const MINUTE_SHOW_PERCENT = 50;
 
-/** The higher of an account's two per-minute shares (MCP server, backend), in whole percent. */
-export function minuteShare(row: McpUsageMinuteItem, mcpLimit: number | undefined): number {
-  const mcp = mcpLimit && mcpLimit > 0 ? (row.peakCalls / mcpLimit) * 100 : 0;
-  const backend = row.backendLimit > 0 ? (row.peakRequests / row.backendLimit) * 100 : 0;
-  return Math.round(Math.max(mcp, backend));
-}
-
-/** Rows worth a look: a refusal, or a peak at half a limit or more. */
-export function minuteRowsToShow(rows: readonly McpUsageMinuteItem[], mcpLimit: number | undefined): McpUsageMinuteItem[] {
-  return rows.filter((r) => r.mcpRefused > 0 || r.backendRefused > 0 || minuteShare(r, mcpLimit) >= MINUTE_SHOW_PERCENT);
+/** Rows worth a look: a refusal, or a peak at half a limit or more (`sharePercent`, computed by the backend). */
+export function minuteRowsToShow(rows: readonly McpUsageMinuteItem[]): McpUsageMinuteItem[] {
+  return rows.filter((r) => r.mcpRefused > 0 || r.backendRefused > 0 || r.sharePercent >= MINUTE_SHOW_PERCENT);
 }
 
 // ── Plan legend ───────────────────────────────────────────────────────────────
