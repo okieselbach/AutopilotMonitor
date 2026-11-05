@@ -126,20 +126,21 @@ public class SessionDeletionMaintenanceFunctionTests
     [Fact]
     public async Task RunCore_emits_LongRunningSevere_when_body_runs_past_severe_threshold()
     {
-        // Deterministic: the body blocks until the SEVERE watchdog records its OpsEvent. Warn has a
-        // smaller threshold, so it is guaranteed to have fired first — neither depends on a body
-        // sleep outlasting a fixed wall-clock threshold.
+        // Deterministic: the body blocks until BOTH watchdogs have recorded their OpsEvents. The two
+        // delays are independent timers, so under load the severe one can complete first; the cancel
+        // in the finally would then drop a warn delay whose callback had not run yet.
         var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(20), watchdogSevere: TimeSpan.FromMilliseconds(60));
         harness.SetKillSwitch(false);
         harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .Returns(async (SessionRetentionFanoutService.FanoutResult _, DateTime _, CancellationToken ct) =>
             {
+                await harness.WaitForEventAsync("SessionDeletionMaintenanceLongRunning");
                 await harness.WaitForEventAsync("SessionDeletionMaintenanceLongRunningSevere");
             });
 
         await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
-        // Both watchdogs fire: warning first (smaller threshold), then severe (which the body waited for).
+        // Both watchdogs fired while the body was still running.
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunningSevere");
     }
