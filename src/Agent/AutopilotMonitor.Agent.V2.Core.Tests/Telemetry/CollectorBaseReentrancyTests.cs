@@ -12,8 +12,8 @@ using Xunit;
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
 {
     /// <summary>
-    /// Regression coverage for the duplicate <c>performance_snapshot</c> events observed on
-    /// session c4c8d206-… (Bayer / Lenovo T14 Gen 5): two snapshots fired with timestamps
+    /// Regression coverage for duplicate <c>performance_snapshot</c> events observed in the
+    /// field (Lenovo T14 Gen 5): two snapshots fired with timestamps
     /// 0–1ms apart, the second one carrying a fresh-baseline net delta of 0. Root cause:
     /// <see cref="System.Threading.Timer"/> is documented to dispatch callbacks on different
     /// ThreadPool threads when a callback exceeds the period, and the

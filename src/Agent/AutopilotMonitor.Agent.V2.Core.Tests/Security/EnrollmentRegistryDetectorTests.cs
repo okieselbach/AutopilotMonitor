@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
 {
     /// <summary>
     /// Regression coverage for the IsHybridJoin detection that runs at session-registration
-    /// time. Field evidence (session c4c8d206-…, Lenovo ThinkPad T14 Gen 5, Win11 23H2
+    /// time. Field evidence (Lenovo ThinkPad T14 Gen 5, Win11 23H2
     /// 22631.4317): the AutopilotPolicyCache key on this device exposes
     /// <c>CloudAssignedDomainJoinMethod</c> only inside the embedded <c>PolicyJsonCache</c>
     /// blob, not as a top-level registry value. Without the JSON fallback the agent registered
@@ -47,11 +47,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         [Fact]
         public void Missing_TopLevel_falls_back_to_PolicyJsonCache_one_returns_true()
         {
-            // Real-world payload from the Bayer Lenovo T14 Gen 5 / Win11 23H2 22631.4317
-            // device that triggered this fix. Truncated for readability — the only relevant
+            // Shape of a real PolicyJsonCache payload (Win11 23H2 22631.4317) with a
+            // placeholder tenant domain. Truncated for readability — the only relevant
             // key is CloudAssignedDomainJoinMethod=1.
             const string policyJson =
-                "{\r\n  \"CloudAssignedTenantDomain\": \"bayergroup.onmicrosoft.com\",\r\n" +
+                "{\r\n  \"CloudAssignedTenantDomain\": \"contoso.onmicrosoft.com\",\r\n" +
                 "  \"CloudAssignedDomainJoinMethod\": 1,\r\n" +
                 "  \"AutopilotMode\": 2\r\n}";
 
