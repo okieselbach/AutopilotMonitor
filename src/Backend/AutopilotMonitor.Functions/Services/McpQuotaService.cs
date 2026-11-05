@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Functions.Services
     /// hot row); both are written fire-and-forget by McpQuotaEnforcementMiddleware for X-Client-Source: mcp
     /// requests. Daily = today's rows, monthly = the sum over the month. Each instance reads an account's and an
     /// organization's counters from storage at most every 60 seconds and counts every request it admits on
-    /// them at once (<see cref="CheckAsync"/>), so one instance blocks exactly at the limit. Across scaled-out
+    /// them at once (<see cref="AdmitAsync"/>), so one instance blocks exactly at the limit. Across scaled-out
     /// instances the boundary stays soft by what the OTHER instances admitted inside those 60 seconds, plus
     /// increments still on their way to storage. Limits are re-resolved per check from services that carry their
     /// own caches, so a plan change applies at once.
@@ -92,15 +92,26 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Resolves the caller's effective plans + limits and checks the current user AND tenant usage against
-        /// them. <paramref name="tenantId"/> is the token's tid — the identity the per-user override is bound to
-        /// and the tenant whose organization budget every request of this caller draws on, a delegated read
-        /// included. An allowed decision counts the request on this instance's counters at once, so the caller
-        /// must serve it (the middleware also writes it to storage). The decision's used values are the ones
-        /// BEFORE this request. Fail-open on counter/storage errors (a broken quota check must not take down MCP);
-        /// fail-closed on plan resolution (unknown plan → Community).
+        /// The enforcement step for ONE MCP request the caller is about to serve: resolves the caller's effective
+        /// plans + limits, checks the current user AND tenant usage against them and, when allowed, counts the
+        /// request on this instance's counters at once (the middleware also writes it to storage). Only
+        /// McpQuotaEnforcementMiddleware calls this; a view of the quota uses <see cref="ReadStateAsync"/>.
+        /// <paramref name="tenantId"/> is the token's tid — the identity the per-user override is bound to and the
+        /// tenant whose organization budget every request of this caller draws on, a delegated read included. The
+        /// decision's used values are the ones BEFORE this request. Fail-open on counter/storage errors (a broken
+        /// quota check must not take down MCP); fail-closed on plan resolution (unknown plan → Community).
         /// </summary>
-        public virtual async Task<McpQuotaDecision> CheckAsync(string oid, string? upn, string? tenantId)
+        public virtual Task<McpQuotaDecision> AdmitAsync(string oid, string? upn, string? tenantId)
+            => EvaluateAsync(oid, upn, tenantId, count: true);
+
+        /// <summary>
+        /// The same decision as <see cref="AdmitAsync"/> for a page that SHOWS the quota: what the caller's next
+        /// request would meet, without counting anything.
+        /// </summary>
+        public virtual Task<McpQuotaDecision> ReadStateAsync(string oid, string? upn, string? tenantId)
+            => EvaluateAsync(oid, upn, tenantId, count: false);
+
+        private async Task<McpQuotaDecision> EvaluateAsync(string oid, string? upn, string? tenantId, bool count)
         {
             var nowUtc = _time.GetUtcNow().UtcDateTime;
             var limits = await ResolvePlanAsync(AdminIdentity.Create(upn, tenantId, oid), tenantId);
@@ -113,7 +124,7 @@ namespace AutopilotMonitor.Functions.Services
             if (tenant == null)
                 return McpQuotaDecision.FailOpen(limits);
 
-            return DecideAndCount(limits, user, tenant, nowUtc);
+            return Decide(limits, user, tenant, nowUtc, count);
         }
 
         /// <summary>
@@ -121,13 +132,13 @@ namespace AutopilotMonitor.Functions.Services
         /// never all pass on the same reading. Every check locks the account's counter before the organization's,
         /// so two members of one tenant never wait on each other in a cycle.
         /// </summary>
-        private static McpQuotaDecision DecideAndCount(McpPlanLimits limits, UsageCounter user, UsageCounter tenant, DateTime nowUtc)
+        private static McpQuotaDecision Decide(McpPlanLimits limits, UsageCounter user, UsageCounter tenant, DateTime nowUtc, bool count)
         {
             lock (user)
             lock (tenant)
             {
                 var decision = BuildDecision(limits, user.DailyUsed, user.MonthlyUsed, tenant.DailyUsed, tenant.MonthlyUsed, nowUtc);
-                if (decision.Allowed)
+                if (count && decision.Allowed)
                 {
                     user.Count();
                     tenant.Count();
@@ -273,7 +284,7 @@ namespace AutopilotMonitor.Functions.Services
         /// The tenant's organization counter (cached, single-flight, shared by every member of that tenant on this
         /// instance). Skipped — no read, nothing cached — when nothing could ever block on it (no tenant, or both
         /// windows lifted): the check then gets a zero counter of its own, never a shared one, because
-        /// <see cref="DecideAndCount"/> raises whatever it is handed. Null = read failed (fail-open, nothing cached).
+        /// <see cref="Decide"/> raises whatever it is handed. Null = read failed (fail-open, nothing cached).
         /// </summary>
         private async Task<UsageCounter?> ReadTenantUsageAsync(string? tenantId, McpPlanLimits limits, DateTime nowUtc)
         {
@@ -357,7 +368,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Today / this month for one account or one organization as this instance knows it: read from storage at
         /// most every <see cref="CacheDuration"/>, raised by every request this instance admits in between. Only
-        /// <see cref="DecideAndCount"/> touches it, under its monitor.
+        /// <see cref="Decide"/> touches it, under its monitor.
         /// </summary>
         private sealed class UsageCounter
         {

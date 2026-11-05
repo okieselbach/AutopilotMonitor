@@ -115,7 +115,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
         McpQuotaDecision decision;
         try
         {
-            decision = await _quotaService.CheckAsync(oid, upn, homeTenantId);
+            decision = await _quotaService.AdmitAsync(oid, upn, homeTenantId);
         }
         catch (Exception ex)
         {

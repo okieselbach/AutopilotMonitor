@@ -65,7 +65,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 // Effective quota state: resolved plan (per-user override → tenant edition),
                 // limits (SectionUsagePlans definition → catalog fallback) and current counters.
-                var quota = await _quotaService.CheckAsync(userId, upn, tenantId);
+                // A read: viewing the page is not an MCP request and must not count as one.
+                var quota = await _quotaService.ReadStateAsync(userId, upn, tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new GetMyMcpUsageResponse

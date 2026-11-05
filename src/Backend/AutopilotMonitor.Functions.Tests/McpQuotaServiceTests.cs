@@ -197,7 +197,7 @@ public class McpQuotaServiceTests
         // 100 requests today (catalog Community fallback: 100/day) → blocked.
         var svc = Build(UsageRepo(("20260707", 100)));
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("community", d.Plan);
@@ -210,7 +210,7 @@ public class McpQuotaServiceTests
     {
         var svc = Build(UsageRepo(("20260707", 100)), edition: TenantEdition.Pro);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal("pro", d.Plan);
@@ -224,7 +224,7 @@ public class McpQuotaServiceTests
         // 2990 across the month + 20 today = 3010 ≥ 3000 monthly Community limit.
         var svc = Build(UsageRepo(("20260701", 1500), ("20260703", 1490), ("20260707", 20)));
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("monthly", d.Scope);
@@ -238,7 +238,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"community","dailyRequestLimit":5,"monthlyRequestLimit":50,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 5)), planDefinitionsJson: json);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal(5, d.DailyLimit);
@@ -251,7 +251,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 500)), planDefinitionsJson: json, mcpUserPlanOverride: "power");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal("power", d.Plan);
@@ -266,7 +266,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 500)), planDefinitionsJson: json, mcpUserPlanOverride: "power", bound: false);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("community", d.Plan);
@@ -279,7 +279,7 @@ public class McpQuotaServiceTests
         // Override names a plan that exists nowhere → Community fallback limits.
         var svc = Build(UsageRepo(("20260707", 100)), mcpUserPlanOverride: "no-such-plan");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("no-such-plan", d.Plan);
@@ -300,7 +300,7 @@ public class McpQuotaServiceTests
         var svc = Build(UsageRepo(("20260707", 1200)), planDefinitionsJson: MspPlanJson,
             edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal("msp", d.Plan);
@@ -318,7 +318,7 @@ public class McpQuotaServiceTests
         var svc = Build(UsageRepo(("20260707", 2000)), planDefinitionsJson: json,
             edition: TenantEdition.Pro, mcpUserPlanOverride: "power", tenantPlanOverrideResolver: _ => "msp");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal("power", d.Plan);
@@ -335,7 +335,7 @@ public class McpQuotaServiceTests
         // falls back fail-closed (user: Community catalog; tenant: the EDITION's catalog windows).
         var svc = Build(UsageRepo(("20260707", 100)), edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("msp", d.Plan);
@@ -351,7 +351,7 @@ public class McpQuotaServiceTests
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: MspPlanJson,
             edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp", purchasedSlotsResolver: _ => 2);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal("msp", d.Plan);
         Assert.Equal(2100, d.DailyLimit);          // 1500 + 2 × 300
@@ -367,8 +367,8 @@ public class McpQuotaServiceTests
             .ThrowsAsync(new InvalidOperationException("storage down"));
         var svc = Build(repo);
 
-        var first = await svc.CheckAsync(Oid, Upn, TenantId);
-        var second = await svc.CheckAsync(Oid, Upn, TenantId);
+        var first = await svc.AdmitAsync(Oid, Upn, TenantId);
+        var second = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(first.Allowed);
         Assert.True(second.Allowed);
@@ -383,8 +383,8 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(("20260707", 1));
         var svc = Build(repo);
 
-        await svc.CheckAsync(Oid, Upn, TenantId);
-        await svc.CheckAsync(Oid, Upn, TenantId);
+        await svc.AdmitAsync(Oid, Upn, TenantId);
+        await svc.AdmitAsync(Oid, Upn, TenantId);
 
         repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()),
             Times.Once);
@@ -403,9 +403,9 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(("20260707", 98));
         var svc = Build(repo);
 
-        var ninetyNinth = await svc.CheckAsync(Oid, Upn, TenantId);
-        var hundredth = await svc.CheckAsync(Oid, Upn, TenantId);
-        var hundredFirst = await svc.CheckAsync(Oid, Upn, TenantId);
+        var ninetyNinth = await svc.AdmitAsync(Oid, Upn, TenantId);
+        var hundredth = await svc.AdmitAsync(Oid, Upn, TenantId);
+        var hundredFirst = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(ninetyNinth.Allowed);
         Assert.Equal(98, ninetyNinth.DailyUsed); // the decision reports the count BEFORE this request
@@ -417,13 +417,32 @@ public class McpQuotaServiceTests
     }
 
     [Fact]
+    public async Task ReadState_NeverCounts_OnlyAdmitDoes()
+    {
+        // The usage page shows the quota; viewing it is not an MCP request. Three reads leave the count at 99,
+        // so the next real request still passes and only the one after it is refused.
+        var svc = Build(UsageRepo(("20260707", 99)));
+
+        for (var i = 0; i < 3; i++)
+        {
+            var view = await svc.ReadStateAsync(Oid, Upn, TenantId);
+            Assert.True(view.Allowed);
+            Assert.Equal(99, view.DailyUsed);
+        }
+
+        Assert.True((await svc.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await svc.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.Equal(100, (await svc.ReadStateAsync(Oid, Upn, TenantId)).DailyUsed);
+    }
+
+    [Fact]
     public async Task Check_ParallelBurst_AdmitsExactlyUpToTheLimit()
     {
         // A tool call's parallel requests must not all pass on the same reading: 95 used, 20 at once → 5 pass.
         var repo = UsageRepo(("20260707", 95));
         var svc = Build(repo);
 
-        var decisions = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(() => svc.CheckAsync(Oid, Upn, TenantId))));
+        var decisions = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(() => svc.AdmitAsync(Oid, Upn, TenantId))));
 
         Assert.Equal(5, decisions.Count(d => d.Allowed));
         // Single-flight: concurrent first checks share one counter, so storage was read once.
@@ -440,9 +459,9 @@ public class McpQuotaServiceTests
             .ReturnsAsync(new List<UserUsageRecord> { new() { UserId = OtherOid, Date = "20260707", RequestCount = 1 } });
         var svc = Build(repo);
 
-        Assert.True((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
-        Assert.True((await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId)).Allowed);
-        var third = await svc.CheckAsync(Oid, Upn, TenantId);
+        Assert.True((await svc.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await svc.AdmitAsync(OtherOid, "bob@contoso.com", TenantId)).Allowed);
+        var third = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(third.Allowed);
         Assert.Equal("tenant", third.Level);
@@ -459,10 +478,10 @@ public class McpQuotaServiceTests
         var instanceA = Build(repo);
         var instanceB = Build(repo);
 
-        Assert.True((await instanceA.CheckAsync(Oid, Upn, TenantId)).Allowed);
-        Assert.False((await instanceA.CheckAsync(Oid, Upn, TenantId)).Allowed);
-        Assert.True((await instanceB.CheckAsync(Oid, Upn, TenantId)).Allowed);
-        Assert.False((await instanceB.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await instanceA.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await instanceA.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await instanceB.AdmitAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await instanceB.AdmitAsync(Oid, Upn, TenantId)).Allowed);
     }
 
     [Fact]
@@ -473,12 +492,12 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(("20260707", 10));
         var svc = Build(repo, time: time);
 
-        Assert.True((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await svc.AdmitAsync(Oid, Upn, TenantId)).Allowed);
         repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new List<UserUsageRecord> { new() { UserId = Oid, Date = "20260707", RequestCount = 150 } });
         time.SetUtcNow(Now.AddSeconds(61));
 
-        var decision = await svc.CheckAsync(Oid, Upn, TenantId);
+        var decision = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(decision.Allowed);
         Assert.Equal(150, decision.DailyUsed);
@@ -494,10 +513,10 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(("20260707", 100));
         var svc = Build(repo, time: time);
 
-        Assert.False((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await svc.AdmitAsync(Oid, Upn, TenantId)).Allowed);
 
         time.SetUtcNow(lateEvening.AddSeconds(15));
-        var afterMidnight = await svc.CheckAsync(Oid, Upn, TenantId);
+        var afterMidnight = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(afterMidnight.Allowed);
         Assert.Equal(0, afterMidnight.DailyUsed);
@@ -512,7 +531,7 @@ public class McpQuotaServiceTests
         // Community catalog tenant window = 300/day; other members burned it, this caller made 5 requests.
         var svc = Build(UsageRepo(new[] { ("20260707", 5L) }, tenantRows: new[] { ("20260707", 300L) }));
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("tenant", d.Level);
@@ -530,7 +549,7 @@ public class McpQuotaServiceTests
             new[] { ("20260707", 1L) },
             tenantRows: new[] { ("20260701", 4000L), ("20260703", 4990L), ("20260707", 10L) }));
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("tenant", d.Level);
@@ -548,7 +567,7 @@ public class McpQuotaServiceTests
         var svc = Build(UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 10L) }),
             planDefinitionsJson: json, mcpUserPlanOverride: "power");
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.False(d.Allowed);
         Assert.Equal("power", d.Plan);
@@ -565,7 +584,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"pro","dailyRequestLimit":5,"monthlyRequestLimit":50,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal(5, d.DailyLimit);
@@ -580,7 +599,7 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 999999L) });
         var svc = Build(repo, planDefinitionsJson: json);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal(0, d.TenantDailyLimit);
@@ -593,7 +612,7 @@ public class McpQuotaServiceTests
         var repo = UsageRepo(("20260707", 1));
         var svc = Build(repo);
 
-        var d = await svc.CheckAsync(Oid, Upn, tenantId: null);
+        var d = await svc.AdmitAsync(Oid, Upn, tenantId: null);
 
         Assert.True(d.Allowed);
         repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
@@ -607,8 +626,8 @@ public class McpQuotaServiceTests
             .ThrowsAsync(new InvalidOperationException("storage down"));
         var svc = Build(repo);
 
-        var first = await svc.CheckAsync(Oid, Upn, TenantId);
-        var second = await svc.CheckAsync(Oid, Upn, TenantId);
+        var first = await svc.AdmitAsync(Oid, Upn, TenantId);
+        var second = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(first.Allowed);
         Assert.True(second.Allowed);
@@ -629,7 +648,7 @@ public class McpQuotaServiceTests
         // Pro home with 3 purchased slots: 1000 + 3 × 300 per account, 3000 + 3 × 900 for the organization.
         var svc = Build(UsageRepo(("20260707", 1)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 3);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal(1900, d.DailyLimit);
         Assert.Equal(38000, d.MonthlyLimit);
@@ -648,7 +667,7 @@ public class McpQuotaServiceTests
         // A Pro tenant on its two included slots (purchased = 0) keeps the plain Pro windows.
         var svc = Build(UsageRepo(("20260707", 1)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 0);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal(1000, d.DailyLimit);
         Assert.Equal(3000, d.TenantDailyLimit);
@@ -663,7 +682,7 @@ public class McpQuotaServiceTests
         var conferred = new EditionResolution(TenantEdition.Pro, EditionSource.Msp, OwnPro: false);
         var svc = Build(UsageRepo(("20260707", 1)), resolutionResolver: _ => conferred, purchasedSlotsResolver: _ => 3);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal("pro", d.Plan);
         Assert.Equal(1000, d.DailyLimit);
@@ -681,7 +700,7 @@ public class McpQuotaServiceTests
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro,
             mcpUserPlanOverride: "power", purchasedSlotsResolver: _ => 2);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal("power", d.Plan);
         Assert.Equal(10600, d.DailyLimit);
@@ -695,7 +714,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"slotDailyRequestLimit":0,"slotMonthlyRequestLimit":0,"slotTenantDailyRequestLimit":0,"slotTenantMonthlyRequestLimit":0,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 5);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal(1000, d.DailyLimit);
         Assert.Equal(3000, d.TenantDailyLimit);
@@ -709,7 +728,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"slotDailyRequestLimit":50,"slotMonthlyRequestLimit":500,"slotTenantDailyRequestLimit":100,"slotTenantMonthlyRequestLimit":1000,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 2);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal(1100, d.DailyLimit);
         Assert.Equal(21000, d.MonthlyLimit);
@@ -724,7 +743,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.Equal(1300, d.DailyLimit);
         Assert.Equal(3900, d.TenantDailyLimit);
@@ -738,7 +757,7 @@ public class McpQuotaServiceTests
         var json = """[{"name":"pro","dailyRequestLimit":0,"monthlyRequestLimit":20000,"tenantDailyRequestLimit":0,"tenantMonthlyRequestLimit":60000,"description":""}]""";
         var svc = Build(UsageRepo(("20260707", 30000)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 4);
 
-        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+        var d = await svc.AdmitAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
         Assert.Equal(0, d.DailyLimit);
@@ -761,10 +780,10 @@ public class McpQuotaServiceTests
     {
         // Pro 1000 + 1 × 300 = 1300: the 1300th request of the day is the first blocked one.
         var below = Build(UsageRepo(("20260707", 1299)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
-        Assert.True((await below.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await below.AdmitAsync(Oid, Upn, TenantId)).Allowed);
 
         var at = Build(UsageRepo(("20260707", 1300)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
-        var d = await at.CheckAsync(Oid, Upn, TenantId);
+        var d = await at.AdmitAsync(Oid, Upn, TenantId);
         Assert.False(d.Allowed);
         Assert.Equal("daily", d.Scope);
         Assert.Equal("user", d.Level);
@@ -782,8 +801,8 @@ public class McpQuotaServiceTests
             .ReturnsAsync(new List<UserUsageRecord>());
         var svc = Build(repo);
 
-        await svc.CheckAsync(Oid, Upn, TenantId);
-        await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId);
+        await svc.AdmitAsync(Oid, Upn, TenantId);
+        await svc.AdmitAsync(OtherOid, "bob@contoso.com", TenantId);
 
         repo.Verify(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
         repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
