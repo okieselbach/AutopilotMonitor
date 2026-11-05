@@ -374,7 +374,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     logger: logger,
                     // q8n: release on the user-ESP page exit, i.e. a Shell-Core 62407 that arrives
                     // after the AccountSetup registry left notStarted — never on the handoff exit.
-                    accountSetupProgressProbe: () => espAndHelloHost.HasAccountSetupProgress));
+                    accountSetupProgressProbe: () => espAndHelloHost.HasAccountSetupProgress,
+                    // D-414: that exit is latched here, so a later agent run does not engage again.
+                    startupGate: _startupEventGate));
             }
 
             // RealmJoin support is opt-in per tenant (portal toggle → AnalyzerConfiguration.

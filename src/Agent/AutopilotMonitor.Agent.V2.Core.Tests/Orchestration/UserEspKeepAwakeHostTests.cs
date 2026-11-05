@@ -53,10 +53,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
         private AgentLogger NewLogger() => new AgentLogger(_tmp.Path);
 
-        private SignalIngress BuildIngress(VirtualClock clock) =>
+        private SignalIngress BuildIngress(VirtualClock clock, string signalLogName = "signal-log.jsonl") =>
             new SignalIngress(
                 engine: new DecisionEngine(),
-                signalLog: new SignalLogWriter(_tmp.File("signal-log.jsonl")),
+                signalLog: new SignalLogWriter(_tmp.File(signalLogName)),
                 traceCounter: new SessionTraceOrdinalProvider(),
                 processor: new FakeDecisionStepProcessor(),
                 clock: clock);
@@ -340,13 +340,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             KeepAwakeController controller,
             Func<bool>? progress = null,
             TimeSpan? safetyCap = null,
-            TimeSpan? realmJoinWait = null) =>
+            TimeSpan? realmJoinWait = null,
+            StartupEventGate? gate = null) =>
             new UserEspKeepAwakeHost(ing, clock, NewLogger(),
                 controller: controller,
                 safetyCapOverride: safetyCap,
                 espTimeoutProvider: () => null,
                 accountSetupProgressProbe: progress ?? (() => true),
-                realmJoinStartWaitOverride: realmJoinWait);
+                realmJoinStartWaitOverride: realmJoinWait,
+                startupGate: gate);
 
         [Fact]
         public void Page_exit_with_RealmJoin_still_Blank_holds_until_RealmJoin_starts()
@@ -525,6 +527,137 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
             host.Dispose();
             ing.Stop();
+        }
+
+        // -------- Page-closed latch across agent restarts (D-414) --------
+
+        /// <summary>
+        /// One agent run: its own ingress and host on the shared state folder. A later run is a new
+        /// <see cref="StartupEventGate"/> loading the same folder, exactly what a restart does.
+        /// </summary>
+        private sealed class AgentRun : IDisposable
+        {
+            public SignalIngress Ingress { get; }
+            public FakeKeepAwakeApi Api { get; } = new FakeKeepAwakeApi();
+            public KeepAwakeController Controller { get; }
+            public StartupEventGate Gate { get; }
+            public UserEspKeepAwakeHost Host { get; }
+
+            public AgentRun(UserEspKeepAwakeHostTests t, string stateDir, string runName, Func<bool> progress)
+            {
+                var clock = new VirtualClock(At);
+                Ingress = t.BuildIngress(clock, $"signal-log-{runName}.jsonl");
+                Controller = new KeepAwakeController(t.NewLogger(), Api);
+                Gate = new StartupEventGate(stateDir, t.NewLogger());
+                Host = t.NewHost(Ingress, clock, Controller, progress: progress,
+                    realmJoinWait: TimeSpan.FromMinutes(5), gate: Gate);
+                Ingress.Start();
+                Host.Start();
+            }
+
+            public void Dispose()
+            {
+                Host.Dispose();
+                Ingress.Stop();
+                Ingress.Dispose();
+            }
+        }
+
+        [Fact]
+        public void Closed_page_keeps_a_later_agent_run_from_engaging()
+        {
+            // After an agent restart the AccountSetup phase reaches the rail again (IME logs it at
+            // the next sign-in, the adapter's dedup lives per process). The page is gone, so no hold.
+            using var stateDir = new TempDirectory();
+            using (var first = new AgentRun(this, stateDir.Path, "1", () => true))
+            {
+                PostAccountSetupPhase(first.Ingress);
+                Assert.True(WaitFor(() => first.Api.PreventCount == 1));
+                PostEspExiting(first.Ingress);
+                Assert.True(WaitFor(() => first.Api.AllowCount == 1));
+                Assert.True(WaitFor(() => first.Gate.AlreadySucceeded(UserEspKeepAwakeHost.UserEspPageClosedKey)));
+            }
+
+            using var second = new AgentRun(this, stateDir.Path, "2", () => true);
+            PostAccountSetupPhase(second.Ingress);
+
+            Assert.False(WaitFor(() => second.Api.PreventCount > 0, 500), "the page already closed in this enrollment");
+            Assert.False(second.Controller.IsEngaged);
+        }
+
+        [Fact]
+        public void Restart_before_the_page_closed_engages_again()
+        {
+            // A reboot in the middle of the user ESP: the page is still to come, so the next run holds.
+            using var stateDir = new TempDirectory();
+            using (var first = new AgentRun(this, stateDir.Path, "1", () => true))
+            {
+                PostAccountSetupPhase(first.Ingress);
+                Assert.True(WaitFor(() => first.Api.PreventCount == 1));
+            }
+
+            using var second = new AgentRun(this, stateDir.Path, "2", () => true);
+            PostAccountSetupPhase(second.Ingress);
+
+            Assert.True(WaitFor(() => second.Api.PreventCount == 1), "the user ESP is still running");
+            Assert.True(second.Controller.IsEngaged);
+        }
+
+        [Fact]
+        public void Handoff_exit_without_AccountSetup_progress_sets_no_latch()
+        {
+            using var stateDir = new TempDirectory();
+            using (var first = new AgentRun(this, stateDir.Path, "1", () => false))
+            {
+                PostAccountSetupPhase(first.Ingress);
+                Assert.True(WaitFor(() => first.Api.PreventCount == 1));
+                PostEspExiting(first.Ingress); // the Device→Account handoff
+                Assert.False(WaitFor(() => first.Api.AllowCount > 0, 300));
+                Assert.False(first.Gate.AlreadySucceeded(UserEspKeepAwakeHost.UserEspPageClosedKey));
+            }
+
+            using var second = new AgentRun(this, stateDir.Path, "2", () => true);
+            PostAccountSetupPhase(second.Ingress);
+
+            Assert.True(WaitFor(() => second.Api.PreventCount == 1));
+        }
+
+        [Fact]
+        public void Page_exit_while_waiting_for_RealmJoin_is_latched()
+        {
+            // The hold outlived the page while RealmJoin was Blank, then the agent restarted: after
+            // the reboot RealmJoin needs the next sign-in anyway, so the next run does not hold.
+            using var stateDir = new TempDirectory();
+            using (var first = new AgentRun(this, stateDir.Path, "1", () => true))
+            {
+                PostRealmJoin(first.Ingress, DecisionSignalKind.RealmJoinDetected, 0);
+                PostAccountSetupPhase(first.Ingress);
+                Assert.True(WaitFor(() => first.Api.PreventCount == 1));
+                PostEspExiting(first.Ingress);
+                Assert.True(WaitFor(() => first.Host.AwaitingRealmJoinForTest));
+                Assert.True(WaitFor(() => first.Gate.AlreadySucceeded(UserEspKeepAwakeHost.UserEspPageClosedKey)));
+            }
+
+            using var second = new AgentRun(this, stateDir.Path, "2", () => true);
+            PostRealmJoin(second.Ingress, DecisionSignalKind.RealmJoinDetected, 0);
+            PostAccountSetupPhase(second.Ingress);
+
+            Assert.False(WaitFor(() => second.Api.PreventCount > 0, 500));
+        }
+
+        [Fact]
+        public void Page_exit_seen_while_idle_is_latched_and_blocks_a_later_engage()
+        {
+            // The exit counts in every hold state — here the host never engaged before it.
+            using var stateDir = new TempDirectory();
+            using var run = new AgentRun(this, stateDir.Path, "1", () => true);
+
+            PostEspExiting(run.Ingress);
+            Assert.True(WaitFor(() => run.Gate.AlreadySucceeded(UserEspKeepAwakeHost.UserEspPageClosedKey)),
+                "an exit seen while idle must still be latched");
+
+            PostAccountSetupPhase(run.Ingress);
+            Assert.False(WaitFor(() => run.Api.PreventCount > 0, 500));
         }
 
         // -------- KeepAwakeController: late-confirm (ready-timeout) edge --------

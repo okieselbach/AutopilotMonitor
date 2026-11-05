@@ -6,6 +6,7 @@ using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
+using AutopilotMonitor.Agent.V2.Core.Persistence;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared;
@@ -22,7 +23,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// It observes the central signal rail (<see cref="SignalIngress.SignalPosted"/>, the same
     /// hook <c>GatherRuleExecutorHost</c> uses for phase_change triggers):
     /// <list type="bullet">
-    ///   <item><b>Engage</b> when a signal reports the ESP phase as <c>AccountSetup</c>.</item>
+    ///   <item><b>Engage</b> when a signal reports the ESP phase as <c>AccountSetup</c> — unless the
+    ///     user-ESP page already closed in this enrollment (D-414). The page exit is latched in the
+    ///     <see cref="StartupEventGate"/>, because after an agent restart the AccountSetup phase
+    ///     reaches the rail again (IME logs it at the next sign-in, and the adapter's dedup lives
+    ///     per process).</item>
     ///   <item><b>Release</b> on <see cref="DecisionSignalKind.EspExiting"/> once the AccountSetup
     ///     registry shows progress (the real user-ESP page exit — see below), on
     ///     <see cref="Stop"/> (session teardown), or on the safety-cap timer (a backstop so a
@@ -91,6 +96,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         internal const int RealmJoinStartWaitMinutes = 30;
 
+        /// <summary><see cref="StartupEventGate"/> latch: the user-ESP page closed in this enrollment (D-414).</summary>
+        internal const string UserEspPageClosedKey = "keep_awake.user_esp_page_closed";
+
         // Release reasons (carried on the keep_awake_released event payload). "account_setup_complete"
         // (release on the synthesized completion signal) was retired with q8n — see the class doc.
         internal const string ReasonUserEspExited = "user_esp_exited";
@@ -116,6 +124,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly TimeSpan _realmJoinStartWait;
         private readonly Func<int?> _espTimeoutProvider;
         private readonly Func<bool> _accountSetupProgressProbe;
+        private readonly StartupEventGate? _startupGate;
 
         private enum HoldState { Idle, Engaging, Engaged, Released }
 
@@ -128,6 +137,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private bool _awaitingRealmJoin;            // guarded by _gate — page closed, RealmJoin still Blank
         private DateTime _userEspExitedUtc;         // guarded by _gate — valid while _awaitingRealmJoin
         private int _disposed;
+        private int _pageClosedLatched;             // 0/1 — the latch write runs once per process
 
         // RealmJoin observations of this process. Monotonic, written on the posting thread so the
         // ThreadPool work that follows always sees them (0/1 for Volatile/Interlocked).
@@ -143,7 +153,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             TimeSpan? safetyCapOverride = null,
             Func<int?>? espTimeoutProvider = null,
             Func<bool>? accountSetupProgressProbe = null,
-            TimeSpan? realmJoinStartWaitOverride = null)
+            TimeSpan? realmJoinStartWaitOverride = null,
+            StartupEventGate? startupGate = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -162,6 +173,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // lasts until the safety cap (erring long, never early). Production always wires the
             // EspAndHelloHost probe (DefaultComponentFactory).
             _accountSetupProgressProbe = accountSetupProgressProbe ?? (() => false);
+            // Without a gate (tests) the page-closed latch is off and every agent run engages anew.
+            _startupGate = startupGate;
         }
 
         /// <summary>
@@ -212,8 +225,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     case DecisionSignalKind.EspExiting:
                         // Only the user-ESP page exit counts: the Device→Account handoff 62407 arrives
                         // before any AccountSetup subcategory has left notStarted, the real exit after.
-                        // Cheap to skip while idle; the probe is a locked dictionary scan.
-                        if (IsEngagedOrEngaging() && ProbeAccountSetupProgress())
+                        // Checked in every hold state — the page-closed latch (D-414) must also be set
+                        // while idle, capped or waiting. The probe is a locked dictionary scan.
+                        if (ProbeAccountSetupProgress())
                             ThreadPool.QueueUserWorkItem(_ => SafeRun(OnUserEspPageClosed, "user-ESP exit"));
                         return;
 
@@ -263,11 +277,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (Exception ex) { _logger.Error($"UserEspKeepAwakeHost: {what} failed.", ex); }
         }
 
-        private bool IsEngagedOrEngaging()
-        {
-            lock (_gate) { return _state == HoldState.Engaging || _state == HoldState.Engaged; }
-        }
-
         private bool ProbeAccountSetupProgress()
         {
             try { return _accountSetupProgressProbe(); }
@@ -287,6 +296,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             lock (_gate)
             {
                 if (_state != HoldState.Idle) return;
+                if (UserEspPageClosedEarlier())
+                {
+                    // Typically after an agent restart: the AccountSetup phase reached the rail
+                    // again, but the user-ESP page of this enrollment is already gone.
+                    _state = HoldState.Released;
+                    _logger.Info("UserEspKeepAwakeHost: the user-ESP page already closed in this enrollment — keep-awake not engaged.");
+                    return;
+                }
                 if (Volatile.Read(ref _realmJoinStarted) == 1)
                 {
                     // Only after an agent restart: RealmJoin deploys (or is done) before the
@@ -354,12 +371,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// The user-ESP page closed. Without RealmJoin, or with RealmJoin already past Blank, the
-        /// hold ends here. With RealmJoin still Blank it waits for the hand-over: the ESP-sized cap
-        /// gives way to the RealmJoin wait.
+        /// The user-ESP page closed. The fact is latched for later agent runs first. Without
+        /// RealmJoin, or with RealmJoin already past Blank, the hold ends here. With RealmJoin still
+        /// Blank it waits for the hand-over: the ESP-sized cap gives way to the RealmJoin wait.
         /// </summary>
         private void OnUserEspPageClosed()
         {
+            LatchUserEspPageClosed();
+
             lock (_gate)
             {
                 if (_state != HoldState.Engaging && _state != HoldState.Engaged) return;
@@ -377,6 +396,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
 
             Release(ReasonUserEspExited, EventSeverity.Info);
+        }
+
+        // MarkSucceeded persists at once (fail-soft): the page is gone for this enrollment.
+        private void LatchUserEspPageClosed()
+        {
+            if (_startupGate == null || Interlocked.Exchange(ref _pageClosedLatched, 1) == 1) return;
+            try { _startupGate.MarkSucceeded(UserEspPageClosedKey); }
+            catch (Exception ex) { _logger.Debug($"UserEspKeepAwakeHost: page-closed latch write threw: {ex.Message}"); }
+        }
+
+        // In-memory lookup (no I/O) — safe under _gate.
+        private bool UserEspPageClosedEarlier()
+        {
+            if (_startupGate == null) return false;
+            try { return _startupGate.AlreadySucceeded(UserEspPageClosedKey); }
+            catch (Exception ex)
+            {
+                _logger.Debug($"UserEspKeepAwakeHost: page-closed latch read threw: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>RealmJoin left Blank — it keeps the device awake from here.</summary>
