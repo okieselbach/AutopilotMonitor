@@ -28,7 +28,7 @@
 
   <ItemGroup>
     <!-- Plan §2.8 — Newtonsoft.Json on both sides (Agent net48 + Backend net8.0) for DecisionCore DTOs. -->
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
 </Project>
