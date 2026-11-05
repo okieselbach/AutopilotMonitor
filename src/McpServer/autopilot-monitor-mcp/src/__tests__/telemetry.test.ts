@@ -327,3 +327,19 @@ describe('attachToolCallRejectionSniffer', () => {
     expect(res.end).toBe(originalEnd);
   });
 });
+
+describe('bootLine', () => {
+  it('starts with the type marker and carries the enforced per-account budget', async () => {
+    // The GA usage page finds the line by its start and reads rateLimitPerMinute from the newest one.
+    const { bootLine } = await loadTelemetry(false);
+    const line = bootLine(
+      { readyMs: 812, version: '1.2.3', commit: 'abc1234', docsCommit: 'def5678', rateLimitPerMinute: 60 },
+      new Date('2026-11-05T12:00:00.000Z'),
+    );
+    expect(line.startsWith('{"type":"boot"')).toBe(true);
+    expect(JSON.parse(line)).toEqual({
+      type: 'boot', readyMs: 812, version: '1.2.3', commit: 'abc1234', docsCommit: 'def5678',
+      rateLimitPerMinute: 60, timestamp: '2026-11-05T12:00:00.000Z',
+    });
+  });
+});

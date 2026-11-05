@@ -693,6 +693,7 @@ export const SHARED_MANIFEST = {
     "DiagnosticsUploadEnabled",
     "DiagnosticsUploadDisabled",
     "RuleEvaluationStopped",
+    "McpQuotaExceeded",
     "SessionActionQueued",
     "SessionTimeouts",
     "AgentEmergencyBreak",

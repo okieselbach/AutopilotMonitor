@@ -689,6 +689,7 @@
     "DiagnosticsUploadEnabled",
     "DiagnosticsUploadDisabled",
     "RuleEvaluationStopped",
+    "McpQuotaExceeded",
     "SessionActionQueued",
     "SessionTimeouts",
     "AgentEmergencyBreak",

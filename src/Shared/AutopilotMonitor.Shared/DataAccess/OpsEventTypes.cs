@@ -184,6 +184,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// hour and 20 per instance and hour; every stop is in the Warning trace.
         /// </summary>
         public const string RuleEvaluationStopped         = "RuleEvaluationStopped";
+        /// <summary>
+        /// An MCP caller ran into a daily or monthly request quota of its home tenant and was answered
+        /// 429 (details: <c>level</c> account or organization, <c>scope</c>, <c>plan</c>, <c>limit</c>,
+        /// <c>used</c>, <c>resetUtc</c>). Info; at most one per instance, account or organization,
+        /// window and period — every refused request stays in the Warning trace.
+        /// </summary>
+        public const string McpQuotaExceeded              = "McpQuotaExceeded";
 
         // ── Agent ── Agent + device-side health signals.
         public const string SessionActionQueued          = "SessionActionQueued";
@@ -231,7 +238,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles, GraphAccessRejected, GraphAccessRecovered, GraphAppCredentialRejected, AddOnPermissionMissing, AddOnPermissionResolved,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen, ReportUploadLimitReached, RuleEvaluationLimitReached,
-            OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled, RuleEvaluationStopped,
+            OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled, RuleEvaluationStopped, McpQuotaExceeded,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert, PushDeliveryFailed, PushEndpointRefused,

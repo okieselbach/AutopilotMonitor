@@ -14,9 +14,9 @@ import { MODEL_NAME, VectorSearchProvider, embed } from './vector-search-provide
 import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
-import { accessGuard } from './access-guard.js';
+import { accessGuard, RATE_LIMIT_PER_MINUTE } from './access-guard.js';
 import { originGuard } from './origin-guard.js';
-import { toolLoggingEnabled, attachToolCallRejectionSniffer } from './telemetry.js';
+import { toolLoggingEnabled, attachToolCallRejectionSniffer, bootLine } from './telemetry.js';
 import { API_BASE_URL } from './config.js';
 import { SERVER_VERSION, BUILD_COMMIT, BUILD_UTC, DOCS_COMMIT } from './build-info.js';
 
@@ -376,16 +376,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // The number a user actually waits for on a cold start, minus the platform's
   // own activation (pod scheduling, container start), which is not visible here.
   console.error(`[boot ${bootMark()}] Autopilot-Monitor MCP Server listening on port ${PORT} — ready to serve.`);
-  // Same number as a structured line so it is a trend, not prose: queryable in
-  // ContainerAppConsoleLogs_CL next to the tool_call lines (see telemetry.ts),
-  // e.g. `| where Log_s startswith '{"type":"boot"'`. Always on — one line per start.
-  console.error(JSON.stringify({
-    type: 'boot',
+  // Same number as a structured line so it is a trend, not prose (see bootLine).
+  console.error(bootLine({
     readyMs: Math.round(process.uptime() * 1000),
     version: SERVER_VERSION,
     commit: BUILD_COMMIT,
     docsCommit: DOCS_COMMIT,
-    timestamp: new Date().toISOString(),
+    rateLimitPerMinute: RATE_LIMIT_PER_MINUTE,
   }));
 });
 

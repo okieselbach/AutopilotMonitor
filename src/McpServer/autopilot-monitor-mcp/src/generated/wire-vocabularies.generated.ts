@@ -144,6 +144,7 @@ export const OPS_EVENT_TYPES = [
   "DiagnosticsUploadEnabled",
   "DiagnosticsUploadDisabled",
   "RuleEvaluationStopped",
+  "McpQuotaExceeded",
   "SessionActionQueued",
   "SessionTimeouts",
   "AgentEmergencyBreak",

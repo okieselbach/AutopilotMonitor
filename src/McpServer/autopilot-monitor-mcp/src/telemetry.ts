@@ -7,6 +7,18 @@ import { OVERFLOW_META_KEY } from './tools/shared.js';
 
 export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 
+/**
+ * The structured start line, one per process and always on: readiness as a trend, queryable next to the
+ * tool_call lines (`| where Log_s startswith '{"type":"boot"'`), plus the per-account message budget the
+ * access guard enforces — the GA usage page reads that value back instead of retyping it.
+ */
+export function bootLine(
+  fields: { readyMs: number; version: string; commit: string; docsCommit: string; rateLimitPerMinute: number },
+  now: Date = new Date(),
+): string {
+  return JSON.stringify({ type: 'boot', ...fields, timestamp: now.toISOString() });
+}
+
 // Caps keep a single log line small no matter what the model sends (validate_rule
 // takes whole rule JSON objects; queries are free text).
 const ARG_VALUE_CAP = 200;

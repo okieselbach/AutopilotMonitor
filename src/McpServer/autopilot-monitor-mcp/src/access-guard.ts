@@ -19,8 +19,8 @@ const BASE_URL = API_BASE_URL;
 // Per-UPN request budget (sliding 60s window), applied AFTER a token is
 // validated. parsePositiveInt guards against a non-numeric override: a bare
 // parseInt would yield NaN, and `count >= NaN` is always false — silently
-// disabling the limiter.
-const RATE_LIMIT = parsePositiveInt(process.env.MCP_RATE_LIMIT_PER_MINUTE, 60);
+// disabling the limiter. The boot line reports it, so usage views read the live value.
+export const RATE_LIMIT_PER_MINUTE = parsePositiveInt(process.env.MCP_RATE_LIMIT_PER_MINUTE, 60);
 
 // Per-source-IP budget for UNvalidated requests (sliding 60s window), applied
 // only on the cache-MISS path that would call the backend. Bounds forged- /
@@ -357,7 +357,7 @@ function getClientIp(req: Request): string {
 }
 
 function isRateLimited(upn: string): boolean {
-  return isWindowExceeded(rateBuckets, upn, RATE_LIMIT);
+  return isWindowExceeded(rateBuckets, upn, RATE_LIMIT_PER_MINUTE);
 }
 
 /**

@@ -1073,6 +1073,21 @@ namespace AutopilotMonitor.Functions.Services
                 new { ruleId, reason, catalogRule = isCatalogRule, endsRun, sessionId, runKind, skippedRules });
 
         /// <summary>
+        /// An MCP caller ran into a daily or monthly request quota of its home tenant (<paramref name="level"/>
+        /// <c>user</c> = the account's own window, <c>tenant</c> = the organization's) and was answered 429.
+        /// <c>McpQuotaEnforcementMiddleware</c> raises it for the first refusal per instance, account or
+        /// organization, window and period; every refusal is also in the Warning trace.
+        /// </summary>
+        public Task RecordMcpQuotaExceededAsync(
+            string tenantId, string principal, string level, string scope, string plan, long limit, long used, DateTime resetUtc)
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.McpQuotaExceeded, OpsEventSeverity.Info,
+                level == McpQuotaLevel.Tenant
+                    ? $"MCP {scope} request quota of the organization reached ({used}/{limit}, plan '{plan}'); its members get 429 until {resetUtc:yyyy-MM-ddTHH:mm:ss}Z"
+                    : $"MCP {scope} request quota of {principal} reached ({used}/{limit}, plan '{plan}'); 429 until {resetUtc:yyyy-MM-ddTHH:mm:ss}Z",
+                tenantId, principal,
+                new { level, scope, plan, limit, used, resetUtc = $"{resetUtc:yyyy-MM-ddTHH:mm:ss}Z" });
+
+        /// <summary>
         /// App-version duration regression radar: an app's newest version installs with a median
         /// duration ≥2× (and ≥5 min absolute) over the previous version's median. Fired ONCE per
         /// (app, version) episode (the notification-tracker row is the dedup); the message

@@ -35,33 +35,44 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// request can never be blocked by its OWN in-flight increment. The increment stays
 /// fire-and-forget (never blocks the request path).
 ///
-/// <b>The quota boundary is deliberately SOFT, not exact.</b> McpQuotaService caches the usage
-/// snapshots for 60 seconds (per instance; per user and per tenant), so an ALLOWED decision keeps
-/// admitting requests inside that window even after the async increments push the stored counters past
-/// the limit. Worst-case overshoot is bounded: ~60s × the request rate against that counter (× instance
-/// count on scaled-out Flex Consumption) — the same deliberate posture as the sliding-window
-/// rate limiter, trading exactness for one counter read per user / per tenant per minute instead of per
-/// request. Pinned by McpQuotaServiceTests soft-boundary tests; do NOT re-document this as an
-/// exact limit without reworking the snapshot cache.
+/// <b>The quota boundary is exact per instance, soft across instances.</b> McpQuotaService reads the
+/// counters from storage at most every 60 seconds per account and per organization and counts every request
+/// it admits on them at once, so one instance blocks at the limit. Other instances learn of those requests only
+/// with their next read, so on scaled-out Flex Consumption the overshoot is what the other instances admitted
+/// inside 60 seconds. Pinned by the McpQuotaServiceTests boundary tests; the customer docs never call the limit exact.
 ///
 /// Over-quota requests get 429 with a structured body, <c>Retry-After</c>, and
 /// <c>X-MCP-Quota-*</c> headers; allowed MCP requests get the quota headers too so the MCP
-/// client can surface remaining budget. Fail-open on storage/counter errors (handled inside
-/// <see cref="McpQuotaService"/>), fail-closed on plan resolution (unknown plan → Community).
+/// client can surface remaining budget. The first refusal per account or organization, window and period
+/// on an instance raises the ops event <c>McpQuotaExceeded</c>; every refusal writes the Warning line.
+/// Fail-open on storage/counter errors (handled inside <see cref="McpQuotaService"/>), fail-closed on plan
+/// resolution (unknown plan → Community).
 /// </summary>
 public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 {
+    /// <summary>Start of the Warning line every refused request writes; the MCP usage overview finds the refusals by it.</summary>
+    internal const string BlockedLogPrefix = "[McpQuota] BLOCKED";
+
+    private const string BlockedLogTemplate = BlockedLogPrefix
+        + " oid={Oid} charged={ChargedTenant} level={Level} scope={Scope} plan={Plan} daily={DailyUsed}/{DailyLimit} monthly={MonthlyUsed}/{MonthlyLimit} tenantDaily={TenantDailyUsed}/{TenantDailyLimit} tenantMonthly={TenantMonthlyUsed}/{TenantMonthlyLimit}";
+
+    // The key carries the period (see ExceededAlertKey), so the interval only has to outlast the longest one.
+    private static readonly LogThrottle ExceededAlerts = new(TimeSpan.FromDays(31));
+
     private readonly McpQuotaService _quotaService;
     private readonly IUserUsageRepository _userUsageRepo;
+    private readonly OpsEventService _opsEvents;
     private readonly ILogger<McpQuotaEnforcementMiddleware> _logger;
 
     public McpQuotaEnforcementMiddleware(
         McpQuotaService quotaService,
         IUserUsageRepository userUsageRepo,
+        OpsEventService opsEvents,
         ILogger<McpQuotaEnforcementMiddleware> logger)
     {
         _quotaService = quotaService;
         _userUsageRepo = userUsageRepo;
+        _opsEvents = opsEvents;
         _logger = logger;
     }
 
@@ -119,14 +130,38 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         if (decision.Allowed)
         {
-            // Check-then-increment: the decision above reflects previously SERVED requests only.
+            // The check already counted this request on the instance's counters; storage gets it here.
             TrackUsage(httpContext, oid, upn, homeTenantId);
             await next(context);
             return;
         }
 
         LogBlocked(oid, homeTenantId, decision);
+        RaiseExceeded(oid, upn, homeTenantId, decision);
         await WriteExceededAsync(context, httpContext, decision, BuildExceededResponse(decision));
+    }
+
+    /// <summary>
+    /// Pure: one key per account (level user) or organization (level tenant), window and period. The period is
+    /// the window's reset date, so the next day or month starts a fresh key.
+    /// </summary>
+    internal static string ExceededAlertKey(string oid, string tenantId, McpQuotaDecision decision)
+    {
+        var subject = decision.Level == McpQuotaLevel.Tenant ? tenantId.ToLowerInvariant() : oid;
+        return $"{decision.Level}:{decision.Scope}:{subject}:{decision.ResetUtc:yyyyMMdd}";
+    }
+
+    /// <summary>The ops event for the first refusal of its key on this instance — fire-and-forget, never on the 429's path.</summary>
+    private void RaiseExceeded(string oid, string? upn, string tenantId, McpQuotaDecision decision)
+    {
+        if (!ExceededAlerts.ShouldLog(ExceededAlertKey(oid, tenantId, decision)))
+            return;
+
+        var level = decision.Level ?? McpQuotaLevel.User;
+        _ = _opsEvents.RecordMcpQuotaExceededAsync(
+            tenantId, upn ?? oid, level, decision.Scope ?? "daily",
+            level == McpQuotaLevel.Tenant ? decision.TenantPlan : decision.Plan,
+            decision.ExceededLimit, decision.ExceededUsed, decision.ResetUtc);
     }
 
     /// <summary>
@@ -182,7 +217,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
     private void LogBlocked(string oid, string tenantId, McpQuotaDecision decision)
     {
         _logger.LogWarning(
-            "[McpQuota] BLOCKED oid={Oid} charged={ChargedTenant} level={Level} scope={Scope} plan={Plan} daily={DailyUsed}/{DailyLimit} monthly={MonthlyUsed}/{MonthlyLimit} tenantDaily={TenantDailyUsed}/{TenantDailyLimit} tenantMonthly={TenantMonthlyUsed}/{TenantMonthlyLimit}",
+            BlockedLogTemplate,
             oid, LogSanitizer.Clean(tenantId), decision.Level, decision.Scope, decision.Plan, decision.DailyUsed, decision.DailyLimit, decision.MonthlyUsed, decision.MonthlyLimit,
             decision.TenantDailyUsed, decision.TenantDailyLimit, decision.TenantMonthlyUsed, decision.TenantMonthlyLimit);
     }

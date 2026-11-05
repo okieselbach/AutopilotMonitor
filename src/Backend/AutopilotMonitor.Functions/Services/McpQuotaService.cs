@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models.Config;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -38,23 +38,28 @@ namespace AutopilotMonitor.Functions.Services
     /// Counters: user counters ride on the UserUsageLog table (PK = oid), tenant counters on the
     /// McpTenantUsage table (PK = home tenantId, RK = {yyyyMMdd}_{oid} — one partition read per check, no
     /// hot row); both are written fire-and-forget by McpQuotaEnforcementMiddleware for X-Client-Source: mcp
-    /// requests. Daily = today's rows, monthly = the sum over the month. The usage SNAPSHOTS are cached for
-    /// 60 seconds — per user (oid) and per tenant — so the worst-case overshoot is bounded
-    /// (limit + 60s × request-rate) — the same posture as the sliding-window rate limiter. Limits are
-    /// re-resolved per check from services that carry their own caches, so a plan change applies at once.
+    /// requests. Daily = today's rows, monthly = the sum over the month. Each instance reads an account's and an
+    /// organization's counters from storage at most every 60 seconds and counts every request it admits on
+    /// them at once (<see cref="CheckAsync"/>), so one instance blocks exactly at the limit. Across scaled-out
+    /// instances the boundary stays soft by what the OTHER instances admitted inside those 60 seconds, plus
+    /// increments still on their way to storage. Limits are re-resolved per check from services that carry their
+    /// own caches, so a plan change applies at once.
     /// </summary>
     public class McpQuotaService
     {
         private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-        internal static string UserCacheKey(string oid) => $"mcp-quota:user:{oid}";
-        internal static string TenantCacheKey(string tenantId) => $"mcp-quota:tenant:{tenantId.ToLowerInvariant()}";
+        // The UTC day is part of the key: a counter read before midnight never answers a check after it.
+        private static string UserCacheKey(string oid, string day) => $"mcp-quota:user:{oid}:{day}";
+        private static string TenantCacheKey(string tenantId, string day) => $"mcp-quota:tenant:{tenantId.ToLowerInvariant()}:{day}";
 
         private readonly IUserUsageRepository _usageRepo;
         private readonly McpUserService _mcpUserService;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly TenantEntitlementService _entitlementService;
-        private readonly IMemoryCache _cache;
+        // Single-flight: concurrent first checks of one account share ONE counter instead of each counting on a
+        // private copy that the last cache write would discard.
+        private readonly SingleFlightCache<UsageCounter> _counters;
         private readonly ILogger<McpQuotaService> _logger;
         private readonly TimeProvider _time;
 
@@ -63,19 +68,17 @@ namespace AutopilotMonitor.Functions.Services
             McpUserService mcpUserService,
             AdminConfigurationService adminConfigService,
             TenantEntitlementService entitlementService,
-            IMemoryCache cache,
             ILogger<McpQuotaService> logger)
-            : this(usageRepo, mcpUserService, adminConfigService, entitlementService, cache, logger, TimeProvider.System)
+            : this(usageRepo, mcpUserService, adminConfigService, entitlementService, logger, TimeProvider.System)
         {
         }
 
-        /// <summary>Test seam — inject a fake <see cref="TimeProvider"/> for deterministic window math.</summary>
+        /// <summary>Test seam — inject a fake <see cref="TimeProvider"/> for deterministic window math and counter expiry.</summary>
         public McpQuotaService(
             IUserUsageRepository usageRepo,
             McpUserService mcpUserService,
             AdminConfigurationService adminConfigService,
             TenantEntitlementService entitlementService,
-            IMemoryCache cache,
             ILogger<McpQuotaService> logger,
             TimeProvider time)
         {
@@ -83,16 +86,18 @@ namespace AutopilotMonitor.Functions.Services
             _mcpUserService = mcpUserService;
             _adminConfigService = adminConfigService;
             _entitlementService = entitlementService;
-            _cache = cache;
             _logger = logger;
             _time = time;
+            _counters = new SingleFlightCache<UsageCounter>(() => time.GetUtcNow().UtcDateTime);
         }
 
         /// <summary>
         /// Resolves the caller's effective plans + limits and checks the current user AND tenant usage against
         /// them. <paramref name="tenantId"/> is the token's tid — the identity the per-user override is bound to
         /// and the tenant whose organization budget every request of this caller draws on, a delegated read
-        /// included. Fail-open on counter/storage errors (a broken quota check must not take down MCP);
+        /// included. An allowed decision counts the request on this instance's counters at once, so the caller
+        /// must serve it (the middleware also writes it to storage). The decision's used values are the ones
+        /// BEFORE this request. Fail-open on counter/storage errors (a broken quota check must not take down MCP);
         /// fail-closed on plan resolution (unknown plan → Community).
         /// </summary>
         public virtual async Task<McpQuotaDecision> CheckAsync(string oid, string? upn, string? tenantId)
@@ -108,7 +113,27 @@ namespace AutopilotMonitor.Functions.Services
             if (tenant == null)
                 return McpQuotaDecision.FailOpen(limits);
 
-            return BuildDecision(limits, user.DailyUsed, user.MonthlyUsed, tenant.DailyUsed, tenant.MonthlyUsed, nowUtc);
+            return DecideAndCount(limits, user, tenant, nowUtc);
+        }
+
+        /// <summary>
+        /// Decision and count in one step, so parallel requests of one caller (a tool call fans out several) can
+        /// never all pass on the same reading. Every check locks the account's counter before the organization's,
+        /// so two members of one tenant never wait on each other in a cycle.
+        /// </summary>
+        private static McpQuotaDecision DecideAndCount(McpPlanLimits limits, UsageCounter user, UsageCounter tenant, DateTime nowUtc)
+        {
+            lock (user)
+            lock (tenant)
+            {
+                var decision = BuildDecision(limits, user.DailyUsed, user.MonthlyUsed, tenant.DailyUsed, tenant.MonthlyUsed, nowUtc);
+                if (decision.Allowed)
+                {
+                    user.Count();
+                    tenant.Count();
+                }
+                return decision;
+            }
         }
 
         /// <summary>
@@ -222,54 +247,49 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        /// <summary>The caller's own counters (cached snapshot). Null = read failed (fail-open, nothing cached).</summary>
-        private async Task<UsageSnapshot?> ReadUserUsageAsync(string oid, DateTime nowUtc)
+        /// <summary>The caller's own counter (cached, single-flight). Null = read failed (fail-open, nothing cached).</summary>
+        private async Task<UsageCounter?> ReadUserUsageAsync(string oid, DateTime nowUtc)
         {
-            var cacheKey = UserCacheKey(oid);
-            if (_cache.TryGetValue<UsageSnapshot>(cacheKey, out var cached) && cached != null)
-                return cached;
-
+            var (monthStart, today) = Window(nowUtc);
             try
             {
-                var (monthStart, today) = Window(nowUtc);
-                var records = await _usageRepo.GetUsageByUserAsync(oid, monthStart, today);
-                var snapshot = new UsageSnapshot(
-                    records.Where(r => r.Date == today).Sum(r => r.RequestCount),
-                    records.Sum(r => r.RequestCount));
-                _cache.Set(cacheKey, snapshot, CacheDuration);
-                return snapshot;
+                return await _counters.GetOrAddAsync(UserCacheKey(oid, today), CacheDuration, async () =>
+                {
+                    var records = await _usageRepo.GetUsageByUserAsync(oid, monthStart, today);
+                    return new UsageCounter(
+                        records.Where(r => r.Date == today).Sum(r => r.RequestCount),
+                        records.Sum(r => r.RequestCount));
+                });
             }
             catch (Exception ex)
             {
-                // Fail-open: usage counters unavailable → allow. Do NOT cache — the next request retries the read.
+                // Fail-open: usage counters unavailable → allow. The failed read is not cached — the next request retries it.
                 _logger.LogWarning(ex, "[McpQuota] Usage lookup failed for oid={Oid} — allowing (fail-open)", oid);
                 return null;
             }
         }
 
         /// <summary>
-        /// The tenant's organization counters (cached snapshot, shared by every member of that tenant).
-        /// Skipped — zero counters, no read, nothing cached — when nothing could ever block on it (no tenant,
-        /// or both windows lifted). Null = read failed (fail-open, nothing cached).
+        /// The tenant's organization counter (cached, single-flight, shared by every member of that tenant on this
+        /// instance). Skipped — no read, nothing cached — when nothing could ever block on it (no tenant, or both
+        /// windows lifted): the check then gets a zero counter of its own, never a shared one, because
+        /// <see cref="DecideAndCount"/> raises whatever it is handed. Null = read failed (fail-open, nothing cached).
         /// </summary>
-        private async Task<UsageSnapshot?> ReadTenantUsageAsync(string? tenantId, McpPlanLimits limits, DateTime nowUtc)
+        private async Task<UsageCounter?> ReadTenantUsageAsync(string? tenantId, McpPlanLimits limits, DateTime nowUtc)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || (limits.TenantDailyLimit <= 0 && limits.TenantMonthlyLimit <= 0))
-                return UsageSnapshot.Zero;
+                return new UsageCounter(0, 0);
 
-            var cacheKey = TenantCacheKey(tenantId);
-            if (_cache.TryGetValue<UsageSnapshot>(cacheKey, out var cached) && cached != null)
-                return cached;
-
+            var (monthStart, today) = Window(nowUtc);
             try
             {
-                var (monthStart, today) = Window(nowUtc);
-                var records = await _usageRepo.GetTenantUsageAsync(tenantId, monthStart, today);
-                var snapshot = new UsageSnapshot(
-                    records.Where(r => r.Date == today).Sum(r => r.RequestCount),
-                    records.Sum(r => r.RequestCount));
-                _cache.Set(cacheKey, snapshot, CacheDuration);
-                return snapshot;
+                return await _counters.GetOrAddAsync(TenantCacheKey(tenantId, today), CacheDuration, async () =>
+                {
+                    var records = await _usageRepo.GetTenantUsageAsync(tenantId, monthStart, today);
+                    return new UsageCounter(
+                        records.Where(r => r.Date == today).Sum(r => r.RequestCount),
+                        records.Sum(r => r.RequestCount));
+                });
             }
             catch (Exception ex)
             {
@@ -334,10 +354,27 @@ namespace AutopilotMonitor.Functions.Services
 
         private static bool Exceeded(int limit, long used) => limit > 0 && used >= limit;
 
-        /// <summary>Cached counter pair (today / this month) for one user or one tenant.</summary>
-        private sealed record UsageSnapshot(long DailyUsed, long MonthlyUsed)
+        /// <summary>
+        /// Today / this month for one account or one organization as this instance knows it: read from storage at
+        /// most every <see cref="CacheDuration"/>, raised by every request this instance admits in between. Only
+        /// <see cref="DecideAndCount"/> touches it, under its monitor.
+        /// </summary>
+        private sealed class UsageCounter
         {
-            public static readonly UsageSnapshot Zero = new(0, 0);
+            public UsageCounter(long dailyUsed, long monthlyUsed)
+            {
+                DailyUsed = dailyUsed;
+                MonthlyUsed = monthlyUsed;
+            }
+
+            public long DailyUsed { get; private set; }
+            public long MonthlyUsed { get; private set; }
+
+            public void Count()
+            {
+                DailyUsed++;
+                MonthlyUsed++;
+            }
         }
 
         /// <summary>The home tenant's plan facts a resolution needs, read once per check.</summary>

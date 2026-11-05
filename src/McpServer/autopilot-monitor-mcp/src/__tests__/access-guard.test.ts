@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 
-// RATE_LIMIT is read from the environment at module import. Set a low cap so
+// RATE_LIMIT_PER_MINUTE is read from the environment at module import. Set a low cap so
 // the 429 path is cheap to drive, BEFORE the dynamic import resolves.
 process.env.MCP_RATE_LIMIT_PER_MINUTE = '2';
 

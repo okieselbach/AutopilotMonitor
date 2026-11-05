@@ -96,6 +96,47 @@ public class McpQuotaEnforcementMiddlewareTests
         Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", body.Error);
     }
 
+    // ── ExceededAlertKey — one McpQuotaExceeded per account or organization, window and period ──
+
+    private const string OidA = "00000000-0000-0000-0000-00000000000a";
+    private const string OidB = "00000000-0000-0000-0000-00000000000b";
+
+    private static McpQuotaDecision UserDailyBlock(DateTime now)
+        => McpQuotaService.BuildDecision(new McpPlanLimits("community", 50, 250, "community", 100, 250),
+            dailyUsed: 50, monthlyUsed: 60, tenantDailyUsed: 60, tenantMonthlyUsed: 60, now);
+
+    [Fact]
+    public void AlertKey_AccountWindow_IsPerAccountAndDay()
+    {
+        var key = McpQuotaEnforcementMiddleware.ExceededAlertKey(OidA, Home, UserDailyBlock(Now));
+
+        Assert.Equal($"user:daily:{OidA}:20260903", key); // the period is the reset date
+        Assert.NotEqual(key, McpQuotaEnforcementMiddleware.ExceededAlertKey(OidB, Home, UserDailyBlock(Now)));
+        Assert.NotEqual(key, McpQuotaEnforcementMiddleware.ExceededAlertKey(OidA, Home, UserDailyBlock(Now.AddDays(1))));
+    }
+
+    [Fact]
+    public void AlertKey_OrganizationWindow_IsSharedByAllMembers()
+    {
+        // The organization's window is one budget: the refusal of any member raises one event for it.
+        var tenantBlock = Blocked("community");
+
+        var a = McpQuotaEnforcementMiddleware.ExceededAlertKey(OidA, Home.ToUpperInvariant(), tenantBlock);
+        var b = McpQuotaEnforcementMiddleware.ExceededAlertKey(OidB, Home, tenantBlock);
+
+        Assert.Equal(a, b);
+        Assert.Equal($"tenant:daily:{Home}:20260903", a);
+    }
+
+    [Fact]
+    public void AlertKey_MonthlyWindow_IsItsOwnKey()
+    {
+        var monthly = McpQuotaService.BuildDecision(new McpPlanLimits("community", 50, 250, "community", 100, 250),
+            dailyUsed: 10, monthlyUsed: 250, tenantDailyUsed: 10, tenantMonthlyUsed: 10, Now);
+
+        Assert.Equal($"user:monthly:{OidA}:20261001", McpQuotaEnforcementMiddleware.ExceededAlertKey(OidA, Home, monthly));
+    }
+
     [Fact]
     public void UserLevelBlock_ReportsTheUserWindow()
     {

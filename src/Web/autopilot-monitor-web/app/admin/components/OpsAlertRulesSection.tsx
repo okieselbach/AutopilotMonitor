@@ -256,6 +256,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // out in it. Warning for a tenant's custom rule, Error for a built-in or community rule — route
     // Error to a push channel. At most one per instance, tenant and rule per hour, 20 per hour.
     "RuleEvaluationStopped",
+    // An MCP caller ran into its home tenant's daily or monthly request quota (account or organization).
+    // Info; at most one per instance, account or organization, window and period.
+    "McpQuotaExceeded",
   ],
   Agent: [
     "BlobStorageMissing",

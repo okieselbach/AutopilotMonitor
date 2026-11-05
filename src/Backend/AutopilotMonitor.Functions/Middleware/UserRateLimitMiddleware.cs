@@ -30,6 +30,12 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
     /// </summary>
     public const string ThrottleSurfaceItemKey = "ThrottleSurface";
 
+    /// <summary>Start of the Warning line every refused request writes; the MCP usage overview finds the refusals by it.</summary>
+    internal const string ThrottledLogPrefix = "[UserRateLimit] THROTTLED";
+
+    private const string ThrottledLogTemplate = ThrottledLogPrefix
+        + " caller={Caller} surface={Surface} requests={Count}/{Max} retryAfter={RetryAfter}s";
+
     private readonly RateLimitService _rateLimitService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly TenantConfigurationService _tenantConfigService;
@@ -163,7 +169,7 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
             : 60;
 
         _logger.LogWarning(
-            "[UserRateLimit] THROTTLED caller={Caller} surface={Surface} requests={Count}/{Max} retryAfter={RetryAfter}s",
+            ThrottledLogTemplate,
             requestContext.CallerId, surface.ToDimension(), result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
 
         // Envelope with the retry window; the counters ride in the X-RateLimit-* headers above.

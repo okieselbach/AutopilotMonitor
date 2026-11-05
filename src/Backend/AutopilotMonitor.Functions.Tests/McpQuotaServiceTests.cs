@@ -130,7 +130,8 @@ public class McpQuotaServiceTests
         Func<string?, TenantEdition>? editionResolver = null,
         Func<string?, string?>? tenantPlanOverrideResolver = null,
         Func<string?, int>? purchasedSlotsResolver = null,
-        Func<string?, EditionResolution>? resolutionResolver = null)
+        Func<string?, EditionResolution>? resolutionResolver = null,
+        TestTimeProvider? time = null)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -162,9 +163,8 @@ public class McpQuotaServiceTests
             mcpUserService,
             adminConfigService,
             entitlements,
-            cache,
             NullLogger<McpQuotaService>.Instance,
-            new TestTimeProvider(Now));
+            time ?? new TestTimeProvider(Now));
     }
 
     private static Mock<IUserUsageRepository> UsageRepo(params (string Date, long Count)[] rows)
@@ -390,62 +390,118 @@ public class McpQuotaServiceTests
             Times.Once);
     }
 
-    // ── Soft-boundary contract (Codex finding 2026-07-07) ─────────────────────────
-    // The quota is DELIBERATELY soft: the per-user decision is cached for 60s, so an allowed
-    // decision keeps admitting requests inside that window even after the fire-and-forget
-    // increments push the stored counters past the limit. Overshoot is bounded (~TTL × request
-    // rate per instance) — the same posture as the sliding-window rate limiter. These tests PIN
-    // that contract; if strict limit+1 blocking is ever wanted, the decision cache must be
-    // reworked and these tests consciously rewritten.
+    // ── Boundary: exact per instance, soft across instances ──────────────────────
+    // The counters are read from storage at most every 60 s, and every request the instance admits is
+    // counted on them at once — so one instance blocks exactly at the limit, also when a tool call fans out
+    // into parallel requests. What stays soft is the part of OTHER instances: they learn of these requests
+    // only with their own next read.
 
     [Fact]
-    public async Task Check_SoftBoundary_CachedAllowedDecision_KeepsAdmitting_WithinTtl()
+    public async Task Check_SequentialRequests_BlockExactlyAtTheLimit_WithoutRereading()
     {
-        // First read: one request below the daily limit → allowed, decision cached.
-        var repo = UsageRepo(("20260707", 99));
+        // Community catalog: 100/day. 98 served before → the 99th and 100th pass, the 101st is refused.
+        var repo = UsageRepo(("20260707", 98));
         var svc = Build(repo);
 
-        var first = await svc.CheckAsync(Oid, Upn, TenantId);
-        Assert.True(first.Allowed);
+        var ninetyNinth = await svc.CheckAsync(Oid, Upn, TenantId);
+        var hundredth = await svc.CheckAsync(Oid, Upn, TenantId);
+        var hundredFirst = await svc.CheckAsync(Oid, Upn, TenantId);
 
-        // The async increments land: stored counters are now OVER the limit — but the cached
-        // allowed decision keeps admitting within the TTL, without re-reading storage.
-        repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(new List<UserUsageRecord>
-            {
-                new() { UserId = Oid, Date = "20260707", RequestCount = 150 }
-            });
-
-        var second = await svc.CheckAsync(Oid, Upn, TenantId);
-
-        Assert.True(second.Allowed, "soft boundary: cached allowed decision persists within the TTL");
-        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()),
-            Times.Once);
+        Assert.True(ninetyNinth.Allowed);
+        Assert.Equal(98, ninetyNinth.DailyUsed); // the decision reports the count BEFORE this request
+        Assert.True(hundredth.Allowed);
+        Assert.False(hundredFirst.Allowed);
+        Assert.Equal("daily", hundredFirst.Scope);
+        Assert.Equal(100, hundredFirst.DailyUsed);
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
-    public async Task Check_SoftBoundary_AfterCacheEviction_OverLimitCounters_Block()
+    public async Task Check_ParallelBurst_AdmitsExactlyUpToTheLimit()
     {
-        // Same scenario as above, but once the cached decision is gone (TTL expiry — simulated
-        // via eviction), the next check reads the over-limit counters and blocks.
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var repo = UsageRepo(("20260707", 99));
-        var svc = Build(repo, cache: cache);
+        // A tool call's parallel requests must not all pass on the same reading: 95 used, 20 at once → 5 pass.
+        var repo = UsageRepo(("20260707", 95));
+        var svc = Build(repo);
+
+        var decisions = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(() => svc.CheckAsync(Oid, Upn, TenantId))));
+
+        Assert.Equal(5, decisions.Count(d => d.Allowed));
+        // Single-flight: concurrent first checks share one counter, so storage was read once.
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Check_TenantWindow_CountsEveryMemberOnThisInstance()
+    {
+        // Community organization window 300/day, 298 used by the organization. Member A and member B each get one
+        // request through; the next one of A is refused at the organization level although A's own window is wide.
+        var repo = UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 298L) });
+        repo.Setup(r => r.GetUsageByUserAsync(OtherOid, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<UserUsageRecord> { new() { UserId = OtherOid, Date = "20260707", RequestCount = 1 } });
+        var svc = Build(repo);
 
         Assert.True((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId)).Allowed);
+        var third = await svc.CheckAsync(Oid, Upn, TenantId);
 
+        Assert.False(third.Allowed);
+        Assert.Equal("tenant", third.Level);
+        Assert.Equal(300, third.TenantDailyUsed);
+        repo.Verify(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Check_SecondInstance_LearnsOfTheFirstOnlyWithItsOwnRead()
+    {
+        // The part that stays soft, pinned: two instances share storage, not memory. Storage still says 99 (the
+        // increments of instance A are on their way), so instance B admits one more on its own fresh reading.
+        var repo = UsageRepo(("20260707", 99));
+        var instanceA = Build(repo);
+        var instanceB = Build(repo);
+
+        Assert.True((await instanceA.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await instanceA.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.True((await instanceB.CheckAsync(Oid, Upn, TenantId)).Allowed);
+        Assert.False((await instanceB.CheckAsync(Oid, Upn, TenantId)).Allowed);
+    }
+
+    [Fact]
+    public async Task Check_CounterExpiry_RereadsStorage()
+    {
+        // After 60 s the counter is read again, so increments of other instances count from then on.
+        var time = new TestTimeProvider(Now);
+        var repo = UsageRepo(("20260707", 10));
+        var svc = Build(repo, time: time);
+
+        Assert.True((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
         repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(new List<UserUsageRecord>
-            {
-                new() { UserId = Oid, Date = "20260707", RequestCount = 150 }
-            });
-        cache.Remove(McpQuotaService.UserCacheKey(Oid)); // stands in for the 60s TTL elapsing
+            .ReturnsAsync(new List<UserUsageRecord> { new() { UserId = Oid, Date = "20260707", RequestCount = 150 } });
+        time.SetUtcNow(Now.AddSeconds(61));
 
         var decision = await svc.CheckAsync(Oid, Upn, TenantId);
 
         Assert.False(decision.Allowed);
-        Assert.Equal("daily", decision.Scope);
         Assert.Equal(150, decision.DailyUsed);
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Check_Midnight_StartsAFreshCounter_InsideTheSixtySeconds()
+    {
+        // A counter read at 23:59:50 never answers a check at 00:00:05: the day is part of the key.
+        var lateEvening = new DateTime(2026, 7, 7, 23, 59, 50, DateTimeKind.Utc);
+        var time = new TestTimeProvider(lateEvening);
+        var repo = UsageRepo(("20260707", 100));
+        var svc = Build(repo, time: time);
+
+        Assert.False((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
+
+        time.SetUtcNow(lateEvening.AddSeconds(15));
+        var afterMidnight = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(afterMidnight.Allowed);
+        Assert.Equal(0, afterMidnight.DailyUsed);
+        Assert.Equal(new DateTime(2026, 7, 9, 0, 0, 0, DateTimeKind.Utc), afterMidnight.ResetUtc);
     }
 
     // ── Tenant (organization-wide) quota ─────────────────────────────────────────
