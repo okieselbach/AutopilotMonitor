@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker.Middleware;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Middleware;
 
@@ -73,6 +74,26 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             return headerTenantId;
 
         return null;
+    }
+
+    /// <summary>
+    /// The caller dimensions of the request row. A view-as request counts at the real caller — home tenant
+    /// (<paramref name="tenantId"/>, resolved from <see cref="RequestContextExtensions.IdentityTenantId"/>) and
+    /// Global Admin — and names the viewed tenant separately: activity, growth and usage figures read this row.
+    /// </summary>
+    internal static void StampCaller(IDictionary<string, string> properties, RequestContext ctx, string? tenantId)
+    {
+        if (!string.IsNullOrEmpty(tenantId))
+            properties[RequestRowDimensions.TenantId] = tenantId;
+        if (!string.IsNullOrEmpty(ctx.UserPrincipalName))
+            properties[RequestRowDimensions.UserId] = ctx.UserPrincipalName;
+        if (ctx.ViewAs != null)
+        {
+            properties[RequestRowDimensions.UserRole] = Constants.GlobalRoles.GlobalAdmin;
+            properties[RequestRowDimensions.ViewAsTenantId] = ctx.TenantId;
+        }
+        else if (!string.IsNullOrEmpty(ctx.UserRole))
+            properties[RequestRowDimensions.UserRole] = ctx.UserRole;
     }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
@@ -212,16 +233,11 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 
             var reqCtx = context.GetRequestContext();
             var tenantId = ResolveTenantId(
-                reqCtx.TenantId,
+                reqCtx.IdentityTenantId(),
                 context.Items,
                 httpContext.Request.Path.Value ?? string.Empty,
                 httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault());
-            if (!string.IsNullOrEmpty(tenantId))
-                requestTelemetry.Properties[RequestRowDimensions.TenantId] = tenantId;
-            if (!string.IsNullOrEmpty(reqCtx.UserPrincipalName))
-                requestTelemetry.Properties[RequestRowDimensions.UserId] = reqCtx.UserPrincipalName;
-            if (!string.IsNullOrEmpty(reqCtx.UserRole))
-                requestTelemetry.Properties[RequestRowDimensions.UserRole] = reqCtx.UserRole;
+            StampCaller(requestTelemetry.Properties, reqCtx, tenantId);
 
             if (caughtException != null)
                 requestTelemetry.Properties["ExceptionType"] = caughtException.GetType().Name;

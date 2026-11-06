@@ -7,6 +7,7 @@ import {
   readDemoParam,
   stripDemoParam,
 } from "@/lib/demoMode";
+import { readViewAs } from "@/lib/viewAs";
 
 interface UseAdminModeReturn {
   adminMode: boolean;
@@ -138,13 +139,18 @@ export function useAdminMode(): UseAdminModeReturn {
     };
   }, []);
 
+  // A view-as tab (lib/viewAs.ts) is a tenant member's view: the Global-Admin view is off there like in
+  // demo mode, and the stored setting stays untouched — the dashboard's "no platform role, switch it off"
+  // write would otherwise reach every other tab through the storage event. Fixed for the page's life.
+  const forcedOff = demoMode || readViewAs() !== null;
+
   return {
     adminMode,
     setAdminMode: setAdminModeState,
-    globalAdminMode: effectiveGlobalAdminMode(globalAdminMode, demoMode),
-    // No-op while presenting. The toggle is hidden in demo mode anyway; this keeps any other
-    // caller from re-arming the global view behind the operator's back.
-    setGlobalAdminMode: demoMode ? () => {} : setGlobalAdminModeState,
+    globalAdminMode: effectiveGlobalAdminMode(globalAdminMode, forcedOff),
+    // No-op while presenting or viewing as a tenant. The toggle is hidden then anyway; this keeps any
+    // other caller from re-arming the global view behind the operator's back.
+    setGlobalAdminMode: forcedOff ? () => {} : setGlobalAdminModeState,
     demoMode,
   };
 }

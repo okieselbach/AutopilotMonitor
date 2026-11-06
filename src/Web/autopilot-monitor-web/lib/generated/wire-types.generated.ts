@@ -784,6 +784,20 @@ export interface AuthMeResponse {
   whatsNewSeenAgentUtc?: string;
   /** True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens. */
   dpaAcceptancePending: boolean;
+  /** Set while a Global Admin views a tenant as one of its members (read-only "view as"): every other field then describes that member of TenantId. Null on an ordinary sign-in, and the key is omitted. */
+  viewAs?: AuthMeViewAs;
+}
+
+/** The read-only "view as" behind an auth/me answer: which tenant, as which role, and who is really viewing. */
+export interface AuthMeViewAs {
+  /** The viewed tenant (same as the response's tenantId). */
+  tenantId: string;
+  /** The viewed tenant's company name, else its domain, else its ID. */
+  tenantName: string;
+  /** The emulated tenant role: Admin, Operator or Viewer. */
+  role: string;
+  /** The Global Admin's own home tenant — telemetry is attributed there, never to the viewed tenant. */
+  homeTenantId: string;
 }
 
 export interface AutoResolveCpeMappingItem {

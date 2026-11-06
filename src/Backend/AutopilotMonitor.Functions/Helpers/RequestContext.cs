@@ -14,7 +14,11 @@ public sealed record RequestContext
 {
     internal const string ItemsKey = "RequestContext";
 
-    /// <summary>The user's Azure AD tenant ID (from JWT tid claim).</summary>
+    /// <summary>
+    /// The tenant the request acts in: the user's Azure AD tenant ID (JWT tid claim), or the viewed tenant
+    /// under <see cref="ViewAs"/>. Where the caller's IDENTITY is meant (bindings, presence, attribution),
+    /// use <see cref="RequestContextExtensions.IdentityTenantId"/>.
+    /// </summary>
     public string TenantId { get; init; } = string.Empty;
 
     /// <summary>The user's UPN (from JWT upn/preferred_username claim). Display/audit/row-key use — mutable.</summary>
@@ -111,13 +115,30 @@ public sealed record RequestContext
     /// Handlers should use this for data access instead of extracting tenantId from route params manually.
     /// </summary>
     public string TargetTenantId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Set when a Global Admin views <see cref="TenantId"/> as one of its members (read-only "view as"):
+    /// every other field then describes that emulated member, while this keeps the real caller's home
+    /// tenant. Null on every ordinary request.
+    /// </summary>
+    public ViewAsContext? ViewAs { get; init; }
 }
+
+/// <summary>The real caller behind a view-as request: its home tenant (JWT tid) and the emulated tenant role.</summary>
+public sealed record ViewAsContext(string HomeTenantId, string Role);
 
 /// <summary>
 /// Extension methods for accessing the resolved RequestContext.
 /// </summary>
 public static class RequestContextExtensions
 {
+    /// <summary>
+    /// The tenant the caller's identity is bound to: the JWT tenant, also under view-as. Use it where the
+    /// caller is identified (SignalR user id, presence, telemetry attribution), never for the data scope.
+    /// </summary>
+    public static string IdentityTenantId(this RequestContext ctx)
+        => ctx.ViewAs?.HomeTenantId ?? ctx.TenantId;
+
     /// <summary>
     /// Gets the resolved RequestContext from FunctionContext.Items.
     /// Populated by PolicyEnforcementMiddleware for authenticated requests.

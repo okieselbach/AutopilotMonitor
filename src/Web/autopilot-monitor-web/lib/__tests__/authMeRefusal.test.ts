@@ -65,4 +65,19 @@ describe("classifyAuthMeRefusal", () => {
     expect(await refusal({ error: "TenantSuspended", code: "Forbidden" })).toBeNull();
     expect(await refusal("<html>Forbidden</html>")).toBeNull();
   });
+
+  it.each(["ViewAsNotAllowed", "ViewAsTenantNotFound", "ViewAsInvalid"])(
+    "ends a refused view-as (%s) instead of falling back to claim-only info",
+    async (code) => {
+      expect(await refusal({ error: "Viewing a tenant as its member is reserved for Global Admins.", code })).toEqual({
+        kind: "viewAsRefused",
+        message: "Viewing a tenant as its member is reserved for Global Admins.",
+      });
+    },
+  );
+
+  it("leaves the read-only answer to the page that tried to write", async () => {
+    // auth/me is a read: ViewAsReadOnly never ends the mode, it only ever answers a write.
+    expect(await refusal({ error: "Read-only view: changes are disabled while you view this tenant.", code: "ViewAsReadOnly" })).toBeNull();
+  });
 });

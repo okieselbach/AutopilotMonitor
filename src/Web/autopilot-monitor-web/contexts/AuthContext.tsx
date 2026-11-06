@@ -26,6 +26,7 @@ import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
 import { captureSignupConsentFromUrl, hasSignupConsent, stripSignupConsentParam } from '@/lib/signupConsent';
+import { abandonViewAs, captureViewAsFromUrl, stripViewAsParams, viewAsHeaders } from '@/lib/viewAs';
 import { peekPostLoginReturnUrl } from '@/lib/postLoginReturn';
 import { DEFAULT_PORTAL_LANDING } from '@/lib/hostRouting';
 import {
@@ -43,6 +44,8 @@ import type { AuthMeResponse } from '@/types/auth';
 // Before the auth/me prefetch below can fire: a get-started sign-in carries its Terms + DPA tick
 // into portal as ?signupConsent=1 (lib/signupConsent.ts). The address bar is cleaned on mount.
 captureSignupConsentFromUrl();
+// Same for a Global Admin's ?viewAs= (lib/viewAs.ts): the first auth/me must already carry it.
+captureViewAsFromUrl();
 
 // Before MSAL touches the URL: whether this page load is a sign-in return (lib/redirectRecovery.ts).
 const bootAuthResponse = readBootAuthResponse(typeof window !== 'undefined' ? window.location.hash : '');
@@ -225,7 +228,7 @@ const msalInitPromise = msalInstance
         // behind it (consumed once by authenticatedFetch, see lib/dashboardSeed.ts).
         seedDashboardFirstFetch(tokenResponse.accessToken, accounts[0].tenantId);
         const res = await fetch(api.auth.me({ signupConsent: hasSignupConsent() }), {
-          headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}` },
+          headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}`, ...viewAsHeaders() },
           signal: AbortSignal.timeout(8000),
         });
         return res.ok ? (await res.json()) as AuthMeResponse : null;
@@ -384,6 +387,8 @@ function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
     whatsNewSeenPlatformUtc: data.whatsNewSeenPlatformUtc,
     whatsNewSeenAgentUtc: data.whatsNewSeenAgentUtc,
     dpaAcceptancePending: data.dpaAcceptancePending || false,
+    // A Global Admin viewing this tenant as its member (lib/viewAs.ts); absent on an ordinary sign-in.
+    viewAs: data.viewAs,
   };
 }
 
@@ -464,6 +469,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         response = await fetch(api.auth.me({ signupConsent: hasSignupConsent() }), {
           headers: {
             'Authorization': `Bearer ${tokenResponse.accessToken}`,
+            ...viewAsHeaders(),
           },
           signal: authMeController.signal,
         });
@@ -472,10 +478,17 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       }
 
       if (!response.ok) {
+        // Both refusal body shapes (policy-middleware envelope, AuthFunction's own gates) are
+        // read by classifyAuthMeRefusal.
+        const refusal = classifyAuthMeRefusal(await apiErrorFromResponse(response));
+        // The backend refused the view-as itself (not a Global Admin, no such tenant, malformed): the tab
+        // reloads as an ordinary one instead of falling back to claim-only info for the wrong tenant.
+        if (refusal?.kind === 'viewAsRefused') {
+          navigatingAway = true;
+          abandonViewAs(refusal.message ?? 'This tenant cannot be viewed.');
+          return new Promise<UserInfo | null>(() => {});
+        }
         if (response.status === 403) {
-          // Both refusal body shapes (policy-middleware envelope, AuthFunction's own gates) are
-          // read by classifyAuthMeRefusal.
-          const refusal = classifyAuthMeRefusal(await apiErrorFromResponse(response));
           // Suspended (operator kill-switch or the offboarding tombstone): keep the user signed
           // in with claim-only info so ProtectedRoute renders the suspended page — an admin who
           // just offboarded their tenant reloads into the farewell feedback form, not into a
@@ -542,11 +555,16 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     }
   }, [accounts, fetchUserInfo]);
 
-  // Clean the signup marker out of the address bar (captured at module load) before ProtectedRoute
-  // can stash the URL as the post-login deep link — a bookmark must never carry it.
+  // Clean the signup marker and the view-as selection out of the address bar (both captured at module
+  // load) before ProtectedRoute can stash the URL as the post-login deep link — a bookmark must never
+  // carry them.
   useEffect(() => {
-    const cleaned = stripSignupConsentParam(window.location.pathname + window.location.search + window.location.hash);
-    if (cleaned !== null) window.history.replaceState(null, '', cleaned);
+    let current = window.location.pathname + window.location.search + window.location.hash;
+    const withoutConsent = stripSignupConsentParam(current);
+    if (withoutConsent !== null) current = withoutConsent;
+    const withoutViewAs = stripViewAsParams(current);
+    if (withoutViewAs !== null) current = withoutViewAs;
+    if (withoutConsent !== null || withoutViewAs !== null) window.history.replaceState(null, '', current);
   }, []);
 
   /**

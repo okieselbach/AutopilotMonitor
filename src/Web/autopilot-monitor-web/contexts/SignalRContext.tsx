@@ -8,6 +8,7 @@ import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { createGroupRegistry } from '@/lib/signalrGroupRegistry';
 import { createParkController, PARK_AFTER_HIDDEN_MS } from '@/lib/signalrPark';
 import { refusedJoinStatus } from '@/lib/signalrGroupAccess';
+import { viewAsHeaders } from '@/lib/viewAs';
 import { useLatest } from '@/hooks/useLatest';
 import { useAuth } from './AuthContext';
 import { ApiError, fetchOk, jsonBody, type GetAccessToken } from "@/lib/apiClient";
@@ -198,7 +199,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         accessTokenFactory: async () => {
           const token = await getToken();
           return token || '';
-        }
+        },
+        // The negotiate call is the one request outside authenticatedFetch: a view-as tab names the viewed
+        // tenant here too (lib/viewAs.ts).
+        headers: viewAsHeaders(),
       })
       .withAutomaticReconnect({
         nextRetryDelayInMilliseconds: (retryContext) => {

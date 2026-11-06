@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contextProperties, type TelemetryContext } from "../appInsights";
+import { contextProperties, telemetryIdentity, type TelemetryContext } from "../appInsights";
 
 const portalUser: TelemetryContext = {
   tenantId: "0a1b2c3d-0000-4000-8000-00000000abcd",
@@ -9,6 +9,7 @@ const portalUser: TelemetryContext = {
   sidebarState: "full",
   pushScope: null,
   pushTenantId: null,
+  viewAsTenantId: null,
 };
 
 describe("contextProperties", () => {
@@ -33,5 +34,33 @@ describe("contextProperties", () => {
     const props = contextProperties(receiver);
     expect(props).toMatchObject({ pushScope: "platform", isGlobalAdmin: true });
     expect(props).not.toHaveProperty("tenantId");
+  });
+});
+
+describe("telemetryIdentity", () => {
+  const HOME = "0a1b2c3d-0000-4000-8000-00000000abcd";
+  const VIEWED = "2b3c4d5e-0000-4000-8000-00000000ef01";
+
+  it("is the signed-in user on an ordinary tab", () => {
+    expect(telemetryIdentity({ isTenantAdmin: true, isGlobalAdmin: false }, HOME, null)).toEqual({
+      tenantId: HOME, isAdmin: true, isGlobalAdmin: false, viewAsTenantId: null,
+    });
+  });
+
+  it("counts a view-as tab as the viewing Global Admin at home, never as the viewed tenant's admin", () => {
+    // auth/me answers as the viewed tenant's Admin; the reports' operator filter must still catch the tab.
+    const asViewedAdmin = { isTenantAdmin: true, isGlobalAdmin: false, viewAs: { homeTenantId: HOME } };
+    const identity = telemetryIdentity(asViewedAdmin, VIEWED, VIEWED);
+
+    expect(identity).toEqual({ tenantId: HOME, isAdmin: false, isGlobalAdmin: true, viewAsTenantId: VIEWED });
+    expect(contextProperties({ ...portalUser, ...identity })).toMatchObject({
+      tenantId: HOME, isGlobalAdmin: true, viewAsTenantId: VIEWED,
+    });
+  });
+
+  it("names no tenant at all while auth/me has not confirmed the view-as", () => {
+    expect(telemetryIdentity(null, VIEWED, VIEWED)).toEqual({
+      tenantId: null, isAdmin: false, isGlobalAdmin: true, viewAsTenantId: VIEWED,
+    });
   });
 });

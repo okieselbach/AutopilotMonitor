@@ -181,7 +181,7 @@ public class AuthFunctionSideEffectTests
         return BuildRequest(new ClaimsPrincipal(new ClaimsIdentity(claims, "test")));
     }
 
-    private static (HttpRequestData Req, FunctionContext Ctx) BuildRequest(ClaimsPrincipal principal)
+    private static (HttpRequestData Req, FunctionContext Ctx) BuildRequest(ClaimsPrincipal principal, RequestContext? requestContext = null)
     {
         var services = new ServiceCollection();
         services.AddOptions();
@@ -190,9 +190,11 @@ public class AuthFunctionSideEffectTests
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
         var provider = services.BuildServiceProvider();
 
+        var items = new Dictionary<object, object> { ["ClaimsPrincipal"] = principal };
+        if (requestContext != null)
+            items[RequestContext.ItemsKey] = requestContext;
         var context = new Mock<FunctionContext>();
-        context.SetupGet(c => c.Items).Returns(
-            new Dictionary<object, object> { ["ClaimsPrincipal"] = principal });
+        context.SetupGet(c => c.Items).Returns(items);
         context.SetupGet(c => c.InstanceServices).Returns(provider);
 
         var req = new Mock<HttpRequestData>(context.Object);
@@ -1092,5 +1094,97 @@ public class AuthFunctionSideEffectTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(Constants.Push.DeviceStatus.Active, push.Repo.Devices[(Constants.Push.PlatformScope, "ga-phone")].Status);
+    }
+
+    // -------------------------------------------------------------------------
+    // GetCurrentUser under view-as: a Global Admin reads another tenant as its member
+    // -------------------------------------------------------------------------
+
+    private const string ViewedTenantId = "cccccccc-1111-2222-3333-444444444444";
+
+    /// <summary>The context PolicyEnforcementMiddleware builds for an admitted view-as request.</summary>
+    private static RequestContext ViewingAs(string role) => new()
+    {
+        TenantId = ViewedTenantId,
+        TargetTenantId = ViewedTenantId,
+        UserPrincipalName = Upn,
+        UserRole = role,
+        IsTenantAdmin = role == Constants.TenantRoles.Admin,
+        ViewAs = new ViewAsContext(TenantId, role),
+    };
+
+    [Fact]
+    public async Task GetCurrentUser_ViewAs_AnswersAsTheViewedTenantsMember_WithoutAnySignInSideEffect()
+    {
+        // The viewed tenant asks for the Terms + DPA; the caller's home row still lacks its domain — exactly the
+        // state in which an ordinary sign-in would seed it, onboard, and record a login.
+        var viewed = TenantConfiguration.CreateDefault(ViewedTenantId);
+        viewed.DomainName = "fabrikam.example";
+        viewed.CompanyName = "Fabrikam";
+        viewed.DpaAcceptancePending = true;
+        var home = DefaultConfig();
+        home.DomainName = null!;
+        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(ViewedTenantId)).ReturnsAsync((viewed, true));
+        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId)).ReturnsAsync((home, true));
+        var viewedStore = _tenantConfigMock.StubWrites(ViewedTenantId, row: viewed);
+        _previewMock.Setup(x => x.IsApprovedAsync(ViewedTenantId)).ReturnsAsync(true);
+        _mcpUserMock
+            .Setup(x => x.IsAllowedAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<bool>()))
+            .ReturnsAsync(McpAccessCheckResult.Denied("not allowed"));
+        var seen = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        _metricsRepoMock.Setup(x => x.GetUserWhatsNewSeenAsync(TenantId, Upn)).ReturnsAsync(new UserWhatsNewSeen(platformUtc: seen));
+        var (req, ctx) = BuildRequest(SignedIn(external: false), ViewingAs(Constants.TenantRoles.Viewer));
+
+        var response = await _sut.GetCurrentUser(req, ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadBodyAsync(response);
+        Assert.Contains($"\"tenantId\":\"{ViewedTenantId}\"", body);
+        Assert.Contains("\"isGlobalAdmin\":false", body);
+        Assert.Contains("\"isGlobalReader\":false", body);
+        Assert.Contains("\"isDelegated\":false", body);
+        Assert.Contains("\"role\":\"Viewer\"", body);
+        Assert.Contains("\"isTenantAdmin\":false", body);
+        Assert.Contains("\"dpaAcceptancePending\":true", body);
+        Assert.Contains("\"whatsNewSeenPlatformUtc\":\"2026-11-01T00:00:00Z\"", body);
+        Assert.Contains(
+            $"\"viewAs\":{{\"tenantId\":\"{ViewedTenantId}\",\"tenantName\":\"Fabrikam\",\"role\":\"Viewer\",\"homeTenantId\":\"{TenantId}\"}}",
+            body);
+
+        // No sign-in side effect in either tenant, and no role lookup of the caller at all.
+        Assert.Empty(_store.Writes);
+        Assert.Empty(viewedStore.Writes);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
+            It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _tenantAdminsMock.Verify(x => x.TryAddTenantAdminAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _tenantAdminsMock.Verify(x => x.GetMembershipSnapshotAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _metricsRepoMock.Verify(x => x.RecordUserLoginAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _globalAdminMock.Verify(x => x.GetGlobalRoleAsync(It.IsAny<AdminIdentity?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCurrentUser_ViewAs_AnInactiveTenant_ShowsItsActivationGate()
+    {
+        var viewed = TenantConfiguration.CreateDefault(ViewedTenantId);
+        viewed.DomainName = "fabrikam.example";
+        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(ViewedTenantId)).ReturnsAsync((viewed, true));
+        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId)).ReturnsAsync((DefaultConfig(), true));
+        _previewMock.Setup(x => x.IsApprovedAsync(ViewedTenantId)).ReturnsAsync(false);
+        _mcpUserMock
+            .Setup(x => x.IsAllowedAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<string>?>(), It.IsAny<bool>()))
+            .ReturnsAsync(McpAccessCheckResult.Denied("not allowed"));
+        _metricsRepoMock.Setup(x => x.GetUserWhatsNewSeenAsync(TenantId, Upn)).ReturnsAsync(new UserWhatsNewSeen());
+        var (req, ctx) = BuildRequest(SignedIn(external: false), ViewingAs(Constants.TenantRoles.Admin));
+
+        var response = await _sut.GetCurrentUser(req, ctx);
+
+        // What the tenant's own admin gets while the tenant waits for activation — the Global Admin bypass is gone.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("PendingActivation", await ReadBodyAsync(response));
     }
 }

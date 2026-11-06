@@ -20,4 +20,9 @@ internal static class RequestRowDimensions
     /// <summary>The caller's UPN, or <c>app:&lt;client-id&gt;</c> for an application principal.</summary>
     public const string UserId = "UserId";
     public const string UserRole = "UserRole";
+    /// <summary>
+    /// The tenant a Global Admin viewed as its member (read-only "view as"). Set on the request row and on every
+    /// item the request emits; TenantId/UserRole of such a row stay the real caller's, never the viewed tenant's.
+    /// </summary>
+    public const string ViewAsTenantId = "ViewAsTenantId";
 }

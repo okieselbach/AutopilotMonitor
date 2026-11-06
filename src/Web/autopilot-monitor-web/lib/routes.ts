@@ -14,6 +14,8 @@
 
 import type { Route } from "next";
 import { appInstallSourceParam } from "@/lib/appInstallSources";
+import { VIEW_AS_PARAM, VIEW_AS_ROLE_PARAM } from "@/lib/viewAs";
+import type { TenantRole } from "@/types/auth";
 
 function withQuery<T extends string>(
   path: Route<T>,
@@ -94,6 +96,11 @@ export function deviceBlockUrl(
 /** Tenant Management narrowed to one tenant (its search box takes the id). */
 export function tenantManagementUrl(tenantId: string): Route {
   return withQuery("/admin/tenants/management", { tenantId });
+}
+
+/** A tenant's portal as one of its members sees it, read-only (Global Admin only; lib/viewAs.ts). Admin unless a role is named. */
+export function viewAsUrl(tenantId: string, role?: Exclude<TenantRole, "Admin">): Route {
+  return withQuery("/dashboard", { [VIEW_AS_PARAM]: tenantId, [VIEW_AS_ROLE_PARAM]: role });
 }
 
 export function customsArchiveUrl(tenantId: string, historyRowKey: string): Route {

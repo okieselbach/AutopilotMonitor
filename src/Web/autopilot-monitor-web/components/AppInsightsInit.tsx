@@ -4,8 +4,9 @@ import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { initAppInsights, setTelemetryContext } from "@/lib/appInsights";
+import { initAppInsights, setTelemetryContext, telemetryIdentity } from "@/lib/appInsights";
 import { readSidebarState } from "@/hooks/useSidebarState";
+import { readViewAs } from "@/lib/viewAs";
 
 export default function AppInsightsInit() {
   const connectionString = process.env.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING ?? "";
@@ -21,9 +22,7 @@ export default function AppInsightsInit() {
 
   useEffect(() => {
     setTelemetryContext(
-      tenantId || null,
-      user?.isTenantAdmin ?? false,
-      user?.isGlobalAdmin ?? false,
+      telemetryIdentity(user, tenantId || null, readViewAs()?.tenantId ?? null),
       theme,
       readSidebarState()
     );

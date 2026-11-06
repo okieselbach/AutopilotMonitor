@@ -1,4 +1,6 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
+using Microsoft.Azure.Functions.Worker.Http;
 
 namespace AutopilotMonitor.Functions.Helpers;
 
@@ -16,9 +18,13 @@ public static class RecomputeTriggerGate
     /// True when the caller may trigger a recompute for <paramref name="effectiveTenantId"/>:
     /// a Global Admin anywhere, or an OWN-TENANT Admin/Operator. Viewer, Global Reader, and
     /// delegated (read-tier) callers are excluded, as is any tenant role applied cross-tenant.
+    /// View as tenant is read-only, and its emulated Admin would pass every other check.
     /// </summary>
     public static bool CanTriggerRecompute(RequestContext ctx, string effectiveTenantId)
     {
+        if (ctx.ViewAs != null)
+            return false;
+
         if (ctx.IsGlobalAdmin)
             return true;
 
@@ -26,4 +32,10 @@ public static class RecomputeTriggerGate
         return isOwnTenant
             && (ctx.UserRole == Constants.TenantRoles.Admin || ctx.UserRole == Constants.TenantRoles.Operator);
     }
+
+    /// <summary>The 403 for a refused trigger: the view-as answer, else the role message of the route.</summary>
+    public static Task<HttpResponseData> RefuseAsync(HttpRequestData req, RequestContext ctx, string roleMessage)
+        => ctx.ViewAs != null
+            ? req.ForbiddenAsync(ViewAsTarget.ReadOnlyMessage, Constants.ApiErrorCodes.ViewAsReadOnly)
+            : req.ForbiddenAsync(roleMessage);
 }

@@ -110,6 +110,11 @@ public class AuthFunction
             return await req.BadRequestAsync("Missing required claims");
         }
 
+        // A Global Admin viewing a tenant as its member: that tenant's standing, none of the sign-in side effects.
+        var requestContext = req.GetRequestContext();
+        if (requestContext.ViewAs != null)
+            return await GetViewAsUserAsync(req, principal, requestContext, upn, displayName, objectId);
+
         // --- Parallel data fetch: all independent queries run concurrently ---
         // Fail-fast: if any fetch throws, AggregateException propagates → Azure Functions returns 500.
         // This is intentional — the auth-decision queries are required; the What's-new marker read
@@ -227,6 +232,53 @@ public class AuthFunction
             isGlobalAdmin: isGlobalAdmin);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(decision.Body);
+        return response;
+    }
+
+    /// <summary>
+    /// auth/me while a Global Admin views a tenant as its member: the viewed tenant's standing (suspension,
+    /// activation, Terms + DPA, plan) for the emulated member, through the same <see cref="BuildAuthResult"/>.
+    /// None of the sign-in side effects run — onboarding, re-enable, client-id tracking, auto-admin, the login
+    /// record and the push sign-in belong to the tenant's own members. Per-user state stays the caller's own:
+    /// What's-new marks, MCP access and the homed app registration come from the home tenant.
+    /// </summary>
+    private async Task<HttpResponseData> GetViewAsUserAsync(
+        HttpRequestData req, System.Security.Claims.ClaimsPrincipal principal, RequestContext ctx,
+        string upn, string? displayName, string? objectId)
+    {
+        var viewedTenantId = ctx.TenantId;
+        var homeTenantId = ctx.ViewAs!.HomeTenantId;
+
+        var viewedConfigTask = _tenantConfigService.TryGetConfigurationAsync(viewedTenantId);
+        var homeConfigTask = _tenantConfigService.TryGetConfigurationAsync(homeTenantId);
+        var isApprovedTask = _previewWhitelistService.IsApprovedAsync(viewedTenantId);
+        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, homeTenantId, objectId, principal.GetAppRoles());
+        var whatsNewSeenTask = _metricsRepo.GetUserWhatsNewSeenAsync(homeTenantId, upn);
+        await Task.WhenAll(viewedConfigTask, homeConfigTask, isApprovedTask, mcpCheckTask, whatsNewSeenTask);
+
+        var (viewedConfig, _) = viewedConfigTask.Result;
+        var (homeConfig, _) = homeConfigTask.Result;
+        var whatsNewSeen = whatsNewSeenTask.Result;
+
+        var decision = BuildAuthResult(
+            viewedConfig, isGlobalAdmin: false, isGlobalReader: false, isApprovedTask.Result,
+            new MemberRoleInfo { Role = ctx.ViewAs.Role }, mcpCheckTask.Result, hasTenantAdmins: true,
+            viewedTenantId, upn, displayName ?? string.Empty, objectId ?? string.Empty,
+            delegatedTenantIds: null,
+            homedApp: _appRegistry.ResolveForTenant(homeConfig).IsLegacy ? "legacy" : "primary",
+            whatsNewSeenPlatformUtc: whatsNewSeen.PlatformUtc,
+            whatsNewSeenAgentUtc: whatsNewSeen.AgentUtc,
+            mcpClientRegistrationEnabled: (await _adminConfigService.GetConfigurationAsync())?.McpClientRegistrationEnabled ?? false,
+            viewAs: new AuthMeViewAs
+            {
+                TenantId = viewedTenantId,
+                TenantName = TenantDisplayName.Of(viewedConfig, viewedTenantId),
+                Role = ctx.ViewAs.Role,
+                HomeTenantId = homeTenantId,
+            });
+
+        var response = req.CreateResponse(decision.StatusCode);
         await response.WriteAsJsonAsync(decision.Body);
         return response;
     }
@@ -733,7 +785,8 @@ public class AuthFunction
         DateTime? whatsNewSeenPlatformUtc = null,
         DateTime? whatsNewSeenAgentUtc = null,
         bool mcpClientRegistrationEnabled = false,
-        bool isExternalIdentity = false)
+        bool isExternalIdentity = false,
+        AuthMeViewAs? viewAs = null)
     {
         // A delegated ("MSP") admin manages a subset of OTHER tenants. They are explicitly authorized, so —
         // like a Global Admin / Reader — they bypass the private-preview gate even when their own home tenant
@@ -836,7 +889,8 @@ public class AuthFunction
             McpClientRegistrationEnabled = mcpClientRegistrationEnabled,
             WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
             WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc,
-            DpaAcceptancePending = tenantConfig.DpaAcceptancePending
+            DpaAcceptancePending = tenantConfig.DpaAcceptancePending,
+            ViewAs = viewAs
         }, needsAutoAdmin);
     }
 

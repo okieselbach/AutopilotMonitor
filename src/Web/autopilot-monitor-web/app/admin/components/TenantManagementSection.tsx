@@ -32,6 +32,7 @@ import { IdentityBindingsSection } from "./IdentityBindingsSection";
 import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import { viewAsUrl } from "@/lib/routes";
 import { matchesTenantSearch, notificationEmailFor, parseTenantSearch } from "./tenantSearch";
 import {
   EMPTY_FILTERS,
@@ -732,6 +733,17 @@ function TenantManagementSectionInner({
                                   ? "Revoke"
                                   : "Approve"}
                               </button>
+                              {canMutate && (
+                                <a
+                                  href={viewAsUrl(tenant.tenantId)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Open this tenant's portal as its Admin sees it, read-only, in a new tab"
+                                  className="px-3 py-2 text-sm rounded-lg border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/30"
+                                >
+                                  View as
+                                </a>
+                              )}
                               <button
                                 onClick={async () => {
                                   setEditingTenant(tenant);

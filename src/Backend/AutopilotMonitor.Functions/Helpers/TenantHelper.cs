@@ -44,6 +44,11 @@ public static class TenantHelper
 
     public static string GetTenantId(HttpRequestData req)
     {
+        // A view-as request acts in the viewed tenant; only PolicyEnforcementMiddleware sets it, for a Global Admin.
+        var context = req.FunctionContext.GetRequestContext();
+        if (context.ViewAs != null)
+            return context.TenantId;
+
         var user = GetAuthenticatedPrincipal(req);
 
         if (user?.Identity?.IsAuthenticated != true)
