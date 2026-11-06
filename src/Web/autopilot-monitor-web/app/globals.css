@@ -22,6 +22,22 @@ html {
      drawer + overlay) keep sizing against the viewport. */
   overflow-x: clip;
   scrollbar-gutter: stable;
+  /* Anchor jumps and scrollIntoView stop below the view-as bar as well (see the next block). */
+  scroll-padding-top: var(--view-as-offset);
+}
+
+/* ===== View-as bar (components/ViewAsBar.tsx) =====
+   While a tab views a tenant as its member, or says once why that was refused, the bar sticks above the
+   navbar at a fixed height. Everything positioned against the top of the viewport adds --view-as-offset —
+   the navbar's sticky top, the desktop sidebar, sticky content, anchor scrolling — so nothing slides under
+   the bar: the offset is the bar's height while it is shown and 0 otherwise. Offsets computed in JS read
+   the bar's height through viewAsBarHeight() (lib/viewAs.ts). */
+:root {
+  --view-as-bar-height: 2.25rem;
+  --view-as-offset: 0px;
+}
+:root:has([data-view-as-bar]) {
+  --view-as-offset: var(--view-as-bar-height);
 }
 
 :root {

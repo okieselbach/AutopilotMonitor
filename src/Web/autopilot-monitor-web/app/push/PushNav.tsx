@@ -12,7 +12,7 @@ const ITEMS = [
 export function PushNav() {
   const pathname = (usePathname() ?? "/push").replace(/\/$/, "") || "/push";
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+    <header className="bg-white border-b border-gray-200 sticky top-[var(--view-as-offset)] z-10">
       <div className="max-w-md mx-auto px-4 h-12 flex items-center justify-between">
         <Link href="/push" className="flex items-center gap-2 min-w-0">
           <BrandMark className="w-5 h-5 shrink-0" />

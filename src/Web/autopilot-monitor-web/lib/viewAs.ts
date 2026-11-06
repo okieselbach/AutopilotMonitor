@@ -88,6 +88,14 @@ export function viewAsHeaders(): Record<string, string> {
   return selection ? { "X-View-As-Tenant": selection.tenantId, "X-View-As-Role": selection.role } : {};
 }
 
+/**
+ * How far the view-as bar (components/ViewAsBar.tsx) pushes the navbar down right now, in px; 0 while none is
+ * shown. CSS offsets add --view-as-offset (globals.css); offsets computed in JS add this.
+ */
+export function viewAsBarHeight(): number {
+  return document.querySelector<HTMLElement>("[data-view-as-bar]")?.offsetHeight ?? 0;
+}
+
 function clearViewAs(): void {
   cached = null;
   try {
