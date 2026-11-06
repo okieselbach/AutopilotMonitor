@@ -162,8 +162,7 @@ public class AutopilotDeviceValidationConsentFunction
         // here (flag-gated, probe-verified, idempotent) makes the status below resolve the newly
         // homed app naturally. Unbudgeted on purpose: this runs in the post-redirect callback,
         // where the consent-propagation retry chain is exactly what we want to ride.
-        var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-        var flip = await _appHomingService.TryAutoFlipToPrimaryAsync(tenantConfig, requestCtx.UserPrincipalName);
+        var flip = await TryAutoFlipAsync(requestCtx);
 
         var result = await _graphTokenService.GetConsentStatusAsync(requestCtx.TargetTenantId);
 
@@ -237,9 +236,7 @@ public class AutopilotDeviceValidationConsentFunction
             // Consent-driven homing auto-flip BEFORE the fresh snapshot: the "detect existing
             // access" / reconcile path never touches consent-status, so this is its flip hook. A
             // budget-exhausted probe is transient ⇒ no flip; the frontend already renders "retry".
-            var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-            flip = await _appHomingService.TryAutoFlipToPrimaryAsync(
-                tenantConfig, requestCtx.UserPrincipalName, budgetCts.Token);
+            flip = await TryAutoFlipAsync(requestCtx, budgetCts.Token);
 
             GraphPermissionSnapshot snapshot;
             try
@@ -274,6 +271,19 @@ public class AutopilotDeviceValidationConsentFunction
             AppHomingMissingRoles = flip.MissingRoles?.ToList(),
         });
         return response;
+    }
+
+    /// <summary>
+    /// The consent-driven homing auto-flip. It writes the tenant's homing with the caller as actor plus an
+    /// audit entry, so it never runs while a Global Admin only views the tenant (read-only "view as").
+    /// </summary>
+    private async Task<AppHomingAutoFlipResult> TryAutoFlipAsync(RequestContext requestCtx, CancellationToken ct = default)
+    {
+        if (requestCtx.ViewAs != null)
+            return new AppHomingAutoFlipResult(AppHomingAutoFlipOutcome.NotEligible);
+
+        var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+        return await _appHomingService.TryAutoFlipToPrimaryAsync(tenantConfig, requestCtx.UserPrincipalName, ct);
     }
 
     /// <summary>

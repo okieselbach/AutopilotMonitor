@@ -56,10 +56,11 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             // revocation enforceable, and only inside the tenant whose grant was revoked
             // (LiveStreamRevoker). Both values come from the middleware-validated JWT, never from
             // client-controlled data. Without a principal key the connection has no user id: every
-            // revocable join gate needs one.
+            // revocable join gate needs one. Under view-as the binding stays the sign-in tenant
+            // (IdentityTenantId): removing a Global Admin must cut their view-as tab as well.
             var requestCtx = req.GetRequestContext();
             var principalKey = string.IsNullOrEmpty(requestCtx.UserPrincipalName) ? null : requestCtx.UserPrincipalName;
-            var negotiation = await _signalRService.NegotiateClientAsync(requestCtx.TenantId, principalKey);
+            var negotiation = await _signalRService.NegotiateClientAsync(requestCtx.IdentityTenantId(), principalKey);
             if (negotiation == null)
             {
                 return await req.ErrorAsync(HttpStatusCode.ServiceUnavailable, Constants.ApiErrorCodes.ServiceUnavailable, "SignalR negotiation unavailable");

@@ -36,7 +36,7 @@ public class UserPresenceMiddleware : IFunctionsWorkerMiddleware
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
     {
         var ctx = context.GetRequestContext();
-        if (!string.IsNullOrEmpty(ctx.UserPrincipalName) && !string.IsNullOrEmpty(ctx.TenantId))
+        if (Records(ctx))
         {
             try
             {
@@ -55,6 +55,13 @@ public class UserPresenceMiddleware : IFunctionsWorkerMiddleware
 
         await next(context);
     }
+
+    /// <summary>
+    /// Whether the request records presence: a signed-in person acting in their own tenant. A Global Admin
+    /// viewing a tenant as its member (read-only "view as") is not present in that tenant.
+    /// </summary>
+    internal static bool Records(RequestContext ctx)
+        => ctx.ViewAs == null && !string.IsNullOrEmpty(ctx.UserPrincipalName) && !string.IsNullOrEmpty(ctx.TenantId);
 
     /// <summary>
     /// Returns true at most once per <see cref="ThrottleWindow"/> per user (per process), and stamps

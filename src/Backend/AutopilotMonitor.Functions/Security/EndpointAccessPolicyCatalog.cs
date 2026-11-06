@@ -108,6 +108,18 @@ public enum EndpointPolicy
 }
 
 /// <summary>
+/// Whether a route may run while a Global Admin views a tenant as its member (read-only "view as").
+/// </summary>
+public enum ViewAsAccess
+{
+    /// <summary>Reads only (or writes nothing but the caller's own per-user marker); runs in view-as mode.</summary>
+    Read,
+
+    /// <summary>Changes state or starts an action; refused in view-as mode with ViewAsReadOnly.</summary>
+    Write,
+}
+
+/// <summary>
 /// A single entry in the endpoint access policy catalog.
 /// </summary>
 public sealed class EndpointPolicyEntry
@@ -150,12 +162,19 @@ public sealed class EndpointPolicyEntry
     /// </summary>
     public bool AllowedDuringOffboarding { get; }
 
+    /// <summary>
+    /// Read or write for view-as mode. Defaults from the method — GET reads, everything else writes, so an
+    /// unclassified route fails closed. Overridden only with a reason (pinned by ViewAsAccessCatalogTests):
+    /// a POST that reads, or a GET that starts an action.
+    /// </summary>
+    public ViewAsAccess ViewAsAccess { get; }
+
     // Pre-compiled regex for matching actual request paths against the route template
     internal Regex RouteRegex { get; }
 
     public EndpointPolicyEntry(string httpMethod, string routeTemplate, EndpointPolicy policy,
         TenantScoping tenantScoping = TenantScoping.None, bool excludeDelegated = false, bool applicationAllowed = false,
-        bool allowedDuringOffboarding = false)
+        bool allowedDuringOffboarding = false, ViewAsAccess? viewAsAccess = null)
     {
         HttpMethod = httpMethod.ToUpperInvariant();
         RouteTemplate = routeTemplate;
@@ -164,6 +183,7 @@ public sealed class EndpointPolicyEntry
         ExcludeDelegated = excludeDelegated;
         ApplicationAllowed = applicationAllowed;
         AllowedDuringOffboarding = allowedDuringOffboarding;
+        ViewAsAccess = viewAsAccess ?? (HttpMethod == "GET" ? ViewAsAccess.Read : ViewAsAccess.Write);
         RouteRegex = BuildRouteRegex(routeTemplate);
     }
 
@@ -236,12 +256,13 @@ public static class EndpointAccessPolicyCatalog
 
         // ── AuthenticatedUser ───────────────────────────────────────────
         new("GET",    "auth/me",                   EndpointPolicy.AuthenticatedUser),
-        new("PUT",    "auth/me/whats-new-seen",    EndpointPolicy.AuthenticatedUser),
+        // The caller's own per-user marker under the JWT tenant — also in view-as mode, where What's new opens with it.
+        new("PUT",    "auth/me/whats-new-seen",    EndpointPolicy.AuthenticatedUser, viewAsAccess: ViewAsAccess.Read),
         // Terms + DPA acceptance: writes only the caller's own home tenant row (token tid), and only
         // while that row asks for it — the portal dialog of a tenant onboarded without the signup tick.
         new("POST",   "auth/dpa-acceptance",       EndpointPolicy.AuthenticatedUser),
         new("GET",    "auth/is-global-admin",      EndpointPolicy.AuthenticatedUser),
-        new("POST",   "realtime/negotiate",        EndpointPolicy.AuthenticatedUser),
+        new("POST",   "realtime/negotiate",        EndpointPolicy.AuthenticatedUser, viewAsAccess: ViewAsAccess.Read),
         // Group join/leave is AuthenticatedUserWithRole — NOT MemberRead — on purpose. The real,
         // per-group authorization lives inside SignalRAddToGroup/RemoveFromGroupFunction: it
         // requires the requested group's tenant to match the caller's JWT tenant (platform-scope
@@ -260,8 +281,8 @@ public static class EndpointAccessPolicyCatalog
         // still resolves IsGlobalAdmin/IsTenantAdmin/UserRole — the function's per-group gates
         // depend on those flags; plain AuthenticatedUser leaves them always-false and would break
         // GA/admin group joins. (Regression history: c4dabeee elevated these to MemberRead.)
-        new("POST",   "realtime/groups/join",      EndpointPolicy.AuthenticatedUserWithRole),
-        new("POST",   "realtime/groups/leave",     EndpointPolicy.AuthenticatedUserWithRole),
+        new("POST",   "realtime/groups/join",      EndpointPolicy.AuthenticatedUserWithRole, viewAsAccess: ViewAsAccess.Read),
+        new("POST",   "realtime/groups/leave",     EndpointPolicy.AuthenticatedUserWithRole, viewAsAccess: ViewAsAccess.Read),
         // Progress Portal authorization model: serial-number knowledge proof, enforced in-function.
         // There is deliberately NO tenant-wide session list at this tier — the lookup resolves at
         // most ONE session server-side (roleless callers: exact serial/device-name match; members/GA
@@ -351,7 +372,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "audit/device-not-registered", EndpointPolicy.MemberRead),
         new("GET",    "audit/tpm-pss-unsupported", EndpointPolicy.MemberRead),
         new("GET",    "diagnostics/download-url",  EndpointPolicy.MemberRead, TenantScoping.QueryParam),
-        new("POST",   "diagnostics/download-ticket", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        new("POST",   "diagnostics/download-ticket", EndpointPolicy.MemberRead, TenantScoping.QueryParam, viewAsAccess: ViewAsAccess.Read),
         // Platform-defined diagnostics collection (built-in catalog + global paths): read-only,
         // no secrets, needed by every settings viewer — member tier, JWT-scoped (no tenant parameter).
         new("GET",    "diagnostics/paths",         EndpointPolicy.MemberRead, TenantScoping.Jwt),
@@ -362,10 +383,10 @@ public static class EndpointAccessPolicyCatalog
         // against a session's events and persists NOTHING (DryRunAnalyzeRuleFunction). Admin-read
         // tier so the read-only Global Reader can help debug rules while tenant Operators/Viewers
         // stay excluded from the authoring surface.
-        new("POST",   "rules/analyze/dryrun",      EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "rules/analyze/dryrun",      EndpointPolicy.TenantAdminOrGlobalReader, viewAsAccess: ViewAsAccess.Read),
         // Same shape: POST body in, pure compute out (regex vs pasted sample lines with the
         // agent's exact .NET matching semantics) — touches no tenant data at all.
-        new("POST",   "rules/gather/test-pattern", EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "rules/gather/test-pattern", EndpointPolicy.TenantAdminOrGlobalReader, viewAsAccess: ViewAsAccess.Read),
         // Member tier so Operators/Viewers can see their tenant's configuration read-only in the
         // Settings UI. Safe because the handler redacts by default: only a Global Admin or the
         // tenant's OWN admin gets the unredacted secrets — every other admitted caller (Operator,
@@ -418,7 +439,8 @@ public static class EndpointAccessPolicyCatalog
         // Farewell feedback is submitted AFTER the offboard endpoint has tombstoned the tenant (Disabled=true
         // before the 202), so the suspension gate must let the departing admin through — for this route only.
         new("POST",   "tenants/{tenantId}/offboard/feedback", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam, allowedDuringOffboarding: true),
-        new("GET",    "config/{tenantId}/autopilot-device-validation/consent-url",     EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Starts the admin-consent flow (ops events with the caller's UPN): an action, although a GET.
+        new("GET",    "config/{tenantId}/autopilot-device-validation/consent-url",     EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam, viewAsAccess: ViewAsAccess.Write),
         new("GET",    "config/{tenantId}/autopilot-device-validation/consent-status",  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-failure", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-success", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
@@ -438,9 +460,10 @@ public static class EndpointAccessPolicyCatalog
         // expose ClientId and invalidate caches.
         // POST (not GET) so payloads with 100+ script refs comfortably fit in the request
         // body without hitting URL-length limits in browsers / Azure Functions front door.
-        new("POST",   "tenants/{tenantId}/scripts/display-names",     EndpointPolicy.MemberRead, TenantScoping.RouteParam),
+        new("POST",   "tenants/{tenantId}/scripts/display-names",     EndpointPolicy.MemberRead, TenantScoping.RouteParam, viewAsAccess: ViewAsAccess.Read),
         new("GET",    "tenants/{tenantId}/graph-permissions/status",  EndpointPolicy.TenantAdminOrGlobalReader, TenantScoping.RouteParam),
-        new("POST",   "tenants/{tenantId}/graph-permissions/refresh", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Clears the in-memory Graph cache only — a re-read, nothing stored.
+        new("POST",   "tenants/{tenantId}/graph-permissions/refresh", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam, viewAsAccess: ViewAsAccess.Read),
 
         // ── BootstrapManagerOrGA ────────────────────────────────────────
         new("GET",    "bootstrap/sessions",        EndpointPolicy.BootstrapManagerOrGA, TenantScoping.QueryParam),

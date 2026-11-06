@@ -48,6 +48,26 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens.</summary>
         public bool DpaAcceptancePending { get; set; }
+
+        /// <summary>
+        /// Set while a Global Admin views a tenant as one of its members (read-only "view as"): every other field
+        /// then describes that member of <see cref="TenantId"/>. Null on an ordinary sign-in, and the key is omitted.
+        /// </summary>
+        public AuthMeViewAs? ViewAs { get; set; }
+    }
+
+    /// <summary>The read-only "view as" behind an auth/me answer: which tenant, as which role, and who is really viewing.</summary>
+    // Declaration order == wire order.
+    public class AuthMeViewAs
+    {
+        /// <summary>The viewed tenant (same as the response's tenantId).</summary>
+        public string TenantId { get; set; } = default!;
+        /// <summary>The viewed tenant's company name, else its domain, else its ID.</summary>
+        public string TenantName { get; set; } = default!;
+        /// <summary>The emulated tenant role: Admin, Operator or Viewer.</summary>
+        public string Role { get; set; } = default!;
+        /// <summary>The Global Admin's own home tenant — telemetry is attributed there, never to the viewed tenant.</summary>
+        public string HomeTenantId { get; set; } = default!;
     }
 
     /// <summary>Body of PUT auth/me/whats-new-seen.</summary>

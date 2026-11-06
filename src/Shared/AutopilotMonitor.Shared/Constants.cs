@@ -430,6 +430,16 @@ namespace AutopilotMonitor.Shared
             /// </summary>
             public const string ClientAppNotRegistered = "ClientAppNotRegistered";
 
+            // ── view as tenant (a Global Admin reads one tenant's portal as its member sees it, read-only) ──
+            /// <summary>400: the view-as headers name no tenant GUID or an unknown tenant role.</summary>
+            public const string ViewAsInvalid = "ViewAsInvalid";
+            /// <summary>403: only a Global Admin may view as a tenant, and never through MCP or a foreign client app.</summary>
+            public const string ViewAsNotAllowed = "ViewAsNotAllowed";
+            /// <summary>404: the tenant to view as has no configuration row.</summary>
+            public const string ViewAsTenantNotFound = "ViewAsTenantNotFound";
+            /// <summary>403: the request would change something while viewing as a tenant.</summary>
+            public const string ViewAsReadOnly = "ViewAsReadOnly";
+
             // ── MCP quota (McpQuotaEnforcementMiddleware) ──
             public const string QuotaExceeded = "QuotaExceeded";
 

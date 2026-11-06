@@ -28,7 +28,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// (otherwise admin SignalR group joins + admin-audience notifications regress), while a pure GlobalReader
 /// stays read-only. Also covers the cross-tenant gate keying off HasGlobalScope.
 /// </summary>
-public class PolicyEnforcementMiddlewareTests
+public partial class PolicyEnforcementMiddlewareTests
 {
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";

@@ -549,6 +549,8 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushSess
 // Push endpoints are per-device send capabilities: the dependency rows for the push services
 // keep scheme + host only (K20).
 builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.PushDependencyRedactionProcessor>();
+// Items a Global Admin's read-only "view as" request emits carry the viewed tenant as ViewAsTenantId.
+builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.ViewAsTelemetryProcessor>();
 
 var app = builder.Build();
 

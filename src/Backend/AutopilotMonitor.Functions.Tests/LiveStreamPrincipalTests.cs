@@ -46,6 +46,24 @@ public class LiveStreamPrincipalTests
     }
 
     [Fact]
+    public async Task Negotiate_under_view_as_binds_the_sign_in_tenant_not_the_viewed_one()
+    {
+        // Removing a Global Admin cuts the connections bound to their sign-in tenant; a view-as tab must be among them.
+        var signalR = new FakeSignalRNotificationService();
+        var req = BuildRequest(new RequestContext
+        {
+            TenantId = OtherTenantId,
+            UserPrincipalName = OperatorUpn,
+            ViewAs = new ViewAsContext(TenantId, AutopilotMonitor.Shared.Constants.TenantRoles.Admin),
+        });
+
+        var response = await new SignalRNegotiateFunction(NullLogger<SignalRNegotiateFunction>.Instance, signalR).Negotiate(req);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new string?[] { SignalRGroupHelper.UserId(TenantId, OperatorUpn) }, signalR.NegotiatedUserIds);
+    }
+
+    [Fact]
     public async Task Negotiate_without_a_principal_key_binds_no_user_id()
     {
         // Every revocable join gate needs the key, so such a connection holds nothing a revoke would have to reach;
