@@ -26,8 +26,6 @@ public class NewtonsoftUsageGuardTests
     private const string StoredJson = "stored JSON (table columns, blobs, report files) that existing rows must keep reading";
     private const string OutgoingPayload = "outgoing notification payloads";
     private const string RuleTemplates = "rule template interpolation over Newtonsoft tokens";
-    private const string UpstreamGraph = "Graph and Entra token responses";
-    private const string DeadUsing = "unused using directive";
 
     /// <summary>Path relative to <c>src/</c> → why it may still use Newtonsoft. Only shrinks.</summary>
     private static readonly Dictionary<string, string> Baseline = new(StringComparer.OrdinalIgnoreCase)
@@ -135,17 +133,6 @@ public class NewtonsoftUsageGuardTests
         ["Backend/AutopilotMonitor.Functions/Services/Notifications/TeamsWorkflowAdaptiveCardRenderer.cs"] = OutgoingPayload,
 
         ["Backend/AutopilotMonitor.Functions/Services/RuleTemplateInterpolator.cs"] = RuleTemplates,
-
-        ["Backend/AutopilotMonitor.Functions/Security/AutopilotDeviceValidator.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/CloudPcDeviceValidator.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/CorporateIdentifierValidator.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/DeviceAssociationValidator.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/EntraTokenRejection.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/GraphTokenService.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Security/IntuneDeviceBindingValidator.cs"] = UpstreamGraph,
-        ["Backend/AutopilotMonitor.Functions/Services/GraphResolution/ScriptDisplayNameResolver.cs"] = UpstreamGraph,
-
-        ["Backend/AutopilotMonitor.Functions/Services/MaintenanceService.cs"] = DeadUsing,
     };
 
     /// <summary>The projects that may reference the Newtonsoft.Json package directly.</summary>

@@ -7,8 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -261,16 +261,15 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         internal static AutopilotRegistration? FindRegistration(string responseBody, string normalizedSerial)
         {
-            var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-            if (data?["value"] is not JArray devices || devices.Count == 0)
+            if (UpstreamJson.ParseObjectOrNull(responseBody) is not { } data)
                 return null;
 
-            var exactDevice = devices
+            var exactDevice = UpstreamJson.Items(data, "value")
                 .FirstOrDefault(d => string.Equals(
-                    d?["serialNumber"]?.ToString()?.Trim(),
+                    UpstreamJson.GetString(d, "serialNumber")?.Trim(),
                     normalizedSerial,
                     StringComparison.OrdinalIgnoreCase));
-            return exactDevice == null ? null : ReadRegistration(exactDevice);
+            return exactDevice.ValueKind == JsonValueKind.Undefined ? null : ReadRegistration(exactDevice);
         }
 
         /// <summary>Longest registration text a session keeps; anything beyond is cut.</summary>
@@ -281,18 +280,18 @@ namespace AutopilotMonitor.Functions.Security
         /// assigned user's UPN is only tested for presence and never leaves this method; productKey is
         /// never read.
         /// </summary>
-        internal static AutopilotRegistration ReadRegistration(JToken device) => new AutopilotRegistration
+        internal static AutopilotRegistration ReadRegistration(JsonElement device) => new AutopilotRegistration
         {
-            DeviceId = RegistrationText(device["id"]),
-            GroupTag = RegistrationText(device["groupTag"]),
-            PurchaseOrderId = RegistrationText(device["purchaseOrderIdentifier"]),
-            DisplayName = RegistrationText(device["displayName"]),
-            UserAssigned = RegistrationText(device["userPrincipalName"]) != null,
+            DeviceId = RegistrationText(device, "id"),
+            GroupTag = RegistrationText(device, "groupTag"),
+            PurchaseOrderId = RegistrationText(device, "purchaseOrderIdentifier"),
+            DisplayName = RegistrationText(device, "displayName"),
+            UserAssigned = RegistrationText(device, "userPrincipalName") != null,
         };
 
-        private static string? RegistrationText(JToken? token)
+        private static string? RegistrationText(JsonElement device, string name)
         {
-            var value = token?.Type == JTokenType.String ? ((string?)token)?.Trim() : null;
+            var value = UpstreamJson.GetString(device, name)?.Trim();
             if (string.IsNullOrEmpty(value))
                 return null;
             return value!.Length > MaxRegistrationFieldLength ? value.Substring(0, MaxRegistrationFieldLength) : value;

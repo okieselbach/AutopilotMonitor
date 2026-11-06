@@ -7,8 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -236,54 +236,40 @@ namespace AutopilotMonitor.Functions.Security
                 ErrorMessage = $"Device with serial '{normalizedSerial}' is not associated with this tenant (device association)"
             };
 
-            JObject? data;
+            JsonElement? data;
             try
             {
-                data = JsonConvert.DeserializeObject<JObject>(responseBody);
+                data = UpstreamJson.ParseObjectOrNull(responseBody);
             }
             catch (JsonException)
             {
                 return notFound;
             }
 
-            var devices = data?["value"] as JArray;
-            if (devices == null || devices.Count == 0)
+            if (data is not { } json)
                 return notFound;
 
-            var match = devices.FirstOrDefault(d => string.Equals(
-                d?["serialNumber"]?.ToString()?.Trim(),
+            var match = UpstreamJson.Items(json, "value").FirstOrDefault(d => string.Equals(
+                UpstreamJson.GetString(d, "serialNumber")?.Trim(),
                 normalizedSerial,
                 StringComparison.OrdinalIgnoreCase));
 
-            if (match == null)
+            if (match.ValueKind == JsonValueKind.Undefined)
                 return notFound;
 
             return new DeviceAssociationResult
             {
                 IsValid = true,
                 SerialNumber = normalizedSerial,
-                AssociationState = match["associationState"]?.ToString(),
-                DevicePreparationPolicyId = match["devicePreparationPolicyId"]?.ToString(),
-                PreAssociatedByUserPrincipalName = match["preassociatedByUserPrincipalName"]?.ToString(),
-                AssignedToUserPrincipalName = match["assignedToUserPrincipalName"]?.ToString(),
-                PreAssociationDateTime = ParseDateTime(match["preassociationDateTime"]),
-                AssociationDateTime = ParseDateTime(match["associationDateTime"]),
-                ManagedDeviceId = match["managedDeviceId"]?.ToString()
+                AssociationState = UpstreamJson.GetString(match, "associationState"),
+                DevicePreparationPolicyId = UpstreamJson.GetString(match, "devicePreparationPolicyId"),
+                PreAssociatedByUserPrincipalName = UpstreamJson.GetString(match, "preassociatedByUserPrincipalName"),
+                AssignedToUserPrincipalName = UpstreamJson.GetString(match, "assignedToUserPrincipalName"),
+                // Graph returns "0001-01-01T00:00:00Z" for unset dates; GetUtcDateTime reads it as null.
+                PreAssociationDateTime = UpstreamJson.GetUtcDateTime(match, "preassociationDateTime")?.UtcDateTime,
+                AssociationDateTime = UpstreamJson.GetUtcDateTime(match, "associationDateTime")?.UtcDateTime,
+                ManagedDeviceId = UpstreamJson.GetString(match, "managedDeviceId")
             };
-        }
-
-        private static DateTime? ParseDateTime(JToken? token)
-        {
-            if (token == null || token.Type == JTokenType.Null) return null;
-            var s = token.ToString();
-            if (string.IsNullOrEmpty(s)) return null;
-            // Graph returns "0001-01-01T00:00:00Z" for unset DateTimeOffset fields — treat as null.
-            if (DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var dt))
-            {
-                if (dt.Year <= 1) return null;
-                return dt;
-            }
-            return null;
         }
 
         internal static string BuildCacheKey(string tenantId, string serialNumber)

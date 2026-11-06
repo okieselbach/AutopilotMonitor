@@ -7,8 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -329,23 +328,22 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         internal static (bool Found, string NextUrl) ReadIdentityPage(string responseBody, string normalizedIdentifier)
         {
-            var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-            if (data?["value"] is JArray identities)
+            if (UpstreamJson.ParseObjectOrNull(responseBody) is not { } data)
+                return (false, string.Empty);
+
+            foreach (var identity in UpstreamJson.Items(data, "value"))
             {
-                foreach (var identity in identities)
+                var type = UpstreamJson.GetString(identity, "importedDeviceIdentityType");
+                var value = UpstreamJson.GetString(identity, "importedDeviceIdentifier");
+                if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
+                    && value != null
+                    && string.Equals(NormalizeStoredIdentifier(value), normalizedIdentifier, StringComparison.Ordinal))
                 {
-                    var type = identity?["importedDeviceIdentityType"]?.ToString();
-                    var value = identity?["importedDeviceIdentifier"]?.ToString();
-                    if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
-                        && value != null
-                        && string.Equals(NormalizeStoredIdentifier(value), normalizedIdentifier, StringComparison.Ordinal))
-                    {
-                        return (true, string.Empty);
-                    }
+                    return (true, string.Empty);
                 }
             }
 
-            return (false, data?["@odata.nextLink"]?.ToString() ?? string.Empty);
+            return (false, UpstreamJson.GetNextLink(data) ?? string.Empty);
         }
 
         /// <summary>

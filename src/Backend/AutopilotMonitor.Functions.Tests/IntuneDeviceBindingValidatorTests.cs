@@ -124,32 +124,38 @@ public class IntuneDeviceBindingValidatorTests
         Assert.Null(result.EnrolledDateTime);
     }
 
-    // -- ParseEnrolledDateTime --
+    // -- enrolledDateTime --
+
+    private static DateTimeOffset? EnrolledDateTime(string jsonValue)
+        => IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
+            $$"""{ "id": "{{DeviceId}}", "enrolledDateTime": {{jsonValue}} }""", DeviceId).EnrolledDateTime;
 
     [Fact]
-    public void ParseEnrolledDateTime_IntuneZeroDate_IsAbsenceNotADate()
+    public void EnrolledDateTime_IntuneZeroDate_IsAbsenceNotADate()
     {
         // Intune returns 0001-01-01T00:00:00Z when it has no enrollment timestamp. Treating that
         // as a real date would report an object age of ~2000 years and poison the race analysis.
-        Assert.Null(IntuneDeviceBindingValidator.ParseEnrolledDateTime("0001-01-01T00:00:00Z"));
+        Assert.Null(EnrolledDateTime("\"0001-01-01T00:00:00Z\""));
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("not-a-date")]
-    public void ParseEnrolledDateTime_UnusableInput_IsNull(string? raw)
+    [InlineData("null")]
+    [InlineData("\"\"")]
+    [InlineData("\"   \"")]
+    [InlineData("\"not-a-date\"")]
+    [InlineData("20260824")]
+    [InlineData("true")]
+    public void EnrolledDateTime_UnusableValue_IsNull(string jsonValue)
     {
-        Assert.Null(IntuneDeviceBindingValidator.ParseEnrolledDateTime(raw));
+        Assert.Null(EnrolledDateTime(jsonValue));
     }
 
     [Fact]
-    public void ParseEnrolledDateTime_NormalizesToUtc()
+    public void EnrolledDateTime_NormalizesToUtc()
     {
         // A device object created minutes ago is the signature of an enrollment race, so the
         // instant has to be comparable regardless of the offset Graph reports it in.
-        var parsed = IntuneDeviceBindingValidator.ParseEnrolledDateTime("2026-08-24T17:20:00+02:00");
+        var parsed = EnrolledDateTime("\"2026-08-24T17:20:00+02:00\"");
 
         Assert.NotNull(parsed);
         Assert.Equal(TimeSpan.Zero, parsed!.Value.Offset);

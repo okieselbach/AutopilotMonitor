@@ -8,8 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -401,40 +401,42 @@ namespace AutopilotMonitor.Functions.Security
                 ErrorMessage = $"Device '{normalizedId}' is not an enrolled Intune device in this tenant"
             };
 
-            JObject? device;
+            JsonElement? parsed;
             try
             {
-                device = JsonConvert.DeserializeObject<JObject>(responseBody);
+                parsed = UpstreamJson.ParseObjectOrNull(responseBody);
             }
             catch (JsonException)
             {
                 return notFound;
             }
 
-            var returnedId = device?["id"]?.ToString()?.Trim();
+            if (parsed is not { } device)
+                return notFound;
+
+            var returnedId = UpstreamJson.GetString(device, "id")?.Trim();
             if (string.IsNullOrEmpty(returnedId) ||
                 !string.Equals(returnedId, normalizedId, StringComparison.OrdinalIgnoreCase))
             {
                 return notFound;
             }
 
-            var managementState = device?["managementState"]?.ToString();
+            var managementState = UpstreamJson.GetString(device, "managementState");
             var leaving = managementState != null && LeavingManagementStates.Contains(managementState);
 
             return new IntuneDeviceBindingResult
             {
                 Outcome = leaving ? IntuneDeviceBindingOutcome.NotManaged : IntuneDeviceBindingOutcome.Match,
                 IntuneDeviceId = normalizedId,
-                DeviceName = device?["deviceName"]?.ToString(),
-                AzureAdDeviceId = device?["azureADDeviceId"]?.ToString(),
+                DeviceName = UpstreamJson.GetString(device, "deviceName"),
+                AzureAdDeviceId = UpstreamJson.GetString(device, "azureADDeviceId"),
                 ManagementState = managementState,
-                SerialNumber = NullIfEmpty(device?["serialNumber"]?.ToString()),
-                OwnerType = NullIfEmpty(device?["managedDeviceOwnerType"]?.ToString()),
-                EnrollmentType = NullIfEmpty(device?["deviceEnrollmentType"]?.ToString()),
-                AzureAdRegistered = device?["azureADRegistered"]?.Type == JTokenType.Boolean
-                    ? device["azureADRegistered"]!.Value<bool>()
-                    : null,
-                EnrolledDateTime = ParseEnrolledDateTime(device?["enrolledDateTime"]?.ToString()),
+                SerialNumber = NullIfEmpty(UpstreamJson.GetString(device, "serialNumber")),
+                OwnerType = NullIfEmpty(UpstreamJson.GetString(device, "managedDeviceOwnerType")),
+                EnrollmentType = NullIfEmpty(UpstreamJson.GetString(device, "deviceEnrollmentType")),
+                AzureAdRegistered = UpstreamJson.GetBoolean(device, "azureADRegistered"),
+                // Intune returns "0001-01-01T00:00:00Z" when it has no enrollment timestamp: absence, not a date.
+                EnrolledDateTime = UpstreamJson.GetUtcDateTime(device, "enrolledDateTime"),
                 ErrorMessage = leaving
                     ? $"Device '{normalizedId}' is being removed from Intune management (state {managementState})"
                     : null
@@ -447,28 +449,6 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         internal static bool IsRecentEnrollment(DateTimeOffset? certNotBefore, DateTimeOffset now)
             => certNotBefore.HasValue && now - certNotBefore.Value < RecentEnrollmentWindow;
-
-        /// <summary>
-        /// Parses Graph's <c>enrolledDateTime</c>. Intune returns <c>0001-01-01T00:00:00Z</c> for
-        /// devices it has no enrollment timestamp for; that is absence, not a date, so it maps to
-        /// <c>null</c> rather than a bogus age of two thousand years.
-        /// </summary>
-        internal static DateTimeOffset? ParseEnrolledDateTime(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-
-            if (!DateTimeOffset.TryParse(
-                    raw,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.AdjustToUniversal
-                        | System.Globalization.DateTimeStyles.AssumeUniversal,
-                    out var parsed))
-            {
-                return null;
-            }
-
-            return parsed.Year <= 1 ? null : parsed;
-        }
 
         private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 

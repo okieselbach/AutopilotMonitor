@@ -23,7 +23,7 @@ public class GraphTokenServiceTests
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
 
-    private static (GraphTokenService svc, StubHttpMessageHandler handler) Create(StubHttpMessageHandler handler)
+    private static (GraphTokenService svc, StubHttpMessageHandler handler) Create(StubHttpMessageHandler handler, IMemoryCache? cache = null)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -33,7 +33,7 @@ public class GraphTokenServiceTests
             })
             .Build();
 
-        var svc = NewService(config, new StubHttpClientFactory(handler));
+        var svc = NewService(config, new StubHttpClientFactory(handler), cache: cache);
 
         return (svc, handler);
     }
@@ -47,11 +47,12 @@ public class GraphTokenServiceTests
         IConfiguration config,
         System.Net.Http.IHttpClientFactory factory,
         IGraphAccessHealthRecorder? accessHealth = null,
-        Microsoft.Extensions.Logging.ILogger<GraphTokenService>? logger = null) =>
+        Microsoft.Extensions.Logging.ILogger<GraphTokenService>? logger = null,
+        IMemoryCache? cache = null) =>
         new GraphTokenService(
             logger ?? NullLogger<GraphTokenService>.Instance,
             factory,
-            new MemoryCache(new MemoryCacheOptions()),
+            cache ?? new MemoryCache(new MemoryCacheOptions()),
             new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance),
             new AutopilotMonitor.Functions.Services.TenantConfigurationService(
                 Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
@@ -129,6 +130,53 @@ public class GraphTokenServiceTests
         await svc.GetAccessTokenAsync(TenantA);
 
         Assert.Equal(1, TokenPosts(handler, TenantA));
+    }
+
+    // The token stays cached for expires_in minus the 5-minute skew, clamped to 60 s .. 55 min. An absent
+    // or unusable expires_in (D5 in D-420: text, a fraction, zero or less) falls back to the 35-minute
+    // default, so 30 minutes; a value far beyond the cap is capped instead of overflowing.
+    [Theory]
+    [InlineData("3599", 3299)]
+    [InlineData("\"3599\"", 3299)]
+    [InlineData("7200", 3300)]
+    [InlineData("120", 60)]
+    [InlineData("null", 1800)]
+    [InlineData("\"abc\"", 1800)]
+    [InlineData("3599.5", 1800)]
+    [InlineData("0", 1800)]
+    [InlineData("-5", 1800)]
+    [InlineData("9223372036854775807", 3300)]
+    public async Task Token_cache_lifetime_follows_expires_in(string expiresIn, int seconds)
+    {
+        var cache = new RecordingMemoryCache();
+        var (svc, _) = Create(new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, $$"""{"access_token":"tok-A","expires_in":{{expiresIn}}}"""), cache);
+
+        Assert.Equal("tok-A", (await svc.GetAccessTokenAsync(TenantA)).AccessToken);
+
+        var entry = Assert.Single(cache.Entries, e => e.Key is string key && key.StartsWith($"graph-token:{TenantA}:", StringComparison.Ordinal));
+        Assert.Equal(TimeSpan.FromSeconds(seconds), entry.AbsoluteExpirationRelativeToNow);
+    }
+
+    /// <summary>A memory cache that keeps every entry it creates, so a test can read the lifetime the service chose.</summary>
+    private sealed class RecordingMemoryCache : IMemoryCache
+    {
+        private readonly MemoryCache _inner = new(new MemoryCacheOptions());
+
+        public List<ICacheEntry> Entries { get; } = new();
+
+        public ICacheEntry CreateEntry(object key)
+        {
+            var entry = _inner.CreateEntry(key);
+            Entries.Add(entry);
+            return entry;
+        }
+
+        public bool TryGetValue(object key, out object? value) => _inner.TryGetValue(key, out value);
+
+        public void Remove(object key) => _inner.Remove(key);
+
+        public void Dispose() => _inner.Dispose();
     }
 
     [Fact]

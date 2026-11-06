@@ -130,6 +130,36 @@ public class ScriptDisplayNameResolverTests
         Assert.True(fix.Repo.Entries[(TenantId, ScriptKind.Platform, "deleted-id")].IsNotFound);
     }
 
+    [Theory]
+    [InlineData("{\"id\":\"nameless\",\"displayName\":null}")]
+    [InlineData("{\"id\":\"nameless\",\"displayName\":42}")]
+    [InlineData("{\"id\":\"nameless\"}")]
+    public async Task PerId_script_without_a_name_is_cached_and_not_fetched_again(string body)
+    {
+        // JSON null and a non-text name read as absent (D-420); the answer is still final, so the second view
+        // is a cache hit instead of another Graph call.
+        var fix = new Fixture();
+        fix.GivenPermission();
+        fix.Repo.Meta[(TenantId, ScriptKind.Platform)] = new ScriptNameCacheMeta
+        {
+            TenantId = TenantId,
+            Kind = ScriptKind.Platform,
+            LastFullRefreshAt = fix.FixedNow - TimeSpan.FromDays(1),
+        };
+        var r = new ScriptRef(ScriptKind.Platform, "nameless");
+        fix.Http.When("deviceManagementScripts/nameless", HttpStatusCode.OK, body);
+
+        var first = await fix.Sut.ResolveAsync(TenantId, new[] { r });
+        var second = await fix.Sut.ResolveAsync(TenantId, new[] { r });
+
+        Assert.Null(first[r]);
+        Assert.Null(second[r]);
+        Assert.Single(fix.Http.Requests);
+        var entry = fix.Repo.Entries[(TenantId, ScriptKind.Platform, "nameless")];
+        Assert.False(entry.IsNotFound);
+        Assert.Null(entry.DisplayName);
+    }
+
     [Fact]
     public async Task Empty_refs_returns_empty_dict()
     {

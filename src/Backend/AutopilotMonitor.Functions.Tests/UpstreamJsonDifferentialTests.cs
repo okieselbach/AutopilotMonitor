@@ -18,7 +18,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// lists of mixed entries, text with escapes and Unicode, paging links, lifetimes as number or numeric text,
 /// error-code variants. They leave out the inputs of the deliberate differences D1 to D6 (JSON null or non-text
 /// in a text field, date-shaped text, dates with fractions or offsets, unusable lifetimes, codes beyond Int64);
-/// those are pinned in <see cref="GraphResponseParsingTests"/>.
+/// those are pinned in <see cref="GraphResponseParsingTests"/>. A body cut off mid-object (D7) is compared with
+/// the production parser's answer to an unreadable body instead: Newtonsoft's DeserializeObject read the part
+/// before the cut as if the open containers were closed.
 /// Temporary: removed with <see cref="LegacyUpstreamParsers"/> after a clean production run (backlog).
 /// </summary>
 public class UpstreamJsonDifferentialTests
@@ -104,13 +106,14 @@ public class UpstreamJsonDifferentialTests
         try
         {
             var generator = new Cases(seed);
+            var unreadable = Outcome(() => actual("not json"));
             var mismatches = new List<string>();
             int hits = 0, throws = 0;
             for (var i = 0; i < CaseCount && mismatches.Count < 5; i++)
             {
                 var input = body(generator);
                 var got = Outcome(() => actual(input));
-                var want = Outcome(() => reference(input));
+                var want = generator.LastWasCutOff ? unreadable : Outcome(() => reference(input));
                 if (got != want)
                     mismatches.Add($"seed {seed}, case {i}: body {input}\n      production: {got}\n      reference:  {want}");
                 if (hit(want)) hits++;
@@ -232,19 +235,27 @@ public class UpstreamJsonDifferentialTests
             return "[" + Ws() + string.Join("," + Ws(), entries) + Ws() + "]";
         }
 
+        /// <summary>Whether the last body was the object cut off halfway (D7).</summary>
+        public bool LastWasCutOff { get; private set; }
+
         /// <summary>The body around an object: mostly the object itself, else a root or shape both refuse.</summary>
-        private string Root(string objectJson) => _rng.Next(100) switch
+        private string Root(string objectJson)
         {
-            < 82 => Ws() + objectJson + Ws(),
-            < 84 => "",
-            < 86 => "   ",
-            < 88 => "null",
-            < 90 => "[" + objectJson + "]",
-            < 92 => Pick("42", "\"text\"", "true"),
-            < 95 => objectJson.Substring(0, Math.Max(1, objectJson.Length / 2)),
-            < 98 => objectJson + Pick(" x", " {}", " 1"),
-            _ => Pick("<html>busy</html>", "not json"),
-        };
+            var pick = _rng.Next(100);
+            LastWasCutOff = pick is >= 92 and < 95;
+            return pick switch
+            {
+                < 82 => Ws() + objectJson + Ws(),
+                < 84 => "",
+                < 86 => "   ",
+                < 88 => "null",
+                < 90 => "[" + objectJson + "]",
+                < 92 => Pick("42", "\"text\"", "true"),
+                < 95 => objectJson.Substring(0, Math.Max(1, objectJson.Length / 2)),
+                < 98 => objectJson + Pick(" x", " {}", " 1"),
+                _ => Pick("<html>busy</html>", "not json"),
+            };
+        }
 
         private string Matching(string target) => Pick(
             Str(target), Str(target.ToLowerInvariant()), Str("  " + target + " "), Str(target + "X"), Str("OTHER"), Str(""), "12345", "true");

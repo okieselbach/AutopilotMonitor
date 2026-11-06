@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// The contract of the Graph and Entra token-endpoint response parsers (D-420): what every realistic body,
 /// and every malformed one, yields. Written against the Newtonsoft parsers before their move to
-/// System.Text.Json and kept as their specification. Tests whose name ends in _D1 to _D6 pin a
+/// System.Text.Json and kept as their specification. Tests whose name ends in _D1 to _D7 pin a
 /// deliberate difference of that move (listed in D-420).
 /// </summary>
 public class GraphResponseParsingTests
@@ -56,22 +56,22 @@ public class GraphResponseParsingTests
     public void Token_response_that_is_not_one_object_throws(string body)
         => Assert.ThrowsAny<Exception>(() => GraphTokenService.ReadTokenResponse(body));
 
-    // D5: an unusable expires_in makes the read throw today.
+    // D5: an expires_in that is not a whole number counts as absent; the token stays usable with the
+    // default lifetime. Newtonsoft threw on the first five and coerced the last two (3600, 1).
     [Theory]
     [InlineData("\"abc\"")]
     [InlineData("\"\"")]
     [InlineData("{}")]
     [InlineData("[]")]
     [InlineData("99999999999999999999")]
-    public void Token_response_with_an_unusable_lifetime_D5(string expiresIn)
-        => Assert.ThrowsAny<Exception>(() => GraphTokenService.ReadTokenResponse($$"""{"access_token":"t","expires_in":{{expiresIn}}}"""));
-
-    // D5: a fractional or boolean expires_in is coerced today.
-    [Theory]
-    [InlineData("3599.5", 3600L)]
-    [InlineData("true", 1L)]
-    public void Token_response_with_a_coerced_lifetime_D5(string expiresIn, long today)
-        => Assert.Equal(today, GraphTokenService.ReadTokenResponse($$"""{"access_token":"t","expires_in":{{expiresIn}}}""").ExpiresInSeconds);
+    [InlineData("3599.5")]
+    [InlineData("true")]
+    public void Token_response_with_an_unusable_lifetime_keeps_the_token_D5(string expiresIn)
+    {
+        var (token, lifetime) = GraphTokenService.ReadTokenResponse($$"""{"access_token":"t","expires_in":{{expiresIn}}}""");
+        Assert.Equal("t", token);
+        Assert.Null(lifetime);
+    }
 
     // ── EntraTokenRejection.Parse ───────────────────────────────────────────────
 
@@ -106,15 +106,15 @@ public class GraphResponseParsingTests
         Assert.Null(rejection.Description);
     }
 
-    // D3: a description shaped like a date is dropped today.
+    // D3: a description is kept as sent, even when it looks like a date (Newtonsoft dropped it).
     [Fact]
-    public void Entra_rejection_with_a_date_shaped_description_D3()
-        => Assert.Null(EntraTokenRejection.Parse(400, """{"error_description":"2026-11-01T08:00:00Z"}""").Description);
+    public void Entra_rejection_keeps_a_date_shaped_description_D3()
+        => Assert.Equal("2026-11-01T08:00:00Z", EntraTokenRejection.Parse(400, """{"error_description":"2026-11-01T08:00:00Z"}""").Description);
 
-    // D6: an error code beyond Int64 makes the parse throw today.
+    // D6: an error code beyond Int64 is skipped like any other unusable entry (Newtonsoft threw).
     [Fact]
-    public void Entra_rejection_with_an_out_of_range_code_D6()
-        => Assert.Throws<InvalidCastException>(() => EntraTokenRejection.Parse(400, """{"error_codes":[99999999999999999999,53003]}"""));
+    public void Entra_rejection_skips_an_out_of_range_code_D6()
+        => Assert.Equal("AADSTS53003", EntraTokenRejection.Parse(400, """{"error_codes":[99999999999999999999,53003]}""").ErrorCode);
 
     // ── AutopilotDeviceValidator.FindRegistration ───────────────────────────────
 
@@ -172,21 +172,21 @@ public class GraphResponseParsingTests
         Assert.False(registration.UserAssigned);
     }
 
-    // D4: a numeric serial matches through its text today.
+    // D4: a serial that is not text never matches (Newtonsoft matched through its text).
     [Fact]
-    public void Autopilot_list_with_a_numeric_serial_D4()
-        => Assert.NotNull(AutopilotDeviceValidator.FindRegistration("""{"value":[{"id":"ap-1","serialNumber":12345}]}""", "12345"));
+    public void Autopilot_list_with_a_numeric_serial_does_not_match_D4()
+        => Assert.Null(AutopilotDeviceValidator.FindRegistration("""{"value":[{"id":"ap-1","serialNumber":12345}]}""", "12345"));
 
-    // D3: registration text shaped like a date is dropped today.
+    // D3: registration text is kept as sent, even when it looks like a date (Newtonsoft dropped it).
     [Fact]
-    public void Autopilot_registration_with_date_shaped_text_D3()
+    public void Autopilot_registration_keeps_date_shaped_text_D3()
     {
         var registration = AutopilotDeviceValidator.FindRegistration(
             """{"value":[{"id":"ap-1","serialNumber":"PF3XKQ7","groupTag":"2026-01-01T00:00:00Z","displayName":"/Date(1713096021000)/"}]}""",
             Serial);
 
-        Assert.Null(registration!.GroupTag);
-        Assert.Null(registration.DisplayName);
+        Assert.Equal("2026-01-01T00:00:00Z", registration!.GroupTag);
+        Assert.Equal("/Date(1713096021000)/", registration.DisplayName);
     }
 
     // ── CorporateIdentifierValidator.ReadIdentityPage ───────────────────────────
@@ -245,10 +245,10 @@ public class GraphResponseParsingTests
         }
     }
 
-    // D4: an identifier that is an array matches through its text today.
+    // D4: an identifier that is not text never matches (Newtonsoft matched an array through its text).
     [Fact]
-    public void Corporate_page_with_an_array_identifier_D4()
-        => Assert.True(CorporateIdentifierValidator.ReadIdentityPage(
+    public void Corporate_page_with_an_array_identifier_does_not_match_D4()
+        => Assert.False(CorporateIdentifierValidator.ReadIdentityPage(
             """{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":["Microsoft Corporation,Virtual Machine,1234-5678"]}]}""",
             CorporateId).Found);
 
@@ -302,27 +302,44 @@ public class GraphResponseParsingTests
     public void Association_date_that_is_unset_reads_as_null(string body)
         => Assert.Null(DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(body, Serial).AssociationDateTime);
 
-    // D1: JSON null in a text field reads as an empty string today.
+    // D1: JSON null in a text field is absent (Newtonsoft read it as an empty string).
     [Fact]
-    public void Association_fields_that_are_json_null_D1()
+    public void Association_fields_that_are_json_null_read_as_null_D1()
     {
         var result = DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(
             """{"value":[{"serialNumber":"PF3XKQ7","associationState":null,"assignedToUserPrincipalName":null,"managedDeviceId":null}]}""",
             Serial);
-        Assert.Equal(string.Empty, result.AssociationState);
-        Assert.Equal(string.Empty, result.AssignedToUserPrincipalName);
-        Assert.Equal(string.Empty, result.ManagedDeviceId);
+        Assert.Null(result.AssociationState);
+        Assert.Null(result.AssignedToUserPrincipalName);
+        Assert.Null(result.ManagedDeviceId);
     }
 
-    // D2: the date loses its fraction today (in any culture, since format and parse share it).
+    // D4: text whose escapes are no valid UTF-16 reads as absent, in the serial of another entry and in a field
+    // of the match, instead of failing the whole lookup (Newtonsoft read it into a broken string).
+    [Fact]
+    public void Association_text_with_a_broken_escape_reads_as_null_D4()
+    {
+        var result = DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(
+            """{"value":[{"serialNumber":"\ud800"},{"serialNumber":"PF3XKQ7","assignedToUserPrincipalName":"u\ud800"}]}""", Serial);
+        Assert.True(result.IsValid);
+        Assert.Null(result.AssignedToUserPrincipalName);
+    }
+
+    // D2: the date keeps its fraction, in any culture (Newtonsoft cut it to whole seconds).
     [Theory]
     [InlineData("en-US")]
     [InlineData("de-DE")]
-    public void Association_date_precision_D2(string culture)
-        => Assert.Equal(new DateTime(2026, 5, 8, 12, 16, 49, DateTimeKind.Utc), InCulture(culture, () =>
-            DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(
-                """{"value":[{"serialNumber":"PF3XKQ7","preassociationDateTime":"2026-05-08T12:16:49.1234567Z"}]}""",
-                Serial).PreAssociationDateTime));
+    [InlineData("en-GB")]
+    [InlineData("th-TH")]
+    public void Association_date_keeps_its_fraction_in_any_culture_D2(string culture)
+    {
+        var date = InCulture(culture, () => DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(
+            """{"value":[{"serialNumber":"PF3XKQ7","preassociationDateTime":"2026-05-08T12:16:49.1234567Z"}]}""",
+            Serial).PreAssociationDateTime);
+
+        Assert.Equal(new DateTime(2026, 5, 8, 12, 16, 49, DateTimeKind.Utc).AddTicks(1234567), date);
+        Assert.Equal(DateTimeKind.Utc, date!.Value.Kind);
+    }
 
     // ── CloudPcDeviceValidator.ParseCloudPcResponse ─────────────────────────────
 
@@ -359,15 +376,16 @@ public class GraphResponseParsingTests
         Assert.Equal("Cloud PC Enterprise", result.ServicePlanName);
     }
 
-    // D1: JSON null in a text field reads as an empty string today.
+    // D1: JSON null in a text field is absent (Newtonsoft read it as an empty string).
     [Fact]
-    public void CloudPc_fields_that_are_json_null_D1()
+    public void CloudPc_fields_that_are_json_null_read_as_null_D1()
     {
         var result = CloudPcDeviceValidator.ParseCloudPcResponse(
             $$"""{"value":[{"managedDeviceId":"{{IntuneId}}","id":null,"managedDeviceName":null,"servicePlanName":null}]}""", IntuneId);
-        Assert.Equal(string.Empty, result.CloudPcId);
-        Assert.Equal(string.Empty, result.ManagedDeviceName);
-        Assert.Equal(string.Empty, result.ServicePlanName);
+        Assert.True(result.IsValid);
+        Assert.Null(result.CloudPcId);
+        Assert.Null(result.ManagedDeviceName);
+        Assert.Null(result.ServicePlanName);
     }
 
     // ── IntuneDeviceBindingValidator.ParseManagedDeviceResponse ─────────────────
@@ -425,10 +443,9 @@ public class GraphResponseParsingTests
     [Fact]
     public void Managed_device_reads_its_fields()
     {
-        // en-US: the Newtonsoft path formats the date in the current culture before parsing it invariantly.
-        var result = InCulture("en-US", () => IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
+        var result = IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
             $$"""{"id":"{{IntuneId}}","deviceName":"DESKTOP-1","azureADDeviceId":"aad-1","managementState":"managed","serialNumber":"PF3XKQ7","managedDeviceOwnerType":"company","deviceEnrollmentType":"windowsAzureADJoin","enrolledDateTime":"2026-05-08T12:16:49Z"}""",
-            IntuneId));
+            IntuneId);
 
         Assert.Equal(IntuneDeviceBindingOutcome.Match, result.Outcome);
         Assert.Equal("DESKTOP-1", result.DeviceName);
@@ -444,32 +461,63 @@ public class GraphResponseParsingTests
         => Assert.Null(IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
             $$"""{"id":"{{IntuneId}}","enrolledDateTime":"0001-01-01T00:00:00Z"}""", IntuneId).EnrolledDateTime);
 
-    // D1: JSON null in a text field reads as an empty string today.
+    // D1: JSON null in a text field is absent (Newtonsoft read it as an empty string).
     [Fact]
-    public void Managed_device_fields_that_are_json_null_D1()
+    public void Managed_device_fields_that_are_json_null_read_as_null_D1()
     {
         var result = IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
             $$"""{"id":"{{IntuneId}}","deviceName":null,"azureADDeviceId":null,"managementState":null}""", IntuneId);
-        Assert.Equal(string.Empty, result.DeviceName);
-        Assert.Equal(string.Empty, result.AzureAdDeviceId);
-        Assert.Equal(string.Empty, result.ManagementState);
+        Assert.Equal(IntuneDeviceBindingOutcome.Match, result.Outcome);
+        Assert.Null(result.DeviceName);
+        Assert.Null(result.AzureAdDeviceId);
+        Assert.Null(result.ManagementState);
     }
 
-    // D2: the enrollment date loses its fraction, and on day-first cultures day and month swap, today.
+    // D2: the enrollment date keeps its fraction and its day and month in any culture (Newtonsoft cut the
+    // fraction and swapped day and month on day-first cultures).
     [Theory]
-    [InlineData("en-US", 5, 8)]
-    [InlineData("de-DE", 8, 5)]
-    [InlineData("en-GB", 8, 5)]
-    public void Managed_device_enrollment_date_D2(string culture, int month, int day)
-        => Assert.Equal(new DateTimeOffset(2026, month, day, 12, 16, 49, TimeSpan.Zero), InCulture(culture, () =>
-            IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
-                $$"""{"id":"{{IntuneId}}","enrolledDateTime":"2026-05-08T12:16:49.1234567Z"}""", IntuneId).EnrolledDateTime));
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    [InlineData("en-GB")]
+    [InlineData("th-TH")]
+    public void Managed_device_enrollment_date_is_the_same_in_any_culture_D2(string culture)
+    {
+        var date = InCulture(culture, () => IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
+            $$"""{"id":"{{IntuneId}}","enrolledDateTime":"2026-05-08T12:16:49.1234567Z"}""", IntuneId).EnrolledDateTime);
 
-    // D4: a numeric id matches through its text today.
+        Assert.Equal(new DateTimeOffset(2026, 5, 8, 12, 16, 49, TimeSpan.Zero).AddTicks(1234567), date);
+        Assert.Equal(TimeSpan.Zero, date!.Value.Offset);
+    }
+
+    // D4: an id that is not text never matches (Newtonsoft matched through its text).
     [Fact]
-    public void Managed_device_with_a_numeric_id_D4()
-        => Assert.Equal(IntuneDeviceBindingOutcome.Match,
+    public void Managed_device_with_a_numeric_id_is_not_found_D4()
+        => Assert.Equal(IntuneDeviceBindingOutcome.NotFound,
             IntuneDeviceBindingValidator.ParseManagedDeviceResponse("""{"id":12345}""", "12345").Outcome);
+
+    // ── Dates in any offset (new with System.Text.Json) ─────────────────────────
+
+    // Newtonsoft turned an offset date into machine-local time and read that back as UTC, so the instant
+    // depended on the host's time zone; it was only right on a UTC host.
+    [Theory]
+    [InlineData("2026-05-08T14:16:49+02:00")]
+    [InlineData("2026-05-08T07:16:49-05:00")]
+    [InlineData("2026-05-08T12:16:49Z")]
+    [InlineData("2026-05-08T12:16:49")]
+    public void Dates_in_any_offset_read_as_the_same_utc_instant(string value)
+    {
+        var expected = new DateTime(2026, 5, 8, 12, 16, 49, DateTimeKind.Utc);
+
+        var association = DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(
+            $$"""{"value":[{"serialNumber":"PF3XKQ7","preassociationDateTime":"{{value}}"}]}""", Serial).PreAssociationDateTime;
+        var enrolled = IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
+            $$"""{"id":"{{IntuneId}}","enrolledDateTime":"{{value}}"}""", IntuneId).EnrolledDateTime;
+
+        Assert.Equal(expected, association);
+        Assert.Equal(DateTimeKind.Utc, association!.Value.Kind);
+        Assert.Equal(new DateTimeOffset(expected), enrolled);
+        Assert.Equal(TimeSpan.Zero, enrolled!.Value.Offset);
+    }
 
     // ── ScriptDisplayNameResolver.ReadScriptPage / ReadScriptDisplayName ────────
 
@@ -520,25 +568,79 @@ public class GraphResponseParsingTests
     public void Script_name_reads_the_display_name(string body, string? name)
         => Assert.Equal(name, ScriptDisplayNameResolver.ReadScriptDisplayName(body));
 
-    // D1: a display name that is JSON null reads as an empty string today.
+    // D1: a display name that is JSON null is absent (Newtonsoft read it as an empty string).
     [Fact]
-    public void Script_name_that_is_json_null_D1()
+    public void Script_name_that_is_json_null_reads_as_null_D1()
     {
-        Assert.Equal(string.Empty, ScriptDisplayNameResolver.ReadScriptDisplayName("""{"displayName":null}"""));
-        Assert.Equal(string.Empty, Assert.Single(ScriptDisplayNameResolver.ReadScriptPage(
+        Assert.Null(ScriptDisplayNameResolver.ReadScriptDisplayName("""{"displayName":null}"""));
+        Assert.Null(Assert.Single(ScriptDisplayNameResolver.ReadScriptPage(
             """{"value":[{"id":"s1","displayName":null}]}""", withFileName: false).Scripts).DisplayName);
     }
 
-    // D3: a display name shaped like a date is rewritten in the current culture today.
-    [Fact]
-    public void Script_name_shaped_like_a_date_D3()
-        => Assert.Equal("1/1/2026 12:00:00 AM", InCulture("en-US", () =>
+    // D3: a display name is kept as sent in any culture, even when it looks like a date (Newtonsoft
+    // rewrote it in the current culture, "1/1/2026 12:00:00 AM" in en-US).
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    [InlineData("th-TH")]
+    public void Script_name_shaped_like_a_date_is_kept_as_sent_D3(string culture)
+        => Assert.Equal("2026-01-01T00:00:00Z", InCulture(culture, () =>
             ScriptDisplayNameResolver.ReadScriptDisplayName("""{"displayName":"2026-01-01T00:00:00Z"}""")));
 
-    // D4: a display name that is a number reads as its text today.
+    // D4: a display name that is not text is absent (Newtonsoft read a number as its text).
     [Fact]
-    public void Script_name_that_is_a_number_D4()
-        => Assert.Equal("42", ScriptDisplayNameResolver.ReadScriptDisplayName("""{"displayName":42}"""));
+    public void Script_name_that_is_a_number_reads_as_null_D4()
+        => Assert.Null(ScriptDisplayNameResolver.ReadScriptDisplayName("""{"displayName":42}"""));
+
+    // ── D7: a body cut off mid-object is unreadable ─────────────────────────────
+
+    // Newtonsoft's DeserializeObject read the part before the cut as if the open containers were closed, so a
+    // cut-off list could still match. Every parser now answers it like any other unreadable body. HttpClient
+    // throws on a premature end before a parser sees the body, so only a server-side cut can get here.
+
+    [Fact]
+    public void Token_response_cut_off_throws_D7()
+        => Assert.ThrowsAny<Exception>(() => GraphTokenService.ReadTokenResponse("""{"access_token":"t","expires_in":3599"""));
+
+    [Fact]
+    public void Entra_rejection_cut_off_keeps_only_the_status_D7()
+    {
+        var rejection = EntraTokenRejection.Parse(400, """{"error_codes":[53003""");
+        Assert.Null(rejection.ErrorCode);
+        Assert.Null(rejection.Description);
+    }
+
+    [Fact]
+    public void Autopilot_list_cut_off_throws_D7()
+        => Assert.ThrowsAny<Exception>(() => AutopilotDeviceValidator.FindRegistration(
+            """{"value":[{"id":"ap-1","serialNumber":"PF3XKQ7"}""", Serial));
+
+    [Fact]
+    public void Corporate_page_cut_off_throws_D7()
+        => Assert.ThrowsAny<Exception>(() => CorporateIdentifierValidator.ReadIdentityPage(
+            """{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"Microsoft Corporation,Virtual Machine,1234-5678"}""",
+            CorporateId));
+
+    [Fact]
+    public void Association_list_cut_off_is_not_found_D7()
+    {
+        var result = DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse("""{"value":[{"serialNumber":"PF3XKQ7"}""", Serial);
+        Assert.False(result.IsValid);
+        Assert.False(result.IsTransient);
+    }
+
+    [Fact]
+    public void CloudPc_list_cut_off_is_not_found_D7()
+    {
+        var result = CloudPcDeviceValidator.ParseCloudPcResponse($$"""{"value":[{"managedDeviceId":"{{IntuneId}}"}""", IntuneId);
+        Assert.False(result.IsValid);
+        Assert.False(result.IsTransient);
+    }
+
+    [Fact]
+    public void Managed_device_cut_off_is_not_found_D7()
+        => Assert.Equal(IntuneDeviceBindingOutcome.NotFound, IntuneDeviceBindingValidator.ParseManagedDeviceResponse(
+            $$"""{"id":"{{IntuneId}}","azureADRegistered":true""", IntuneId).Outcome);
 
     private static T InCulture<T>(string culture, Func<T> read)
     {
