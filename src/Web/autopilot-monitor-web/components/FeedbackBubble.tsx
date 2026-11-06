@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
+import { readViewAs } from "@/lib/viewAs";
 import { api } from "@/lib/api";
 import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/lib/generated/wire-types.generated";
 import { fetchJson, fetchOk, jsonBody, nullOnApiError } from "@/lib/apiClient";
@@ -17,8 +18,9 @@ const FEEDBACK_MAX_CHARS = SHARED_MANIFEST.submissionLimits.feedbackTextMaxChars
 export default function FeedbackBubble() {
   const { isAuthenticated, user, getAccessToken } = useAuth();
   const pathname = usePathname();
-  // The push receiver has its own shell; a signed-in admin opening it on the desktop gets no bubble.
-  const standDown = isPushAppPath(pathname);
+  // The push receiver has its own shell; a signed-in admin opening it on the desktop gets no bubble. Nor does
+  // a view-as tab (lib/viewAs.ts): the prompt is the viewing Global Admin's, and dismissing it would write.
+  const standDown = isPushAppPath(pathname) || readViewAs() !== null;
   const [phase, setPhase] = useState<Phase>("loading");
   const [rating, setRating] = useState<number>(0);
   const [hoveredStar, setHoveredStar] = useState<number>(0);

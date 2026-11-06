@@ -22,6 +22,8 @@ const telemetryConfig = {
   /** The push receiver's pairing scope (it has no sign-in); null everywhere else. */
   pushScope: null as "tenant" | "platform" | null,
   pushTenantId: null as string | null,
+  /** The tenant a Global Admin views as its member in this tab (lib/viewAs.ts); null on an ordinary tab. */
+  viewAsTenantId: null as string | null,
 };
 
 /** Live context the runtime's telemetry initializer reads at send time. */
@@ -42,7 +44,32 @@ export function contextProperties(context: TelemetryContext): Record<string, str
   const tenantId = context.pushTenantId ?? context.tenantId;
   if (tenantId) properties.tenantId = tenantId;
   if (context.pushScope) properties.pushScope = context.pushScope;
+  if (context.viewAsTenantId) properties.viewAsTenantId = context.viewAsTenantId;
   return properties;
+}
+
+/** Who the portal's telemetry is about (see {@link telemetryIdentity}). */
+export interface TelemetryIdentity {
+  tenantId: string | null;
+  isAdmin: boolean;
+  isGlobalAdmin: boolean;
+  viewAsTenantId: string | null;
+}
+
+/**
+ * The identity a signed-in tab stamps on its telemetry. A view-as tab (lib/viewAs.ts) counts as the viewing
+ * Global Admin in their home tenant, like its backend requests: the reports' operator filter (isGlobalAdmin)
+ * leaves it out, the viewed tenant never gains a visit, and viewAsTenantId still names it.
+ */
+export function telemetryIdentity(
+  user: { isTenantAdmin?: boolean; isGlobalAdmin?: boolean; viewAs?: { homeTenantId: string } } | null,
+  tenantId: string | null,
+  viewedTenantId: string | null,
+): TelemetryIdentity {
+  if (viewedTenantId) {
+    return { tenantId: user?.viewAs?.homeTenantId ?? null, isAdmin: false, isGlobalAdmin: true, viewAsTenantId: viewedTenantId };
+  }
+  return { tenantId, isAdmin: user?.isTenantAdmin ?? false, isGlobalAdmin: user?.isGlobalAdmin ?? false, viewAsTenantId: null };
 }
 
 type Runtime = typeof import("./appInsightsRuntime");
@@ -87,15 +114,14 @@ export function initAppInsights(connectionString: string) {
 }
 
 export function setTelemetryContext(
-  tenantId: string | null,
-  isAdmin: boolean,
-  isGlobalAdmin: boolean,
+  identity: TelemetryIdentity,
   theme: "light" | "dark",
   sidebarState?: "full" | "icons" | "hidden"
 ) {
-  telemetryConfig.tenantId = tenantId;
-  telemetryConfig.isAdmin = isAdmin;
-  telemetryConfig.isGlobalAdmin = isGlobalAdmin;
+  telemetryConfig.tenantId = identity.tenantId;
+  telemetryConfig.isAdmin = identity.isAdmin;
+  telemetryConfig.isGlobalAdmin = identity.isGlobalAdmin;
+  telemetryConfig.viewAsTenantId = identity.viewAsTenantId;
   telemetryConfig.theme = theme;
   if (sidebarState) telemetryConfig.sidebarState = sidebarState;
 }

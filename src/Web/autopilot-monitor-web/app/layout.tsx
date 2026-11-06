@@ -19,6 +19,7 @@ import AppInsightsInit from "../components/AppInsightsInit";
 import ChunkReloadRecovery from "../components/ChunkReloadRecovery";
 import { HostRoutingGuard } from "../components/HostRoutingGuard";
 import { LegacyPathRedirect } from "../components/LegacyPathRedirect";
+import { ViewAsBar } from "../components/ViewAsBar";
 import { API_BASE_URL, DOCS_URL, SITE_URL, sitePageUrl } from "@/lib/config";
 import { AUTH_HINT_INLINE_SCRIPT } from "@/lib/authHint";
 
@@ -206,6 +207,7 @@ export default function RootLayout({
                         <ChunkReloadRecovery />
                         <HostRoutingGuard />
                         <LegacyPathRedirect />
+                        <ViewAsBar />
                         <Navbar />
                         <GlobalSidebar>
                           {children}

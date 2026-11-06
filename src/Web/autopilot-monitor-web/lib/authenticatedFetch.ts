@@ -14,6 +14,7 @@
 import { trackEvent } from "./appInsights";
 import { CORRELATION_HEADER, newCorrelationId } from "./correlationId";
 import { takeSeed } from "./prefetchSeeds";
+import { viewAsHeaders } from "./viewAs";
 
 /** Default request timeout in milliseconds */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -76,14 +77,22 @@ export async function authenticatedFetch(
   // both backend request rows join on it. Minted here, never read back (see correlationId.ts).
   const correlationId = newCorrelationId();
 
-  const headers = new Headers(init?.headers);
-  headers.set('Authorization', `Bearer ${token}`);
-  headers.set(CORRELATION_HEADER, correlationId);
+  // A view-as tab (lib/viewAs.ts) names the viewed tenant on every call. It shares the browser's HTTP
+  // cache with ordinary tabs and no response varies on those headers, so it bypasses that cache.
+  const viewAs = viewAsHeaders();
+  const cache = Object.keys(viewAs).length > 0 ? 'no-store' : init?.cache;
+  const headersFor = (bearer: string): Headers => {
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${bearer}`);
+    headers.set(CORRELATION_HEADER, correlationId);
+    for (const [name, value] of Object.entries(viewAs)) headers.set(name, value);
+    return headers;
+  };
 
   // Apply a default timeout unless the caller already provided an AbortSignal
   const signal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
 
-  const response = await fetch(url, { ...init, headers, signal });
+  const response = await fetch(url, { ...init, headers: headersFor(token), signal, cache });
 
   if (response.status === 401) {
     // Force MSAL to bypass its cache and obtain a fresh token.
@@ -92,12 +101,8 @@ export async function authenticatedFetch(
       throw new TokenExpiredError();
     }
 
-    const retryHeaders = new Headers(init?.headers);
-    retryHeaders.set('Authorization', `Bearer ${freshToken}`);
-    retryHeaders.set(CORRELATION_HEADER, correlationId);
-
     const retrySignal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
-    const retryResponse = await fetch(url, { ...init, headers: retryHeaders, signal: retrySignal });
+    const retryResponse = await fetch(url, { ...init, headers: headersFor(freshToken), signal: retrySignal, cache });
     if (retryResponse.status === 401) {
       throw new TokenExpiredError();
     }

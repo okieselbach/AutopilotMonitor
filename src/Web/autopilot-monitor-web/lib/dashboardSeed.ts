@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { CORRELATION_HEADER, newCorrelationId } from "@/lib/correlationId";
 import { registerSeed } from "@/lib/prefetchSeeds";
+import { readViewAs } from "@/lib/viewAs";
 import {
   DASHBOARD_STATS_DEFAULT_DAYS,
   getInitialSessionsPageSize,
@@ -17,11 +18,13 @@ const DASHBOARD_PATHS = new Set(["/dashboard/", "/dashboard"]);
  * Own-tenant scope only: the backend takes the tenant from the JWT; `tenantId` (the Entra
  * tenant of the signed-in account) only gates the seed on a known account. Cross-tenant
  * (Global-Admin aggregate) mode uses other endpoints, so nothing is seeded while that mode
- * is switched on.
+ * is switched on. Nor in a view-as tab (lib/viewAs.ts): a seed is matched by URL alone and
+ * would hand the caller's own sessions to the viewed tenant's dashboard.
  */
 export function seedDashboardFirstFetch(accessToken: string, tenantId: string | undefined): void {
   if (typeof window === "undefined" || !tenantId) return;
   if (!DASHBOARD_PATHS.has(window.location.pathname)) return;
+  if (readViewAs()) return;
   try {
     if (window.localStorage.getItem("globalAdminMode") === "true") return;
   } catch {
