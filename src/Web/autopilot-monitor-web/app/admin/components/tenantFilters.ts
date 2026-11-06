@@ -13,8 +13,15 @@
  */
 
 import { hasAnyDeviceValidation } from "@/lib/deviceValidation";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
 
-export type PlanEdition = "community" | "pro" | "pro-trial" | "pro-msp";
+/** The plan facet values — the backend's edition names (C# TenantEditionNames), so the two cannot drift. */
+export type PlanEdition = (typeof SHARED_MANIFEST.tenantEditions)[number];
+
+/** A wire edition name as a plan facet value; an unknown name (a newer backend) reads as Community. */
+export function planEditionOf(name: string): PlanEdition {
+  return (SHARED_MANIFEST.tenantEditions as readonly string[]).includes(name) ? (name as PlanEdition) : "community";
+}
 export type TrialState = "active" | "expired" | "never";
 export type AppValue = "primary" | "legacy" | "unknown";
 

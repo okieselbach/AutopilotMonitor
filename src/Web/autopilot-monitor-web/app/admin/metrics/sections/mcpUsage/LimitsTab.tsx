@@ -8,8 +8,9 @@ import type {
   McpUsageQuotaHitItem,
   McpUsageTelemetryStatus,
 } from "@/lib/generated/wire-types.generated";
-import { formatDayKey, minuteRowsToShow, tenantLabel, type PlanLegendRow, type TenantInfo } from "./mcpUsageLogic";
-import { DataNote, Pill } from "./parts";
+import { formatDayKey } from "../../lib/format";
+import { DataNote, Pill } from "../listParts";
+import { minuteRowsToShow, tenantLabel, type PlanLegendRow, type TenantInfo } from "./mcpUsageLogic";
 
 function limitText(value: number | undefined): string {
   if (value == null) return "edition default";

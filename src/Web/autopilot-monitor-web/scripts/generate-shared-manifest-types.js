@@ -110,6 +110,8 @@ const MCP_VOCABULARIES = [
     doc: "Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources)." },
   { section: "apiErrorCodes", constName: "API_ERROR_CODES", typeName: "ApiErrorCode",
     doc: "Every machine-readable `code` an error envelope can carry (C# Constants.ApiErrorCodes + DelegationCodes + DelegatedSlots)." },
+  { section: "tenantActivityStages", constName: "TENANT_ACTIVITY_STAGES", typeName: "TenantActivityStage",
+    doc: "Lifecycle stages of the tenant activity, in their test order (C# TenantActivityStages)." },
   // kind "map": a section of string lists keyed by name, emitted as a record of arrays.
   { section: "analyzeRuleEvidenceKeys", constName: "ANALYZE_RULE_EVIDENCE_KEYS", kind: "map",
     doc: "Evidence keys a matched analyze-rule condition writes, per condition source — what a {{signal.key}} token can resolve (C# RuleEvidenceKeys)." },

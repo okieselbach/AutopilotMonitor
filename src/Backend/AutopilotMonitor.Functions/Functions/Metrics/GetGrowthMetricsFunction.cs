@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
@@ -7,6 +6,7 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using static AutopilotMonitor.Functions.Functions.Metrics.TenantLifecycleFacts;
 
 namespace AutopilotMonitor.Functions.Functions.Metrics
 {
@@ -50,13 +50,15 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var includeTenants = string.Equals(query["includeTenants"], "true", StringComparison.OrdinalIgnoreCase);
 
                 var nowUtc = DateTime.UtcNow;
+                var yesterday = nowUtc.Date.AddDays(-1);
                 var configs = await _tenantConfigService.GetAllConfigurationsAsync();
                 var stats = await _metricsRepo.GetAllTenantStatsAsync();
                 var activity = await _metricsRepo.GetTenantActivityDaysAsync(
-                    GrowthMetricsBuilder.UsageReadStart(nowUtc.Date, days), nowUtc.Date.AddDays(-1));
+                    GrowthMetricsBuilder.UsageReadStart(nowUtc.Date, days), yesterday);
+                var yesterdayAggregated = await _metricsRepo.HasUsageMetricsSnapshotAsync(TenantLifecycleFacts.Key(yesterday));
 
                 return await req.OkAsync(GrowthMetricsBuilder.Build(
-                    configs, stats, activity, nowUtc, days, timeZone, includeTenants, excludedTenantIds));
+                    configs, stats, activity, nowUtc, days, timeZone, includeTenants, excludedTenantIds, yesterdayAggregated));
             }
             catch (Exception ex)
             {
@@ -77,8 +79,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         internal const int DailyBucketMaxDays = 90;
         internal const int PeakBaselineDays = 14;
         internal const int PeakMinSignups = 3;
-        /// <summary>The activity segments look this far back, whatever the window.</summary>
-        internal const int ActivityDays = 30;
 
         /// <summary>
         /// OnboardedAt is the row's insert time from this day on; its one-time backfill gave the older rows
@@ -90,7 +90,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
 
         /// <summary>First UTC day of the daily usage rows the response needs: the window and the activity look-back.</summary>
-        internal static DateTime UsageReadStart(DateTime today, int days) => InclusiveWindowStart(today, Math.Max(days, ActivityDays));
+        internal static DateTime UsageReadStart(DateTime today, int days)
+            => InclusiveWindowStart(today, Math.Max(days, TenantLifecycleFacts.ActivityDays));
 
         // IANA ids only ("Europe/Berlin", "America/Argentina/Buenos_Aires", "Etc/GMT+1"). On Linux the id
         // becomes a path below the zoneinfo folder, so dots and rooted paths never reach the lookup.
@@ -127,20 +128,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             return true;
         }
 
-        private sealed class TenantFacts
-        {
-            public TenantConfiguration Config { get; init; } = default!;
-            public DateTime? SignupUtc { get; init; }
-            public bool Enrolled { get; init; }
-            public bool Succeeded { get; init; }
-            public DateTime? LastActiveDay { get; init; }
-            public DateTime? FirstEnrollmentDay { get; init; }
-            public bool FirstEnrollmentPending { get; init; }
-            public int? DaysToFirstEnrollment => FirstEnrollmentDay is { } first && SignupUtc is { } signup
-                ? (int)(first - signup.Date).TotalDays
-                : null;
-        }
-
+        /// <param name="yesterdayAggregated">
+        /// Whether yesterday's daily rows exist yet (its platform row); before the first maintenance run after
+        /// midnight UTC they do not, and the counters alone tell who was active yesterday.
+        /// </param>
         internal static GrowthMetricsResponse Build(
             IReadOnlyList<TenantConfiguration> configs,
             IReadOnlyList<TenantStats> stats,
@@ -149,34 +140,24 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             int days,
             TimeZoneInfo timeZone,
             bool includeTenants,
-            IReadOnlyCollection<string> excludedTenantIds)
+            IReadOnlyCollection<string> excludedTenantIds,
+            bool yesterdayAggregated = true)
         {
             var today = nowUtc.Date;
             var windowStart = InclusiveWindowStart(today, days);
             var previousStart = windowStart.AddDays(-days);
-            var statsByTenant = stats
-                .GroupBy(s => s.TenantId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            var activeDaysByTenant = activityDays
-                .GroupBy(a => a.TenantId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.Select(a => a.Day.Date).Distinct().OrderBy(d => d).ToList(),
-                    StringComparer.OrdinalIgnoreCase);
+            var usageDaysThrough = TenantLifecycleFacts.UsageDaysThrough(today, yesterdayAggregated);
 
-            // A configuration row without a domain is a read of an unknown tenant id, not a signup.
-            var signedUp = configs.Where(c => !string.IsNullOrEmpty(c.DomainName)).ToList();
+            var signedUp = TenantLifecycleFacts.SignedUp(configs);
             var excluded = new HashSet<string>(excludedTenantIds, StringComparer.OrdinalIgnoreCase);
-            var tenants = signedUp
-                .Where(c => !excluded.Contains(c.TenantId))
-                .Select(c => Facts(c, statsByTenant, activeDaysByTenant, today))
-                .ToList();
+            var tenants = TenantLifecycleFacts.For(
+                signedUp.Where(c => !excluded.Contains(c.TenantId)),
+                stats, activityDays, usageDaysThrough, UsageReadStart(today, days));
             var window = tenants
                 .Where(t => t.SignupUtc is { } s && s.Date >= windowStart && s.Date <= today)
                 .OrderBy(t => t.SignupUtc)
                 .ToList();
             var activeFrom7 = today.AddDays(-6);
-            var activeFrom30 = today.AddDays(-(ActivityDays - 1));
 
             return new GrowthMetricsResponse
             {
@@ -185,7 +166,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 WindowEnd = Key(today),
                 TimeZone = timeZone.Id,
                 ExactSignupTimesFrom = Key(ExactSignupTimesFrom),
-                UsageDaysThrough = Key(today.AddDays(-1)),
+                UsageDaysThrough = Key(usageDaysThrough),
                 ExcludedTenants = signedUp.Count - tenants.Count,
                 Signups = BuildSignups(tenants, window, windowStart, previousStart, today, days, timeZone),
                 Cohorts = window
@@ -197,7 +178,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                         Signups = g.Count(),
                         Enrolled = g.Count(t => t.Enrolled),
                         Succeeded = g.Count(t => t.Succeeded),
-                        ActiveLast7Days = g.Count(t => t.LastActiveDay >= activeFrom7),
+                        ActiveLast7Days = g.Count(t => t.ActiveSince(activeFrom7)),
                         MedianDaysToFirstEnrollment = Median(g.Select(t => t.DaysToFirstEnrollment)),
                     })
                     .ToList(),
@@ -220,9 +201,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     NeverEnrolled = tenants.Count(t => !t.Enrolled),
                     Enrolled = tenants.Count(t => t.Enrolled),
                     EnrolledWithoutSuccess = tenants.Count(t => t.Enrolled && !t.Succeeded),
-                    Active7Days = tenants.Count(t => t.LastActiveDay >= activeFrom7),
-                    Active30Days = tenants.Count(t => t.LastActiveDay >= activeFrom30),
-                    Dormant = tenants.Count(t => t.Enrolled && !(t.LastActiveDay >= activeFrom30)),
+                    Active7Days = tenants.Count(t => t.ActiveSince(activeFrom7)),
+                    Active30Days = tenants.Count(t => t.ActiveSince(TenantLifecycleFacts.ActivityFrom(today))),
+                    Dormant = tenants.Count(t => t.IsDormant(today)),
                 },
                 Plans = new GrowthPlans
                 {
@@ -252,38 +233,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             };
         }
 
-        private static TenantFacts Facts(
-            TenantConfiguration config,
-            IReadOnlyDictionary<string, TenantStats> statsByTenant,
-            IReadOnlyDictionary<string, List<DateTime>> activeDaysByTenant,
-            DateTime today)
-        {
-            DateTime? signup = config.OnboardedAt is { } at ? Utc(at) : null;
-            statsByTenant.TryGetValue(config.TenantId, out var counters);
-            var activeDays = activeDaysByTenant.TryGetValue(config.TenantId, out var found) ? found : new List<DateTime>();
-            // The daily rows end yesterday; counters that moved today mean sessions today.
-            var activeToday = counters != null && Utc(counters.LastUpdated) >= today;
-            DateTime? lastActive = activeToday ? today : activeDays.Count > 0 ? activeDays[^1] : null;
-            var enrolled = counters?.TotalEnrollments > 0;
-            var firstDay = signup is { } s
-                ? activeDays.Where(d => d >= s.Date).Select(d => (DateTime?)d).FirstOrDefault()
-                : null;
-
-            return new TenantFacts
-            {
-                Config = config,
-                SignupUtc = signup,
-                Enrolled = enrolled,
-                Succeeded = counters?.SuccessfulEnrollments > 0,
-                LastActiveDay = lastActive,
-                FirstEnrollmentDay = firstDay,
-                FirstEnrollmentPending = enrolled && firstDay == null && activeToday,
-            };
-        }
-
         private static GrowthSignups BuildSignups(
-            IReadOnlyList<TenantFacts> tenants,
-            IReadOnlyList<TenantFacts> window,
+            IReadOnlyList<TenantLifecycleFacts> tenants,
+            IReadOnlyList<TenantLifecycleFacts> window,
             DateTime windowStart,
             DateTime previousStart,
             DateTime today,
@@ -345,12 +297,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
         private static DateTime WeekStart(DateTime day) => day.AddDays(-(((int)day.DayOfWeek + 6) % 7));
 
-        private static DateTime Utc(DateTime value)
-            => value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc);
-
         private static string PlanTierOf(TenantConfiguration config)
             => string.IsNullOrEmpty(config.PlanTier) ? "free" : config.PlanTier;
-
-        private static string Key(DateTime day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 }

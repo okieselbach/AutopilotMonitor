@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { SortDir } from "./mcpUsageLogic";
+
+export type SortDir = "asc" | "desc";
 
 /** A sortable column set: a click on the active column flips the direction, another column starts at its default. */
 export function useSortState<K extends string>(initial: K, defaultDir: Record<K, SortDir>) {

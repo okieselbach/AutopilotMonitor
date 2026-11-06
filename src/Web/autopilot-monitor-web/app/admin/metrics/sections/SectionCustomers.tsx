@@ -14,6 +14,7 @@ import { useWindowDays } from "@/hooks/useWindowDays";
 import { PLATFORM_MAX_WINDOW_DAYS, WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
 import type { TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import { editionLabel, effectiveEdition, facetOption } from "../../components/tenantFilters";
+import { formatDayKey } from "../lib/format";
 import { customerGrowth, type GrowthBucket } from "./customerGrowthLogic";
 import { Stat } from "./Stat";
 
@@ -34,15 +35,10 @@ const SHORT_DAY: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }
 const FULL_DAY: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short", year: "numeric" };
 const RANGE_DAY: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" };
 
-/** A UTC calendar day (yyyy-MM-dd) in the viewer's locale, never shifted by the viewer's time zone. */
-function formatDay(key: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(`${key}T00:00:00Z`).toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
-}
-
 function bucketTitle(bucket: { startKey: string; endKey: string }, weekly: boolean): string {
   return weekly
-    ? `${formatDay(bucket.startKey, RANGE_DAY)} – ${formatDay(bucket.endKey, RANGE_DAY)}`
-    : formatDay(bucket.startKey, FULL_DAY);
+    ? `${formatDayKey(bucket.startKey, RANGE_DAY)} – ${formatDayKey(bucket.endKey, RANGE_DAY)}`
+    : formatDayKey(bucket.startKey, FULL_DAY);
 }
 
 function signupTime(atMs: number, weekly: boolean): string {
@@ -106,7 +102,7 @@ function CustomersContent() {
     count: b.count,
     cumulative: b.cumulative,
   }));
-  const formatCategory = (key: string) => formatDay(key, days <= 7 ? WEEKDAY : SHORT_DAY);
+  const formatCategory = (key: string) => formatDayKey(key, days <= 7 ? WEEKDAY : SHORT_DAY);
 
   const toggleBucket = (row: Record<string, unknown>) => {
     const key = row.key;
@@ -121,7 +117,7 @@ function CustomersContent() {
           <h2 className="text-lg font-semibold text-gray-900">Customers</h2>
           <p className="text-sm text-gray-500">
             {growth
-              ? `${formatDay(growth.startKey, RANGE_DAY)} – ${formatDay(growth.endKey, RANGE_DAY)}`
+              ? `${formatDayKey(growth.startKey, RANGE_DAY)} – ${formatDayKey(growth.endKey, RANGE_DAY)}`
               : "Tenant signups over time"}
           </p>
         </div>
@@ -184,7 +180,7 @@ function CustomersContent() {
             <Stat
               label="Best day"
               value={growth.bestDay ? growth.bestDay.count.toLocaleString() : "—"}
-              hint={growth.bestDay ? formatDay(growth.bestDay.key, FULL_DAY) : "no signups in this window"}
+              hint={growth.bestDay ? formatDayKey(growth.bestDay.key, FULL_DAY) : "no signups in this window"}
             />
             <Stat
               label="Weekly average"

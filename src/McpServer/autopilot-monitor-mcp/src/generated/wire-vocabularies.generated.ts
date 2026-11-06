@@ -316,6 +316,17 @@ export const API_ERROR_CODES = [
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
+/** Lifecycle stages of the tenant activity, in their test order (C# TenantActivityStages). */
+export const TENANT_ACTIVITY_STAGES = [
+  "neverEnrolled",
+  "dormant",
+  "new",
+  "declining",
+  "active",
+  "quiet",
+] as const;
+export type TenantActivityStage = (typeof TENANT_ACTIVITY_STAGES)[number];
+
 /** Evidence keys a matched analyze-rule condition writes, per condition source — what a {{signal.key}} token can resolve (C# RuleEvidenceKeys). */
 export const ANALYZE_RULE_EVIDENCE_KEYS: Readonly<Record<string, readonly string[]>> = {
   "event_type": ["eventId","sequence","timestamp","eventType","field","value","count","appId","appName","errorPatternId","errorCode","exitCode","status","timeoutHours"],

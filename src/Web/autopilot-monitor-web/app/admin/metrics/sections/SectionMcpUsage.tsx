@@ -17,11 +17,11 @@ import type {
   PlanTierDefinitionsResponse,
   TenantConfiguration,
 } from "@/lib/generated/wire-types.generated";
+import { formatDayKey } from "../lib/format";
 import { Stat } from "./Stat";
 import {
   dailyChart,
   editionCounts,
-  formatDayKey,
   MCP_USAGE_MAX_DAYS,
   MCP_USAGE_VIEW_PARAM,
   parseView,

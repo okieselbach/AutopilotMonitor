@@ -6,6 +6,7 @@ import { SectionAgentMetrics } from "../sections/SectionAgentMetrics";
 import { SectionCustomers } from "../sections/SectionCustomers";
 import { SectionPlatformUsage } from "../sections/SectionPlatformUsage";
 import { SectionMcpUsage } from "../sections/SectionMcpUsage";
+import { SectionTenantActivity } from "../sections/SectionTenantActivity";
 import { SectionVerdictCalibration } from "../sections/SectionVerdictCalibration";
 import { SectionImePatternHealth } from "../sections/SectionImePatternHealth";
 
@@ -13,6 +14,7 @@ const SECTION_COMPONENTS: Record<MetricsSectionId, React.ComponentType> = {
   "customers": SectionCustomers,
   "platform-metrics": SectionAgentMetrics,
   "usage": SectionPlatformUsage,
+  "tenant-activity": SectionTenantActivity,
   "mcp-usage": SectionMcpUsage,
   "verdict-calibration": SectionVerdictCalibration,
   "ime-pattern-health": SectionImePatternHealth,

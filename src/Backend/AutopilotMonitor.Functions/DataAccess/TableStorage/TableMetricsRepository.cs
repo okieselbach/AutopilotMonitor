@@ -93,6 +93,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<UserSignInIdentity>> GetSignInIdentitiesByUpnAsync(string upn)
             => _storage.GetSignInIdentitiesByUpnAsync(upn);
 
+        public Task<List<PortalVisit>> GetPortalVisitsSinceAsync(DateTime sinceUtc)
+            => _storage.GetPortalVisitsSinceAsync(sinceUtc);
+
         public Task RecordUserPresenceAsync(string tenantId, string upn, string userRole)
             => _storage.RecordUserPresenceAsync(tenantId, upn, userRole);
 

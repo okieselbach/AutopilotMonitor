@@ -1148,6 +1148,177 @@ public class MetricsWireParityTests
         AssertParity(GrowthLiteral(null, null), GrowthResponse(null, null));
     }
 
+    // ---------- GET global/metrics/tenant-activity ----------
+
+    private const string ActivityTenantId = "8bb31d22-0004-4c8d-b2e3-63f4bbbb0001";
+    private static readonly DateTime ActivityOnboardedAt = new(2026, 6, 30, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ActivityCounterAt = new(2026, 11, 6, 7, 30, 0, DateTimeKind.Utc);
+    private static readonly DateTime ActivityVisitAt = new(2026, 11, 6, 8, 15, 0, DateTimeKind.Utc);
+
+    private static GetTenantActivityResponse TenantActivityResponse(bool full) => new()
+    {
+        WindowDays = 30,
+        WindowStart = "2026-10-07",
+        UsageDaysThrough = "2026-11-05",
+        PreviousWindowStart = "2026-09-07",
+        RowsFrom = "2026-05-10",
+        PortalActivityAvailable = full,
+        Totals = new TenantActivityTotals
+        {
+            SignedUpTenants = 2,
+            ActiveTenants = 1,
+            ActiveTenantsPrevious = 1,
+            ActiveTenantsTrendPercent = full ? 0 : null,
+            Enrollments = 6,
+            EnrollmentsPrevious = 4,
+            EnrollmentsTrendPercent = full ? 50 : null,
+            Succeeded = 5,
+            Failed = 1,
+            SuccessPercent = full ? 83 : null,
+            Top10SharePercent = full ? 100 : null,
+            Stages = new TenantActivityStageCounts { NeverEnrolled = 1, Active = 1 },
+            PortalUsers = full ? 3 : null,
+            PortalTenants = full ? 1 : null,
+        },
+        Daily = new List<TenantActivityDailyItem>
+        {
+            new() { Day = "2026-11-05", Enrollments = 6, Succeeded = 5, Failed = 1, ActiveTenants = 1 },
+        },
+        Tenants = new List<TenantActivityTenantItem>
+        {
+            new()
+            {
+                TenantId = ActivityTenantId,
+                DomainName = "contoso.example",
+                CompanyName = full ? "Contoso" : null,
+                Edition = TenantEditionNames.ProTrial,
+                Stage = TenantActivityStages.Active,
+                OnboardedAt = full ? ActivityOnboardedAt : null,
+                Enrollments = 6,
+                EnrollmentsPrevious = 4,
+                TrendPercent = full ? 50 : null,
+                Succeeded = 5,
+                Failed = 1,
+                SuccessPercent = full ? 83 : null,
+                ActiveDays = 1,
+                DailyEnrollments = full ? new[] { 6 } : null,
+                FirstEnrollmentDay = full ? "2026-07-01" : null,
+                LastActiveDay = full ? "2026-11-05" : null,
+                LastCounterUpdateAt = full ? ActivityCounterAt : null,
+                LifetimeEnrollments = 120,
+                LifetimeSucceeded = 100,
+                LifetimeEvents = 50_000,
+                PortalUsers = full ? 3 : null,
+                LastPortalVisitAt = full ? ActivityVisitAt : null,
+            },
+        },
+    };
+
+    [Fact]
+    public void GetTenantActivityResponse_matches_the_shape_with_every_optional_key()
+    {
+        AssertParity(new
+        {
+            windowDays = 30,
+            windowStart = "2026-10-07",
+            usageDaysThrough = "2026-11-05",
+            previousWindowStart = "2026-09-07",
+            rowsFrom = "2026-05-10",
+            portalActivityAvailable = true,
+            totals = new
+            {
+                signedUpTenants = 2,
+                activeTenants = 1,
+                activeTenantsPrevious = 1,
+                activeTenantsTrendPercent = 0,
+                enrollments = 6,
+                enrollmentsPrevious = 4,
+                enrollmentsTrendPercent = 50,
+                succeeded = 5,
+                failed = 1,
+                successPercent = 83,
+                top10SharePercent = 100,
+                stages = new { neverEnrolled = 1, dormant = 0, @new = 0, declining = 0, active = 1, quiet = 0 },
+                portalUsers = 3,
+                portalTenants = 1,
+            },
+            daily = new[] { new { day = "2026-11-05", enrollments = 6, succeeded = 5, failed = 1, activeTenants = 1 } },
+            tenants = new[]
+            {
+                new
+                {
+                    tenantId = ActivityTenantId,
+                    domainName = "contoso.example",
+                    companyName = "Contoso",
+                    edition = "pro-trial",
+                    stage = "active",
+                    onboardedAt = ActivityOnboardedAt,
+                    enrollments = 6,
+                    enrollmentsPrevious = 4,
+                    trendPercent = 50,
+                    succeeded = 5,
+                    failed = 1,
+                    successPercent = 83,
+                    activeDays = 1,
+                    dailyEnrollments = new[] { 6 },
+                    firstEnrollmentDay = "2026-07-01",
+                    lastActiveDay = "2026-11-05",
+                    lastCounterUpdateAt = ActivityCounterAt,
+                    lifetimeEnrollments = 120L,
+                    lifetimeSucceeded = 100L,
+                    lifetimeEvents = 50_000L,
+                    portalUsers = 3,
+                    lastPortalVisitAt = ActivityVisitAt,
+                },
+            },
+        }, TenantActivityResponse(full: true));
+    }
+
+    [Fact]
+    public void GetTenantActivityResponse_omits_every_absent_figure()
+    {
+        // No sign-in history, no previous window, no finished session, no names beyond the domain.
+        AssertParity(new
+        {
+            windowDays = 30,
+            windowStart = "2026-10-07",
+            usageDaysThrough = "2026-11-05",
+            previousWindowStart = "2026-09-07",
+            rowsFrom = "2026-05-10",
+            portalActivityAvailable = false,
+            totals = new
+            {
+                signedUpTenants = 2,
+                activeTenants = 1,
+                activeTenantsPrevious = 1,
+                enrollments = 6,
+                enrollmentsPrevious = 4,
+                succeeded = 5,
+                failed = 1,
+                stages = new { neverEnrolled = 1, dormant = 0, @new = 0, declining = 0, active = 1, quiet = 0 },
+            },
+            daily = new[] { new { day = "2026-11-05", enrollments = 6, succeeded = 5, failed = 1, activeTenants = 1 } },
+            tenants = new[]
+            {
+                new
+                {
+                    tenantId = ActivityTenantId,
+                    domainName = "contoso.example",
+                    edition = "pro-trial",
+                    stage = "active",
+                    enrollments = 6,
+                    enrollmentsPrevious = 4,
+                    succeeded = 5,
+                    failed = 1,
+                    activeDays = 1,
+                    lifetimeEnrollments = 120L,
+                    lifetimeSucceeded = 100L,
+                    lifetimeEvents = 50_000L,
+                },
+            },
+        }, TenantActivityResponse(full: false));
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

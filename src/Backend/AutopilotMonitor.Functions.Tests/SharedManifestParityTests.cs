@@ -152,6 +152,10 @@ public sealed class SharedManifestParityTests
             ["analyzeRuleOperators"] = DryRunAnalyzeRuleFunction.KnownOperators.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             // Evidence keys per condition source: what a {{signal.key}} token can resolve (MCP rule lint).
             ["analyzeRuleEvidenceKeys"] = RuleEvidenceKeys.BySource,
+            // Tenant activity (GET global/metrics/tenant-activity): the lifecycle stages in their test order —
+            // the MCP tool's stage filter enumerates them — and the edition names the portal's plan facet uses.
+            ["tenantActivityStages"] = TenantActivityStages.All,
+            ["tenantEditions"] = TenantEditionNames.All,
             // Vocabularies of the diagnosis headline (GET sessions/{id}/diagnosis): the portal's verdict
             // texts and culprit labels key on the same values the builder writes.
             ["diagnosis"] = new Dictionary<string, object?>

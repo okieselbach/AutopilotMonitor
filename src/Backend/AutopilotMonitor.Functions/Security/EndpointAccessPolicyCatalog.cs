@@ -589,6 +589,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin),
         // Operator growth figures across all tenants (signups, activation, plan state); no tenant parameter.
         new("GET",    "global/metrics/growth",      EndpointPolicy.GlobalReadOrAdmin),
+        // Operator view of every tenant's use (enrollments, lifecycle stage, portal users); no tenant parameter,
+        // so a delegated (MSP) reader never reaches it.
+        new("GET",    "global/metrics/tenant-activity", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/analytics",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/sessions",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

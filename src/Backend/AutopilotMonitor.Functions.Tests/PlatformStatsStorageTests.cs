@@ -27,6 +27,8 @@ public class PlatformStatsStorageTests
     {
         public Mock<TableClient> Table { get; } = new();
         public List<string> Filters { get; } = new();
+        /// <summary>The projection of every query, in order; null for a query without one.</summary>
+        public List<string[]?> Selects { get; } = new();
         public List<List<TableTransactionAction>> Submitted { get; } = new();
         public Func<string, TableEntity[]> RowsFor { get; set; } = _ => Array.Empty<TableEntity>();
         public Queue<Exception> SubmitFailures { get; } = new();
@@ -35,9 +37,10 @@ public class PlatformStatsStorageTests
         public Harness()
         {
             Table.Setup(c => c.QueryAsync<TableEntity>(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-                .Returns((string filter, int? _, IEnumerable<string> _, CancellationToken _) =>
+                .Returns((string filter, int? _, IEnumerable<string>? select, CancellationToken _) =>
                 {
                     Filters.Add(filter);
+                    Selects.Add(select?.ToArray());
                     var page = Page<TableEntity>.FromValues(RowsFor(filter), null, Mock.Of<Response>());
                     return AsyncPageable<TableEntity>.FromPages(new[] { page });
                 });
@@ -54,6 +57,7 @@ public class PlatformStatsStorageTests
             var service = new Mock<TableServiceClient>();
             service.Setup(s => s.GetTableClient(Constants.TableNames.PlatformStats)).Returns(Table.Object);
             service.Setup(s => s.GetTableClient(Constants.TableNames.UsageMetrics)).Returns(Table.Object);
+            service.Setup(s => s.GetTableClient(Constants.TableNames.UserActivity)).Returns(Table.Object);
             Sut = new TableStorageService(service.Object, NullLogger<TableStorageService>.Instance);
         }
     }
@@ -279,6 +283,76 @@ public class PlatformStatsStorageTests
         var h = new Harness { RowsFor = _ => throw new RequestFailedException(503, "busy") };
 
         await Assert.ThrowsAsync<RequestFailedException>(() => h.Sut.GetTenantActivityDaysAsync(DateTime.UtcNow.Date, DateTime.UtcNow.Date));
+    }
+
+    [Fact]
+    public async Task Tenant_activity_days_project_and_carry_the_success_and_failure_counts()
+    {
+        var h = new Harness
+        {
+            RowsFor = _ => new[]
+            {
+                new TableEntity("2026-10-01", Tenant) { ["SessionsTotal"] = 5, ["SessionsSucceeded"] = 3, ["SessionsFailed"] = 1 },
+                new TableEntity("2026-10-02", Tenant) { ["SessionsTotal"] = 2 },
+            }
+        };
+
+        var days = await h.Sut.GetTenantActivityDaysAsync(
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(new[] { "PartitionKey", "RowKey", "SessionsTotal", "SessionsSucceeded", "SessionsFailed" }, Assert.Single(h.Selects));
+        Assert.Collection(days,
+            d => Assert.Equal((5, 3, 1), (d.SessionsTotal, d.SessionsSucceeded, d.SessionsFailed)),
+            d => Assert.Equal((2, 0, 0), (d.SessionsTotal, d.SessionsSucceeded, d.SessionsFailed)));
+    }
+
+    // ---------- portal visits (tenant activity) ----------
+
+    private static TableEntity Login(string tenantId, string upn, string objectId, DateTime? at)
+    {
+        var row = new TableEntity(tenantId, Guid.NewGuid().ToString("N")) { ["Upn"] = upn, ["ObjectId"] = objectId };
+        if (at is { } loginAt) row["LoginAt"] = loginAt;
+        return row;
+    }
+
+    [Fact]
+    public async Task Portal_visits_are_people_since_the_cutoff_keyed_by_object_id_else_upn()
+    {
+        const string upperTenant = "AAAAAAAA-0000-4000-8000-000000000000";
+        var at = new DateTime(2026, 11, 5, 9, 30, 0, DateTimeKind.Utc);
+        var h = new Harness
+        {
+            RowsFor = _ => new[]
+            {
+                Login(upperTenant, "alice@contoso.example", "OID-ALICE", at),
+                Login(Tenant, "Bob@Contoso.example", "", at),                                     // no object id: the UPN
+                Login(Tenant, "app:11111111-2222-3333-4444-555555555555", "sp-object-id", at),    // a service principal
+                Login(Tenant, "", " ", at),                                                       // no identity at all
+                Login(Tenant, "carol@contoso.example", "oid-carol", null),                        // no visit time
+            }
+        };
+
+        var visits = await h.Sut.GetPortalVisitsSinceAsync(new DateTime(2026, 8, 7, 12, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal("LoginAt ge datetime'2026-08-07T12:00:00Z'", Assert.Single(h.Filters));
+        Assert.Equal(new[] { "PartitionKey", "Upn", "ObjectId", "LoginAt" }, Assert.Single(h.Selects));
+        Assert.Collection(visits,
+            v =>
+            {
+                Assert.Equal(upperTenant.ToLowerInvariant(), v.TenantId);
+                Assert.Equal("oid-alice", v.PersonKey);
+                Assert.Equal(at, v.At);
+                Assert.Equal(DateTimeKind.Utc, v.At.Kind);
+            },
+            v => Assert.Equal((Tenant, "bob@contoso.example"), (v.TenantId, v.PersonKey)));
+    }
+
+    [Fact]
+    public async Task A_failing_portal_visit_read_throws_instead_of_reporting_nobody()
+    {
+        var h = new Harness { RowsFor = _ => throw new RequestFailedException(503, "busy") };
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => h.Sut.GetPortalVisitsSinceAsync(DateTime.UtcNow.AddDays(-90)));
     }
 
     // ---------- seen device models ----------

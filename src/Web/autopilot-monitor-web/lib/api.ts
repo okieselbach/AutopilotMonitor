@@ -347,6 +347,10 @@ export const api = {
     // cross-tenant aggregate. Daily rows are additive, so the window follows days honestly.
     globalVerdictCalibration: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/verdict-calibration${qs({ days: String(days), tenantId })}`,
+    // Tenant activity (operator-only; GlobalReadOrAdmin): every signed-up tenant's enrollments, lifecycle stage and
+    // portal users over the last `days` full UTC days, against the days before.
+    globalTenantActivity: (days: number) =>
+      `${API_BASE_URL}/api/global/metrics/tenant-activity${qs({ days: String(days) })}`,
     geographic: (tenantId: string, days: number, groupBy: string) =>
       `${API_BASE_URL}/api/metrics/geographic${qs({ tenantId, days: String(days), groupBy })}`,
     globalGeographic: (days: number, groupBy: string, tenantId?: string) =>

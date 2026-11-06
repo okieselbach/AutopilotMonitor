@@ -5,6 +5,7 @@
  * quota — the page never mixes the two in one figure.
  */
 import { effectiveEdition, type PlanEdition } from "../../../components/tenantFilters";
+import type { SortDir } from "../../lib/useListState";
 import type {
   GetGlobalMcpUsageOverviewResponse,
   McpUsageAccountItem,
@@ -97,7 +98,6 @@ export function tenantNearLimit(t: McpUsageTenantItem): boolean {
 // ── Sorting ───────────────────────────────────────────────────────────────────
 
 export type UsageSortKey = "calls" | "requests" | "today" | "month" | "lastActive";
-export type SortDir = "asc" | "desc";
 
 function lastActiveMs(iso: string | undefined): number {
   return iso ? new Date(iso).getTime() : -1;
@@ -261,13 +261,6 @@ export function planLegend(response: PlanTierDefinitionsResponse | null): PlanLe
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────────
-
-/** A UTC day (yyyyMMdd) in the viewer's locale, never shifted by the viewer's time zone. */
-export function formatDayKey(key: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }): string {
-  if (!/^\d{8}$/.test(key)) return key;
-  const iso = `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}T00:00:00Z`;
-  return new Date(iso).toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
-}
 
 /** "0.8 s" from 812 ms, "95 ms" below a second, "—" without a value. */
 export function formatDuration(ms: number | undefined): string {

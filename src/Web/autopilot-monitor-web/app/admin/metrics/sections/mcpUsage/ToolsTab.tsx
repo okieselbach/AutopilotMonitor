@@ -2,9 +2,10 @@
 
 import { useMemo } from "react";
 import type { McpUsageTelemetryStatus, McpUsageToolItem } from "@/lib/generated/wire-types.generated";
-import { formatChars, formatDayKey, formatDuration, formatShare, sortTools, type SortDir, type ToolSortKey } from "./mcpUsageLogic";
-import { Chevron, DataNote, Figure, Pill, SortHeader } from "./parts";
-import { useOpenSet, useSortState } from "./useListState";
+import { formatDayKey } from "../../lib/format";
+import { useOpenSet, useSortState, type SortDir } from "../../lib/useListState";
+import { Chevron, DataNote, Figure, Pill, SortHeader } from "../listParts";
+import { formatChars, formatDuration, formatShare, sortTools, type ToolSortKey } from "./mcpUsageLogic";
 
 const COLS = "lg:grid lg:grid-cols-[minmax(0,1fr)_10rem_4.5rem_4.5rem_6rem_4.5rem_4.5rem_5rem_4.5rem] lg:items-center lg:gap-4";
 

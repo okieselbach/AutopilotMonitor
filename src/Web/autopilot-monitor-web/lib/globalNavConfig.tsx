@@ -266,6 +266,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
           { id: "ga-platform-metrics", label: "Platform Metrics", href: route("/admin/metrics/platform-metrics") },
           { id: "ga-usage", label: "Platform Usage", href: route("/admin/metrics/usage") },
           { id: "ga-active-users", label: "Active Users", href: "/admin/presence" },
+          { id: "ga-tenant-activity", label: "Tenant Activity", href: route("/admin/metrics/tenant-activity") },
           { id: "ga-mcp-usage", label: "MCP Usage", href: route("/admin/metrics/mcp-usage") },
           { id: "ga-verdict-calibration", label: "Verdict Calibration", href: route("/admin/metrics/verdict-calibration") },
           { id: "ga-ime-pattern-health", label: "IME Pattern Health", href: route("/admin/metrics/ime-pattern-health") },

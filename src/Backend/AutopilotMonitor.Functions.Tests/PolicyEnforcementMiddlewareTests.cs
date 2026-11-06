@@ -1471,6 +1471,8 @@ public partial class PolicyEnforcementMiddlewareTests
     [InlineData("GET", "/api/global/distress-reports", TenantScoping.None)]
     // ops-events is platform-OPERATIONAL data — GA/Reader-only by intent (not a can't-bound limit), so None.
     [InlineData("GET", "/api/global/ops-events", TenantScoping.None)]
+    // Every tenant's use side by side (names, enrollments, portal users) — an operator view, never an MSP's.
+    [InlineData("GET", "/api/global/metrics/tenant-activity", TenantScoping.None)]
     // Operator reads with a ?tenantId= filter: OperatorFilterReads above.
     public void GlobalRoute_DelegatedAccessibility_MatchesContract(string method, string path, TenantScoping expected)
     {

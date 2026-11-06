@@ -956,6 +956,20 @@ export const SHARED_MANIFEST = {
       "sentAtBatchCount"
     ]
   },
+  "tenantActivityStages": [
+    "neverEnrolled",
+    "dormant",
+    "new",
+    "declining",
+    "active",
+    "quiet"
+  ],
+  "tenantEditions": [
+    "community",
+    "pro",
+    "pro-trial",
+    "pro-msp"
+  ],
   "diagnosis": {
     "outcomes": [
       "failed",

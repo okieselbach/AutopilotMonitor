@@ -146,6 +146,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_session_report_download',
     'get_session_summary',
     'get_software_inventory',
+    // Platform scope (GA + Global Reader): GlobalReadOrAdmin endpoint, usage per signed-up customer tenant.
+    'get_tenant_activity',
     'get_tenant_config',
     'get_tenant_config_schema',
     // Available to every role: backed by MemberRead endpoints (tenant) with role-aware
@@ -232,6 +234,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_platform_metrics',
     'get_rule_submission',
     'get_session_report_download',
+    'get_tenant_activity',
     'get_tenant_config',
     'get_tenant_config_schema',
     'get_verdict_calibration',

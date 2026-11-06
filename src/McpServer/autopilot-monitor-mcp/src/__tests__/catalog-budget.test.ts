@@ -40,11 +40,10 @@ interface Role {
   maxCatalogChars: number;
 }
 const ROLES: Role[] = [
-  // Raised 2026-10-28 by +1,100 each: the platform-only get_growth_metrics (measured 1,106 chars).
-  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 93_100 },
-  // Raised 2026-11-05 by +200: get_api_usage reads the MCP usage overview — eight views, the window, the
-  // platform-admin switch and two drill-down ids (measured 78,205 chars; the Global Admin catalog stayed under).
-  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 78_300 },
+  // Raised 2026-11-06 by +1,761 each: get_tenant_activity, the platform-only usage per signed-up customer tenant —
+  // three views, the window and one lifecycle stage (measured 94,774 and 79,966 chars).
+  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 94_861 },
+  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 80_061 },
   // Raised 2026-11-04 by +400: search_sessions gained the groupTag filter and five Autopilot
   // projection keys (measured 53,318 chars; the other roles stayed under their ceilings).
   { label: 'tenant-admin', isGlobalAdmin: false, isGlobalReader: false, tenantRole: 'Admin', maxCatalogChars: 53_400 },

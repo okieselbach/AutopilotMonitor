@@ -73,7 +73,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Tenant days with sessions between two UTC days (both inclusive): one UsageMetrics row per
-        /// tenant and day, the platform row excluded, only the session count read. Not fail-soft —
+        /// tenant and day, the platform row excluded, only the session counts read. Not fail-soft —
         /// a swallowed failure would read as "no tenant was active".
         /// </summary>
         public async Task<List<TenantActivityDay>> GetTenantActivityDaysAsync(DateTime fromDay, DateTime toDay)
@@ -83,15 +83,26 @@ namespace AutopilotMonitor.Functions.Services
                 + $" and RowKey ne '{UsageMetricsPlatformRowKey}'";
             var result = new List<TenantActivityDay>();
             await foreach (var row in tableClient.QueryAsync<TableEntity>(
-                filter: filter, select: new[] { "PartitionKey", "RowKey", "SessionsTotal" }).ConfigureAwait(false))
+                filter: filter, select: TenantActivityDayColumns).ConfigureAwait(false))
             {
                 var sessions = row.GetInt32("SessionsTotal") ?? 0;
                 if (sessions > 0 && DateTime.TryParseExact(row.PartitionKey, UsageDayFormat, CultureInfo.InvariantCulture,
                         DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var day))
-                    result.Add(new TenantActivityDay { Day = day, TenantId = row.RowKey, SessionsTotal = sessions });
+                    result.Add(new TenantActivityDay
+                    {
+                        Day = day,
+                        TenantId = row.RowKey,
+                        SessionsTotal = sessions,
+                        SessionsSucceeded = row.GetInt32("SessionsSucceeded") ?? 0,
+                        SessionsFailed = row.GetInt32("SessionsFailed") ?? 0,
+                    });
             }
             return result;
         }
+
+        /// <summary>The columns <see cref="GetTenantActivityDaysAsync"/> reads of a daily UsageMetrics row.</summary>
+        internal static readonly string[] TenantActivityDayColumns =
+            { "PartitionKey", "RowKey", "SessionsTotal", "SessionsSucceeded", "SessionsFailed" };
 
         private const string UsageDayFormat = "yyyy-MM-dd";
 
@@ -1609,6 +1620,46 @@ namespace AutopilotMonitor.Functions.Services
                     entry.LastLoginAt = loginAt;
             }
             return result.Values.ToList();
+        }
+
+        /// <summary>
+        /// Every portal visit of a person since a point in time — see IMetricsRepository. LoginAt is not a key, so
+        /// this is one filtered scan over every partition, projected to the four columns it reads; the table keeps
+        /// 90 days. Not fail-soft: an empty answer would read as "nobody visited".
+        /// </summary>
+        public async Task<List<PortalVisit>> GetPortalVisitsSinceAsync(DateTime sinceUtc)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UserActivity);
+            var filter = $"LoginAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
+            var visits = new List<PortalVisit>();
+            await foreach (var row in tableClient.QueryAsync<TableEntity>(
+                filter: filter, select: PortalVisitColumns).ConfigureAwait(false))
+            {
+                var upn = row.GetString("Upn");
+                var person = PortalPersonKey(row.GetString("ObjectId"), upn);
+                var at = row.GetDateTime("LoginAt");
+                // A service principal's MCP session is recorded here too (McpUserFunction); it is no person.
+                if (person == null || at == null || Constants.PrincipalKeys.IsApplication(upn))
+                    continue;
+                visits.Add(new PortalVisit
+                {
+                    TenantId = row.PartitionKey.ToLowerInvariant(),
+                    PersonKey = person,
+                    At = DateTime.SpecifyKind(at.Value, DateTimeKind.Utc),
+                });
+            }
+            return visits;
+        }
+
+        /// <summary>The columns <see cref="GetPortalVisitsSinceAsync"/> reads of a UserActivity row.</summary>
+        internal static readonly string[] PortalVisitColumns = { "PartitionKey", "Upn", "ObjectId", "LoginAt" };
+
+        /// <summary>The person behind a sign-in row: its object id, else its UPN, lower-cased; null without either.</summary>
+        internal static string? PortalPersonKey(string? objectId, string? upn)
+        {
+            if (!string.IsNullOrWhiteSpace(objectId))
+                return objectId.Trim().ToLowerInvariant();
+            return string.IsNullOrWhiteSpace(upn) ? null : upn.Trim().ToLowerInvariant();
         }
 
         /// <summary>

@@ -16,5 +16,11 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Sessions the tenant started that day.</summary>
         public int SessionsTotal { get; set; }
+
+        /// <summary>Of those, Succeeded when the day was aggregated (the first maintenance run after midnight UTC).</summary>
+        public int SessionsSucceeded { get; set; }
+
+        /// <summary>Of those, Failed when the day was aggregated; a session still running then counts in neither.</summary>
+        public int SessionsFailed { get; set; }
     }
 }

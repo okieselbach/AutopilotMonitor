@@ -2527,6 +2527,26 @@ export interface GetSessionTimeAttributionResponse {
   breakdown?: SessionTimeBreakdown;
 }
 
+/** Response of GET global/metrics/tenant-activity: how every signed-up tenant used the product in the last N full UTC days, against the N days before. Built from the daily usage rows (written once per day at the first maintenance run after midnight UTC), the per-tenant counters and the portal sign-in history. Operator-only (Global Admin and Global Reader). */
+export interface GetTenantActivityResponse {
+  windowDays: number;
+  /** Inclusive window start ("yyyy-MM-dd", UTC). */
+  windowStart: string;
+  /** Inclusive window end ("yyyy-MM-dd", UTC): the last day the daily usage rows cover — yesterday, or the day before while yesterday is not aggregated yet. Today is never in the window. */
+  usageDaysThrough: string;
+  /** Inclusive start of the previous window of the same length ("yyyy-MM-dd"). */
+  previousWindowStart: string;
+  /** First day the daily usage rows reach ("yyyy-MM-dd", 180 days back); a first day with sessions before it is unknown. */
+  rowsFrom: string;
+  /** False when the portal sign-in history could not be read; every portal figure is then absent. */
+  portalActivityAvailable: boolean;
+  totals: TenantActivityTotals;
+  /** One entry per window day, oldest first, days without enrollments included. */
+  daily: TenantActivityDailyItem[];
+  /** Every signed-up tenant: most enrollments in the window first, then most enrollments since signup. */
+  tenants: TenantActivityTenantItem[];
+}
+
 /** Response of GET config/fields-schema: the machine-readable tenant-config field schema for the MCP write surface. */
 export interface GetTenantConfigFieldsSchemaResponse {
   count: number;
@@ -5522,6 +5542,106 @@ export interface TemplateVariable {
   placeholder: string;
   /** Optional regex pattern to validate user input */
   validation?: string;
+}
+
+/** One UTC day of the window, summed over the signed-up tenants. */
+export interface TenantActivityDailyItem {
+  /** UTC day ("yyyy-MM-dd"). */
+  day: string;
+  enrollments: number;
+  /** Succeeded when the day was aggregated. */
+  succeeded: number;
+  /** Failed when the day was aggregated; the rest was still running or ended incomplete. */
+  failed: number;
+  /** Tenants with enrollments that day. */
+  activeTenants: number;
+}
+
+/** Tenants per lifecycle stage (TenantActivityStages). */
+export interface TenantActivityStageCounts {
+  neverEnrolled: number;
+  dormant: number;
+  new: number;
+  declining: number;
+  active: number;
+  quiet: number;
+}
+
+/** One signed-up tenant. */
+export interface TenantActivityTenantItem {
+  tenantId: string;
+  domainName: string;
+  companyName?: string;
+  /** Effective edition (TenantEditionNames). */
+  edition: string;
+  /** Lifecycle stage (TenantActivityStages). */
+  stage: string;
+  /** When the configuration row was created (the signup); absent on rows without the field. */
+  onboardedAt?: string;
+  /** Enrollment sessions started in the window. */
+  enrollments: number;
+  /** Enrollment sessions started in the previous window. */
+  enrollmentsPrevious: number;
+  /** Change against the previous window, whole percent; absent when the previous window had none. */
+  trendPercent?: number;
+  /** Of the window's enrollments, Succeeded when their day was aggregated. */
+  succeeded: number;
+  /** Of the window's enrollments, Failed when their day was aggregated. */
+  failed: number;
+  /** Succeeded / (Succeeded + Failed), whole percent; absent without a finished session. */
+  successPercent?: number;
+  /** Window days with enrollments. */
+  activeDays: number;
+  /** Enrollments per window day, oldest first; absent without enrollments in the window. */
+  dailyEnrollments?: number[];
+  /** First UTC day with sessions since signup ("yyyy-MM-dd"); absent when unknown — a signup before RowsFrom, or first sessions that only the counters have seen yet. */
+  firstEnrollmentDay?: string;
+  /** Latest UTC day with sessions ("yyyy-MM-dd"; a day after UsageDaysThrough when only the counters moved since); absent without any. */
+  lastActiveDay?: string;
+  /** When the tenant's counters last moved: an agent registration, a first success or an ingest batch — rarely a maintenance repair of the counter floors. Absent without counters. */
+  lastCounterUpdateAt?: string;
+  /** Enrollment sessions since signup (retention-independent counter). */
+  lifetimeEnrollments: number;
+  /** Sessions since signup that reached Succeeded. */
+  lifetimeSucceeded: number;
+  /** Events stored since signup. */
+  lifetimeEvents: number;
+  /** People with a portal visit in the window (counted in the home tenant of their token); absent without the sign-in history. */
+  portalUsers?: number;
+  /** Latest portal visit in the sign-in history (kept 90 days); absent without one or without the history. */
+  lastPortalVisitAt?: string;
+}
+
+/** Platform totals of the window; the tenant rows add up to them. */
+export interface TenantActivityTotals {
+  /** Configuration rows with a domain: the signups that exist today. */
+  signedUpTenants: number;
+  /** Tenants with enrollments in the window. */
+  activeTenants: number;
+  /** Tenants with enrollments in the previous window. */
+  activeTenantsPrevious: number;
+  /** Change of the active tenants against the previous window, whole percent; absent when the previous window had none. */
+  activeTenantsTrendPercent?: number;
+  /** Enrollment sessions started in the window. */
+  enrollments: number;
+  /** Enrollment sessions started in the previous window. */
+  enrollmentsPrevious: number;
+  /** Change of the enrollments against the previous window, whole percent; absent when the previous window had none. */
+  enrollmentsTrendPercent?: number;
+  /** Of the window's enrollments, Succeeded when their day was aggregated. */
+  succeeded: number;
+  /** Of the window's enrollments, Failed when their day was aggregated. */
+  failed: number;
+  /** Succeeded / (Succeeded + Failed), whole percent; absent without a finished session. */
+  successPercent?: number;
+  /** Share of the window's enrollments that the 10 tenants with the most hold, whole percent; absent without enrollments. */
+  top10SharePercent?: number;
+  /** Tenants per lifecycle stage; every signed-up tenant is in exactly one. */
+  stages: TenantActivityStageCounts;
+  /** People with a portal visit in the window, summed over the tenants; absent without the sign-in history. */
+  portalUsers?: number;
+  /** Tenants with at least one such person; absent without the sign-in history. */
+  portalTenants?: number;
 }
 
 /** Response of POST tenants/{tenantId}/admins: the created tenant member. */

@@ -45,6 +45,17 @@ namespace AutopilotMonitor.Functions.Security
         public string SourceName => Source.ToString().ToLowerInvariant();
         /// <summary>Wire spelling of <see cref="Edition"/> ("community" | "pro").</summary>
         public string EditionName => Edition.ToString().ToLowerInvariant();
+        /// <summary>
+        /// The portal's plan facet value (<see cref="TenantEditionNames"/>), by the display precedence of
+        /// <see cref="Source"/>: Msp "pro-msp", Plan "pro", Trial "pro-trial", else "community".
+        /// </summary>
+        public string FacetName => Source switch
+        {
+            EditionSource.Msp => TenantEditionNames.ProMsp,
+            EditionSource.Plan => TenantEditionNames.Pro,
+            EditionSource.Trial => TenantEditionNames.ProTrial,
+            _ => TenantEditionNames.Community,
+        };
     }
 
     /// <summary>

@@ -94,6 +94,7 @@ export function buildFleetOverview(
 }
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 import { OVERVIEW_VIEWS, shapeAccount, shapeOrganization, shapeOverview, usageWindow } from '../api-usage-shape.js';
+import { TENANT_ACTIVITY_CAPS, TENANT_ACTIVITY_VIEWS, shapeTenantActivity } from '../tenant-activity-shape.js';
 import type {
   AgentEfficiencyMetricsResponse,
   AppMetricsResponse,
@@ -110,6 +111,7 @@ import type {
   GetMcpOrganizationUsageResponse,
   GetMcpUserUsageResponse,
   GetSessionTimeAttributionResponse,
+  GetTenantActivityResponse,
   GetTenantConfigFieldsSchemaResponse,
   GetUnmatchedSoftwareResponse,
   GrowthMetricsResponse,
@@ -159,6 +161,7 @@ import {
   RULE_SUBMISSION_KINDS,
   RULE_SUBMISSION_STATUSES,
   SESSION_STATUSES,
+  TENANT_ACTIVITY_STAGES,
 } from '../generated/wire-vocabularies.generated.js';
 
 /**
@@ -1080,6 +1083,49 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_growth_metrics', args, error);
+      }
+    })
+  );
+
+  // Tool: get_tenant_activity — platform scope (GA + Global Reader). Usage per signed-up customer tenant, as on
+  // the GA page Tenant Activity. The shaping lives in tenant-activity-shape.ts; every figure is computed by the backend.
+  if (ga) server.registerTool(
+    'get_tenant_activity',
+    {
+      title: 'Tenant Activity',
+      description:
+        'Usage per signed-up customer tenant, as on the GA page Tenant Activity: the last N full UTC days through ' +
+        'window.through (yesterday, or the day before until yesterday is aggregated) against the N days before; one ' +
+        'enrollment is one session. Each tenant has one stage: neverEnrolled (no enrollment yet), dormant (enrolled, no ' +
+        'activity in the last 30 days), new (first sessions in the window), declining (at least 5 enrollments in the ' +
+        'previous window, at most half as many now), active (enrollments in the window) or quiet (active in the last 30 ' +
+        'days, not in the window). Portal users are people with a portal visit in the window, counted in the home tenant ' +
+        'of their token: an MSP admin counts in their own tenant, a service principal never. view=summary: totals, the ' +
+        'daily series, the most active tenants and the head of each lifecycle list; view=ranking: the tenants with ' +
+        'enrollments, most first; view=lifecycle: the new, declining, dormant and neverEnrolled lists, or one stage with ' +
+        'stage=. Lists are cut to a fixed number of rows; total gives the full length. null = not computable, or not ' +
+        'readable for portal figures.',
+      inputSchema: {
+        days: z.coerce.number().int().min(1).max(90).optional()
+          .describe(daysDescription(30, 90)),
+        view: z.enum(TENANT_ACTIVITY_VIEWS).optional().default('summary')
+          .describe('Default summary.'),
+        stage: z.enum(TENANT_ACTIVITY_STAGES).optional()
+          .describe(`view=lifecycle only: that one stage, up to ${TENANT_ACTIVITY_CAPS.oneStage} rows (active and quiet too).`),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_tenant_activity', args, async () => {
+      try {
+        const { days, view, stage } = args;
+        if (stage && view !== 'lifecycle') {
+          return toolError('get_tenant_activity', args, new Error(
+            `stage applies to view=lifecycle only; re-send with view=lifecycle and stage=${stage}.`));
+        }
+        const data = await apiFetch<GetTenantActivityResponse>(`/api/global/metrics/tenant-activity${buildQuery({ days })}`);
+        return toolResultText(shapeTenantActivity(data, view, stage), MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_tenant_activity', args, error);
       }
     })
   );

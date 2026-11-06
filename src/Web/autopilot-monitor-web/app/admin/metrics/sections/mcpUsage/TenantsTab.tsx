@@ -7,17 +7,11 @@ import { QuotaBar } from "@/components/QuotaBar";
 import { applicationIdOf } from "@/lib/principalKeys";
 import { tenantManagementUrl } from "@/lib/routes";
 import type { McpUsageAccountItem, McpUsageTenantItem } from "@/lib/generated/wire-types.generated";
-import {
-  formatDayKey,
-  searchTenants,
-  sortAccounts,
-  sortTenants,
-  type SortDir,
-  type TenantInfo,
-  type UsageSortKey,
-} from "./mcpUsageLogic";
-import { Chevron, EditionBadge, Figure, HitsPill, Pill, SortHeader } from "./parts";
-import { useOpenSet, useSortState } from "./useListState";
+import { formatDayKey } from "../../lib/format";
+import { useOpenSet, useSortState, type SortDir } from "../../lib/useListState";
+import { Figure, Pill, SortHeader, TenantNameCell } from "../listParts";
+import { searchTenants, sortAccounts, sortTenants, type TenantInfo, type UsageSortKey } from "./mcpUsageLogic";
+import { HitsPill } from "./parts";
 
 // One grid for the header and every tenant row from lg up; below lg the rows wrap into cards.
 const COLS = "lg:grid lg:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_9rem_9rem_7rem] lg:items-center lg:gap-4";
@@ -102,21 +96,11 @@ export function TenantsTab({ tenants, info }: { tenants: readonly McpUsageTenant
                   aria-expanded={isOpen}
                   className={`w-full text-left px-4 sm:px-6 py-3 hover:bg-gray-50 flex flex-wrap items-center gap-x-4 gap-y-2 ${COLS}`}
                 >
-                  <div className="flex min-w-0 basis-full items-start gap-2 lg:basis-auto">
-                    <span className="mt-0.5"><Chevron open={isOpen} /></span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium text-gray-900 break-all sm:break-normal sm:truncate">
-                          {t?.domainName ?? tenant.tenantId}
-                        </span>
-                        {t && <EditionBadge edition={t.edition} />}
-                        {!isDefaultPlan(tenant.quota.tenantPlan, t) && <Pill title="Usage plan set for this tenant">plan {tenant.quota.tenantPlan}</Pill>}
-                        {t?.mcpDisabled && <Pill title="MCP is closed for this tenant">MCP closed</Pill>}
-                        <HitsPill count={tenant.quotaHits} title="Quota refusals in this window" />
-                      </div>
-                      {t?.companyName && <div className="text-xs text-gray-500 truncate">{t.companyName}</div>}
-                    </div>
-                  </div>
+                  <TenantNameCell open={isOpen} name={t?.domainName ?? tenant.tenantId} edition={t?.edition} companyName={t?.companyName}>
+                    {!isDefaultPlan(tenant.quota.tenantPlan, t) && <Pill title="Usage plan set for this tenant">plan {tenant.quota.tenantPlan}</Pill>}
+                    {t?.mcpDisabled && <Pill title="MCP is closed for this tenant">MCP closed</Pill>}
+                    <HitsPill count={tenant.quotaHits} title="Quota refusals in this window" />
+                  </TenantNameCell>
                   <Figure label="Accounts" value={apps > 0 ? `${tenant.accounts.length - apps} + ${apps} app${apps === 1 ? "" : "s"}` : String(tenant.accounts.length)} />
                   <Figure label="Calls" value={tenant.calls.toLocaleString()} />
                   <Figure label="Requests" value={tenant.requests.toLocaleString()} />

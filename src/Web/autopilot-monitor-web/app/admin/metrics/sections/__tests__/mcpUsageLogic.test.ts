@@ -12,7 +12,6 @@ import {
   accountNearLimit,
   dailyChart,
   formatChars,
-  formatDayKey,
   formatDuration,
   formatShare,
   editionCounts,
@@ -250,10 +249,5 @@ describe("formatting", () => {
     expect(formatShare(0.0321)).toBe("3.2 %");
     expect(formatShare(0.25)).toBe("25 %");
     expect(formatShare(undefined)).toBe("—");
-  });
-
-  it("leaves anything but a yyyyMMdd day unchanged", () => {
-    expect(formatDayKey("2026-11-05")).toBe("2026-11-05");
-    expect(formatDayKey("20261105")).not.toBe("20261105");
   });
 });

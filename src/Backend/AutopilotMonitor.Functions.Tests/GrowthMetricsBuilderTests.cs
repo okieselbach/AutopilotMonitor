@@ -236,6 +236,26 @@ public class GrowthMetricsBuilderTests
     }
 
     [Fact]
+    public void Before_yesterday_is_aggregated_yesterdays_counters_count_as_activity_and_the_rows_end_the_day_before()
+    {
+        // Sessions yesterday after a 40-day pause; the first maintenance run after midnight has not written them yet.
+        var configs = new[] { Config('a', Utc(6, 1, 9)) };
+        var stats = new[] { Stats('a', 6, 5, Utc(10, 27, 22)) };
+        var rows = new[] { Active('a', 2026, 9, 17) };
+
+        var early = GrowthMetricsBuilder.Build(configs, stats, rows, Now, 30, TimeZoneInfo.Utc, false, NoExclusions, yesterdayAggregated: false);
+
+        Assert.Equal("2026-10-26", early.UsageDaysThrough);
+        Assert.Equal(0, early.AllTenants.Dormant);
+        Assert.Equal(1, early.AllTenants.Active7Days);
+
+        // Aggregated, yesterday has no row: the counters moved for an old session, which is no activity.
+        var later = GrowthMetricsBuilder.Build(configs, stats, rows, Now, 30, TimeZoneInfo.Utc, false, NoExclusions);
+        Assert.Equal("2026-10-27", later.UsageDaysThrough);
+        Assert.Equal(1, later.AllTenants.Dormant);
+    }
+
+    [Fact]
     public void A_peak_needs_three_signups_and_twice_the_median_of_the_two_weeks_before()
     {
         var configs = new List<TenantConfiguration>();

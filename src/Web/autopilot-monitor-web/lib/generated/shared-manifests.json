@@ -952,6 +952,20 @@
       "sentAtBatchCount"
     ]
   },
+  "tenantActivityStages": [
+    "neverEnrolled",
+    "dormant",
+    "new",
+    "declining",
+    "active",
+    "quiet"
+  ],
+  "tenantEditions": [
+    "community",
+    "pro",
+    "pro-trial",
+    "pro-msp"
+  ],
   "diagnosis": {
     "outcomes": [
       "failed",
@@ -12009,6 +12023,88 @@
           },
           "optional": true,
           "doc": "Absent when no breakdown row exists — the UI simply omits the lane."
+        }
+      ]
+    },
+    "GetTenantActivityResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/metrics/tenant-activity: how every signed-up tenant used the product in the last N full UTC days, against the N days before. Built from the daily usage rows (written once per day at the first maintenance run after midnight UTC), the per-tenant counters and the portal sign-in history. Operator-only (Global Admin and Global Reader).",
+      "fields": [
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window start (\"yyyy-MM-dd\", UTC)."
+        },
+        {
+          "name": "usageDaysThrough",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window end (\"yyyy-MM-dd\", UTC): the last day the daily usage rows cover — yesterday, or the day before while yesterday is not aggregated yet. Today is never in the window."
+        },
+        {
+          "name": "previousWindowStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive start of the previous window of the same length (\"yyyy-MM-dd\")."
+        },
+        {
+          "name": "rowsFrom",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "First day the daily usage rows reach (\"yyyy-MM-dd\", 180 days back); a first day with sessions before it is unknown."
+        },
+        {
+          "name": "portalActivityAvailable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "False when the portal sign-in history could not be read; every portal figure is then absent."
+        },
+        {
+          "name": "totals",
+          "type": {
+            "kind": "ref",
+            "name": "TenantActivityTotals"
+          }
+        },
+        {
+          "name": "daily",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TenantActivityDailyItem"
+            }
+          },
+          "doc": "One entry per window day, oldest first, days without enrollments included."
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TenantActivityTenantItem"
+            }
+          },
+          "doc": "Every signed-up tenant: most enrollments in the window first, then most enrollments since signup."
         }
       ]
     },
@@ -25263,6 +25359,415 @@
           },
           "optional": true,
           "doc": "Optional regex pattern to validate user input"
+        }
+      ]
+    },
+    "TenantActivityDailyItem": {
+      "kind": "object",
+      "doc": "One UTC day of the window, summed over the signed-up tenants.",
+      "fields": [
+        {
+          "name": "day",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UTC day (\"yyyy-MM-dd\")."
+        },
+        {
+          "name": "enrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Succeeded when the day was aggregated."
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Failed when the day was aggregated; the rest was still running or ended incomplete."
+        },
+        {
+          "name": "activeTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Tenants with enrollments that day."
+        }
+      ]
+    },
+    "TenantActivityStageCounts": {
+      "kind": "object",
+      "doc": "Tenants per lifecycle stage (TenantActivityStages).",
+      "fields": [
+        {
+          "name": "neverEnrolled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "dormant",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "new",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "declining",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "active",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "quiet",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "TenantActivityTenantItem": {
+      "kind": "object",
+      "doc": "One signed-up tenant.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "domainName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "companyName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "edition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Effective edition (TenantEditionNames)."
+        },
+        {
+          "name": "stage",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Lifecycle stage (TenantActivityStages)."
+        },
+        {
+          "name": "onboardedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the configuration row was created (the signup); absent on rows without the field."
+        },
+        {
+          "name": "enrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrollment sessions started in the window."
+        },
+        {
+          "name": "enrollmentsPrevious",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrollment sessions started in the previous window."
+        },
+        {
+          "name": "trendPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Change against the previous window, whole percent; absent when the previous window had none."
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Of the window's enrollments, Succeeded when their day was aggregated."
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Of the window's enrollments, Failed when their day was aggregated."
+        },
+        {
+          "name": "successPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Succeeded / (Succeeded + Failed), whole percent; absent without a finished session."
+        },
+        {
+          "name": "activeDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Window days with enrollments."
+        },
+        {
+          "name": "dailyEnrollments",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "optional": true,
+          "doc": "Enrollments per window day, oldest first; absent without enrollments in the window."
+        },
+        {
+          "name": "firstEnrollmentDay",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "First UTC day with sessions since signup (\"yyyy-MM-dd\"); absent when unknown — a signup before RowsFrom, or first sessions that only the counters have seen yet."
+        },
+        {
+          "name": "lastActiveDay",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Latest UTC day with sessions (\"yyyy-MM-dd\"; a day after UsageDaysThrough when only the counters moved since); absent without any."
+        },
+        {
+          "name": "lastCounterUpdateAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the tenant's counters last moved: an agent registration, a first success or an ingest batch — rarely a maintenance repair of the counter floors. Absent without counters."
+        },
+        {
+          "name": "lifetimeEnrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrollment sessions since signup (retention-independent counter)."
+        },
+        {
+          "name": "lifetimeSucceeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions since signup that reached Succeeded."
+        },
+        {
+          "name": "lifetimeEvents",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Events stored since signup."
+        },
+        {
+          "name": "portalUsers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "People with a portal visit in the window (counted in the home tenant of their token); absent without the sign-in history."
+        },
+        {
+          "name": "lastPortalVisitAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Latest portal visit in the sign-in history (kept 90 days); absent without one or without the history."
+        }
+      ]
+    },
+    "TenantActivityTotals": {
+      "kind": "object",
+      "doc": "Platform totals of the window; the tenant rows add up to them.",
+      "fields": [
+        {
+          "name": "signedUpTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Configuration rows with a domain: the signups that exist today."
+        },
+        {
+          "name": "activeTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Tenants with enrollments in the window."
+        },
+        {
+          "name": "activeTenantsPrevious",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Tenants with enrollments in the previous window."
+        },
+        {
+          "name": "activeTenantsTrendPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Change of the active tenants against the previous window, whole percent; absent when the previous window had none."
+        },
+        {
+          "name": "enrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrollment sessions started in the window."
+        },
+        {
+          "name": "enrollmentsPrevious",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Enrollment sessions started in the previous window."
+        },
+        {
+          "name": "enrollmentsTrendPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Change of the enrollments against the previous window, whole percent; absent when the previous window had none."
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Of the window's enrollments, Succeeded when their day was aggregated."
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Of the window's enrollments, Failed when their day was aggregated."
+        },
+        {
+          "name": "successPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Succeeded / (Succeeded + Failed), whole percent; absent without a finished session."
+        },
+        {
+          "name": "top10SharePercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Share of the window's enrollments that the 10 tenants with the most hold, whole percent; absent without enrollments."
+        },
+        {
+          "name": "stages",
+          "type": {
+            "kind": "ref",
+            "name": "TenantActivityStageCounts"
+          },
+          "doc": "Tenants per lifecycle stage; every signed-up tenant is in exactly one."
+        },
+        {
+          "name": "portalUsers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "People with a portal visit in the window, summed over the tenants; absent without the sign-in history."
+        },
+        {
+          "name": "portalTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenants with at least one such person; absent without the sign-in history."
         }
       ]
     },

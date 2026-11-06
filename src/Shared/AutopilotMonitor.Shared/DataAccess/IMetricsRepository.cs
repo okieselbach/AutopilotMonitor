@@ -104,6 +104,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// validated tokens, which is what makes them usable as an identity-binding source.
         /// </summary>
         Task<List<UserSignInIdentity>> GetSignInIdentitiesByUpnAsync(string upn);
+        /// <summary>
+        /// Every portal visit of a person since <paramref name="sinceUtc"/>, from the UserActivity sign-in history
+        /// (one cross-partition scan filtered on LoginAt; the table keeps 90 days). Service principals and rows
+        /// without any identity are left out. Not fail-soft: the caller decides how to report a missing history.
+        /// </summary>
+        Task<List<PortalVisit>> GetPortalVisitsSinceAsync(DateTime sinceUtc);
 
         // --- Live Presence (one row per user, upserted) ---
         /// <summary>Upserts the caller's presence row (PK=tenantId, RK=SHA-256(lowercase UPN) hex) with LastSeen=now.</summary>
