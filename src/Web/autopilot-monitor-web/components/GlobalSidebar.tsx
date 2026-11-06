@@ -13,6 +13,7 @@ import { useAdminMode } from "../hooks/useAdminMode";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { DOCS_URL } from "@/lib/config";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
+import { viewAsBarHeight } from "@/lib/viewAs";
 
 // Sidebar pixel widths
 export const SIDEBAR_PX: Record<CollapseState, number> = {
@@ -75,7 +76,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           }
         }
       },
-      { rootMargin: "-80px 0px -60% 0px", threshold: 0 },
+      // The top 80 px are the navbar plus a margin; a view-as bar above the navbar adds its own height.
+      { rootMargin: `-${80 + viewAsBarHeight()}px 0px -60% 0px`, threshold: 0 },
     );
 
     observerRef.current = observer;
@@ -104,7 +106,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   const scrollTo = useCallback((id: string) => {
     const el = document.getElementById(id);
     if (el) {
-      const y = el.getBoundingClientRect().top + window.scrollY - 90;
+      // 90 px keep the section clear of the navbar; a view-as bar above the navbar adds its own height.
+      const y = el.getBoundingClientRect().top + window.scrollY - 90 - viewAsBarHeight();
       window.scrollTo({ top: y, behavior: "smooth" });
     }
     setActiveSectionId(id);
@@ -726,7 +729,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
       {/* ===== Desktop: fixed sidebar ===== */}
       <aside
-        className={`hidden md:flex fixed left-0 ${hasNavbar ? "top-14" : "top-0"} bottom-0 z-20 flex-col transition-all duration-200 ease-in-out overflow-hidden ${sidebarWidthClass[collapseState]}`}
+        className={`hidden md:flex fixed left-0 ${hasNavbar ? "top-[calc(3.5rem+var(--view-as-offset))]" : "top-[var(--view-as-offset)]"} bottom-0 z-20 flex-col transition-all duration-200 ease-in-out overflow-hidden ${sidebarWidthClass[collapseState]}`}
       >
         {collapseState !== "hidden" && (
           <nav className="flex flex-col h-full bg-white border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700">

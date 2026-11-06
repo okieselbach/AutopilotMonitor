@@ -144,7 +144,7 @@ export default function Navbar() {
   // scope → gets the full navbar.
   if (!isAdminOrOperator && !isViewer && !hasGlobalScope) {
     return (
-      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-[var(--view-as-offset)] z-30">
         <div className="px-3">
           <div className="flex justify-between h-14">
             <div className="flex items-center">
@@ -193,7 +193,7 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
+    <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-[var(--view-as-offset)] z-30">
       <div className="px-3">
         <div className="flex justify-between h-14">
           {/* Logo and Title */}
@@ -272,7 +272,7 @@ export default function Navbar() {
                   (!!user?.isGlobalAdmin && visibleGlobal.length > 0);
 
                 return (
-                <div className="fixed sm:absolute top-16 sm:top-auto left-2 right-2 sm:left-auto sm:right-0 mt-0 sm:mt-2 sm:w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-[calc(100vh-5rem)] sm:max-h-96 overflow-hidden flex flex-col">
+                <div className="fixed sm:absolute top-[calc(4rem+var(--view-as-offset))] sm:top-auto left-2 right-2 sm:left-auto sm:right-0 mt-0 sm:mt-2 sm:w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-[calc(100vh-5rem-var(--view-as-offset))] sm:max-h-96 overflow-hidden flex flex-col">
                   <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
                     <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
                     {(unreadCount > 0 || hasClearable) && (
