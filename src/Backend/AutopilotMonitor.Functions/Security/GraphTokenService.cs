@@ -9,8 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -304,13 +303,12 @@ namespace AutopilotMonitor.Functions.Security
 
                     if (response.IsSuccessStatusCode)
                     {
-                        var tokenJson = JsonConvert.DeserializeObject<JObject>(responseBody);
-                        var accessToken = tokenJson?["access_token"]?.ToString();
+                        var (accessToken, expiresInSeconds) = ReadTokenResponse(responseBody);
                         if (!string.IsNullOrEmpty(accessToken))
                         {
                             // Cache the freshly minted token (never log its value). TTL derives from
                             // the token's own expires_in, minus a skew margin, clamped to a safe band.
-                            CacheToken(tenantId, clientId, accessToken!, genAtStart, (long?)tokenJson?["expires_in"]);
+                            CacheToken(tenantId, clientId, accessToken!, genAtStart, expiresInSeconds);
                         }
                         return GraphTokenResult.Minted(accessToken);
                     }
@@ -468,12 +466,26 @@ namespace AutopilotMonitor.Functions.Security
             return false;
         }
 
+        /// <summary>
+        /// Reads a successful token response: the access token, and expires_in only when a token came
+        /// back. A body that is not a JSON object throws <see cref="System.Text.Json.JsonException"/>, which the
+        /// retry loop does not catch: it leaves the token service like any other unexpected failure.
+        /// </summary>
+        internal static (string? AccessToken, long? ExpiresInSeconds) ReadTokenResponse(string responseBody)
+        {
+            if (UpstreamJson.ParseObjectOrNull(responseBody) is not { } tokenJson)
+                return (null, null);
+            var accessToken = UpstreamJson.GetString(tokenJson, "access_token");
+            return string.IsNullOrEmpty(accessToken) ? (accessToken, null) : (accessToken, UpstreamJson.GetInt64(tokenJson, "expires_in"));
+        }
+
         private void CacheToken(string tenantId, string clientId, string accessToken, long genAtStart, long? expiresInSeconds)
         {
             // expires_in is reported by AAD over TLS, so it is trustworthy — but still clamped so a
             // missing or pathological value cannot pin a stale token (cap) or cause thrash (floor).
+            // The seconds are capped before the conversion: a TimeSpan cannot hold the far end of a long.
             var lifetime = expiresInSeconds is > 0
-                ? TimeSpan.FromSeconds(expiresInSeconds.Value)
+                ? TimeSpan.FromSeconds(Math.Min(expiresInSeconds.Value, (long)(MaxTokenTtl + TokenSkewMargin).TotalSeconds))
                 : DefaultTokenLifetime;
             var ttl = lifetime - TokenSkewMargin;
             if (ttl < MinTokenTtl) ttl = MinTokenTtl;

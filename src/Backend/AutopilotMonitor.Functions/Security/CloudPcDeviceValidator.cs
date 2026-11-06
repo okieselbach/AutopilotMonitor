@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -245,35 +245,34 @@ namespace AutopilotMonitor.Functions.Security
                 ErrorMessage = $"Device '{normalizedId}' is not a Windows 365 Cloud PC in this tenant"
             };
 
-            JObject? data;
+            JsonElement? data;
             try
             {
-                data = JsonConvert.DeserializeObject<JObject>(responseBody);
+                data = UpstreamJson.ParseObjectOrNull(responseBody);
             }
             catch (JsonException)
             {
                 return notFound;
             }
 
-            var cloudPcs = data?["value"] as JArray;
-            if (cloudPcs == null || cloudPcs.Count == 0)
+            if (data is not { } json)
                 return notFound;
 
-            var match = cloudPcs.FirstOrDefault(c => string.Equals(
-                c?["managedDeviceId"]?.ToString()?.Trim(),
+            var match = UpstreamJson.Items(json, "value").FirstOrDefault(c => string.Equals(
+                UpstreamJson.GetString(c, "managedDeviceId")?.Trim(),
                 normalizedId,
                 StringComparison.OrdinalIgnoreCase));
 
-            if (match == null)
+            if (match.ValueKind == JsonValueKind.Undefined)
                 return notFound;
 
             return new CloudPcValidationResult
             {
                 IsValid = true,
                 IntuneDeviceId = normalizedId,
-                CloudPcId = match["id"]?.ToString(),
-                ManagedDeviceName = match["managedDeviceName"]?.ToString(),
-                ServicePlanName = match["servicePlanName"]?.ToString()
+                CloudPcId = UpstreamJson.GetString(match, "id"),
+                ManagedDeviceName = UpstreamJson.GetString(match, "managedDeviceName"),
+                ServicePlanName = UpstreamJson.GetString(match, "servicePlanName")
             };
         }
 

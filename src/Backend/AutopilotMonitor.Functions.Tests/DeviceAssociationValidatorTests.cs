@@ -101,9 +101,8 @@ public class DeviceAssociationValidatorTests
         Assert.Equal("preassociated", result.AssociationState);
         Assert.Equal("00000000-0000-0000-0000-000000000000", result.DevicePreparationPolicyId);
         Assert.Equal("admin@contoso.com", result.PreAssociatedByUserPrincipalName);
-        // Newtonsoft.Json yields "" for JSON null when calling .ToString() on the JToken;
-        // downstream telemetry uses IsNullOrEmpty so both null and "" surface as "absent".
-        Assert.True(string.IsNullOrEmpty(result.AssignedToUserPrincipalName));
+        // JSON null is absence (D-420); the former Newtonsoft reader turned it into "".
+        Assert.Null(result.AssignedToUserPrincipalName);
         Assert.NotNull(result.PreAssociationDateTime);
         Assert.Null(result.AssociationDateTime); // Graph "0001-01-01" → null (unset DateTimeOffset sentinel)
     }

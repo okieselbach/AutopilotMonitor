@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Functions.Services;
@@ -218,10 +219,12 @@ public class AutopilotDeviceValidatorTests
 
     private const string Upn = "first.last@example.invalid";
 
+    private static JsonElement Device(string json) => JsonSerializer.Deserialize<JsonElement>(json);
+
     [Fact]
     public void ReadRegistration_MapsTheKeptFields_AndKeepsOnlyWhetherAUserIsAssigned()
     {
-        var device = Newtonsoft.Json.Linq.JObject.Parse(
+        var device = Device(
             "{\"id\":\"ap-1\",\"groupTag\":\" TEST \",\"purchaseOrderIdentifier\":\"PO-7\",\"displayName\":\"LAB-01\"," +
             $"\"userPrincipalName\":\"{Upn}\",\"addressableUserName\":\"First Last\",\"productKey\":\"AAAAA-BBBBB\"}}");
 
@@ -241,7 +244,7 @@ public class AutopilotDeviceValidatorTests
     [Fact]
     public void ReadRegistration_TreatsBlankMissingAndNonTextValuesAsAbsent()
     {
-        var device = Newtonsoft.Json.Linq.JObject.Parse(
+        var device = Device(
             "{\"id\":\"ap-1\",\"groupTag\":\"   \",\"purchaseOrderIdentifier\":null,\"displayName\":42,\"userPrincipalName\":\"\"}");
 
         var registration = AutopilotDeviceValidator.ReadRegistration(device);
@@ -256,7 +259,7 @@ public class AutopilotDeviceValidatorTests
     public void ReadRegistration_CutsOverlongText()
     {
         var longTag = new string('x', AutopilotDeviceValidator.MaxRegistrationFieldLength + 50);
-        var device = Newtonsoft.Json.Linq.JObject.Parse($"{{\"id\":\"ap-1\",\"groupTag\":\"{longTag}\"}}");
+        var device = Device($"{{\"id\":\"ap-1\",\"groupTag\":\"{longTag}\"}}");
 
         Assert.Equal(AutopilotDeviceValidator.MaxRegistrationFieldLength, AutopilotDeviceValidator.ReadRegistration(device).GroupTag!.Length);
     }

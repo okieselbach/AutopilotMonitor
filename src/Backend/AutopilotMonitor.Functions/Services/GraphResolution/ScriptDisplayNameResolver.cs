@@ -12,7 +12,8 @@ using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services.GraphResolution;
 
@@ -204,8 +205,10 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 {
                     await WriteCacheEntryAsync(tenantId, r, displayName: null, fileName: null, notFound: true, budget).ConfigureAwait(false);
                 }
-                else if (displayName != null)
+                else
                 {
+                    // A 200 answers for good even without a name: cached like the full pull caches it, a nameless
+                    // script costs no Graph call on every view until the next full pull.
                     result[r] = displayName;
                     await WriteCacheEntryAsync(tenantId, r, displayName, fileName: null, notFound: false, budget).ConfigureAwait(false);
                 }
@@ -284,15 +287,9 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 throw new HttpRequestException($"Graph LIST {url} returned {(int)status}");
             }
 
-            var json = JObject.Parse(body);
-            var values = json["value"] as JArray ?? new JArray();
-            foreach (var item in values.OfType<JObject>())
+            var (scripts, nextUrl) = ReadScriptPage(body, withFileName: kind == ScriptKind.Platform);
+            foreach (var (id, displayName, fileName) in scripts)
             {
-                var id = item["id"]?.ToString();
-                if (string.IsNullOrEmpty(id)) continue;
-
-                var displayName = item["displayName"]?.ToString();
-                var fileName = kind == ScriptKind.Platform ? item["fileName"]?.ToString() : null;
                 entries.Add(new ScriptDisplayNameEntry
                 {
                     TenantId = tenantId,
@@ -314,7 +311,7 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 }
             }
 
-            url = json["@odata.nextLink"]?.ToString();
+            url = nextUrl;
         }
 
         if (entries.Count > 0)
@@ -352,9 +349,37 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
             throw new HttpRequestException($"Graph GET {url} returned {(int)status}");
         }
 
-        var json = JObject.Parse(body);
-        return (json["displayName"]?.ToString(), false);
+        return (ReadScriptDisplayName(body), false);
     }
+
+    /// <summary>
+    /// Reads one page of a script list: id, display name and (platform scripts only) file name of
+    /// every object entry with an id, plus the next page's url. A body that is not a JSON object
+    /// throws, which ends the full pull and falls back to per-ID lookups.
+    /// </summary>
+    internal static (List<ScriptListItem> Scripts, string? NextUrl) ReadScriptPage(string body, bool withFileName)
+    {
+        var json = ParseScriptObject(body);
+        var scripts = new List<ScriptListItem>();
+        foreach (var item in UpstreamJson.Items(json, "value").Where(i => i.ValueKind == JsonValueKind.Object))
+        {
+            var id = UpstreamJson.GetString(item, "id");
+            if (string.IsNullOrEmpty(id)) continue;
+            scripts.Add(new ScriptListItem(id!, UpstreamJson.GetString(item, "displayName"),
+                withFileName ? UpstreamJson.GetString(item, "fileName") : null));
+        }
+        return (scripts, UpstreamJson.GetNextLink(json));
+    }
+
+    /// <summary>Reads the display name of a single-script GET; a body that is not a JSON object throws.</summary>
+    internal static string? ReadScriptDisplayName(string body) => UpstreamJson.GetString(ParseScriptObject(body), "displayName");
+
+    // An empty or null body must throw like any other unreadable one: the full pull then falls back to
+    // per-ID lookups instead of recording the list as fetched.
+    private static JsonElement ParseScriptObject(string body)
+        => UpstreamJson.ParseObjectOrNull(body) ?? throw new JsonException("The Graph script response is empty or null.");
+
+    internal readonly record struct ScriptListItem(string Id, string? DisplayName, string? FileName);
 
     private async Task WriteCacheEntryAsync(
         string tenantId, ScriptRef r, string? displayName, string? fileName, bool notFound, CancellationToken ct)

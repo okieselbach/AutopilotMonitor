@@ -7,8 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -185,27 +185,8 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
-                var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-                var devices = data?["value"] as JArray;
-                if (devices == null || devices.Count == 0)
-                {
-                    // Definitive: device not found — cache negative result
-                    return CacheAndReturn(cacheKey, new AutopilotDeviceValidationResult
-                    {
-                        IsValid = false,
-                        SerialNumber = normalizedSerial,
-                        ErrorMessage = $"Device with serial '{normalizedSerial}' is not registered in Autopilot"
-                    }, isPositive: false);
-                }
-
-                // Exact-match guard to avoid false positives from contains(...)
-                var exactDevice = devices
-                    .FirstOrDefault(d => string.Equals(
-                        d?["serialNumber"]?.ToString()?.Trim(),
-                        normalizedSerial,
-                        StringComparison.OrdinalIgnoreCase));
-
-                if (exactDevice == null)
+                var registration = FindRegistration(responseBody, normalizedSerial);
+                if (registration == null)
                 {
                     // Definitive: device not found — cache negative result
                     return CacheAndReturn(cacheKey, new AutopilotDeviceValidationResult
@@ -220,7 +201,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     IsValid = true,
                     SerialNumber = normalizedSerial,
-                    Registration = ReadRegistration(exactDevice)
+                    Registration = registration
                 };
 
                 _logger.LogInformation(
@@ -272,6 +253,25 @@ namespace AutopilotMonitor.Functions.Security
             return $"autopilot-device-validation:{tenantId}:{serialNumber}";
         }
 
+        /// <summary>
+        /// Reads a windowsAutopilotDeviceIdentities list: the registration of the device whose serial
+        /// equals <paramref name="normalizedSerial"/> exactly (the $filter only narrows with contains),
+        /// or null when there is none. A body that is not a JSON object, or a non-object entry met
+        /// before the match, throws; the caller treats that as transient.
+        /// </summary>
+        internal static AutopilotRegistration? FindRegistration(string responseBody, string normalizedSerial)
+        {
+            if (UpstreamJson.ParseObjectOrNull(responseBody) is not { } data)
+                return null;
+
+            var exactDevice = UpstreamJson.Items(data, "value")
+                .FirstOrDefault(d => string.Equals(
+                    UpstreamJson.GetString(d, "serialNumber")?.Trim(),
+                    normalizedSerial,
+                    StringComparison.OrdinalIgnoreCase));
+            return exactDevice.ValueKind == JsonValueKind.Undefined ? null : ReadRegistration(exactDevice);
+        }
+
         /// <summary>Longest registration text a session keeps; anything beyond is cut.</summary>
         internal const int MaxRegistrationFieldLength = 256;
 
@@ -280,18 +280,18 @@ namespace AutopilotMonitor.Functions.Security
         /// assigned user's UPN is only tested for presence and never leaves this method; productKey is
         /// never read.
         /// </summary>
-        internal static AutopilotRegistration ReadRegistration(JToken device) => new AutopilotRegistration
+        internal static AutopilotRegistration ReadRegistration(JsonElement device) => new AutopilotRegistration
         {
-            DeviceId = RegistrationText(device["id"]),
-            GroupTag = RegistrationText(device["groupTag"]),
-            PurchaseOrderId = RegistrationText(device["purchaseOrderIdentifier"]),
-            DisplayName = RegistrationText(device["displayName"]),
-            UserAssigned = RegistrationText(device["userPrincipalName"]) != null,
+            DeviceId = RegistrationText(device, "id"),
+            GroupTag = RegistrationText(device, "groupTag"),
+            PurchaseOrderId = RegistrationText(device, "purchaseOrderIdentifier"),
+            DisplayName = RegistrationText(device, "displayName"),
+            UserAssigned = RegistrationText(device, "userPrincipalName") != null,
         };
 
-        private static string? RegistrationText(JToken? token)
+        private static string? RegistrationText(JsonElement device, string name)
         {
-            var value = token?.Type == JTokenType.String ? ((string?)token)?.Trim() : null;
+            var value = UpstreamJson.GetString(device, name)?.Trim();
             if (string.IsNullOrEmpty(value))
                 return null;
             return value!.Length > MaxRegistrationFieldLength ? value.Substring(0, MaxRegistrationFieldLength) : value;

@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -39,16 +39,15 @@ namespace AutopilotMonitor.Functions.Security
         public static EntraTokenRejection Parse(int statusCode, string? body)
         {
             var json = TryParseObject(body);
-            var description = (json?["error_description"] as JValue)?.Value as string;
+            var description = json is { } root ? UpstreamJson.GetString(root, "error_description") : null;
             return new EntraTokenRejection(statusCode, ReadCode(json, description), Shorten(description));
         }
 
-        private static JObject? TryParseObject(string? body)
+        private static JsonElement? TryParseObject(string? body)
         {
-            if (string.IsNullOrWhiteSpace(body)) return null;
             try
             {
-                return JsonConvert.DeserializeObject<JToken>(body) as JObject;
+                return UpstreamJson.ParseObjectOrNull(body);
             }
             catch (JsonException)
             {
@@ -56,10 +55,17 @@ namespace AutopilotMonitor.Functions.Security
             }
         }
 
-        private static string? ReadCode(JObject? json, string? description)
+        private static string? ReadCode(JsonElement? json, string? description)
         {
-            var first = (json?["error_codes"] as JArray)?.FirstOrDefault(t => t.Type == JTokenType.Integer);
-            if (first != null) return CodePrefix + first.Value<long>();
+            if (json is { } root)
+            {
+                // The first whole number that fits Int64; text, fractions and larger numbers are skipped.
+                foreach (var code in UpstreamJson.Items(root, "error_codes"))
+                {
+                    if (code.ValueKind == JsonValueKind.Number && code.TryGetInt64(out var value))
+                        return CodePrefix + value;
+                }
+            }
 
             // Fallback for a body without error_codes: the description starts with the code.
             var start = description?.IndexOf(CodePrefix, StringComparison.Ordinal) ?? -1;
