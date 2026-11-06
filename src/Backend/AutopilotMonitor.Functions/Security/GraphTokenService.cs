@@ -304,13 +304,12 @@ namespace AutopilotMonitor.Functions.Security
 
                     if (response.IsSuccessStatusCode)
                     {
-                        var tokenJson = JsonConvert.DeserializeObject<JObject>(responseBody);
-                        var accessToken = tokenJson?["access_token"]?.ToString();
+                        var (accessToken, expiresInSeconds) = ReadTokenResponse(responseBody);
                         if (!string.IsNullOrEmpty(accessToken))
                         {
                             // Cache the freshly minted token (never log its value). TTL derives from
                             // the token's own expires_in, minus a skew margin, clamped to a safe band.
-                            CacheToken(tenantId, clientId, accessToken!, genAtStart, (long?)tokenJson?["expires_in"]);
+                            CacheToken(tenantId, clientId, accessToken!, genAtStart, expiresInSeconds);
                         }
                         return GraphTokenResult.Minted(accessToken);
                     }
@@ -466,6 +465,17 @@ namespace AutopilotMonitor.Functions.Security
             }
             token = string.Empty;
             return false;
+        }
+
+        /// <summary>
+        /// Reads a successful token response: the access token, and expires_in only when a token came
+        /// back. A body that is not a JSON object throws; the caller's retry loop handles it.
+        /// </summary>
+        internal static (string? AccessToken, long? ExpiresInSeconds) ReadTokenResponse(string responseBody)
+        {
+            var tokenJson = JsonConvert.DeserializeObject<JObject>(responseBody);
+            var accessToken = tokenJson?["access_token"]?.ToString();
+            return string.IsNullOrEmpty(accessToken) ? (accessToken, null) : (accessToken, (long?)tokenJson?["expires_in"]);
         }
 
         private void CacheToken(string tenantId, string clientId, string accessToken, long genAtStart, long? expiresInSeconds)

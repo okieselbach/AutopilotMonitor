@@ -284,15 +284,9 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 throw new HttpRequestException($"Graph LIST {url} returned {(int)status}");
             }
 
-            var json = JObject.Parse(body);
-            var values = json["value"] as JArray ?? new JArray();
-            foreach (var item in values.OfType<JObject>())
+            var (scripts, nextUrl) = ReadScriptPage(body, withFileName: kind == ScriptKind.Platform);
+            foreach (var (id, displayName, fileName) in scripts)
             {
-                var id = item["id"]?.ToString();
-                if (string.IsNullOrEmpty(id)) continue;
-
-                var displayName = item["displayName"]?.ToString();
-                var fileName = kind == ScriptKind.Platform ? item["fileName"]?.ToString() : null;
                 entries.Add(new ScriptDisplayNameEntry
                 {
                     TenantId = tenantId,
@@ -314,7 +308,7 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 }
             }
 
-            url = json["@odata.nextLink"]?.ToString();
+            url = nextUrl;
         }
 
         if (entries.Count > 0)
@@ -352,9 +346,32 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
             throw new HttpRequestException($"Graph GET {url} returned {(int)status}");
         }
 
-        var json = JObject.Parse(body);
-        return (json["displayName"]?.ToString(), false);
+        return (ReadScriptDisplayName(body), false);
     }
+
+    /// <summary>
+    /// Reads one page of a script list: id, display name and (platform scripts only) file name of
+    /// every object entry with an id, plus the next page's url. A body that is not a JSON object
+    /// throws, which ends the full pull and falls back to per-ID lookups.
+    /// </summary>
+    internal static (List<ScriptListItem> Scripts, string? NextUrl) ReadScriptPage(string body, bool withFileName)
+    {
+        var json = JObject.Parse(body);
+        var values = json["value"] as JArray ?? new JArray();
+        var scripts = new List<ScriptListItem>();
+        foreach (var item in values.OfType<JObject>())
+        {
+            var id = item["id"]?.ToString();
+            if (string.IsNullOrEmpty(id)) continue;
+            scripts.Add(new ScriptListItem(id!, item["displayName"]?.ToString(), withFileName ? item["fileName"]?.ToString() : null));
+        }
+        return (scripts, json["@odata.nextLink"]?.ToString());
+    }
+
+    /// <summary>Reads the display name of a single-script GET; a body that is not a JSON object throws.</summary>
+    internal static string? ReadScriptDisplayName(string body) => JObject.Parse(body)["displayName"]?.ToString();
+
+    internal readonly record struct ScriptListItem(string Id, string? DisplayName, string? FileName);
 
     private async Task WriteCacheEntryAsync(
         string tenantId, ScriptRef r, string? displayName, string? fileName, bool notFound, CancellationToken ct)

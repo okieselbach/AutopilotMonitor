@@ -301,24 +301,11 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
-                var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-                var identities = data?["value"] as JArray;
-                if (identities != null)
-                {
-                    foreach (var identity in identities)
-                    {
-                        var type = identity?["importedDeviceIdentityType"]?.ToString();
-                        var value = identity?["importedDeviceIdentifier"]?.ToString();
-                        if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
-                            && value != null
-                            && string.Equals(NormalizeStoredIdentifier(value), normalizedIdentifier, StringComparison.Ordinal))
-                        {
-                            return new ScanResult(ScanOutcome.Found);
-                        }
-                    }
-                }
+                var (found, nextUrl) = ReadIdentityPage(responseBody, normalizedIdentifier);
+                if (found)
+                    return new ScanResult(ScanOutcome.Found);
 
-                url = data?["@odata.nextLink"]?.ToString() ?? string.Empty;
+                url = nextUrl;
             }
 
             if (!string.IsNullOrEmpty(url))
@@ -332,6 +319,33 @@ namespace AutopilotMonitor.Functions.Security
             }
 
             return new ScanResult(ScanOutcome.NotFound);
+        }
+
+        /// <summary>
+        /// Reads one importedDeviceIdentities page: whether a manufacturerModelSerial identity on it
+        /// normalizes to <paramref name="normalizedIdentifier"/>, and otherwise the next page's url
+        /// (empty when the scan ends). A body that is not a JSON object, or a non-object entry met
+        /// before the match, throws; the caller treats that as transient.
+        /// </summary>
+        internal static (bool Found, string NextUrl) ReadIdentityPage(string responseBody, string normalizedIdentifier)
+        {
+            var data = JsonConvert.DeserializeObject<JObject>(responseBody);
+            if (data?["value"] is JArray identities)
+            {
+                foreach (var identity in identities)
+                {
+                    var type = identity?["importedDeviceIdentityType"]?.ToString();
+                    var value = identity?["importedDeviceIdentifier"]?.ToString();
+                    if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
+                        && value != null
+                        && string.Equals(NormalizeStoredIdentifier(value), normalizedIdentifier, StringComparison.Ordinal))
+                    {
+                        return (true, string.Empty);
+                    }
+                }
+            }
+
+            return (false, data?["@odata.nextLink"]?.ToString() ?? string.Empty);
         }
 
         /// <summary>

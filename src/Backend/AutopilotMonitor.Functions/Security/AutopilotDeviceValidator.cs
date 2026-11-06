@@ -185,27 +185,8 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
-                var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-                var devices = data?["value"] as JArray;
-                if (devices == null || devices.Count == 0)
-                {
-                    // Definitive: device not found — cache negative result
-                    return CacheAndReturn(cacheKey, new AutopilotDeviceValidationResult
-                    {
-                        IsValid = false,
-                        SerialNumber = normalizedSerial,
-                        ErrorMessage = $"Device with serial '{normalizedSerial}' is not registered in Autopilot"
-                    }, isPositive: false);
-                }
-
-                // Exact-match guard to avoid false positives from contains(...)
-                var exactDevice = devices
-                    .FirstOrDefault(d => string.Equals(
-                        d?["serialNumber"]?.ToString()?.Trim(),
-                        normalizedSerial,
-                        StringComparison.OrdinalIgnoreCase));
-
-                if (exactDevice == null)
+                var registration = FindRegistration(responseBody, normalizedSerial);
+                if (registration == null)
                 {
                     // Definitive: device not found — cache negative result
                     return CacheAndReturn(cacheKey, new AutopilotDeviceValidationResult
@@ -220,7 +201,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     IsValid = true,
                     SerialNumber = normalizedSerial,
-                    Registration = ReadRegistration(exactDevice)
+                    Registration = registration
                 };
 
                 _logger.LogInformation(
@@ -270,6 +251,26 @@ namespace AutopilotMonitor.Functions.Security
         private static string BuildCacheKey(string tenantId, string serialNumber)
         {
             return $"autopilot-device-validation:{tenantId}:{serialNumber}";
+        }
+
+        /// <summary>
+        /// Reads a windowsAutopilotDeviceIdentities list: the registration of the device whose serial
+        /// equals <paramref name="normalizedSerial"/> exactly (the $filter only narrows with contains),
+        /// or null when there is none. A body that is not a JSON object, or a non-object entry met
+        /// before the match, throws; the caller treats that as transient.
+        /// </summary>
+        internal static AutopilotRegistration? FindRegistration(string responseBody, string normalizedSerial)
+        {
+            var data = JsonConvert.DeserializeObject<JObject>(responseBody);
+            if (data?["value"] is not JArray devices || devices.Count == 0)
+                return null;
+
+            var exactDevice = devices
+                .FirstOrDefault(d => string.Equals(
+                    d?["serialNumber"]?.ToString()?.Trim(),
+                    normalizedSerial,
+                    StringComparison.OrdinalIgnoreCase));
+            return exactDevice == null ? null : ReadRegistration(exactDevice);
         }
 
         /// <summary>Longest registration text a session keeps; anything beyond is cut.</summary>
