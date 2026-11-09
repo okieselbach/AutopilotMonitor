@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             {
                 string tenantId = TenantHelper.GetTenantId(req);
 
-                var reports = await _repository.GetDistressReportsAsync(tenantId, maxResults: 200);
+                var reports = await _repository.GetDistressReportsAsync(tenantId, DistressErrorType.DeviceNotRegistered, maxResults: 200);
                 var (aggregated, totalRawReports) = BuildAggregatedResult(reports);
 
                 return await req.OkAsync(new DeviceNotRegisteredResponse

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Shared.DataAccess
 {
@@ -11,7 +12,11 @@ namespace AutopilotMonitor.Shared.DataAccess
     public interface IDistressReportRepository
     {
         Task SaveDistressReportAsync(string tenantId, DistressReportEntry entry);
-        Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, int maxResults = 100);
+        /// <summary>
+        /// The tenant's newest <paramref name="maxResults"/> reports of one type, newest first. The
+        /// type is filtered on the server, so other report types never crowd the window.
+        /// </summary>
+        Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, DistressErrorType errorType, int maxResults = 100);
         /// <summary>
         /// The newest <paramref name="maxResults"/> reports across all tenants, newest first.
         /// Truncated is true when the table held more rows than were returned.

@@ -148,8 +148,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 if (!rateLimitResult.IsAllowed)
                     return req.CreateResponse(HttpStatusCode.OK);
 
-                // Gate 5: Tenant existence check (cached — cheap O(1) lookup)
-                var (_, exists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
+                // Gate 5: Tenant existence check (cached — cheap O(1) lookup). The config also decides
+                // the effective error type below.
+                var (tenantConfig, exists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
                 if (!exists)
                     return req.CreateResponse(HttpStatusCode.OK);
 
@@ -223,11 +224,14 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var espPhase = SanitizeToken(report.EspPhase, MaxEspPhaseLength, EspPhasePattern);
                 var deviceBootUtc = SanitizeDeviceBoot(report.DeviceBootUtc, report.Timestamp);
 
+                var errorType = ResolveErrorType(
+                    report.ErrorType, report.HttpStatusCode, manufacturer, model, report.CertSourceState, tenantConfig);
+
                 // Persist to Table Storage
                 var entry = new DistressReportEntry
                 {
                     TenantId        = tenantId,
-                    ErrorType       = report.ErrorType.ToString(),
+                    ErrorType       = errorType.ToString(),
                     Manufacturer    = manufacturer,
                     Model           = model,
                     SerialNumber    = serialNumber,
@@ -256,28 +260,24 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // Notify tenant channels for hardware whitelist rejections (opt-in). Durable via
                 // the notification-dispatch queue — a fire-and-forget send after the response was
                 // not counted as open work by the host and could be dropped on scale-in.
-                if (report.ErrorType == DistressErrorType.HardwareNotAllowed
+                if (errorType == DistressErrorType.HardwareNotAllowed
                     && _hardwareThrottle.ShouldNotify(tenantId, manufacturer, model))
                 {
                     try
                     {
-                        var (config, configExists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
-                        if (configExists)
+                        var hwChannels = tenantConfig.GetNotificationChannels()
+                            .Where(c => c.Enabled && c.NotifyOnHardwareRejection)
+                            .ToList();
+                        if (hwChannels.Count > 0)
                         {
-                            var hwChannels = config!.GetNotificationChannels()
-                                .Where(c => c.Enabled && c.NotifyOnHardwareRejection)
-                                .ToList();
-                            if (hwChannels.Count > 0)
+                            var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
+                            await _notificationProducer.EnqueueAsync(new NotificationDispatchEnvelope
                             {
-                                var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
-                                await _notificationProducer.EnqueueAsync(new NotificationDispatchEnvelope
-                                {
-                                    TenantId = tenantId,
-                                    ChannelIds = hwChannels.Select(c => c.Id).ToList(),
-                                    Alert = alert,
-                                    EnqueuedAt = DateTime.UtcNow,
-                                });
-                            }
+                                TenantId = tenantId,
+                                ChannelIds = hwChannels.Select(c => c.Id).ToList(),
+                                Alert = alert,
+                                EnqueuedAt = DateTime.UtcNow,
+                            });
                         }
                     }
                     catch (Exception notifyEx)
@@ -289,7 +289,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // In-app bell notification on first-ever hardware rejection per (tenant, manufacturer, model).
                 // Lifetime dedup via tracker table — independent of the webhook 24h in-memory throttle so
                 // tenant admins see a one-shot persistent notification even if the webhook is not configured.
-                if (report.ErrorType == DistressErrorType.HardwareNotAllowed
+                if (errorType == DistressErrorType.HardwareNotAllowed
                     && !string.IsNullOrEmpty(manufacturer) && !string.IsNullOrEmpty(model))
                 {
                     try
@@ -318,7 +318,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // No webhook — volume is tiny and the remediation is not time-critical. Reports
                 // without a serial number cannot be deduped and fire no bell; they still appear
                 // in the panel.
-                if (report.ErrorType == DistressErrorType.TpmPssUnsupported
+                if (errorType == DistressErrorType.TpmPssUnsupported
                     && !string.IsNullOrEmpty(serialNumber))
                 {
                     try
@@ -343,8 +343,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 // Structured log (Warning, not Critical — data is unverified)
                 _logger.LogWarning(
-                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} os={OsBuild} esp={EspPhase} oobe={OobeState} boot={DeviceBootUtc} tpm={TpmVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
-                    report.ErrorType, tenantId, manufacturer, model, serialNumber, report.IsCloudPc,
+                    "AgentDistress [{ErrorType}] reported={ReportedErrorType} tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} os={OsBuild} esp={EspPhase} oobe={OobeState} boot={DeviceBootUtc} tpm={TpmVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
+                    errorType, report.ErrorType, tenantId, manufacturer, model, serialNumber, report.IsCloudPc,
                     report.HttpStatusCode, agentVersion, osBuild ?? "n/a", espPhase ?? "n/a", oobeState ?? "n/a",
                     deviceBootUtc?.ToString("O") ?? "n/a", tpmVersion ?? "n/a",
                     certSourceState ?? "n/a", certThumbprint ?? "n/a", message);
@@ -354,7 +354,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 _telemetryClient.TrackEvent("AgentDistressReport", new Dictionary<string, string>
                 {
                     ["TenantId"]        = tenantId,
-                    ["ErrorType"]       = report.ErrorType.ToString(),
+                    ["ErrorType"]       = errorType.ToString(),
+                    ["ReportedErrorType"] = report.ErrorType.ToString(),
                     ["Manufacturer"]    = manufacturer ?? string.Empty,
                     ["Model"]           = model ?? string.Empty,
                     ["SerialNumber"]    = serialNumber ?? string.Empty,
@@ -385,6 +386,31 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 _logger.LogError(ex, "ReportDistress: Unexpected error");
                 return req.CreateResponse(HttpStatusCode.OK);
             }
+        }
+
+        /// <summary>
+        /// The error type to store and act on. The agent reports every backend 403 as
+        /// <see cref="DistressErrorType.DeviceNotRegistered"/>, but <c>SecurityValidator</c> checks the
+        /// hardware whitelist before it looks up the device's registration: a 403 for hardware
+        /// outside the whitelist is a hardware rejection, and only as one does it reach the bell,
+        /// the webhook and the rejected-hardware list. The conditions follow the validator's order:
+        /// a suspended tenant, a tenant without any validation and bootstrap-token auth (no
+        /// certificate) are refused or let through before the hardware check, so their 403 stays as
+        /// reported. If that order changes, this has to change with it.
+        /// </summary>
+        internal static DistressErrorType ResolveErrorType(
+            DistressErrorType reported, int? httpStatusCode, string? manufacturer, string? model,
+            DistressCertSourceState? certSourceState, TenantConfiguration config)
+        {
+            if (reported != DistressErrorType.DeviceNotRegistered || httpStatusCode != 403) return reported;
+            if (string.IsNullOrEmpty(manufacturer) || string.IsNullOrEmpty(model)) return reported;
+            if (config.IsCurrentlyDisabled()) return reported;
+            if (!config.HasAnyDeviceValidation() && !config.AllowInsecureAgentRequests) return reported;
+            if (certSourceState == DistressCertSourceState.NoCertInStore) return reported;
+
+            var hardware = HardwareWhitelistValidator.ValidateHardware(
+                manufacturer, model, config.GetManufacturerWhitelist(), config.GetModelWhitelist());
+            return hardware.IsValid ? reported : DistressErrorType.HardwareNotAllowed;
         }
 
         /// <summary>

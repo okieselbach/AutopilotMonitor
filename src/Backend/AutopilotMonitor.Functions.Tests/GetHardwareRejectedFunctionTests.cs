@@ -30,8 +30,8 @@ public class GetHardwareRejectedFunctionTests
         var reports = new List<DistressReportEntry>
         {
             MakeEntry("HardwareNotAllowed", "Dell", "Latitude", "SN1", T0),
-            MakeEntry("CertificateExpired", "Dell", "Latitude", "SN2", T0.AddMinutes(1)),
-            MakeEntry("Timeout", "HP", "EliteBook", "SN3", T0.AddMinutes(2)),
+            MakeEntry("DeviceNotRegistered", "Dell", "Latitude", "SN2", T0.AddMinutes(1)),
+            MakeEntry("TpmPssUnsupported", "HP", "EliteBook", "SN3", T0.AddMinutes(2)),
         };
 
         var (aggregated, totalRawReports) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);

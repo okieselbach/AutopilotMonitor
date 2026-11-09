@@ -54,7 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             {
                 string tenantId = TenantHelper.GetTenantId(req);
 
-                var reports = await _repository.GetDistressReportsAsync(tenantId, maxResults: 200);
+                var reports = await _repository.GetDistressReportsAsync(tenantId, DistressErrorType.TpmPssUnsupported, maxResults: 200);
                 var tpmReports = reports.Where(IsTpmPssReport).ToList();
 
                 IReadOnlyDictionary<string, DateTime>? lastCertificateIngest = null;

@@ -640,4 +640,116 @@ public class DistressValidationTests
     {
         Assert.Equal(TimeSpan.FromMinutes(5), ReportDistressFunction.MaxTimestampFuture);
     }
+
+    // =========================================================================
+    // ResolveErrorType — the agent reports every backend 403 as DeviceNotRegistered; the
+    // hardware whitelist runs before the registration lookup, so a 403 for hardware outside
+    // the whitelist is stored as HardwareNotAllowed.
+    // =========================================================================
+
+    private const string ResolveTenant = "11111111-2222-3333-4444-555555555555";
+
+    private static TenantConfiguration ValidatingTenant(Action<TenantConfiguration>? change = null)
+    {
+        var config = TenantConfiguration.CreateDefault(ResolveTenant);
+        config.ValidateAutopilotDevice = true; // CreateDefault starts with every validation off
+        change?.Invoke(config);
+        return config;
+    }
+
+    private static DistressErrorType Resolve(
+        TenantConfiguration config, string? manufacturer = "VMware, Inc.", string? model = "VMware20,1",
+        DistressErrorType reported = DistressErrorType.DeviceNotRegistered, int? http = 403,
+        DistressCertSourceState? certState = null)
+        => ReportDistressFunction.ResolveErrorType(reported, http, manufacturer, model, certState, config);
+
+    [Fact]
+    public void ResolveErrorType_ManufacturerOutsideTheWhitelist_IsHardwareNotAllowed()
+    {
+        Assert.Equal(DistressErrorType.HardwareNotAllowed, Resolve(ValidatingTenant()));
+    }
+
+    [Fact]
+    public void ResolveErrorType_ModelOutsideTheWhitelist_IsHardwareNotAllowed()
+    {
+        var config = ValidatingTenant(c => c.ModelWhitelist = "Latitude*");
+
+        Assert.Equal(DistressErrorType.HardwareNotAllowed, Resolve(config, "Dell Inc.", "OptiPlex 7090"));
+    }
+
+    [Theory]
+    [InlineData("Dell Inc.", "Latitude 5440")]
+    [InlineData("LENOVO", "21HD")]          // wildcards match case-insensitively
+    [InlineData("HP", "EliteBook 840 G10")]
+    [InlineData("Microsoft Corporation", "Surface Laptop 5")]
+    public void ResolveErrorType_WhitelistedHardware_StaysDeviceNotRegistered(string manufacturer, string model)
+    {
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(ValidatingTenant(), manufacturer, model));
+    }
+
+    [Fact]
+    public void ResolveErrorType_ManufacturerAddedToTheWhitelist_StaysDeviceNotRegistered()
+    {
+        var config = ValidatingTenant(c => c.ManufacturerWhitelist += ",VMware*");
+
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(config));
+    }
+
+    [Theory]
+    [InlineData(null, "VMware20,1")]
+    [InlineData("VMware, Inc.", null)]
+    [InlineData("", "")]
+    public void ResolveErrorType_WithoutManufacturerOrModel_StaysAsReported(string? manufacturer, string? model)
+    {
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(ValidatingTenant(), manufacturer, model));
+    }
+
+    [Fact]
+    public void ResolveErrorType_SuspendedTenant_StaysAsReported()
+    {
+        // The validator refuses a suspended tenant before it looks at the hardware.
+        var config = ValidatingTenant(c => c.Disabled = true);
+
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(config));
+    }
+
+    [Fact]
+    public void ResolveErrorType_TenantWithoutValidation_StaysAsReported()
+    {
+        var config = ValidatingTenant(c => c.ValidateAutopilotDevice = false);
+
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(config));
+    }
+
+    [Fact]
+    public void ResolveErrorType_TestTenantWithoutValidationButInsecureRequests_IsHardwareNotAllowed()
+    {
+        var config = ValidatingTenant(c =>
+        {
+            c.ValidateAutopilotDevice = false;
+            c.AllowInsecureAgentRequests = true;
+        });
+
+        Assert.Equal(DistressErrorType.HardwareNotAllowed, Resolve(config));
+    }
+
+    [Fact]
+    public void ResolveErrorType_NoCertificateInStore_StaysAsReported()
+    {
+        // Without a certificate the agent authenticates with a bootstrap token, which skips the
+        // hardware check.
+        Assert.Equal(DistressErrorType.DeviceNotRegistered,
+            Resolve(ValidatingTenant(), certState: DistressCertSourceState.NoCertInStore));
+    }
+
+    [Theory]
+    [InlineData(DistressErrorType.AuthCertificateRejected, 401)]
+    [InlineData(DistressErrorType.TpmPssUnsupported, 403)]
+    [InlineData(DistressErrorType.ClientCertificateNotReceived, 403)]
+    [InlineData(DistressErrorType.DeviceNotRegistered, 401)]
+    [InlineData(DistressErrorType.DeviceNotRegistered, null)]
+    public void ResolveErrorType_OtherTypesAndStatusCodes_StayAsReported(DistressErrorType reported, int? http)
+    {
+        Assert.Equal(reported, Resolve(ValidatingTenant(), reported: reported, http: http));
+    }
 }

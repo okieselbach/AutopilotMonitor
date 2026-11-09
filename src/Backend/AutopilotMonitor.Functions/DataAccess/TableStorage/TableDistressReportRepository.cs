@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.DataAccess.TableStorage
@@ -64,12 +65,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             };
         }
 
-        public async Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, int maxResults = 100)
+        public async Task<List<DistressReportEntry>> GetDistressReportsAsync(string tenantId, DistressErrorType errorType, int maxResults = 100)
         {
             var pk = tenantId.ToLowerInvariant();
             var result = new List<DistressReportEntry>();
+            var filter = TableClient.CreateQueryFilter($"PartitionKey eq {pk} and ErrorType eq {errorType.ToString()}");
 
-            await foreach (var entity in _table.QueryAsync<TableEntity>(e => e.PartitionKey == pk, maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults)))
+            await foreach (var entity in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults)))
             {
                 result.Add(MapToEntry(entity));
                 if (result.Count >= maxResults)
