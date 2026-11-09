@@ -42,6 +42,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
             "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
+            "SetupGuideSettingsReviewedAt", "SetupGuideHardwareReviewedAt", "SetupGuideDismissedAt", "SetupGuideDismissedBy",
         };
 
         private static readonly HashSet<string> AdminBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -743,6 +744,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "DpaAcceptancePending", config.DpaAcceptancePending },
                 { "DpaAcceptedBy", config.DpaAcceptedBy },
                 { "DpaAcceptedAt", config.DpaAcceptedAt },
+                { "SetupGuideSettingsReviewedAt", config.SetupGuideSettingsReviewedAt },
+                { "SetupGuideHardwareReviewedAt", config.SetupGuideHardwareReviewedAt },
+                { "SetupGuideDismissedAt", config.SetupGuideDismissedAt },
+                { "SetupGuideDismissedBy", config.SetupGuideDismissedBy },
                 { "ContactEmail", config.ContactEmail },
                 { "CompanyName", config.CompanyName },
                 { "Disabled", config.Disabled },
@@ -865,6 +870,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 DpaAcceptancePending = entity.GetBoolean("DpaAcceptancePending") ?? false,
                 DpaAcceptedBy = entity.GetString("DpaAcceptedBy"),
                 DpaAcceptedAt = entity.GetDateTime("DpaAcceptedAt"),
+                SetupGuideSettingsReviewedAt = entity.GetDateTime("SetupGuideSettingsReviewedAt"),
+                SetupGuideHardwareReviewedAt = entity.GetDateTime("SetupGuideHardwareReviewedAt"),
+                SetupGuideDismissedAt = entity.GetDateTime("SetupGuideDismissedAt"),
+                SetupGuideDismissedBy = entity.GetString("SetupGuideDismissedBy"),
                 ContactEmail = entity.GetString("ContactEmail"),
                 CompanyName = entity.GetString("CompanyName"),
                 Disabled = entity.GetBoolean("Disabled") ?? false,

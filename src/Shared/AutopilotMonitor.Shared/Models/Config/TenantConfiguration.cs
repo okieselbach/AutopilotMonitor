@@ -69,6 +69,24 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? DpaAcceptedAt { get; set; }
 
         /// <summary>
+        /// When a tenant admin finished the setup guide's recommended-settings step, applied or
+        /// skipped. Written only by the setup-guide endpoint, never through the field patch.
+        /// </summary>
+        public DateTime? SetupGuideSettingsReviewedAt { get; set; }
+
+        /// <summary>When a tenant admin finished the setup guide's hardware step; written like <see cref="SetupGuideSettingsReviewedAt"/>.</summary>
+        public DateTime? SetupGuideHardwareReviewedAt { get; set; }
+
+        /// <summary>
+        /// When a tenant admin hid the setup guide from the dashboard for the whole tenant; null
+        /// while it shows. The guide stays reachable from the help menu, which can bring it back.
+        /// </summary>
+        public DateTime? SetupGuideDismissedAt { get; set; }
+
+        /// <summary>UPN of the admin who hid the setup guide; null when <see cref="SetupGuideDismissedAt"/> is null.</summary>
+        public string? SetupGuideDismissedBy { get; set; }
+
+        /// <summary>
         /// Address used to reach this tenant about the service itself — a technical problem,
         /// a security matter, or a change that needs an administrator's attention. Editable by
         /// the tenant's own admins under Settings → Tenant → Contact.
@@ -637,7 +655,7 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices.
-        /// null = use agent default (true).
+        /// null = off (the agent config and the feature flags both read null as false).
         /// </summary>
         public bool? EnableSoftwareInventoryAnalyzer { get; set; } = null;
 

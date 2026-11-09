@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -16,15 +18,25 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly ILogger<GetTenantFeatureFlagsFunction> _logger;
         private readonly TenantConfigurationService _configService;
         private readonly AppHomingService _appHomingService;
+        private readonly IMetricsRepository _metricsRepository;
+
+        /// <summary>
+        /// Tenants whose enrollment counter was seen above zero. The counter only grows, so a seen
+        /// "true" costs no further read on this instance. An offboarded and re-onboarded tenant starts
+        /// at zero again; until this instance recycles, its setup guide then stays hidden here.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, bool> KnownEnrolledTenants = new(StringComparer.OrdinalIgnoreCase);
 
         public GetTenantFeatureFlagsFunction(
             ILogger<GetTenantFeatureFlagsFunction> logger,
             TenantConfigurationService configService,
-            AppHomingService appHomingService)
+            AppHomingService appHomingService,
+            IMetricsRepository metricsRepository)
         {
             _logger = logger;
             _configService = configService;
             _appHomingService = appHomingService;
+            _metricsRepository = metricsRepository;
         }
 
         /// <summary>
@@ -50,14 +62,35 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var config = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
                 var appHomingFunnelActive = await _appHomingService.IsFunnelEligibleAsync(config);
+                // Only the setup guide needs the enrollment history; a hidden guide skips the read.
+                var hasEnrollmentSessions = config.SetupGuideDismissedAt == null
+                    ? await HasEnrollmentSessionsAsync(requestCtx.TargetTenantId)
+                    : null;
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(BuildPayload(config, DateTime.UtcNow, appHomingFunnelActive));
+                await response.WriteAsJsonAsync(BuildPayload(config, DateTime.UtcNow, appHomingFunnelActive, hasEnrollmentSessions));
                 return response;
             }
             catch (Exception ex)
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "GetTenantFeatureFlags");
+            }
+        }
+
+        /// <summary>Null when the counter could not be read: the guide then stays hidden rather than guessing.</summary>
+        private async Task<bool?> HasEnrollmentSessionsAsync(string tenantId)
+        {
+            if (KnownEnrolledTenants.ContainsKey(tenantId)) return true;
+            try
+            {
+                var has = await _metricsRepository.TenantHasEnrollmentsAsync(tenantId);
+                if (has) KnownEnrolledTenants.TryAdd(tenantId, true);
+                return has;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Feature flags: enrollment history of tenant {TenantId} unknown", tenantId);
+                return null;
             }
         }
 
@@ -67,7 +100,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// without standing up an HttpRequestData mock. <paramref name="nowUtc"/> feeds the
         /// read-time edition resolution (trial expiry degrades automatically).
         /// </summary>
-        internal static TenantFeatureFlagsResponse BuildPayload(TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false)
+        internal static TenantFeatureFlagsResponse BuildPayload(
+            TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false, bool? hasEnrollmentSessions = null)
         {
             // Edition + source in one resolution: Pro from the plan, from a trial, or conferred by the
             // managing tenant ("msp" — shown as "Pro (MSP)", entitlements without the delegation right).
@@ -126,6 +160,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 ContactEmailSet = !string.IsNullOrWhiteSpace(config.ContactEmail),
                 // Same contract for the second half of the contact profile: boolean only.
                 CompanyNameSet = !string.IsNullOrWhiteSpace(config.CompanyName),
+                // Setup guide checklist (dashboard card, sidebar entry): done states and the
+                // dismissal. Booleans only, derived from the row and the enrollment counter.
+                SetupGuideSettingsDone = SetupGuideState.SettingsDone(config),
+                SetupGuideHardwareDone = SetupGuideState.HardwareDone(config),
+                SetupGuideDismissed = config.SetupGuideDismissedAt != null,
+                HasEnrollmentSessions = hasEnrollmentSessions,
                 Entitlements = new TenantFeatureEntitlements
                 {
                     RetentionCapDays = entitlements.RetentionCapDays,

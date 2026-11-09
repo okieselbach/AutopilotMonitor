@@ -118,6 +118,10 @@
       "dpaAcceptancePending",
       "dpaAcceptedBy",
       "dpaAcceptedAt",
+      "setupGuideSettingsReviewedAt",
+      "setupGuideHardwareReviewedAt",
+      "setupGuideDismissedAt",
+      "setupGuideDismissedBy",
       "contactEmail",
       "companyName",
       "onboardedAt",
@@ -231,6 +235,10 @@
       "dpaAcceptancePending": false,
       "dpaAcceptedBy": null,
       "dpaAcceptedAt": null,
+      "setupGuideSettingsReviewedAt": null,
+      "setupGuideHardwareReviewedAt": null,
+      "setupGuideDismissedAt": null,
+      "setupGuideDismissedBy": null,
       "contactEmail": null,
       "companyName": null,
       "onboardedAt": null,
@@ -4703,6 +4711,15 @@
             "name": "boolean"
           },
           "doc": "True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens."
+        },
+        {
+          "name": "companyName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The company name the tenant's admins entered under Contact; omitted when none is set. Shown in the navbar."
         },
         {
           "name": "viewAs",
@@ -24103,6 +24120,67 @@
         }
       ]
     },
+    "SetupGuideStateResponse": {
+      "kind": "object",
+      "doc": "Response of POST config/{tenantId}/setup-guide: the tenant's setup-guide markers after the write.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "settingsReviewedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "hardwareReviewedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "dismissedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "dismissedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "SetupGuideStepRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/setup-guide: the setup-guide step a tenant admin finished.",
+      "fields": [
+        {
+          "name": "step",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "One of settings, hardware, dismiss (hide the guide for the tenant) or restore (show it again)."
+        }
+      ]
+    },
     "SeverityBreakdown": {
       "kind": "object",
       "doc": "Distinct-CVE counts grouped by their highest CVSS severity band.",
@@ -26177,6 +26255,46 @@
           "doc": "When the Terms + DPA were accepted for this tenant; null when DpaVersion is null."
         },
         {
+          "name": "setupGuideSettingsReviewedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When a tenant admin finished the setup guide's recommended-settings step, applied or skipped. Written only by the setup-guide endpoint, never through the field patch."
+        },
+        {
+          "name": "setupGuideHardwareReviewedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When a tenant admin finished the setup guide's hardware step; written like SetupGuideSettingsReviewedAt."
+        },
+        {
+          "name": "setupGuideDismissedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "When a tenant admin hid the setup guide from the dashboard for the whole tenant; null while it shows. The guide stays reachable from the help menu, which can bring it back."
+        },
+        {
+          "name": "setupGuideDismissedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "UPN of the admin who hid the setup guide; null when SetupGuideDismissedAt is null."
+        },
+        {
           "name": "contactEmail",
           "type": {
             "kind": "primitive",
@@ -26828,7 +26946,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = use agent default (true)."
+          "doc": "Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = off (the agent config and the feature flags both read null as false)."
         },
         {
           "name": "enableIntegrityBypassAnalyzer",
@@ -27375,6 +27493,39 @@
             "name": "boolean"
           },
           "doc": "Whether a company name is stored (boolean only — the value stays admin-gated)."
+        },
+        {
+          "name": "setupGuideSettingsDone",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Setup guide: the recommended-settings step is done (finished in the guide, or the settings are already on)."
+        },
+        {
+          "name": "setupGuideHardwareDone",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Setup guide: the hardware step is done (finished in the guide, or the whitelist differs from the default)."
+        },
+        {
+          "name": "setupGuideDismissed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Setup guide: a tenant admin hid it from the dashboard for the whole tenant."
+        },
+        {
+          "name": "hasEnrollmentSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Whether the tenant ever registered an enrollment session. Omitted when unknown: not read while the setup guide is hidden, or the read failed. The guide shows only on an explicit false."
         },
         {
           "name": "entitlements",

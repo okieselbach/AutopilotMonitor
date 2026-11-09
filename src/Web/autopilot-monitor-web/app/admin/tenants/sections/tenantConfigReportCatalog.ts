@@ -106,6 +106,10 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   dpaAcceptancePending: { section: "Tenant Status", label: "DPA Acceptance Pending", informational: true },
   dpaAcceptedBy: { section: "Tenant Status", label: "DPA Accepted By", informational: true },
   dpaAcceptedAt: { section: "Tenant Status", label: "DPA Accepted At", kind: "date", informational: true },
+  setupGuideSettingsReviewedAt: { section: "Tenant Status", label: "Setup Guide: Settings Reviewed At", kind: "date", informational: true },
+  setupGuideHardwareReviewedAt: { section: "Tenant Status", label: "Setup Guide: Hardware Reviewed At", kind: "date", informational: true },
+  setupGuideDismissedAt: { section: "Tenant Status", label: "Setup Guide Hidden At", kind: "date", informational: true },
+  setupGuideDismissedBy: { section: "Tenant Status", label: "Setup Guide Hidden By", informational: true },
   contactEmail: { section: "Tenant Status", label: "Contact Email", informational: true },
   companyName: { section: "Tenant Status", label: "Company", informational: true },
 

@@ -772,6 +772,35 @@ public class ConfigWireParityTests
 
     // ---- UpdateTenantConfiguration -------------------------------------------------------
 
+    // ---- RecordSetupGuideStep ------------------------------------------------------------
+
+    [Fact]
+    public void SetupGuideStateResponse_matches_the_marker_shape()
+    {
+        DateTime? settingsReviewedAt = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc);
+        DateTime? hardwareReviewedAt = settingsReviewedAt.Value.AddMinutes(3);
+        DateTime? dismissedAt = null;
+        string? dismissedBy = null;
+
+        AssertParity(
+            new
+            {
+                success = true,
+                settingsReviewedAt,
+                hardwareReviewedAt,
+                dismissedAt,
+                dismissedBy
+            },
+            new SetupGuideStateResponse
+            {
+                Success = true,
+                SettingsReviewedAt = settingsReviewedAt,
+                HardwareReviewedAt = hardwareReviewedAt,
+                DismissedAt = null,
+                DismissedBy = null
+            });
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

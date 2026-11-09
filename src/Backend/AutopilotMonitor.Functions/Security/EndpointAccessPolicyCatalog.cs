@@ -757,6 +757,7 @@ public static class EndpointAccessPolicyCatalog
         // Self-service Pro trial — a tenant admin may start their own tenant's one-time
         // trial; the handler enforces the once-per-tenant + already-Pro conflicts (409).
         new("POST",   "config/{tenantId}/trial",                           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        new("POST",   "config/{tenantId}/setup-guide",                     EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "global/config/plan-tiers",                           EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config/plan-tiers",                           EndpointPolicy.GlobalAdminOnly),
         new("GET",    "feedback/all",                                     EndpointPolicy.GlobalReadOrAdmin),

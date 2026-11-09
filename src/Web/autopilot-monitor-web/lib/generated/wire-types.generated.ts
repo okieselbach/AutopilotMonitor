@@ -784,6 +784,8 @@ export interface AuthMeResponse {
   whatsNewSeenAgentUtc?: string;
   /** True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens. */
   dpaAcceptancePending: boolean;
+  /** The company name the tenant's admins entered under Contact; omitted when none is set. Shown in the navbar. */
+  companyName?: string;
   /** Set while a Global Admin views a tenant as one of its members (read-only "view as"): every other field then describes that member of TenantId. Null on an ordinary sign-in, and the key is omitted. */
   viewAs?: AuthMeViewAs;
 }
@@ -5257,6 +5259,21 @@ export interface SetUsagePlanRequest {
   usagePlan?: string | null;
 }
 
+/** Response of POST config/{tenantId}/setup-guide: the tenant's setup-guide markers after the write. */
+export interface SetupGuideStateResponse {
+  success: boolean;
+  settingsReviewedAt?: string;
+  hardwareReviewedAt?: string;
+  dismissedAt?: string;
+  dismissedBy?: string;
+}
+
+/** Body of POST config/{tenantId}/setup-guide: the setup-guide step a tenant admin finished. */
+export interface SetupGuideStepRequest {
+  /** One of settings, hardware, dismiss (hide the guide for the tenant) or restore (show it again). */
+  step?: string | null;
+}
+
 /** Distinct-CVE counts grouped by their highest CVSS severity band. */
 export interface SeverityBreakdown {
   critical: number;
@@ -5742,6 +5759,14 @@ export interface TenantConfiguration {
   dpaAcceptedBy?: string | null;
   /** When the Terms + DPA were accepted for this tenant; null when DpaVersion is null. */
   dpaAcceptedAt?: string | null;
+  /** When a tenant admin finished the setup guide's recommended-settings step, applied or skipped. Written only by the setup-guide endpoint, never through the field patch. */
+  setupGuideSettingsReviewedAt?: string | null;
+  /** When a tenant admin finished the setup guide's hardware step; written like SetupGuideSettingsReviewedAt. */
+  setupGuideHardwareReviewedAt?: string | null;
+  /** When a tenant admin hid the setup guide from the dashboard for the whole tenant; null while it shows. The guide stays reachable from the help menu, which can bring it back. */
+  setupGuideDismissedAt?: string | null;
+  /** UPN of the admin who hid the setup guide; null when SetupGuideDismissedAt is null. */
+  setupGuideDismissedBy?: string | null;
   /** Address used to reach this tenant about the service itself — a technical problem, a security matter, or a change that needs an administrator's attention. Editable by the tenant's own admins under Settings → Tenant → Contact. Seeded once at onboarding from the tenant's notification address if one was given, and never re-synced afterwards: from that point the value belongs to the tenant, and a later edit must not be overwritten by the onboarding source. Purpose-limited by design — service communication only. It is never used for marketing and never disclosed. Null means we have no way to reach this tenant, which is why enforcement actions cannot promise prior warning. */
   contactEmail?: string | null;
   /** Organization name behind this tenant, as the tenant's admins want it read by a support engineer — the counterpart of ContactEmail in the tenant's contact profile. Editable under Settings → Tenant → Contact. Optional on Community. Together with it is required at the self-service Pro entry point (trial start) so a paying tenant is reachable and identifiable for support; it is never a runtime gate on Pro features, and a GA plan assignment does not require it (the admin UI warns instead). Never derived from : the domain is a technical label, the company name is what the tenant tells us. Null means not provided. */
@@ -5880,7 +5905,7 @@ export interface TenantConfiguration {
   showScriptOutput?: boolean | null;
   /** Whether the LocalAdminAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
   enableLocalAdminAnalyzer?: boolean | null;
-  /** Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
+  /** Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = off (the agent config and the feature flags both read null as false). */
   enableSoftwareInventoryAnalyzer?: boolean | null;
   /** Whether the IntegrityBypassAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
   enableIntegrityBypassAnalyzer?: boolean | null;
@@ -6013,6 +6038,14 @@ export interface TenantFeatureFlagsResponse {
   contactEmailSet: boolean;
   /** Whether a company name is stored (boolean only — the value stays admin-gated). */
   companyNameSet: boolean;
+  /** Setup guide: the recommended-settings step is done (finished in the guide, or the settings are already on). */
+  setupGuideSettingsDone: boolean;
+  /** Setup guide: the hardware step is done (finished in the guide, or the whitelist differs from the default). */
+  setupGuideHardwareDone: boolean;
+  /** Setup guide: a tenant admin hid it from the dashboard for the whole tenant. */
+  setupGuideDismissed: boolean;
+  /** Whether the tenant ever registered an enrollment session. Omitted when unknown: not read while the setup guide is hidden, or the read failed. The guide shows only on an explicit false. */
+  hasEnrollmentSessions?: boolean;
   entitlements: TenantFeatureEntitlements;
 }
 

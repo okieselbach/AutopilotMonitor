@@ -203,6 +203,28 @@ public class ConfigBackupHookTests
     }
 
     [Fact]
+    public async Task NoiseOnlyChange_SetupGuideMarkers_NoSnapshot()
+    {
+        // The setup guide's markers would otherwise push real settings out of the two backup slots.
+        var stored = StoredConfig();
+        var harness = new Harness(TableConfigRepository.ConvertToTenantTableEntity(stored));
+
+        var incoming = RoundtripClone(stored);
+        incoming.SetupGuideSettingsReviewedAt = DateTime.UtcNow;
+        incoming.SetupGuideHardwareReviewedAt = DateTime.UtcNow;
+        incoming.SetupGuideDismissedAt = DateTime.UtcNow;
+        incoming.SetupGuideDismissedBy = "admin@contoso.com";
+        incoming.LastUpdated = DateTime.UtcNow;
+
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "setup-guide", null);
+
+        Assert.True(saved);
+        Assert.Single(harness.Upserts);
+        harness.Backup.Verify(
+            b => b.UpsertAsync(It.IsAny<ConfigBackupEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task NoiseOnlyChange_AddOnPermissionState_NoSnapshot()
     {
         // Agent and token side effect, like the Graph access state.

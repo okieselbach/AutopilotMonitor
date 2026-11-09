@@ -66,6 +66,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<TenantStats?> GetTenantStatsAsync(string tenantId)
             => _storage.GetTenantStatsAsync(tenantId);
 
+        public Task<bool> TenantHasEnrollmentsAsync(string tenantId)
+            => _storage.TenantHasEnrollmentsAsync(tenantId);
+
         public Task<List<TenantStats>> GetAllTenantStatsAsync()
             => _storage.GetAllTenantStatsAsync();
 

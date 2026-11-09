@@ -52,7 +52,8 @@ public class InfrastructureWireParityTests
                 mcpClientRegistrationEnabled = true,
                 whatsNewSeenPlatformUtc = platformSeen,
                 whatsNewSeenAgentUtc = agentSeen,
-                dpaAcceptancePending = true
+                dpaAcceptancePending = true,
+                companyName = "Contoso Ltd."
             },
             new AuthMeResponse
             {
@@ -74,7 +75,8 @@ public class InfrastructureWireParityTests
                 McpClientRegistrationEnabled = true,
                 WhatsNewSeenPlatformUtc = platformSeen,
                 WhatsNewSeenAgentUtc = agentSeen,
-                DpaAcceptancePending = true
+                DpaAcceptancePending = true,
+                CompanyName = "Contoso Ltd."
             });
     }
 

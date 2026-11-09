@@ -271,6 +271,28 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Body of POST config/{tenantId}/setup-guide: the setup-guide step a tenant admin finished.
+    /// </summary>
+    public class SetupGuideStepRequest : IApiRequest
+    {
+        /// <summary>One of <c>settings</c>, <c>hardware</c>, <c>dismiss</c> (hide the guide for the tenant) or <c>restore</c> (show it again).</summary>
+        public string? Step { get; set; }
+    }
+
+    /// <summary>
+    /// Response of POST config/{tenantId}/setup-guide: the tenant's setup-guide markers after the write.
+    /// </summary>
+    // Declaration order == wire order.
+    public class SetupGuideStateResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public DateTime? SettingsReviewedAt { get; set; }
+        public DateTime? HardwareReviewedAt { get; set; }
+        public DateTime? DismissedAt { get; set; }
+        public string? DismissedBy { get; set; }
+    }
+
+    /// <summary>
     /// Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions plus the
     /// built-in catalog values every unset definition field falls back to.
     /// </summary>

@@ -47,6 +47,17 @@ namespace AutopilotMonitor.Shared.Models
         public bool ContactEmailSet { get; set; }
         /// <summary>Whether a company name is stored (boolean only — the value stays admin-gated).</summary>
         public bool CompanyNameSet { get; set; }
+        /// <summary>Setup guide: the recommended-settings step is done (finished in the guide, or the settings are already on).</summary>
+        public bool SetupGuideSettingsDone { get; set; }
+        /// <summary>Setup guide: the hardware step is done (finished in the guide, or the whitelist differs from the default).</summary>
+        public bool SetupGuideHardwareDone { get; set; }
+        /// <summary>Setup guide: a tenant admin hid it from the dashboard for the whole tenant.</summary>
+        public bool SetupGuideDismissed { get; set; }
+        /// <summary>
+        /// Whether the tenant ever registered an enrollment session. Omitted when unknown: not read
+        /// while the setup guide is hidden, or the read failed. The guide shows only on an explicit false.
+        /// </summary>
+        public bool? HasEnrollmentSessions { get; set; }
         public TenantFeatureEntitlements Entitlements { get; set; } = default!;
     }
 

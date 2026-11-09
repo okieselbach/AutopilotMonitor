@@ -64,6 +64,11 @@ public class GetTenantFeatureFlagsPayloadTests
             "graphAccessRejected",
             "intuneDeviceBindingPermissionMissing",
             "isTrial",
+            // Non-sensitive by review: booleans only; who hid the guide and when stays in the
+            // admin-gated config. hasEnrollmentSessions is absent here: unknown → omitted.
+            "setupGuideDismissed",
+            "setupGuideHardwareDone",
+            "setupGuideSettingsDone",
             "showScriptOutput",
             "trialAvailable",
             // trialExpiresUtc is absent here: the default tenant is not on a trial and the
@@ -519,5 +524,54 @@ public class GetTenantFeatureFlagsPayloadTests
             new TenantConfiguration { CompanyName = "Secret Holdings" }, Now));
 
         Assert.DoesNotContain("Secret Holdings", json);
+    }
+
+    // ── setup guide ──
+
+    [Fact]
+    public void Payload_SetupGuide_NewTenantHasEveryStepOpen()
+    {
+        var payload = GetTenantFeatureFlagsFunction.BuildPayload(TenantConfiguration.CreateDefault("t"), Now, hasEnrollmentSessions: false);
+
+        Assert.False(payload.SetupGuideSettingsDone);
+        Assert.False(payload.SetupGuideHardwareDone);
+        Assert.False(payload.SetupGuideDismissed);
+        Assert.False(payload.HasEnrollmentSessions);
+    }
+
+    [Fact]
+    public void Payload_SetupGuide_ReflectsMarkersAndDismissal()
+    {
+        var config = TenantConfiguration.CreateDefault("t");
+        config.SetupGuideSettingsReviewedAt = Now;
+        config.SetupGuideHardwareReviewedAt = Now;
+        config.SetupGuideDismissedAt = Now;
+        config.SetupGuideDismissedBy = "admin@contoso.com";
+
+        var payload = GetTenantFeatureFlagsFunction.BuildPayload(config, Now);
+
+        Assert.True(payload.SetupGuideSettingsDone);
+        Assert.True(payload.SetupGuideHardwareDone);
+        Assert.True(payload.SetupGuideDismissed);
+    }
+
+    [Fact]
+    public void Payload_SetupGuide_UnknownEnrollmentHistoryIsOmitted()
+    {
+        var element = Serialize(TenantConfiguration.CreateDefault("t"));
+
+        Assert.False(element.TryGetProperty("hasEnrollmentSessions", out _));
+    }
+
+    [Fact]
+    public void Payload_SetupGuide_NeverLeaksWhoDismissedIt()
+    {
+        var config = TenantConfiguration.CreateDefault("t");
+        config.SetupGuideDismissedAt = Now;
+        config.SetupGuideDismissedBy = "hidden.admin@contoso.com";
+
+        var json = TestWire.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config, Now));
+
+        Assert.DoesNotContain("hidden.admin", json);
     }
 }

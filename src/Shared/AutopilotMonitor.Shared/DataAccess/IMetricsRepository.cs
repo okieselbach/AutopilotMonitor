@@ -81,6 +81,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Tenant Stats (cumulative per-tenant counters, retention-independent) ---
         /// <summary>Gets the cumulative per-tenant counters, or null if none were recorded yet.</summary>
         Task<TenantStats?> GetTenantStatsAsync(string tenantId);
+        /// <summary>
+        /// Whether the tenant ever registered an enrollment session (its counter is above zero). No
+        /// counter row is false; a storage error throws, so a caller can tell "never" from "unknown".
+        /// </summary>
+        Task<bool> TenantHasEnrollmentsAsync(string tenantId);
         /// <summary>Gets the cumulative counters of every tenant that has a row — the source of the platform rollup.</summary>
         Task<List<TenantStats>> GetAllTenantStatsAsync();
         /// <summary>Increments a cumulative per-tenant counter (ETag CAS with retries; fail-soft).</summary>

@@ -1279,6 +1279,18 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Gets the cumulative per-tenant counters, or null if none were recorded yet.
         /// </summary>
+        /// <summary>
+        /// Whether the tenant's enrollment counter is above zero. Unlike <see cref="GetTenantStatsAsync"/>,
+        /// which answers null both for a missing row and for a failed read, a storage error throws here.
+        /// </summary>
+        public async Task<bool> TenantHasEnrollmentsAsync(string tenantId)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+            var response = await tableClient.GetEntityIfExistsAsync<TableEntity>(
+                tenantId, TenantStatsRowKey, select: new[] { nameof(TenantStats.TotalEnrollments) });
+            return response.HasValue && (response.Value!.GetInt64(nameof(TenantStats.TotalEnrollments)) ?? 0) > 0;
+        }
+
         public async Task<TenantStats?> GetTenantStatsAsync(string tenantId)
         {
             try

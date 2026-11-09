@@ -104,13 +104,15 @@ namespace AutopilotMonitor.Functions.Services
         /// with dedicated endpoints (plan/trial), and system-written provenance:
         /// HomedAppClientId caused the 2026-07-31 prod incident when a stale round-trip
         /// reverted it — only the app-homing flow writes it; LastAuthClientId*/OnboardedBy/
-        /// OnboardedAt/DpaVersion/DpaAccept* are AuthFunction-owned; LastUpdated/UpdatedBy are stamped server-side.
+        /// OnboardedAt/DpaVersion/DpaAccept* are AuthFunction-owned; SetupGuide* belong to the setup-guide
+        /// endpoint; LastUpdated/UpdatedBy are stamped server-side.
         /// </summary>
         internal static readonly HashSet<string> BaseDeniedFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "TenantId", "DomainName", "PartitionKey", "RowKey", "Timestamp", "ETag",
             "LastUpdated", "UpdatedBy", "OnboardedAt", "OnboardedBy", "DpaVersion",
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
+            "SetupGuideSettingsReviewedAt", "SetupGuideHardwareReviewedAt", "SetupGuideDismissedAt", "SetupGuideDismissedBy",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
@@ -169,6 +171,7 @@ namespace AutopilotMonitor.Functions.Services
             "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
             "OnboardedBy", "OnboardedAt", "DpaVersion",
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
+            "SetupGuideSettingsReviewedAt", "SetupGuideHardwareReviewedAt", "SetupGuideDismissedAt", "SetupGuideDismissedBy",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
             "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
         };
@@ -518,6 +521,8 @@ namespace AutopilotMonitor.Functions.Services
             "LastUpdated" or "UpdatedBy" => "stamped server-side on every write",
             "OnboardedAt" or "OnboardedBy" or "DpaVersion" => "system-owned onboarding provenance (set at first login)",
             "DpaAcceptancePending" or "DpaAcceptedBy" or "DpaAcceptedAt" => "system-owned — written by the onboarding and the Terms + DPA acceptance",
+            "SetupGuideSettingsReviewedAt" or "SetupGuideHardwareReviewedAt" or "SetupGuideDismissedAt" or "SetupGuideDismissedBy"
+                => "system-owned — written by the setup guide endpoint",
             "HomedAppClientId" => "system-owned — written only by the app-homing flow",
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
             "GraphAccessRejectedSince" or "GraphAccessRejectedCode" or "GraphAccessRejectionConfirmedAt"

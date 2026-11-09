@@ -317,6 +317,10 @@ public class TenantConfigPatchServiceTests
     [InlineData("intuneDeviceBindingPermissionMissingConfirmedAt")]
     [InlineData("cloudPcPermissionMissingSince")]
     [InlineData("cloudPcPermissionMissingConfirmedAt")]
+    [InlineData("setupGuideSettingsReviewedAt")]
+    [InlineData("setupGuideHardwareReviewedAt")]
+    [InlineData("setupGuideDismissedAt")]
+    [InlineData("setupGuideDismissedBy")]
     public async Task Patch_DeniedField_Returns400WithFieldName(string field)
     {
         var harness = new Harness(Stored());

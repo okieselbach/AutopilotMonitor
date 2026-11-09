@@ -890,6 +890,8 @@ public class AuthFunction
             WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
             WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc,
             DpaAcceptancePending = tenantConfig.DpaAcceptancePending,
+            // Navbar label. In view-as tenantConfig is the viewed tenant's row.
+            CompanyName = string.IsNullOrWhiteSpace(tenantConfig.CompanyName) ? null : tenantConfig.CompanyName.Trim(),
             ViewAs = viewAs
         }, needsAutoAdmin);
     }

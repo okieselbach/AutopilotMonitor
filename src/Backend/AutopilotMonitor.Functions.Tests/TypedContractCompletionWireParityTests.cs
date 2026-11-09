@@ -393,6 +393,10 @@ public class TypedContractCompletionWireParityTests
                 trialAvailable = true,
                 contactEmailSet = false,
                 companyNameSet = false,
+                setupGuideSettingsDone = true,
+                setupGuideHardwareDone = false,
+                setupGuideDismissed = false,
+                hasEnrollmentSessions = false,
                 entitlements = new
                 {
                     retentionCapDays = 90,
@@ -424,6 +428,10 @@ public class TypedContractCompletionWireParityTests
                 TrialAvailable = true,
                 ContactEmailSet = false,
                 CompanyNameSet = false,
+                SetupGuideSettingsDone = true,
+                SetupGuideHardwareDone = false,
+                SetupGuideDismissed = false,
+                HasEnrollmentSessions = false,
                 Entitlements = new TenantFeatureEntitlements
                 {
                     RetentionCapDays = 90,

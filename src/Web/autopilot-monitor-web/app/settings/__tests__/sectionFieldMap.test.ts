@@ -83,6 +83,7 @@ const SERVER_DENIED_FIELDS = new Set([
   "tenantId", "domainName", "partitionKey", "rowKey", "timestamp", "eTag",
   "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy", "dpaVersion",
   "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
+  "setupGuideSettingsReviewedAt", "setupGuideHardwareReviewedAt", "setupGuideDismissedAt", "setupGuideDismissedBy",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
   "graphAccessRejectedSince", "graphAccessRejectedCode", "graphAccessRejectionConfirmedAt",
   "intuneDeviceBindingPermissionMissingSince", "intuneDeviceBindingPermissionMissingConfirmedAt",

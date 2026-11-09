@@ -247,6 +247,34 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.GraphAccessRejectionConfirmedAt);
         Assert.Null(mapped.IntuneDeviceBindingPermissionMissingSince);
         Assert.Null(mapped.CloudPcPermissionMissingConfirmedAt);
+        Assert.Null(mapped.SetupGuideSettingsReviewedAt);
+        Assert.Null(mapped.SetupGuideHardwareReviewedAt);
+        Assert.Null(mapped.SetupGuideDismissedAt);
+        Assert.Null(mapped.SetupGuideDismissedBy);
+    }
+
+    [Fact]
+    public void Roundtrip_SetupGuideFields_SurviveStoreAndMap()
+    {
+        var at = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc);
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            SetupGuideSettingsReviewedAt = at,
+            SetupGuideHardwareReviewedAt = at.AddMinutes(2),
+            SetupGuideDismissedAt = at.AddDays(1),
+            SetupGuideDismissedBy = "admin@contoso.com",
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(at, mapped.SetupGuideSettingsReviewedAt);
+        Assert.Equal(at.AddMinutes(2), mapped.SetupGuideHardwareReviewedAt);
+        Assert.Equal(at.AddDays(1), mapped.SetupGuideDismissedAt);
+        Assert.Equal("admin@contoso.com", mapped.SetupGuideDismissedBy);
     }
 
     [Fact]
