@@ -98,7 +98,7 @@ export default function FeedbackBubble() {
   if (standDown || phase === "loading" || phase === "hidden") return null;
 
   return (
-    <div className="fixed bottom-20 right-6 z-40 sm:bottom-20 sm:right-6">
+    <div className="fixed bottom-[calc(5rem+var(--save-bar-offset))] right-6 z-40">
       {/* Collapsed Bubble */}
       {phase === "bubble" && (
         <div

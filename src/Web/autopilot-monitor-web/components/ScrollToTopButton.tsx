@@ -16,7 +16,7 @@ export default function ScrollToTopButton() {
   return (
     <button
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-      className="fixed bottom-6 right-6 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-gray-800/70 text-white shadow-lg transition-all hover:bg-gray-800 dark:bg-gray-200/70 dark:text-gray-900 dark:hover:bg-gray-200 [transform:translateZ(0)]"
+      className="fixed bottom-[calc(1.5rem+var(--save-bar-offset))] right-6 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-gray-800/70 text-white shadow-lg transition-all hover:bg-gray-800 dark:bg-gray-200/70 dark:text-gray-900 dark:hover:bg-gray-200 [transform:translateZ(0)]"
       aria-label="Scroll to top"
     >
       <svg

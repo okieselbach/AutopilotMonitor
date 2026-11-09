@@ -14,6 +14,8 @@ interface HardwareWhitelistSectionProps {
   setModelWhitelist: (value: string) => void;
   onSave: () => Promise<void> | void;
   saving: boolean;
+  /** Unsaved edits of this card: the Save bar pins itself and enables Save. Left out, Save stays available. */
+  unsaved?: boolean;
   /** Read-only viewer (Operator): inputs disabled, no Save bar. */
   readOnly?: boolean;
 }
@@ -129,6 +131,7 @@ export default function HardwareWhitelistSection({
   setModelWhitelist,
   onSave,
   saving,
+  unsaved,
   readOnly = false,
 }: HardwareWhitelistSectionProps) {
   const manufacturers = parseList(manufacturerWhitelist);
@@ -186,7 +189,7 @@ export default function HardwareWhitelistSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} unsaved={unsaved} />}
       </div>
     </div>
   );

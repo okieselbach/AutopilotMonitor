@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -28,10 +28,20 @@ const VALIDATION_ENABLED_SUFFIX = " enabled. Backend agent endpoints are now unl
 const ACCESS_RESTORED_MESSAGE = "Access restored. The notice on the dashboard can take a few minutes to disappear.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
-import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
+import { TenantConfiguration, TenantAdmin } from "./types";
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
-import { HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS } from "./lib/helloWaitTimeout";
+import {
+  DEFAULT_SETTINGS_FORM,
+  configFromForm,
+  formFromConfig,
+  hardwareRejectionNotify,
+  sectionsWithUnsavedEdits,
+  settingsFormSetters,
+  type SettingsForm,
+  type SettingsFormSetters,
+} from "./lib/settingsForm";
 import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
+import { leaveOrAsk } from "@/lib/unsavedChanges";
 import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 import type {
@@ -48,39 +58,6 @@ import type {
   UpdateMemberPermissionsRequest,
 } from "@/lib/generated/wire-types.generated";
 
-/**
- * Channels for display/editing from a loaded config: prefers notificationChannelsJson; while
- * unset, synthesizes ONE channel from the legacy single-webhook fields under the stable
- * "legacy" id (mirrors backend TenantConfiguration.GetNotificationChannels so the UI shows
- * exactly what the backend dispatches). First save materializes the synthesized channel.
- */
-function channelsFromConfig(data: TenantConfiguration): NotificationChannel[] {
-  if (data.notificationChannelsJson) {
-    try {
-      const parsed = JSON.parse(data.notificationChannelsJson);
-      if (Array.isArray(parsed)) return parsed as NotificationChannel[];
-    } catch {
-      // Malformed (hand-edited) JSON — fall through to legacy synthesis.
-    }
-  }
-  if (data.webhookUrl && data.webhookProviderType) {
-    return [{
-      id: LEGACY_CHANNEL_ID,
-      name: "Default",
-      providerType: data.webhookProviderType,
-      url: data.webhookUrl,
-      customHeadersJson: data.webhookCustomHeadersJson || undefined,
-      enabled: true,
-      notifyOnStart: data.webhookNotifyOnStart ?? false,
-      notifyOnSuccess: data.webhookNotifyOnSuccess ?? true,
-      notifyOnFailure: data.webhookNotifyOnFailure ?? true,
-      notifyOnHardwareRejection: data.webhookNotifyOnHardwareRejection ?? false,
-      notifyOnSlaEvents: true, // legacy behavior: SLA alerts always went to the single webhook
-    }];
-  }
-  return [];
-}
-
 // ---------------------------------------------------------------------------
 // Context value interface
 // ---------------------------------------------------------------------------
@@ -96,7 +73,8 @@ export interface OffboardingInProgressInfo {
   message: string;
 }
 
-interface TenantConfigContextValue {
+interface TenantConfigContextValue
+  extends SettingsForm, Omit<SettingsFormSetters, "setWebhookNotifyOnHardwareRejection"> {
   // Core
   config: TenantConfiguration | null;
   loading: boolean;
@@ -108,6 +86,8 @@ interface TenantConfigContextValue {
    */
   canEditConfig: boolean;
   savingSection: string | null;
+  /** Sections whose Save would write an edit. Never a section that saves on change; always empty without write access. */
+  unsavedSections: ReadonlySet<SettingsSectionName>;
   error: string | null;
   setError: (e: string | null) => void;
   successMessage: string | null;
@@ -136,17 +116,6 @@ interface TenantConfigContextValue {
   graphAccessAppMissing: boolean;
 
   // Validation
-  validateAutopilotDevice: boolean;
-  setValidateAutopilotDevice: (v: boolean) => void;
-  validateCorporateIdentifier: boolean;
-  setValidateCorporateIdentifier: (v: boolean) => void;
-  validateDeviceAssociation: boolean;
-  setValidateDeviceAssociation: (v: boolean) => void;
-  /** Toggle + persist DevPrep Device Association validation in one shot (no consent flow needed). */
-  validateCloudPcDevice: boolean;
-  setValidateCloudPcDevice: (v: boolean) => void;
-  validateIntuneDeviceBinding: boolean;
-  setValidateIntuneDeviceBinding: (v: boolean) => void;
   /**
    * Toggle + persist W365 Cloud PC validation in one shot. No consent flow — the backing
    * CloudPC.Read.All permission is granted via the Optional Graph capabilities add-on script.
@@ -172,123 +141,35 @@ interface TenantConfigContextValue {
   detectExistingAccess: (trigger: ConsentTrigger) => Promise<void>;
 
   // Hardware whitelist
-  manufacturerWhitelist: string;
-  setManufacturerWhitelist: (v: string) => void;
-  modelWhitelist: string;
-  setModelWhitelist: (v: string) => void;
+  /** What the "notify on rejection" switch shows (hardwareRejectionNotify). */
   webhookNotifyOnHardwareRejection: boolean;
+  /** With channels configured, writes the flag through to every channel. */
   setWebhookNotifyOnHardwareRejection: (v: boolean) => void;
   handleSaveHardwareWhitelist: () => Promise<void>;
 
-  // Agent settings
-  enablePerformanceCollector: boolean;
-  setEnablePerformanceCollector: (v: boolean) => void;
-  performanceCollectorInterval: number;
-  setPerformanceCollectorInterval: (v: number) => void;
-  helloWaitTimeoutSeconds: number;
-  setHelloWaitTimeoutSeconds: (v: number) => void;
-  selfDestructOnComplete: boolean;
-  setSelfDestructOnComplete: (v: boolean) => void;
-  keepLogFile: boolean;
-  setKeepLogFile: (v: boolean) => void;
-  rebootOnComplete: boolean;
-  setRebootOnComplete: (v: boolean) => void;
-  rebootDelaySeconds: number;
-  setRebootDelaySeconds: (v: number) => void;
-  contactEmail: string;
-  setContactEmail: (v: string) => void;
-  companyName: string;
-  setCompanyName: (v: string) => void;
+  // Agent settings and contact
   handleSaveContact: () => Promise<void>;
-  enableGeoLocation: boolean;
-  setEnableGeoLocation: (v: boolean) => void;
-  enableTimezoneAutoSet: boolean;
-  setEnableTimezoneAutoSet: (v: boolean) => void;
-  enableDoGroupIdAutoSet: boolean;
-  setEnableDoGroupIdAutoSet: (v: boolean) => void;
-  keepAwakeDuringUserEsp: boolean;
-  setKeepAwakeDuringUserEsp: (v: boolean) => void;
-  enableImeMatchLog: boolean;
-  setEnableImeMatchLog: (v: boolean) => void;
-  enableGatherRuleDebugLog: boolean;
-  setEnableGatherRuleDebugLog: (v: boolean) => void;
-  logLevel: string;
-  setLogLevel: (v: string) => void;
-  showScriptOutput: boolean;
-  setShowScriptOutput: (v: boolean) => void;
-  showEnrollmentSummary: boolean;
-  setShowEnrollmentSummary: (v: boolean) => void;
-  enrollmentSummaryTimeoutSeconds: number;
-  setEnrollmentSummaryTimeoutSeconds: (v: number) => void;
-  enrollmentSummaryBrandingImageUrl: string;
-  setEnrollmentSummaryBrandingImageUrl: (v: string) => void;
-  enrollmentSummaryLaunchRetrySeconds: number;
-  setEnrollmentSummaryLaunchRetrySeconds: (v: number) => void;
-  enableRealmJoinWatcher: boolean;
-  setEnableRealmJoinWatcher: (v: boolean) => void;
-  enableConfigMgrWatcher: boolean;
-  setEnableConfigMgrWatcher: (v: boolean) => void;
   handleSaveAgentParameters: () => Promise<void>;
   handleSaveAgentCollectors: () => Promise<void>;
 
   // Agent analyzers
-  enableLocalAdminAnalyzer: boolean;
-  setEnableLocalAdminAnalyzer: (v: boolean) => void;
-  localAdminAllowedAccounts: string[];
-  setLocalAdminAllowedAccounts: (v: string[]) => void;
   newAllowedAccount: string;
   setNewAllowedAccount: (v: string) => void;
-  enableSoftwareInventoryAnalyzer: boolean;
-  setEnableSoftwareInventoryAnalyzer: (v: boolean) => void;
-  enableIntegrityBypassAnalyzer: boolean;
-  setEnableIntegrityBypassAnalyzer: (v: boolean) => void;
-  enableConsoleBypassDetection: boolean;
-  setEnableConsoleBypassDetection: (v: boolean) => void;
   handleSaveAgentAnalyzers: () => Promise<void>;
 
   // Unrestricted mode
-  unrestrictedMode: boolean;
-  setUnrestrictedMode: (v: boolean) => void;
   handleSaveUnrestrictedMode: (value: boolean) => Promise<boolean>;
 
   // Notifications / channels
-  notificationChannels: NotificationChannel[];
-  setNotificationChannels: (v: SetStateAction<NotificationChannel[]>) => void;
   testingChannelId: string | null;
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
   handleTestChannel: (channelId: string) => Promise<void>;
   handleSaveNotifications: () => Promise<void>;
 
   // SLA Targets
-  slaTargetSuccessRate: number | null;
-  setSlaTargetSuccessRate: (v: number | null) => void;
-  slaTargetMaxDurationMinutes: number | null;
-  setSlaTargetMaxDurationMinutes: (v: number | null) => void;
-  slaTargetAppInstallSuccessRate: number | null;
-  setSlaTargetAppInstallSuccessRate: (v: number | null) => void;
-  slaNotifyOnSuccessRateBreach: boolean;
-  setSlaNotifyOnSuccessRateBreach: (v: boolean) => void;
-  slaSuccessRateNotifyThreshold: number | null;
-  setSlaSuccessRateNotifyThreshold: (v: number | null) => void;
-  slaNotifyOnDurationBreach: boolean;
-  setSlaNotifyOnDurationBreach: (v: boolean) => void;
-  slaNotifyOnAppInstallBreach: boolean;
-  setSlaNotifyOnAppInstallBreach: (v: boolean) => void;
-  slaNotifyOnConsecutiveFailures: boolean;
-  setSlaNotifyOnConsecutiveFailures: (v: boolean) => void;
-  slaConsecutiveFailureThreshold: number;
-  setSlaConsecutiveFailureThreshold: (v: number) => void;
   handleSaveSlaTargets: () => Promise<void>;
 
   // Diagnostics
-  diagnosticsBlobSasUrl: string;
-  setDiagnosticsBlobSasUrl: (v: string) => void;
-  diagnosticsUploadMode: string;
-  setDiagnosticsUploadMode: (v: string) => void;
-  diagnosticsUploadDestination: string;
-  setDiagnosticsUploadDestination: (v: string) => void;
-  tenantDiagPaths: DiagnosticsLogPath[];
-  setTenantDiagPaths: (v: DiagnosticsLogPath[]) => void;
   newDiagPath: string;
   setNewDiagPath: (v: string) => void;
   newDiagDesc: string;
@@ -321,10 +202,6 @@ interface TenantConfigContextValue {
   revokeBootstrapSession: (code: string) => Promise<void>;
 
   // Data management
-  dataRetentionDays: number;
-  setDataRetentionDays: (v: number) => void;
-  sessionTimeoutHours: number;
-  setSessionTimeoutHours: (v: number) => void;
   handleSaveDataManagement: () => Promise<void>;
 
   // Offboarding
@@ -349,6 +226,8 @@ interface TenantConfigContextValue {
 }
 
 const TenantConfigContext = createContext<TenantConfigContextValue | null>(null);
+
+const NO_UNSAVED_SECTIONS: ReadonlySet<SettingsSectionName> = new Set();
 
 export function useTenantConfig() {
   const ctx = useContext(TenantConfigContext);
@@ -396,82 +275,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [bootstrapSessions, setBootstrapSessions] = useState<BootstrapSessionItem[]>([]);
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
 
-  // Form state
-  const [manufacturerWhitelist, setManufacturerWhitelist] = useState("Dell*,HP*,Lenovo*,Microsoft Corporation");
-  const [modelWhitelist, setModelWhitelist] = useState("*");
-  const [webhookNotifyOnHardwareRejection, setWebhookNotifyOnHardwareRejection] = useState(false);
-  const [validateAutopilotDevice, setValidateAutopilotDevice] = useState(false);
-  const [validateCorporateIdentifier, setValidateCorporateIdentifier] = useState(false);
-  const [validateDeviceAssociation, setValidateDeviceAssociation] = useState(false);
-  const [validateCloudPcDevice, setValidateCloudPcDevice] = useState(false);
-  const [validateIntuneDeviceBinding, setValidateIntuneDeviceBinding] = useState(false);
-  const [dataRetentionDays, setDataRetentionDays] = useState(90);
-  const [sessionTimeoutHours, setSessionTimeoutHours] = useState(5);
-
-  // Collector settings
-  const [enablePerformanceCollector, setEnablePerformanceCollector] = useState(true);
-  const [performanceCollectorInterval, setPerformanceCollectorInterval] = useState(30);
-  const [helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds] = useState(HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS);
+  // Form state: every value the sections edit, in one object (lib/settingsForm.ts).
+  const [form, setForm] = useState<SettingsForm>(DEFAULT_SETTINGS_FORM);
+  const formSetters = useMemo(() => settingsFormSetters(setForm), []);
   const [autopilotConsentInProgress, setAutopilotConsentInProgress] = useState(false);
 
-  // Agent behavior
-  const [selfDestructOnComplete, setSelfDestructOnComplete] = useState(true);
-  const [keepLogFile, setKeepLogFile] = useState(false);
-  const [rebootOnComplete, setRebootOnComplete] = useState(false);
-  const [rebootDelaySeconds, setRebootDelaySeconds] = useState(10);
-  const [contactEmail, setContactEmail] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [enableGeoLocation, setEnableGeoLocation] = useState(true);
-  const [enableTimezoneAutoSet, setEnableTimezoneAutoSet] = useState(false);
-  const [enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet] = useState(false);
-  const [enableImeMatchLog, setEnableImeMatchLog] = useState(false);
-  const [enableGatherRuleDebugLog, setEnableGatherRuleDebugLog] = useState(false);
-  const [logLevel, setLogLevel] = useState("Info");
-  const [showScriptOutput, setShowScriptOutput] = useState(true);
-  const [showEnrollmentSummary, setShowEnrollmentSummary] = useState(false);
-  const [enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds] = useState(60);
-  const [enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl] = useState("");
-  const [enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds] = useState(120);
-  const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
-  const [enableConfigMgrWatcher, setEnableConfigMgrWatcher] = useState(false);
-  const [keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp] = useState(false);
-
-  // Notification channels
-  const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([]);
+  // Notification channel test
   const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
   const [testChannelResult, setTestChannelResult] = useState<{ channelId: string; success: boolean; message: string } | null>(null);
 
-  // SLA Targets
-  const [slaTargetSuccessRate, setSlaTargetSuccessRate] = useState<number | null>(null);
-  const [slaTargetMaxDurationMinutes, setSlaTargetMaxDurationMinutes] = useState<number | null>(null);
-  const [slaTargetAppInstallSuccessRate, setSlaTargetAppInstallSuccessRate] = useState<number | null>(null);
-  const [slaNotifyOnSuccessRateBreach, setSlaNotifyOnSuccessRateBreach] = useState(false);
-  const [slaSuccessRateNotifyThreshold, setSlaSuccessRateNotifyThreshold] = useState<number | null>(null);
-  const [slaNotifyOnDurationBreach, setSlaNotifyOnDurationBreach] = useState(false);
-  const [slaNotifyOnAppInstallBreach, setSlaNotifyOnAppInstallBreach] = useState(false);
-  const [slaNotifyOnConsecutiveFailures, setSlaNotifyOnConsecutiveFailures] = useState(false);
-  const [slaConsecutiveFailureThreshold, setSlaConsecutiveFailureThreshold] = useState(5);
-
-  // Diagnostics
-  const [diagnosticsBlobSasUrl, setDiagnosticsBlobSasUrl] = useState("");
-  const [diagnosticsUploadMode, setDiagnosticsUploadMode] = useState("Off");
-  // Destination defaults to "CustomerSas" so legacy rows behave exactly as before;
-  // Hosted requires an explicit admin click (no silent flip).
-  const [diagnosticsUploadDestination, setDiagnosticsUploadDestination] = useState("CustomerSas");
-  const [tenantDiagPaths, setTenantDiagPaths] = useState<DiagnosticsLogPath[]>([]);
+  // Draft inputs of the list editors: not part of the configuration until added to their list.
   const [newDiagPath, setNewDiagPath] = useState("");
   const [newDiagDesc, setNewDiagDesc] = useState("");
-
-  // Agent analyzers
-  const [enableLocalAdminAnalyzer, setEnableLocalAdminAnalyzer] = useState(true);
-  const [localAdminAllowedAccounts, setLocalAdminAllowedAccounts] = useState<string[]>([]);
   const [newAllowedAccount, setNewAllowedAccount] = useState("");
-  const [enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer] = useState(false);
-  const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
-  const [enableConsoleBypassDetection, setEnableConsoleBypassDetection] = useState(true);
-
-  // Unrestricted mode
-  const [unrestrictedMode, setUnrestrictedMode] = useState(false);
 
   // Edition / trial surface (from feature-flags; fail-closed Community until loaded)
   const [editionInfo, setEditionInfo] = useState<EditionInfo>(COMMUNITY_DEFAULT);
@@ -565,74 +381,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
         applyFlags(await flagsPromise);
         setConfig(data);
-
-        // Update form state
-        setManufacturerWhitelist(data.manufacturerWhitelist);
-        setModelWhitelist(data.modelWhitelist);
-        setWebhookNotifyOnHardwareRejection(data.webhookNotifyOnHardwareRejection ?? false);
-        setValidateAutopilotDevice(data.validateAutopilotDevice);
-        setValidateCorporateIdentifier(data.validateCorporateIdentifier ?? false);
-        setValidateDeviceAssociation(data.validateDeviceAssociation ?? false);
-        setValidateCloudPcDevice(data.validateCloudPcDevice ?? false);
-        setValidateIntuneDeviceBinding(data.validateIntuneDeviceBinding ?? false);
-        setDataRetentionDays(data.dataRetentionDays ?? 90);
-        setSessionTimeoutHours(data.sessionTimeoutHours ?? 5);
-        setEnablePerformanceCollector(data.enablePerformanceCollector ?? true);
-        setPerformanceCollectorInterval(data.performanceCollectorIntervalSeconds ?? 30);
-        setHelloWaitTimeoutSeconds(data.helloWaitTimeoutSeconds ?? HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS);
-        setSelfDestructOnComplete(data.selfDestructOnComplete ?? true);
-        setKeepLogFile(data.keepLogFile ?? false);
-        setRebootOnComplete(data.rebootOnComplete ?? false);
-        setRebootDelaySeconds(data.rebootDelaySeconds ?? 10);
-        setContactEmail(data.contactEmail ?? "");
-        setCompanyName(data.companyName ?? "");
-        setEnableGeoLocation(data.enableGeoLocation ?? true);
-        setEnableTimezoneAutoSet(data.enableTimezoneAutoSet ?? false);
-        setEnableDoGroupIdAutoSet(data.enableDoGroupIdAutoSet ?? false);
-        setEnableImeMatchLog(data.enableImeMatchLog ?? false);
-        setEnableGatherRuleDebugLog(data.enableGatherRuleDebugLog ?? false);
-        setLogLevel(data.logLevel ?? "Info");
-        setShowScriptOutput(data.showScriptOutput ?? true);
-        setShowEnrollmentSummary(data.showEnrollmentSummary ?? false);
-        setEnrollmentSummaryTimeoutSeconds(data.enrollmentSummaryTimeoutSeconds ?? 60);
-        setEnrollmentSummaryBrandingImageUrl(data.enrollmentSummaryBrandingImageUrl ?? "");
-        setEnrollmentSummaryLaunchRetrySeconds(data.enrollmentSummaryLaunchRetrySeconds ?? 120);
-        setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
-        setEnableConfigMgrWatcher(data.enableConfigMgrWatcher ?? false);
-        setKeepAwakeDuringUserEsp(data.keepAwakeDuringUserEsp ?? false);
-        // Notification channels (auto-migrates from the legacy single-webhook fields)
-        setNotificationChannels(channelsFromConfig(data));
-        // SLA Targets
-        setSlaTargetSuccessRate(data.slaTargetSuccessRate ?? null);
-        setSlaTargetMaxDurationMinutes(data.slaTargetMaxDurationMinutes ?? null);
-        setSlaTargetAppInstallSuccessRate(data.slaTargetAppInstallSuccessRate ?? null);
-        setSlaNotifyOnSuccessRateBreach(data.slaNotifyOnSuccessRateBreach ?? false);
-        setSlaSuccessRateNotifyThreshold(data.slaSuccessRateNotifyThreshold ?? null);
-        setSlaNotifyOnDurationBreach(data.slaNotifyOnDurationBreach ?? false);
-        setSlaNotifyOnAppInstallBreach(data.slaNotifyOnAppInstallBreach ?? false);
-        setSlaNotifyOnConsecutiveFailures(data.slaNotifyOnConsecutiveFailures ?? false);
-        setSlaConsecutiveFailureThreshold(data.slaConsecutiveFailureThreshold ?? 5);
-        const sasUrl = data.diagnosticsBlobSasUrl ?? "";
-        setDiagnosticsBlobSasUrl(sasUrl);
-        setDiagnosticsUploadMode(data.diagnosticsUploadMode ?? "Off");
-        setDiagnosticsUploadDestination(data.diagnosticsUploadDestination ?? "CustomerSas");
-        try {
-          setTenantDiagPaths(data.diagnosticsLogPathsJson ? JSON.parse(data.diagnosticsLogPathsJson) : []);
-        } catch {
-          setTenantDiagPaths([]);
-        }
-        setEnableLocalAdminAnalyzer(data.enableLocalAdminAnalyzer ?? true);
-        try {
-          setLocalAdminAllowedAccounts(data.localAdminAllowedAccountsJson ? JSON.parse(data.localAdminAllowedAccountsJson) : []);
-        } catch {
-          setLocalAdminAllowedAccounts([]);
-        }
-        setEnableSoftwareInventoryAnalyzer(data.enableSoftwareInventoryAnalyzer ?? false);
-        setEnableIntegrityBypassAnalyzer(data.enableIntegrityBypassAnalyzer ?? true);
-        setEnableConsoleBypassDetection(data.enableConsoleBypassDetection ?? true);
-        setUnrestrictedMode(data.unrestrictedMode ?? false);
+        setForm(formFromConfig(data));
 
         // Parse SAS expiry and fire notification to bell if needed
+        const sasUrl = data.diagnosticsBlobSasUrl ?? "";
         if (sasUrl) {
           const expiry = parseSasExpiry(sasUrl);
           if (expiry) {
@@ -740,12 +492,16 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     // equal the stored row. Some of their toggles move the state before this save runs, so a failed
     // save puts it back: success syncs to the merged row, failure to the loaded one.
     const syncGateState = (stored: TenantConfiguration) => {
-      setValidateAutopilotDevice(stored.validateAutopilotDevice);
-      setValidateCorporateIdentifier(stored.validateCorporateIdentifier ?? false);
-      setValidateDeviceAssociation(stored.validateDeviceAssociation ?? false);
-      setValidateCloudPcDevice(stored.validateCloudPcDevice ?? false);
-      setValidateIntuneDeviceBinding(stored.validateIntuneDeviceBinding ?? false);
-      setUnrestrictedMode(stored.unrestrictedMode ?? false);
+      const gates = formFromConfig(stored);
+      setForm((current) => ({
+        ...current,
+        validateAutopilotDevice: gates.validateAutopilotDevice,
+        validateCorporateIdentifier: gates.validateCorporateIdentifier,
+        validateDeviceAssociation: gates.validateDeviceAssociation,
+        validateCloudPcDevice: gates.validateCloudPcDevice,
+        validateIntuneDeviceBinding: gates.validateIntuneDeviceBinding,
+        unrestrictedMode: gates.unrestrictedMode,
+      }));
     };
 
     try {
@@ -753,76 +509,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setError(null);
       setSuccessMessage(null);
 
-      const autopilotDeviceValidationValue = overrides?.validateAutopilotDevice ?? validateAutopilotDevice;
-      const corporateIdentifierValidationValue = overrides?.validateCorporateIdentifier ?? validateCorporateIdentifier;
-      const deviceAssociationValidationValue = overrides?.validateDeviceAssociation ?? validateDeviceAssociation;
-      const cloudPcValidationValue = overrides?.validateCloudPcDevice ?? validateCloudPcDevice;
-      const intuneDeviceBindingValue = overrides?.validateIntuneDeviceBinding ?? validateIntuneDeviceBinding;
-      const unrestrictedModeValue = overrides?.unrestrictedMode ?? unrestrictedMode;
-
-      const updatedConfig: TenantConfiguration = {
-        ...config,
-        manufacturerWhitelist,
-        modelWhitelist,
-        webhookNotifyOnHardwareRejection,
-        validateAutopilotDevice: autopilotDeviceValidationValue,
-        validateCorporateIdentifier: corporateIdentifierValidationValue,
-        validateDeviceAssociation: deviceAssociationValidationValue,
-        validateCloudPcDevice: cloudPcValidationValue,
-        validateIntuneDeviceBinding: intuneDeviceBindingValue,
-        dataRetentionDays,
-        sessionTimeoutHours,
-        enablePerformanceCollector,
-        performanceCollectorIntervalSeconds: performanceCollectorInterval,
-        helloWaitTimeoutSeconds,
-        selfDestructOnComplete,
-        keepLogFile,
-        rebootOnComplete,
-        rebootDelaySeconds,
-        contactEmail: contactEmail.trim(),
-        companyName: companyName.trim(),
-        enableGeoLocation,
-        enableTimezoneAutoSet,
-        enableDoGroupIdAutoSet,
-        enableImeMatchLog,
-        enableGatherRuleDebugLog,
-        logLevel,
-        showScriptOutput,
-        showEnrollmentSummary,
-        enrollmentSummaryTimeoutSeconds,
-        enrollmentSummaryBrandingImageUrl: enrollmentSummaryBrandingImageUrl || undefined,
-        enrollmentSummaryLaunchRetrySeconds,
-        enableRealmJoinWatcher,
-        enableConfigMgrWatcher,
-        keepAwakeDuringUserEsp,
-        // Notification channels are the authoritative config; the legacy single-webhook
-        // fields are cleared on save so deleting the last channel can't resurrect a zombie
-        // webhook via the backend's legacy-synthesis fallback.
-        notificationChannelsJson: notificationChannels.length > 0 ? JSON.stringify(notificationChannels) : "",
-        webhookProviderType: 0,
-        webhookUrl: undefined,
-        webhookCustomHeadersJson: undefined,
-        // SLA targets
-        slaTargetSuccessRate: slaTargetSuccessRate ?? undefined,
-        slaTargetMaxDurationMinutes: slaTargetMaxDurationMinutes ?? undefined,
-        slaTargetAppInstallSuccessRate: slaTargetAppInstallSuccessRate ?? undefined,
-        slaNotifyOnSuccessRateBreach,
-        slaSuccessRateNotifyThreshold: slaSuccessRateNotifyThreshold ?? undefined,
-        slaNotifyOnDurationBreach,
-        slaNotifyOnAppInstallBreach,
-        slaNotifyOnConsecutiveFailures,
-        slaConsecutiveFailureThreshold,
-        diagnosticsBlobSasUrl: diagnosticsBlobSasUrl || undefined,
-        diagnosticsUploadMode,
-        diagnosticsUploadDestination,
-        diagnosticsLogPathsJson: tenantDiagPaths.length > 0 ? JSON.stringify(tenantDiagPaths) : "",
-        enableLocalAdminAnalyzer,
-        localAdminAllowedAccountsJson: localAdminAllowedAccounts.length > 0 ? JSON.stringify(localAdminAllowedAccounts) : "",
-        enableSoftwareInventoryAnalyzer,
-        enableIntegrityBypassAnalyzer,
-        enableConsoleBypassDetection,
-        unrestrictedMode: unrestrictedModeValue,
-      };
+      // A gate toggle passes its new value explicitly: the state update it made before calling
+      // has not rendered yet, so the form still holds the previous value.
+      const gateOverrides = Object.fromEntries(Object.entries(overrides ?? {}).filter(([, value]) => value != null));
+      const updatedConfig: TenantConfiguration = { ...configFromForm(config, form), ...gateOverrides };
 
       // Per-section PATCH: send ONLY this section's fields (plus documented write-throughs)
       // that actually differ from the loaded config. The other ~90 fields never round-trip,
@@ -857,22 +547,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     } finally {
       setSavingSection(null);
     }
-  }, [
-    tenantId, config, canEditConfig, getAccessToken,
-    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding,
-    dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
-    helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, companyName, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
-    enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
-    notificationChannels,
-    slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
-    slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
-    slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
-    diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination, tenantDiagPaths,
-    enableLocalAdminAnalyzer, localAdminAllowedAccounts, enableSoftwareInventoryAnalyzer,
-    enableIntegrityBypassAnalyzer, enableConsoleBypassDetection, unrestrictedMode,
-  ]);
+  }, [tenantId, config, canEditConfig, getAccessToken, form]);
+
+  // Nothing counts before the configuration has loaded or for a read-only viewer: their form still
+  // holds the defaults, which differ from the stored row without anyone having edited it.
+  const unsavedSections = useMemo(
+    () => (config && canEditConfig && !loading ? sectionsWithUnsavedEdits(config, form) : NO_UNSAVED_SECTIONS),
+    [config, canEditConfig, loading, form],
+  );
 
   // Flows without a save bar (validation gates, Unrestricted Mode, consent) branch on the outcome.
   const saveConfiguration = useCallback(
@@ -977,17 +659,25 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         api.config.autopilotConsentUrl(tenantId, redirectUri),
         getAccessToken,
       );
-      if (!data.consentUrl) {
+      const consentUrl = data.consentUrl;
+      if (!consentUrl) {
         throw new Error("Backend did not return a consent URL.");
       }
 
-      // Trace the funnel entry: this consent redirect targets the NEW app and will auto-flip
-      // the tenant on verified return. AI's pagehide beacon carries it out past the redirect.
-      trackEvent("consent_flow_started", { trigger, funnel: data.willAutoFlipHoming === true });
+      // The consent page reloads the portal: unsaved edits on other settings pages are asked about first.
+      leaveOrAsk({
+        via: "consent",
+        proceed: () => {
+          // Trace the funnel entry: this consent redirect targets the NEW app and will auto-flip
+          // the tenant on verified return. AI's pagehide beacon carries it out past the redirect.
+          trackEvent("consent_flow_started", { trigger, funnel: data.willAutoFlipHoming === true });
 
-      sessionStorage.setItem("deviceValidationConsentPending", "true");
-      sessionStorage.setItem("consentTrigger", trigger);
-      window.location.href = data.consentUrl;
+          sessionStorage.setItem("deviceValidationConsentPending", "true");
+          sessionStorage.setItem("consentTrigger", trigger);
+          window.location.href = consentUrl;
+        },
+        onStay: () => setAutopilotConsentInProgress(false),
+      });
     } catch (err) {
       trackEvent("consent_flow_start_failed", {
         trigger,
@@ -1214,12 +904,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // convenience view over the per-channel flags (checked = any enabled channel opted in;
   // toggling writes through to every channel). Without channels it edits the legacy tenant
   // flag, which the backend maps into the synthesized channel.
-  const effectiveHwRejectionNotify = notificationChannels.length > 0
-    ? notificationChannels.some((c) => c.enabled && c.notifyOnHardwareRejection)
-    : webhookNotifyOnHardwareRejection;
+  const effectiveHwRejectionNotify = hardwareRejectionNotify(form);
   const setHwRejectionNotifyWriteThrough = useCallback((v: boolean) => {
-    setWebhookNotifyOnHardwareRejection(v);
-    setNotificationChannels((prev) => prev.map((c) => ({ ...c, notifyOnHardwareRejection: v })));
+    setForm((current) => ({
+      ...current,
+      webhookNotifyOnHardwareRejection: v,
+      notificationChannels: current.notificationChannels.map((c) => ({ ...c, notifyOnHardwareRejection: v })),
+    }));
   }, []);
 
   const handleSaveAgentParameters = useCallback(() => saveSection("agentParameters"), [saveSection]);
@@ -1255,9 +946,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
    * (saveConfiguration re-syncs the gates).
    */
   const handleToggleCloudPcValidation = useCallback(async (newValue: boolean) => {
-    setValidateCloudPcDevice(newValue);
+    formSetters.setValidateCloudPcDevice(newValue);
     await saveConfiguration("autopilotValidation", { validateCloudPcDevice: newValue });
-  }, [saveConfiguration]);
+  }, [formSetters, saveConfiguration]);
 
   /**
    * Toggle Intune Enrollment Validation (field name validateIntuneDeviceBinding). No consent
@@ -1267,9 +958,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
    * a failed save, like the Cloud PC toggle.
    */
   const handleToggleIntuneDeviceBinding = useCallback(async (newValue: boolean) => {
-    setValidateIntuneDeviceBinding(newValue);
+    formSetters.setValidateIntuneDeviceBinding(newValue);
     await saveConfiguration("autopilotValidation", { validateIntuneDeviceBinding: newValue });
-  }, [saveConfiguration]);
+  }, [formSetters, saveConfiguration]);
 
   // -----------------------------------------------------------------------
   // Admin management handlers
@@ -1509,8 +1200,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // depends on nearly every field); the memo only cuts the externally-triggered cascade.
   // The dependency array is enforced by react-hooks/exhaustive-deps (lint cap = 0).
   const value = useMemo<TenantConfigContextValue>(() => ({
-      config, loading, canEditConfig, savingSection,
+      config, loading, canEditConfig, savingSection, unsavedSections,
       error, setError, successMessage, setSuccessMessage,
+
+      // Every edited value and its setter; the hardware switch below replaces its pair.
+      ...form,
+      ...formSetters,
 
       // Edition / trial
       editionInfo, startingTrial, startTrial,
@@ -1518,86 +1213,36 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       graphAccessRejected, graphAccessAppMissing,
 
       // Validation
-      validateAutopilotDevice, setValidateAutopilotDevice,
-      validateCorporateIdentifier, setValidateCorporateIdentifier,
-      validateDeviceAssociation, setValidateDeviceAssociation,
-      validateCloudPcDevice, setValidateCloudPcDevice,
-      validateIntuneDeviceBinding, setValidateIntuneDeviceBinding,
       handleToggleCloudPcValidation,
       handleToggleIntuneDeviceBinding,
       saveValidationGate,
       autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
 
       // Hardware whitelist
-      manufacturerWhitelist, setManufacturerWhitelist,
-      modelWhitelist, setModelWhitelist,
       webhookNotifyOnHardwareRejection: effectiveHwRejectionNotify,
       setWebhookNotifyOnHardwareRejection: setHwRejectionNotifyWriteThrough,
       handleSaveHardwareWhitelist,
 
-      // Agent settings
-      enablePerformanceCollector, setEnablePerformanceCollector,
-      performanceCollectorInterval, setPerformanceCollectorInterval,
-      helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds,
-      selfDestructOnComplete, setSelfDestructOnComplete,
-      keepLogFile, setKeepLogFile,
-      rebootOnComplete, setRebootOnComplete,
-      rebootDelaySeconds, setRebootDelaySeconds,
-      contactEmail, setContactEmail,
-      companyName, setCompanyName,
+      // Agent settings and contact
       handleSaveContact,
-      enableGeoLocation, setEnableGeoLocation,
-      enableTimezoneAutoSet, setEnableTimezoneAutoSet,
-      enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet,
-      enableImeMatchLog, setEnableImeMatchLog,
-      enableGatherRuleDebugLog, setEnableGatherRuleDebugLog,
-      logLevel, setLogLevel,
-      showScriptOutput, setShowScriptOutput,
-      showEnrollmentSummary, setShowEnrollmentSummary,
-      enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds,
-      enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl,
-      enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds,
-      enableRealmJoinWatcher, setEnableRealmJoinWatcher,
-      enableConfigMgrWatcher, setEnableConfigMgrWatcher,
-      keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
       handleSaveAgentParameters,
       handleSaveAgentCollectors,
 
       // Agent analyzers
-      enableLocalAdminAnalyzer, setEnableLocalAdminAnalyzer,
-      localAdminAllowedAccounts, setLocalAdminAllowedAccounts,
       newAllowedAccount, setNewAllowedAccount,
-      enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
-      enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
-      enableConsoleBypassDetection, setEnableConsoleBypassDetection,
       handleSaveAgentAnalyzers,
 
       // Unrestricted mode
-      unrestrictedMode, setUnrestrictedMode,
       handleSaveUnrestrictedMode,
 
       // Notifications
-      notificationChannels, setNotificationChannels,
       testingChannelId, testChannelResult,
       handleTestChannel, handleSaveNotifications,
 
       // SLA Targets
-      slaTargetSuccessRate, setSlaTargetSuccessRate,
-      slaTargetMaxDurationMinutes, setSlaTargetMaxDurationMinutes,
-      slaTargetAppInstallSuccessRate, setSlaTargetAppInstallSuccessRate,
-      slaNotifyOnSuccessRateBreach, setSlaNotifyOnSuccessRateBreach,
-      slaSuccessRateNotifyThreshold, setSlaSuccessRateNotifyThreshold,
-      slaNotifyOnDurationBreach, setSlaNotifyOnDurationBreach,
-      slaNotifyOnAppInstallBreach, setSlaNotifyOnAppInstallBreach,
-      slaNotifyOnConsecutiveFailures, setSlaNotifyOnConsecutiveFailures,
-      slaConsecutiveFailureThreshold, setSlaConsecutiveFailureThreshold,
       handleSaveSlaTargets,
 
       // Diagnostics
-      diagnosticsBlobSasUrl, setDiagnosticsBlobSasUrl,
-      diagnosticsUploadMode, setDiagnosticsUploadMode,
-      diagnosticsUploadDestination, setDiagnosticsUploadDestination,
-      tenantDiagPaths, setTenantDiagPaths,
       newDiagPath, setNewDiagPath,
       newDiagDesc, setNewDiagDesc,
       handleSaveDiagnostics,
@@ -1615,8 +1260,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
 
       // Data management
-      dataRetentionDays, setDataRetentionDays,
-      sessionTimeoutHours, setSessionTimeoutHours,
       handleSaveDataManagement,
 
       // Offboarding
@@ -1629,41 +1272,29 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Auth
       user, getAccessToken,
   }), [
-    config, loading, canEditConfig, savingSection, error, successMessage,
+    config, loading, canEditConfig, savingSection, unsavedSections, error, successMessage,
+    form, formSetters,
     editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped, homingMissingRoles,
     graphAccessRejected, graphAccessAppMissing,
-    validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
-    validateCloudPcDevice, handleToggleCloudPcValidation,
-    validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,
+    handleToggleCloudPcValidation, handleToggleIntuneDeviceBinding,
     saveValidationGate, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
-    manufacturerWhitelist, modelWhitelist, effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,
+    effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,
     handleSaveHardwareWhitelist,
-    enablePerformanceCollector, performanceCollectorInterval, helloWaitTimeoutSeconds,
-    selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, companyName, handleSaveContact,
-    enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
-    logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
-    enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    enableRealmJoinWatcher, enableConfigMgrWatcher, keepAwakeDuringUserEsp,
+    handleSaveContact,
     handleSaveAgentParameters,
     handleSaveAgentCollectors,
-    enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
-    enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableConsoleBypassDetection,
+    newAllowedAccount,
     handleSaveAgentAnalyzers,
-    unrestrictedMode, handleSaveUnrestrictedMode,
-    notificationChannels, testingChannelId, testChannelResult,
+    handleSaveUnrestrictedMode,
+    testingChannelId, testChannelResult,
     handleTestChannel, handleSaveNotifications,
-    slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
-    slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
-    slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
     handleSaveSlaTargets,
-    diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination,
-    tenantDiagPaths, newDiagPath, newDiagDesc,
+    newDiagPath, newDiagDesc,
     handleSaveDiagnostics,
     admins, loadingAdmins, newAdminEmail, newMemberRole, newMemberKind, addingAdmin, removingAdmin, togglingAdmin,
     handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
     bootstrapSessions, bootstrapLoading, fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
-    dataRetentionDays, sessionTimeoutHours, handleSaveDataManagement,
+    handleSaveDataManagement,
     showOffboardDialog, offboardConfirmText, offboarding, offboardError, handleOffboard,
     offboardingInProgress, handleDrainBarrierElapsed,
     user, getAccessToken,

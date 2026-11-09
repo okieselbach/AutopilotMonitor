@@ -1,6 +1,7 @@
 "use client";
 
 import { sessionUrl } from "@/lib/routes";
+import { leaveOrAsk } from "@/lib/unsavedChanges";
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -191,7 +192,8 @@ export default function GlobalSearch() {
     setShowDropdown(false);
     setMobileOpen(false);
     setQuery('');
-    router.push(sessionUrl(result.sessionId));
+    const url = sessionUrl(result.sessionId);
+    leaveOrAsk({ href: url, via: "search", proceed: () => router.push(url) });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

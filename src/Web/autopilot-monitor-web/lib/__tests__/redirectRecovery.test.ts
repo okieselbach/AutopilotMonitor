@@ -4,6 +4,7 @@ import {
   consumeLoginFailed,
   consumeRedirectRecovery,
   decideRedirectOutcome,
+  isMsalRedirectInFlight,
   markLoginFailed,
   purgeMsalRedirectState,
   readBootAuthResponse,
@@ -124,6 +125,17 @@ describe("retry budget and sign-in card markers", () => {
     expect(consumeLoginFailed()).toBeNull();
     expect(consumeRedirectRecovery()).toBeNull();
     expect(() => purgeMsalRedirectState()).not.toThrow();
+    expect(isMsalRedirectInFlight()).toBe(false);
+  });
+});
+
+describe("isMsalRedirectInFlight", () => {
+  it("is true only while MSAL's interaction status is set", () => {
+    expect(isMsalRedirectInFlight()).toBe(false);
+    storage().setItem("msal.interaction.status", JSON.stringify({ clientId: "x", type: "signin" }));
+    expect(isMsalRedirectInFlight()).toBe(true);
+    purgeMsalRedirectState();
+    expect(isMsalRedirectInFlight()).toBe(false);
   });
 });
 

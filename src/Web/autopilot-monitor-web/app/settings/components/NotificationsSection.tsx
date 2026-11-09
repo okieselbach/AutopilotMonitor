@@ -17,6 +17,8 @@ interface NotificationsSectionProps {
   testChannelResult: { channelId: string; success: boolean; message: string } | null;
   onSave: () => Promise<void> | void;
   saving: boolean;
+  /** Unsaved edits of this card: the Save bar pins itself and enables Save. Left out, Save stays available. */
+  unsaved?: boolean;
   /** Read-only viewer (Operator): channels visible but inert, no Save bar. */
   readOnly?: boolean;
   /** Global Admin: the platform-owned providers (e-mail) are offered in the provider dropdown. */
@@ -34,6 +36,7 @@ export default function NotificationsSection({
   testChannelResult,
   onSave,
   saving,
+  unsaved,
   readOnly = false,
   showPlatformProviders = false,
   health = null,
@@ -101,7 +104,7 @@ export default function NotificationsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} unsaved={unsaved} />}
       </div>
     </div>
   );

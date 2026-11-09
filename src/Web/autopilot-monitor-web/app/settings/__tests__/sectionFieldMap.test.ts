@@ -7,11 +7,33 @@
  */
 import { describe, expect, it } from "vitest";
 import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
-import { SECTION_FIELD_MAP } from "../sectionFieldMap";
+import { EXPANDABLE_NAV_GROUPS } from "@/lib/globalNavConfig";
+import { SAVE_BAR_SECTIONS, SECTION_FIELD_MAP } from "../sectionFieldMap";
 
 const sections = Object.entries(SECTION_FIELD_MAP) as Array<
-  [string, { fields: readonly string[]; alsoWrites?: readonly string[] }]
+  [string, { fields: readonly string[]; alsoWrites?: readonly string[]; page: string; immediate?: true }]
 >;
+
+/** Test-local: the sidebar page each section lives on (where its unsaved edits are marked). */
+const EXPECTED_PAGES: Record<string, string> = {
+  hardwareWhitelist: "/settings/tenant/hardware-whitelist",
+  autopilotValidation: "/settings/tenant/autopilot",
+  notifications: "/settings/tenant/notifications",
+  slaTargets: "/settings/tenant/sla-targets",
+  contact: "/settings/tenant/contact",
+  agentParameters: "/settings/agent/settings",
+  agentCollectors: "/settings/agent/settings",
+  agentAnalyzers: "/settings/agent/analyzers",
+  diagnostics: "/settings/agent/diagnostics",
+  unrestrictedMode: "/settings/agent/unrestricted-mode",
+  dataManagement: "/settings/management/data",
+};
+
+/** Test-local: the sections with a Save bar. The validation gates and Unrestricted Mode save on change. */
+const EXPECTED_SAVE_BAR_SECTIONS = [
+  "hardwareWhitelist", "notifications", "slaTargets", "contact", "agentParameters",
+  "agentCollectors", "agentAnalyzers", "diagnostics", "dataManagement",
+].sort();
 
 /**
  * Test-local, independent list of every field the Settings UI edits (one owner section
@@ -119,6 +141,23 @@ describe("SECTION_FIELD_MAP parity", () => {
         expect(SERVER_DENIED_FIELDS.has(field), `${section}: '${field}' is patch-denied server-side`).toBe(false);
       }
     }
+  });
+
+  it("every section names the page that holds it", () => {
+    expect(Object.fromEntries(sections.map(([section, spec]) => [section, spec.page]))).toEqual(EXPECTED_PAGES);
+  });
+
+  it("every page is a link in the sidebar, where its unsaved edits are marked", () => {
+    const sidebarHrefs = new Set<string>(
+      EXPANDABLE_NAV_GROUPS.flatMap((group) => group.items.flatMap((item) => item.items.map((sub) => sub.href))),
+    );
+    for (const [section, spec] of sections) {
+      expect(sidebarHrefs, `${section}: '${spec.page}' is not a sidebar link`).toContain(spec.page);
+    }
+  });
+
+  it("only the sections with a Save bar can hold unsaved edits", () => {
+    expect([...SAVE_BAR_SECTIONS].sort()).toEqual(EXPECTED_SAVE_BAR_SECTIONS);
   });
 
   it("no section owns a GA-only field a tenant admin could not save", () => {

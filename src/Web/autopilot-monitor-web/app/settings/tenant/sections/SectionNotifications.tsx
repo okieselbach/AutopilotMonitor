@@ -21,6 +21,7 @@ export function SectionNotifications() {
     handleTestChannel, testingChannelId, testChannelResult,
     handleSaveNotifications,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   // E-mail channels send under the platform's identity, so only a Global Admin may
@@ -56,6 +57,7 @@ export function SectionNotifications() {
         testChannelResult={testChannelResult}
         onSave={handleSaveNotifications}
         saving={savingSection === "notifications"}
+        unsaved={unsavedSections.has("notifications")}
         readOnly={!canEditConfig}
         showPlatformProviders={showPlatformProviders}
         health={channelHealth}

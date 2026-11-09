@@ -14,6 +14,16 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { DOCS_URL } from "@/lib/config";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
 import { viewAsBarHeight } from "@/lib/viewAs";
+import { useUnsavedPages } from "@/lib/unsavedChanges";
+
+/** Amber dot on a sidebar entry whose settings page holds unsaved edits (lib/unsavedChanges). */
+function UnsavedMarker({ className = "" }: { className?: string }) {
+  return (
+    <span className={`h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 ${className}`} title="Unsaved changes">
+      <span className="sr-only">Unsaved changes</span>
+    </span>
+  );
+}
 
 // Sidebar pixel widths
 export const SIDEBAR_PX: Record<CollapseState, number> = {
@@ -42,6 +52,11 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // for both.
   const rawPathname = usePathname();
   const pathname = rawPathname.length > 1 ? rawPathname.replace(/\/+$/, "") : rawPathname;
+
+  // Settings pages holding unsaved edits: marked on their entry, and on the group or category
+  // around it while that is collapsed.
+  const unsavedPages = useUnsavedPages();
+  const hasUnsavedPage = (hrefs: readonly string[]) => hrefs.some((href) => unsavedPages.includes(href));
 
   // Track desktop breakpoint
   const isDesktop = useMediaQuery("(min-width: 768px)");
@@ -409,7 +424,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       : "text-gray-400 dark:text-gray-500"
                   }`}
                 >
-                  <span>{group.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    {group.label}
+                    {isCategoryCollapsed && hasUnsavedPage(group.items.flatMap((item) => item.items.map((sub) => sub.href))) && <UnsavedMarker />}
+                  </span>
                   <svg
                     className={`w-3 h-3 shrink-0 transition-transform duration-150 ${isCategoryCollapsed ? "" : "rotate-90"}`}
                     fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -430,6 +448,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                 {group.items.map((expandItem) => {
                   const isExpanded = expandedGroups.has(expandItem.id);
                   const itemHasActive = expandItem.items.some((sub) => pathname === sub.href || pathname.startsWith(sub.href + "/"));
+                  const itemHasUnsaved = hasUnsavedPage(expandItem.items.map((sub) => sub.href));
                   const firstHref = expandItem.items[0]?.href ?? "#";
                   const isGlobalStyle = group.style === "global";
 
@@ -452,6 +471,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                           title={expandItem.label}
                         >
                           <span className="shrink-0 inline-flex items-center justify-center w-4.5 h-4.5">{expandItem.icon}</span>
+                          {itemHasUnsaved && <UnsavedMarker className="absolute top-1 right-1" />}
                           <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
                             {expandItem.label}
                           </span>
@@ -477,6 +497,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       >
                         <span className="shrink-0 inline-flex items-center w-4 h-4">{expandItem.icon}</span>
                         <span className="truncate flex-1 text-left">{expandItem.label}</span>
+                        {!isExpanded && itemHasUnsaved && <UnsavedMarker />}
                         <svg
                           className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -505,7 +526,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                 <NavLink
                                   href={sub.href}
                                   onClick={() => setMobileDrawerOpen(false)}
-                                  className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
+                                  className={`relative block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                     subActive
                                       ? isGlobalStyle
                                         ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300"
@@ -514,6 +535,9 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                   }`}
                                 >
                                   {sub.label}
+                                  {unsavedPages.includes(sub.href) && (
+                                    <UnsavedMarker className="absolute right-3 top-1/2 -translate-y-1/2" />
+                                  )}
                                 </NavLink>
                               </li>
                             );

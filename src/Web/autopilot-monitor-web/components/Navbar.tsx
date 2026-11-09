@@ -8,6 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useState, useRef, useEffect } from 'react';
 import { NavLink } from '@/components/NavLink';
 import { trustedRoute } from '@/lib/routes';
+import { leaveOrAsk } from '@/lib/unsavedChanges';
 import { usePathname, useRouter } from 'next/navigation';
 import { BrandMark } from './BrandMark';
 import { UserAvatar } from './UserAvatar';
@@ -114,7 +115,13 @@ export default function Navbar() {
   // so it doesn't linger over the target page.
   const openNotificationHref = (href: string) => {
     setShowNotifications(false);
-    router.push(trustedRoute(href));
+    leaveOrAsk({ href, via: "notification", proceed: () => router.push(trustedRoute(href)) });
+  };
+
+  // Sign-out leaves the page by redirect: unsaved settings edits are asked about first.
+  const signOut = () => {
+    setShowUserMenu(false);
+    leaveOrAsk({ via: "sign_out", proceed: logout });
   };
 
   const isTenantAdmin = user?.isTenantAdmin ?? false;
@@ -175,7 +182,7 @@ export default function Navbar() {
                       </div>
                     </div>
                     <div className="py-1">
-                      <button onClick={() => { logout(); setShowUserMenu(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
+                      <button onClick={signOut} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                         </svg>
@@ -795,7 +802,7 @@ export default function Navbar() {
                     </div>
                   </div>
                   <div className="py-1">
-                    <button onClick={() => { logout(); setShowUserMenu(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
+                    <button onClick={signOut} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2">
                       <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                       </svg>

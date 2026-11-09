@@ -19,6 +19,7 @@ export function SectionHardwareWhitelist() {
     notificationChannels,
     handleSaveHardwareWhitelist,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   const hasWebhook = notificationChannels.some((c) => c.enabled && (c.url ?? "").length > 0);
@@ -43,6 +44,7 @@ export function SectionHardwareWhitelist() {
         setModelWhitelist={setModelWhitelist}
         onSave={handleSaveHardwareWhitelist}
         saving={savingSection === "hardwareWhitelist"}
+        unsaved={unsavedSections.has("hardwareWhitelist")}
         readOnly={!canEditConfig}
       />
       <HardwareRejectionInsights

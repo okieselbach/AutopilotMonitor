@@ -121,6 +121,22 @@ export function authErrorCode(error: unknown): string | null {
   return typeof code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(code) ? code : null;
 }
 
+// msal-browser sets this before every interactive call and clears it when the call ends.
+const MSAL_INTERACTION_STATUS_KEY = "msal.interaction.status";
+
+/**
+ * True while MSAL runs an interaction in this tab, which covers every sign-in or sign-out redirect
+ * from the moment it starts. A page must never hold such a redirect (a "leave site?" prompt): a
+ * cancelled one leaves the interaction status behind, and the next sign-in then fails.
+ */
+export function isMsalRedirectInFlight(): boolean {
+  try {
+    return window.sessionStorage.getItem(MSAL_INTERACTION_STATUS_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 // msal-browser TemporaryCacheKeys: `msal.interaction.status` plus `msal.<clientId>.<key>`.
 const MSAL_REDIRECT_STATE_KEY =
   /^msal\.(interaction\.status|[^.]+\.(request\.origin|urlHash|request\.params|code\.verifier|request\.native))$/;

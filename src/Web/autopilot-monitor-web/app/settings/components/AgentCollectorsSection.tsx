@@ -24,6 +24,8 @@ interface AgentCollectorsSectionProps {
   setEnableConfigMgrWatcher: (value: boolean) => void;
   onSave: () => Promise<void> | void;
   saving: boolean;
+  /** Unsaved edits of this card: the Save bar pins itself and enables Save. Left out, Save stays available. */
+  unsaved?: boolean;
   /** Read-only viewer (Operator): settings visible but inert, no Save bar. */
   readOnly?: boolean;
 }
@@ -41,6 +43,7 @@ export default function AgentCollectorsSection({
   setEnableConfigMgrWatcher,
   onSave,
   saving,
+  unsaved,
   readOnly = false,
 }: AgentCollectorsSectionProps) {
   return (
@@ -147,7 +150,7 @@ export default function AgentCollectorsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} unsaved={unsaved} />}
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ export function SectionAgentAnalyzers() {
     enableConsoleBypassDetection, setEnableConsoleBypassDetection,
     handleSaveAgentAnalyzers,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   return (
@@ -35,6 +36,7 @@ export function SectionAgentAnalyzers() {
         setEnableConsoleBypassDetection={setEnableConsoleBypassDetection}
         onSave={handleSaveAgentAnalyzers}
         saving={savingSection === "agentAnalyzers"}
+        unsaved={unsavedSections.has("agentAnalyzers")}
         readOnly={!canEditConfig}
       />
     </>

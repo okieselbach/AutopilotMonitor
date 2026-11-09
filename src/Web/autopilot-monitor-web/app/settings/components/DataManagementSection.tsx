@@ -15,6 +15,8 @@ interface DataManagementSectionProps {
   retentionCapDays?: number;
   onSave: () => Promise<void> | void;
   saving: boolean;
+  /** Unsaved edits of this card: the Save bar pins itself and enables Save. Left out, Save stays available. */
+  unsaved?: boolean;
   /** Read-only viewer (Operator): values visible but inert, no Save bar. */
   readOnly?: boolean;
 }
@@ -28,6 +30,7 @@ export default function DataManagementSection({
   retentionCapDays = 90,
   onSave,
   saving,
+  unsaved,
   readOnly = false,
 }: DataManagementSectionProps) {
   const isOverridden = dataRetentionDays === 0 || dataRetentionDays < 7 || dataRetentionDays > retentionCapDays;
@@ -123,7 +126,7 @@ export default function DataManagementSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} unsaved={unsaved} />}
       </div>
     </div>
   );

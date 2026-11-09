@@ -18,6 +18,7 @@ export function SectionDiagnostics() {
     unrestrictedMode,
     handleSaveDiagnostics,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
   // Built-in sections + platform-wide paths (MemberRead) — read-only context for every role.
   const catalog = useDiagnosticsPathsCatalog();
@@ -47,6 +48,7 @@ export function SectionDiagnostics() {
         unrestrictedMode={unrestrictedMode}
         onSave={handleSaveDiagnostics}
         saving={savingSection === "diagnostics"}
+        unsaved={unsavedSections.has("diagnostics")}
         readOnly={!canEditConfig}
       />
     </>

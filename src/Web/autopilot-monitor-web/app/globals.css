@@ -40,6 +40,17 @@ html {
   --view-as-offset: var(--view-as-bar-height);
 }
 
+/* ===== Pinned save bar (app/settings/components/SaveBar.tsx) =====
+   While a settings card has unsaved edits, its Save bar sticks to the bottom of the viewport. The
+   floating buttons at the bottom right (scroll to top, feedback) rise by --save-bar-offset, the bar's
+   height while one is pinned and 0 otherwise, so they never cover Save. */
+:root {
+  --save-bar-offset: 0px;
+}
+:root:has([data-save-bar-pinned]) {
+  --save-bar-offset: 4.5rem;
+}
+
 :root {
   --background: #f9fafb;
   --foreground: #171717;

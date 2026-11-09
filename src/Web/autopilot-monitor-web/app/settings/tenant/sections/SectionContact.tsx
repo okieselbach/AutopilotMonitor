@@ -13,6 +13,7 @@ export function SectionContact() {
     companyName, setCompanyName,
     handleSaveContact,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   const trimmed = contactEmail.trim();
@@ -95,6 +96,7 @@ export function SectionContact() {
           <SaveBar
             onSave={handleSaveContact}
             saving={savingSection === "contact"}
+            unsaved={unsavedSections.has("contact")}
             saveBlockedReason={saveBlockedReason}
           />
         )}

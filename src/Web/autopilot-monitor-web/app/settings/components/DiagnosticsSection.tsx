@@ -40,6 +40,8 @@ interface DiagnosticsSectionProps {
   unrestrictedMode?: boolean;
   onSave: () => Promise<void> | void;
   saving: boolean;
+  /** Unsaved edits of this card: the Save bar pins itself and enables Save. Left out, Save stays available. */
+  unsaved?: boolean;
   /** Read-only viewer (Operator): settings visible but inert, no Save bar. */
   readOnly?: boolean;
 }
@@ -64,6 +66,7 @@ export default function DiagnosticsSection({
   unrestrictedMode = false,
   onSave,
   saving,
+  unsaved,
   readOnly = false,
 }: DiagnosticsSectionProps) {
   const isHosted = diagnosticsUploadDestination === "Hosted";
@@ -366,7 +369,7 @@ export default function DiagnosticsSection({
         </div>
         </ReadOnlyFieldset>
 
-        {!readOnly && <SaveBar onSave={onSave} saving={saving} />}
+        {!readOnly && <SaveBar onSave={onSave} saving={saving} unsaved={unsaved} />}
       </div>
     </div>
   );

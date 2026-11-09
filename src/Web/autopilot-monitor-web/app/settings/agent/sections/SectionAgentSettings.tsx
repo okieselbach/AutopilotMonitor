@@ -32,6 +32,7 @@ export function SectionAgentSettings() {
     handleSaveAgentParameters,
     handleSaveAgentCollectors,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   return (
@@ -72,6 +73,7 @@ export function SectionAgentSettings() {
         setEnrollmentSummaryLaunchRetrySeconds={setEnrollmentSummaryLaunchRetrySeconds}
         onSave={handleSaveAgentParameters}
         saving={savingSection === "agentParameters"}
+        unsaved={unsavedSections.has("agentParameters")}
         readOnly={!canEditConfig}
       />
       <AgentCollectorsSection
@@ -87,6 +89,7 @@ export function SectionAgentSettings() {
         setEnableConfigMgrWatcher={setEnableConfigMgrWatcher}
         onSave={handleSaveAgentCollectors}
         saving={savingSection === "agentCollectors"}
+        unsaved={unsavedSections.has("agentCollectors")}
         readOnly={!canEditConfig}
       />
     </>

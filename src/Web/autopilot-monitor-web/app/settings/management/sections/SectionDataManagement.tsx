@@ -13,6 +13,7 @@ export function SectionDataManagement() {
     editionInfo,
     handleSaveDataManagement,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   // The escape hatch that keeps an out-of-plan retention value editable is Global-Admin-only, and
@@ -32,6 +33,7 @@ export function SectionDataManagement() {
         retentionCapDays={editionInfo.entitlements.retentionCapDays}
         onSave={handleSaveDataManagement}
         saving={savingSection === "dataManagement"}
+        unsaved={unsavedSections.has("dataManagement")}
         readOnly={!canEditConfig}
       />
     </>

@@ -21,6 +21,7 @@ export function SectionSlaTargets() {
     slaConsecutiveFailureThreshold, setSlaConsecutiveFailureThreshold,
     handleSaveSlaTargets,
     savingSection,
+    unsavedSections,
   } = useTenantConfig();
 
   return (
@@ -228,6 +229,7 @@ export function SectionSlaTargets() {
             return handleSaveSlaTargets();
           }}
           saving={savingSection === "slaTargets"}
+          unsaved={unsavedSections.has("slaTargets")}
         />
       )}
       </div>
