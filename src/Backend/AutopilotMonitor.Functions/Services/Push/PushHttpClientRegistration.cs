@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Push;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,7 +16,8 @@ public static class PushHttpClientRegistration
     /// retry policy — push services send Retry-After and throttle senders that re-POST in 2 s;
     /// the library classifies once and retries 5xx exactly once (K15). The sender is a singleton
     /// (it caches VAPID tokens per push-service origin), so the pooled connection lifetime keeps
-    /// DNS changes from going unnoticed.
+    /// DNS changes from going unnoticed. A push endpoint is a per-device send capability, so the
+    /// client's dependency rows keep scheme + host only (K20, D-424).
     /// </summary>
     public static IServiceCollection AddPushSender(this IServiceCollection services)
     {
@@ -27,7 +29,8 @@ public static class PushHttpClientRegistration
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5),
                 ConnectCallback = SsrfGuard.ConnectToPublicAddress,
             })
-            .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10));
+            .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10))
+            .AddHttpMessageHandler(() => new CredentialUrlRedactionProcessor.MarkingHandler());
 
         services.AddSingleton(sp => new WebPushSender(sp.GetRequiredService<IHttpClientFactory>().CreateClient(ClientName)));
         return services;

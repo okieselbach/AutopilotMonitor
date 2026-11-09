@@ -13,6 +13,17 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     /// </summary>
     public static class NotificationAlertBuilder
     {
+        public const string EnrollmentStartedEventType = "enrollment_started";
+        public const string PreProvisioningResumedEventType = "preprovisioning_resumed";
+
+        /// <summary>
+        /// Whether the alert announces that a run has just begun (<see cref="BuildEnrollmentStartedAlert"/>):
+        /// it is worth something only while the run is still going.
+        /// </summary>
+        public static bool IsStartAlert(string? eventType)
+            => string.Equals(eventType, EnrollmentStartedEventType, StringComparison.Ordinal)
+               || string.Equals(eventType, PreProvisioningResumedEventType, StringComparison.Ordinal);
+
         public static NotificationAlert BuildEnrollmentAlert(
             string? deviceName,
             string? serialNumber,
@@ -87,7 +98,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
-                EventType = isResume ? "preprovisioning_resumed" : "enrollment_started",
+                EventType = isResume ? PreProvisioningResumedEventType : EnrollmentStartedEventType,
                 Title = title,
                 Summary = summary,
                 Severity = NotificationSeverity.Info,

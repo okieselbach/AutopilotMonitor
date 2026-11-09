@@ -103,6 +103,43 @@ public class PushDeliveryServiceTests
         Assert.Equal((int)status, row.LastStatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Start_alert_goes_out_at_high_urgency(bool isResume)
+    {
+        // D-424: an Info start below "high" waits at FCM while the phone dozes, and the verdict sharing
+        // its session Topic then replaces it — the start never reaches the phone.
+        var h = new Harness();
+        h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
+        var alert = NotificationAlertBuilder.BuildEnrollmentStartedAlert(
+            "DESKTOP-4711", "SN-0001", "Dell Inc.", "Latitude 7450", isResume, Constants.PortalSessionUrl("session-1"));
+
+        await h.Sut.SendCoreAsync(Tenant, alert);
+
+        var request = Assert.Single(h.Http.Requests);
+        Assert.Equal("high", Assert.Single(request.Headers.GetValues("Urgency")));
+    }
+
+    [Theory]
+    [InlineData(NotificationSeverity.Error, "high")]
+    [InlineData(NotificationSeverity.Warning, "high")]
+    [InlineData(NotificationSeverity.Success, "normal")]
+    [InlineData(NotificationSeverity.Info, "low")]
+    public async Task Other_alerts_take_their_urgency_from_the_severity(NotificationSeverity severity, string expected)
+    {
+        var h = new Harness();
+        h.AddDevice("d1", Constants.Push.DeviceStatus.Active);
+        var alert = Alert();
+        alert.EventType = "whats_new";
+        alert.Severity = severity;
+
+        await h.Sut.SendCoreAsync(Tenant, alert);
+
+        var request = Assert.Single(h.Http.Requests);
+        Assert.Equal(expected, Assert.Single(request.Headers.GetValues("Urgency")));
+    }
+
     [Fact]
     public async Task Flood_window_mutes_after_the_cap_with_one_summary_push()
     {

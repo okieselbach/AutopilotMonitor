@@ -546,9 +546,9 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushMaint
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.PushSessionWatchService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Push.IPushSessionWatchNotifier>(
     sp => sp.GetRequiredService<AutopilotMonitor.Functions.Services.Push.PushSessionWatchService>());
-// Push endpoints are per-device send capabilities: the dependency rows for the push services
-// keep scheme + host only (K20).
-builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.PushDependencyRedactionProcessor>();
+// Push endpoints and webhook URLs are credentials: the dependency rows of the clients that send to
+// them keep scheme + host only (K20, D-424).
+builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.CredentialUrlRedactionProcessor>();
 // Items a Global Admin's read-only "view as" request emits carry the viewed tenant as ViewAsTenantId.
 builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.ViewAsTelemetryProcessor>();
 

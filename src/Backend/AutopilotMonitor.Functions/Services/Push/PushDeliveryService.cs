@@ -383,15 +383,27 @@ public class PushDeliveryService : IPushChannelSender, IPushDeviceRevoker
 
     // ── Transport ───────────────────────────────────────────────────────────
 
-    private PushSendOptions BuildOptions(NotificationAlert alert, PushPayload payload)
+    /// <summary>
+    /// Urgency follows severity, except for a start (D-424): it is Info, but worth something only while
+    /// the run is still going. Below <c>high</c> FCM holds a push while the phone dozes, and the run's
+    /// verdict, which shares its session Topic, then replaces the waiting start at the push service.
+    /// </summary>
+    internal static PushUrgency UrgencyFor(NotificationAlert alert)
     {
-        var urgency = alert.Severity switch
+        if (NotificationAlertBuilder.IsStartAlert(alert.EventType))
+            return PushUrgency.High;
+        return alert.Severity switch
         {
             NotificationSeverity.Error => PushUrgency.High,
             NotificationSeverity.Warning => PushUrgency.High,
             NotificationSeverity.Success => PushUrgency.Normal,
             _ => PushUrgency.Low,
         };
+    }
+
+    private PushSendOptions BuildOptions(NotificationAlert alert, PushPayload payload)
+    {
+        var urgency = UrgencyFor(alert);
         var ttl = string.Equals(alert.EventType, "test", StringComparison.OrdinalIgnoreCase) ? TimeSpan.FromMinutes(5) : DefaultTtl;
         return new PushSendOptions(ttl, urgency, PushAlertProjector.BuildTopic(payload.PortalUrl, _topicKey));
     }

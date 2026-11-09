@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AutopilotMonitor.Functions.Services.Notifications
@@ -11,7 +12,8 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// <summary>
         /// Registers the typed HttpClient of <see cref="WebhookNotificationService"/>. Its primary
         /// handler connects only through <see cref="SsrfGuard.ConnectToPublicAddress"/>: the webhook
-        /// SSRF gate lives on the connection, so it covers every request this client sends.
+        /// SSRF gate lives on the connection, so it covers every request this client sends. A webhook
+        /// URL is a credential, so the client's dependency rows keep scheme + host only (D-424).
         /// </summary>
         public static IHttpClientBuilder AddWebhookNotificationHttpClient(this IServiceCollection services) =>
             services.AddHttpClient<WebhookNotificationService>()
@@ -22,6 +24,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     ConnectCallback = SsrfGuard.ConnectToPublicAddress,
                 })
                 .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15))
+                .AddHttpMessageHandler(() => new CredentialUrlRedactionProcessor.MarkingHandler())
                 .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
     }
 }

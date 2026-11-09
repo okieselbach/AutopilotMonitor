@@ -3,12 +3,10 @@ using AutopilotMonitor.Functions.Functions.Raw;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
-using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
-using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -18,7 +16,7 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 /// Push as a channel provider: the dispatcher's Push branch (scope passed through, never the
 /// webhook path, one fan-out per send), the validation rules (no destination, open to tenant
 /// admins — only E-mail stays behind the GA gate — and one Push channel per scope),
-/// the raw-table deny-list and the dependency redaction.
+/// and the raw-table deny-list. The dependency redaction lives in CredentialUrlRedactionProcessorTests.
 /// </summary>
 public class PushChannelRoutingTests
 {
@@ -181,31 +179,5 @@ public class PushChannelRoutingTests
         }
         Assert.Contains(Constants.TableNames.PushDevices, Constants.TableNames.CredentialBearing);
         Assert.Contains(Constants.TableNames.PushPairingGrants, Constants.TableNames.CredentialBearing);
-    }
-
-    [Theory]
-    [InlineData("https://web.push.apple.com/QF3abc/device-token-123", "https://web.push.apple.com")]
-    [InlineData("https://fcm.googleapis.com/fcm/send/abc:APA91", "https://fcm.googleapis.com")]
-    [InlineData("https://updates.push.services.mozilla.com/wpush/v2/gAAAA", "https://updates.push.services.mozilla.com")]
-    [InlineData("https://wns2-db5p.notify.windows.com/w/?token=abc", "https://wns2-db5p.notify.windows.com")]
-    public void Dependency_rows_for_push_services_keep_scheme_and_host_only(string endpoint, string expected)
-    {
-        var dependency = new DependencyTelemetry { Data = endpoint, Name = "POST " + endpoint, Target = new Uri(endpoint).Host };
-
-        PushDependencyRedactionProcessor.Redact(dependency);
-
-        Assert.Equal(expected, dependency.Data);
-        Assert.Equal("POST " + expected, dependency.Name);
-    }
-
-    [Fact]
-    public void Dependency_rows_for_other_hosts_are_untouched()
-    {
-        var dependency = new DependencyTelemetry { Data = "https://graph.microsoft.com/v1.0/devices/abc", Name = "GET /v1.0/devices/abc" };
-
-        PushDependencyRedactionProcessor.Redact(dependency);
-
-        Assert.Equal("https://graph.microsoft.com/v1.0/devices/abc", dependency.Data);
-        Assert.Equal("GET /v1.0/devices/abc", dependency.Name);
     }
 }
