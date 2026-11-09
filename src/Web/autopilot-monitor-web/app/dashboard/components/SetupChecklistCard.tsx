@@ -71,6 +71,9 @@ export function SetupChecklistCard({ setup }: { setup: SetupChecklistState }) {
   if (!checklist) return null;
 
   const waiting = checklist.next === "deploy";
+  // Agents can connect as soon as a validation is on, whatever the recommended steps say: from
+  // then on the card shows which devices the backend turned away.
+  const devicesCanConnect = checklist.done.validation && !checklist.done.deploy;
 
   const hide = async () => {
     setHiding(true);
@@ -137,7 +140,7 @@ export function SetupChecklistCard({ setup }: { setup: SetupChecklistState }) {
         })}
       </ol>
 
-      {waiting && <WaitingDetails canEdit={canEdit} tenantId={tenantId} />}
+      {devicesCanConnect && <WaitingDetails canEdit={canEdit} tenantId={tenantId} />}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3.5 border-t border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/40">
         {waiting ? (
