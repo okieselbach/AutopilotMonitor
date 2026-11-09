@@ -890,8 +890,12 @@ public class AuthFunction
             WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
             WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc,
             DpaAcceptancePending = tenantConfig.DpaAcceptancePending,
-            // Navbar label. In view-as tenantConfig is the viewed tenant's row.
-            CompanyName = string.IsNullOrWhiteSpace(tenantConfig.CompanyName) ? null : tenantConfig.CompanyName.Trim(),
+            // Navbar label, for the callers the config GET serves too (a tenant role, or a Global
+            // Admin); a roleless member only gets the Progress Portal. In view-as tenantConfig is
+            // the viewed tenant's row and the role the emulated one.
+            CompanyName = (role != null || isGlobalAdmin) && !string.IsNullOrWhiteSpace(tenantConfig.CompanyName)
+                ? tenantConfig.CompanyName.Trim()
+                : null,
             ViewAs = viewAs
         }, needsAutoAdmin);
     }

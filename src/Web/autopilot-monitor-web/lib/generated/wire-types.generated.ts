@@ -784,7 +784,7 @@ export interface AuthMeResponse {
   whatsNewSeenAgentUtc?: string;
   /** True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens. */
   dpaAcceptancePending: boolean;
-  /** The company name the tenant's admins entered under Contact; omitted when none is set. Shown in the navbar. */
+  /** The company name the tenant's admins entered under Contact, for callers with a tenant role or Global Admins; omitted otherwise or when none is set. Shown in the navbar. */
   companyName?: string;
   /** Set while a Global Admin views a tenant as one of its members (read-only "view as"): every other field then describes that member of TenantId. Null on an ordinary sign-in, and the key is omitted. */
   viewAs?: AuthMeViewAs;

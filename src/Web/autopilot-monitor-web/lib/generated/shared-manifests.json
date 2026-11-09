@@ -4719,7 +4719,7 @@
             "name": "string"
           },
           "optional": true,
-          "doc": "The company name the tenant's admins entered under Contact; omitted when none is set. Shown in the navbar."
+          "doc": "The company name the tenant's admins entered under Contact, for callers with a tenant role or Global Admins; omitted otherwise or when none is set. Shown in the navbar."
         },
         {
           "name": "viewAs",

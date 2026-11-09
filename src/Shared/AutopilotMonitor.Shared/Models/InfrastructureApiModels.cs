@@ -49,7 +49,7 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>True while the caller's tenant still has to accept the Terms + DPA (its first sign-in skipped the get-started tick); the portal asks before it opens.</summary>
         public bool DpaAcceptancePending { get; set; }
 
-        /// <summary>The company name the tenant's admins entered under Contact; omitted when none is set. Shown in the navbar.</summary>
+        /// <summary>The company name the tenant's admins entered under Contact, for callers with a tenant role or Global Admins; omitted otherwise or when none is set. Shown in the navbar.</summary>
         public string? CompanyName { get; set; }
 
         /// <summary>

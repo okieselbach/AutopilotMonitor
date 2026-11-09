@@ -93,6 +93,39 @@ public class AuthFunctionTests
         Assert.Equal(pending, (bool)ToDynamic(result.Body).dpaAcceptancePending);
     }
 
+    [Fact]
+    public void HappyPath_MemberWithARoleGetsTheCompanyName()
+    {
+        var config = DefaultConfig();
+        config.CompanyName = "  Contoso Ltd.  ";
+
+        var result = AuthFunction.BuildAuthResult(
+            config, isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: ViewerRole(), mcpCheck: McpAllowed(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Contoso Ltd.", (string)ToDynamic(result.Body).companyName);
+    }
+
+    [Fact]
+    public void HappyPath_RolelessMemberGetsNoCompanyName()
+    {
+        // Without a role the caller sees only the Progress Portal; the config GET would refuse them.
+        var config = DefaultConfig();
+        config.CompanyName = "Contoso Ltd.";
+
+        var result = AuthFunction.BuildAuthResult(
+            config, isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: null, mcpCheck: McpAllowed(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null((string?)ToDynamic(result.Body).companyName);
+    }
+
     [Theory]
     [InlineData("platform", "platform")]
     [InlineData("Platform", "platform")]
