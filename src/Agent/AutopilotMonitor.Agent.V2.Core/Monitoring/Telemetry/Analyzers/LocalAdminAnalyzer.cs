@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
@@ -36,21 +37,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     /// (<c>builtin_administrator_enabled</c>) but not scored: whether OOBE enables it
     /// transiently is not established, so the field first collects evidence.
     ///
-    /// Built-in accounts are recognised by well-known RID (500/501/503/504 on the machine SID)
-    /// in addition to their English names, so localized installs (Gast, Invité, Administrateur)
-    /// do not flag their own disabled Guest/Administrator.
+    /// Allowed list (<see cref="LocalAdminAllowList"/> built-ins plus the tenant's entries): an entry
+    /// allows an account in any role, or — <c>name|user</c> — only while it is not an
+    /// Administrators member. A restriction always wins over an entry that allows more. The four
+    /// built-in accounts are decided by their well-known RID alone (500 any role; 501/503/504 never
+    /// an administrator), so localized names (Gast, Administrateur) are recognised and no name entry
+    /// can lift or impose a role on them. Profile folders have no role.
     ///
-    /// At shutdown the logged-in users are allowed dynamically — but only identities that are
-    /// NOT local SAM accounts (Entra / domain users, whose profile folder is the only artifact
-    /// they leave). A logged-in local account is exactly the delta this analyzer exists to
-    /// catch and is never exempted by its own login (CWE-807: the login state is under the
+    /// At shutdown the logged-in users are allowed dynamically — as profile folders only, and only
+    /// identities that are NOT local SAM accounts (Entra / domain users, whose profile folder is the
+    /// only artifact they leave). A logged-in local account is exactly the delta this analyzer exists
+    /// to catch and is never exempted by its own login (CWE-807: the login state is under the
     /// adversary's control); it is reported as <c>logged_in_local_accounts</c>.
     ///
     /// Emits a single "local_admin_analysis" event at startup and at shutdown,
     /// enabling delta detection between pre- and post-enrollment state.
-    ///
-    /// Tenant-supplied allowed accounts may contain glob wildcards (e.g. "adm-*");
-    /// see <see cref="MatchesAllowedEntry"/>.
     /// </summary>
     public class LocalAdminAnalyzer : IAgentAnalyzer
     {
@@ -58,26 +59,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
         private readonly AgentLogger _logger;
-        private readonly List<string> _allowedAccounts;
-
-        // Built-in accounts and profile folders always present on a freshly imaged Windows device.
-        // "Public", "Default", "Default User", "All Users" are folders/junctions in C:\Users, not user accounts.
-        // "defaultuser0" is a temporary OOBE/Autopilot system account created during enrollment.
-        private static readonly List<string> BuiltInAllowedAccounts = new List<string>
-        {
-            "Administrator",
-            "Guest",
-            "DefaultAccount",
-            "WDAGUtilityAccount",
-            "defaultuser0",    // Temporary OOBE/Autopilot system account, present during enrollment
-            "defaultuser1",    // Sometimes seen in OOBE, but not always present
-            "defaultuser2",    // Sometimes seen in OOBE, but not always present
-            "kioskUser0",      // Assigned Access (kiosk profile) autologon account, created by Windows
-            "Public",          // Profile folder (not a user account)
-            "Default",         // Default user profile template
-            "Default User",    // Symlink to Default in some Windows versions
-            "All Users"        // Junction pointing to C:\ProgramData, always present
-        };
+        private readonly List<AllowedEntry> _allowedEntries;
 
         public string Name => "LocalAdminAnalyzer";
 
@@ -97,19 +79,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             _logger    = logger    ?? throw new ArgumentNullException(nameof(logger));
             _startupGate = startupGate;
 
-            // Tenant-supplied accounts are additive (union with built-ins, not replacement)
-            _allowedAccounts = new List<string>(BuiltInAllowedAccounts);
-            if (allowedAccounts != null)
-            {
-                foreach (var account in allowedAccounts)
-                {
-                    if (!string.IsNullOrWhiteSpace(account) &&
-                        !_allowedAccounts.Any(a => string.Equals(a, account, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        _allowedAccounts.Add(account);
-                    }
-                }
-            }
+            var ignored = new List<string>();
+            _allowedEntries = BuildAllowedEntries(allowedAccounts, ignored);
+            foreach (var entry in ignored)
+                _logger.Warning($"{Name}: Allowed-list entry '{entry}' is not valid (expected 'name' or 'name|user') — ignored, it allows nothing");
         }
 
         public void AnalyzeAtStartup()
@@ -149,46 +122,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 foreach (var user in loggedIn.LocalAccounts)
                     _logger.Warning($"{Name}: Logged-in user '{user}' is a local account — not allowed dynamically");
 
-                // Build effective allowed list: static + dynamic (non-local logged-in users at shutdown)
-                var effectiveAllowed = _allowedAccounts;
+                // Effective list: static entries + the profile folders of non-local logged-in users at
+                // shutdown. Folder-only: a login never allows a local ACCOUNT — not even when the WMI
+                // inventory failed and the split above could not recognise a local name.
+                var effectiveEntries = _allowedEntries;
                 if (loggedIn.Allowed.Count > 0)
                 {
-                    effectiveAllowed = new List<string>(_allowedAccounts);
+                    effectiveEntries = new List<AllowedEntry>(_allowedEntries);
                     foreach (var user in loggedIn.Allowed)
                     {
-                        if (!effectiveAllowed.Any(a => string.Equals(a, user, StringComparison.OrdinalIgnoreCase)))
+                        if (!effectiveEntries.Any(e => string.Equals(e.Pattern, user, StringComparison.OrdinalIgnoreCase)))
                         {
-                            effectiveAllowed.Add(user);
-                            _logger.Info($"{Name}: Dynamically allowing logged-in user: {user}");
+                            effectiveEntries.Add(new AllowedEntry(user, LocalAccountRole.Any, profileFolderOnly: true));
+                            _logger.Info($"{Name}: Dynamically allowing profile folder of logged-in user: {user}");
                         }
                     }
                 }
 
                 var bypassNroResult  = CheckBypassNroRegistry();
-                var accountsResult   = CheckLocalAdminAccounts(localAccounts, effectiveAllowed);
-                var profilesResult   = CheckUserProfiles(effectiveAllowed);
+                var accountsResult   = CheckLocalAdminAccounts(localAccounts, effectiveEntries);
+                var profilesResult   = CheckUserProfiles(effectiveEntries);
 
-                int confidenceScore = 0;
-
-                if (bypassNroResult.Value == 1)
-                    confidenceScore += 20;
-
-                if (accountsResult.Unexpected.Count > 0)
-                    confidenceScore += 40;
-
-                // An unexpected account that is also a member of Administrators is the
-                // actual backdoor (enabled or dormant) — high indicator on its own.
-                if (accountsResult.UnexpectedAdminMembers.Count > 0)
-                    confidenceScore += 40;
-
-                // Profile overlap: unexpected account AND matching C:\Users folder
-                bool profileOverlap = accountsResult.Unexpected.Any(a =>
-                    profilesResult.Unexpected.Any(p =>
-                        string.Equals(a, p, StringComparison.OrdinalIgnoreCase)));
-                if (profileOverlap)
-                    confidenceScore += 40;
-
-                confidenceScore = Math.Min(confidenceScore, 100);
+                var confidenceScore = ComputeConfidenceScore(
+                    bypassNroResult.Value == 1, accountsResult.Unexpected, accountsResult.UnexpectedAdminMembers, profilesResult.Unexpected);
 
                 EventSeverity severity;
                 string findingLabel;
@@ -219,6 +175,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     $"bypassNro={bypassNroResult.Value}, " +
                     $"unexpectedAccounts={accountsResult.Unexpected.Count}, " +
                     $"unexpectedAdminMembers={accountsResult.UnexpectedAdminMembers.Count}, " +
+                    $"roleViolations={accountsResult.RoleViolations.Count}, " +
                     $"adminGroupEnumerated={accountsResult.AdministratorsGroupEnumerated}, " +
                     $"builtinAdministratorEnabled={accountsResult.BuiltInAdministratorEnabled?.ToString() ?? "unknown"}, " +
                     $"unexpectedProfiles={profilesResult.Unexpected.Count}");
@@ -230,7 +187,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     { "finding",                    findingLabel },
                     { "triggered_at",               trigger },
                     { "enrollment_phase_at_check",  phase.ToString() },
-                    { "allowed_accounts",           effectiveAllowed },
+                    // Account entries in canonical form ("Guest|user"); the folder-only entries are
+                    // constant or listed in dynamically_allowed_users.
+                    { "allowed_accounts",           _allowedEntries.Where(e => !e.ProfileFolderOnly).Select(e => e.Display).ToList() },
                     { "dynamically_allowed_users",  loggedIn.Allowed },
                     { "logged_in_local_accounts",   loggedIn.LocalAccounts },
                     { "checks", new Dictionary<string, object>
@@ -243,6 +202,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                             },
                             { "unexpected_accounts",  accountsResult.Unexpected },
                             { "unexpected_admin_members", accountsResult.UnexpectedAdminMembers },
+                            { "role_violations",      accountsResult.RoleViolations },
                             { "unexpected_profiles",  profilesResult.Unexpected },
                             { "accounts_checked",     accountsResult.AllChecked },
                             { "account_details",      accountsResult.AccountDetails },
@@ -299,31 +259,53 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             }
         }
 
+        /// <summary>
+        /// Confidence 0-100: BypassNRO +20, any unexpected account +40, any unexpected Administrators
+        /// member +40 (the actual backdoor, enabled or dormant; a role violation is one), an unexpected
+        /// account with a C:\Users folder of the same name +40. Pure; internal for unit-testing.
+        /// </summary>
+        internal static int ComputeConfidenceScore(
+            bool bypassNro, IList<string> unexpectedAccounts, IList<string> unexpectedAdminMembers, IList<string> unexpectedProfiles)
+        {
+            var score = 0;
+            if (bypassNro)
+                score += 20;
+            if (unexpectedAccounts.Count > 0)
+                score += 40;
+            if (unexpectedAdminMembers.Count > 0)
+                score += 40;
+            if (unexpectedAccounts.Any(a => unexpectedProfiles.Any(p => string.Equals(a, p, StringComparison.OrdinalIgnoreCase))))
+                score += 40;
+            return Math.Min(score, 100);
+        }
+
         // -----------------------------------------------------------------------
         // Allowed-list matching
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Matches an account or profile-folder name against one allowed-list entry.
-        /// Entries containing <c>*</c> or <c>?</c> are glob patterns (same semantics as the
+        /// Matches an account or profile-folder name against one allowed-list pattern.
+        /// Patterns containing <c>*</c> or <c>?</c> are globs (same semantics as the
         /// hardware whitelist: <c>*</c> = any run, <c>?</c> = one char, case-insensitive);
-        /// all other entries match exactly. No ambiguity with literal names — <c>*</c> and
+        /// all other patterns match exactly. No ambiguity with literal names — <c>*</c> and
         /// <c>?</c> are invalid characters in Windows account names.
         /// Internal for direct unit-testing via InternalsVisibleTo.
         /// </summary>
-        internal static bool MatchesAllowedEntry(string name, string entry)
+        internal static bool MatchesAllowedEntry(string name, string pattern)
         {
-            if (entry.IndexOf('*') < 0 && entry.IndexOf('?') < 0)
-                return string.Equals(entry, name, StringComparison.OrdinalIgnoreCase);
+            if (pattern.IndexOf('*') < 0 && pattern.IndexOf('?') < 0)
+                return string.Equals(pattern, name, StringComparison.OrdinalIgnoreCase);
 
-            var regexPattern = "^" + Regex.Escape(entry)
+            var regexPattern = "^" + Regex.Escape(pattern)
                 .Replace("\\*", ".*")
                 .Replace("\\?", ".") + "$";
 
             try
             {
-                // Timeout guards against pathological patterns (ReDoS)
-                return Regex.IsMatch(name, regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+                // Timeout guards against pathological patterns (ReDoS). CultureInvariant: under a
+                // Turkish culture "i" and "I" are no case pair, so "WLapsAdmin*" missed "WLAPSADMIN01".
+                return Regex.IsMatch(name, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    TimeSpan.FromMilliseconds(100));
             }
             catch (RegexMatchTimeoutException)
             {
@@ -331,38 +313,106 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             }
         }
 
-        private static bool IsAllowed(string name, List<string> allowedAccounts)
+        /// <summary>
+        /// The effective static list: the built-in account-name and profile-folder entries of
+        /// <see cref="LocalAdminAllowList.BuiltIns"/> (RID entries are decided by RID, see
+        /// <see cref="Decide"/>) plus the tenant's entries. An entry that does not parse is added to
+        /// <paramref name="ignored"/> and allows nothing. Pure; internal for unit-testing.
+        /// </summary>
+        internal static List<AllowedEntry> BuildAllowedEntries(IEnumerable<string> tenantEntries, List<string> ignored)
         {
-            return allowedAccounts.Any(a => MatchesAllowedEntry(name, a));
+            var entries = new List<AllowedEntry>();
+            foreach (var builtIn in LocalAdminAllowList.BuiltIns)
+            {
+                if (builtIn.Match == LocalAdminBuiltInMatch.AccountName)
+                    AddDistinct(entries, new AllowedEntry(builtIn.Name, builtIn.Role, profileFolderOnly: false));
+                else if (builtIn.Match == LocalAdminBuiltInMatch.ProfileFolder)
+                    AddDistinct(entries, new AllowedEntry(builtIn.Name, LocalAccountRole.Any, profileFolderOnly: true));
+            }
+
+            foreach (var raw in tenantEntries ?? Enumerable.Empty<string>())
+            {
+                if (LocalAdminAllowList.TryParseEntry(raw, out var pattern, out var role))
+                    AddDistinct(entries, new AllowedEntry(pattern, role, profileFolderOnly: false));
+                else if (!string.IsNullOrWhiteSpace(raw))
+                    ignored.Add(raw);
+            }
+
+            return entries;
+        }
+
+        private static void AddDistinct(List<AllowedEntry> entries, AllowedEntry entry)
+        {
+            if (!entries.Any(e => e.ProfileFolderOnly == entry.ProfileFolderOnly
+                                  && string.Equals(e.Display, entry.Display, StringComparison.OrdinalIgnoreCase)))
+                entries.Add(entry);
         }
 
         /// <summary>
-        /// Well-known built-in accounts of the local machine domain, recognised by RID so that
-        /// localized names (Gast, Invité, Administrateur, …) are not flagged:
-        /// 500 Administrator, 501 Guest, 503 DefaultAccount, 504 WDAGUtilityAccount.
-        /// Only S-1-5-21-… SIDs qualify (the WMI query is already restricted to local accounts).
+        /// Decides one local account. The built-in accounts are decided by their RID alone: 500 in any
+        /// role, 501/503/504 never as an administrator — no name entry, built-in or tenant, lifts or
+        /// imposes a role on them. Without a SID (a WMI corner case) the English name stands in for the
+        /// RID. Every other account is allowed when an account entry matches it, unless it is an
+        /// administrator and ANY matching entry is standard-user only: a restriction always wins.
+        /// Pure; internal for unit-testing.
+        /// </summary>
+        internal static AccountDecision Decide(string name, string sid, bool isAdmin, IReadOnlyList<AllowedEntry> allowed)
+        {
+            var builtIn = FindBuiltInRidEntry(name, sid);
+            if (builtIn != null)
+                return isAdmin && builtIn.Role == LocalAccountRole.StandardUser ? AccountDecision.RoleViolation : AccountDecision.Allowed;
+
+            var covered = false;
+            var restricted = false;
+            foreach (var entry in allowed)
+            {
+                if (entry.ProfileFolderOnly || !MatchesAllowedEntry(name, entry.Pattern))
+                    continue;
+                covered = true;
+                if (entry.Role == LocalAccountRole.StandardUser)
+                    restricted = true;
+            }
+
+            if (!covered)
+                return AccountDecision.Unlisted;
+            return isAdmin && restricted ? AccountDecision.RoleViolation : AccountDecision.Allowed;
+        }
+
+        private static LocalAdminBuiltInEntry FindBuiltInRidEntry(string name, string sid)
+        {
+            var rid = MachineAccountRid(sid);
+            foreach (var builtIn in LocalAdminAllowList.BuiltIns)
+            {
+                if (builtIn.Match != LocalAdminBuiltInMatch.Rid)
+                    continue;
+                var matches = rid.HasValue
+                    ? builtIn.Rid == rid.Value
+                    : string.IsNullOrEmpty(sid) && string.Equals(builtIn.Name, name, StringComparison.OrdinalIgnoreCase);
+                if (matches)
+                    return builtIn;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// RID (the last sub-authority) of a local-machine account SID (<c>S-1-5-21-…</c>; the WMI query
+        /// and the member filter already restrict to local accounts), else null.
         /// Internal for direct unit-testing via InternalsVisibleTo.
         /// </summary>
-        internal static bool IsWellKnownBuiltInRid(string sid)
+        internal static int? MachineAccountRid(string sid)
         {
             if (string.IsNullOrEmpty(sid) || !sid.StartsWith("S-1-5-21-", StringComparison.Ordinal))
-                return false;
+                return null;
 
             var dash = sid.LastIndexOf('-');
-            if (dash < 0 || dash == sid.Length - 1)
-                return false;
-
-            switch (sid.Substring(dash + 1))
-            {
-                case "500":
-                case "501":
-                case "503":
-                case "504":
-                    return true;
-                default:
-                    return false;
-            }
+            return int.TryParse(sid.Substring(dash + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var rid)
+                ? rid
+                : (int?)null;
         }
+
+        /// <summary>A profile folder has no role: any entry of the same name allows it.</summary>
+        private static bool IsAllowedFolder(string folderName, IReadOnlyList<AllowedEntry> allowed)
+            => allowed.Any(e => MatchesAllowedEntry(folderName, e.Pattern));
 
         /// <summary>
         /// Splits the logged-in user names into those that may be allowed dynamically (not a
@@ -481,7 +531,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             return accounts;
         }
 
-        private LocalAccountCheckResult CheckLocalAdminAccounts(List<LocalAccountInfo> accounts, List<string> allowedAccounts)
+        private LocalAccountCheckResult CheckLocalAdminAccounts(List<LocalAccountInfo> accounts, IReadOnlyList<AllowedEntry> allowed)
         {
             // Administrators-group membership is read from the SAM, independent of WMI and of
             // the enabled state — a dormant backdoor with admin rights is still a member.
@@ -489,13 +539,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             if (!group.Succeeded)
                 _logger.Warning($"{Name}: Failed to enumerate members of '{group.GroupName}': NET_API_STATUS={group.ErrorCode}");
 
-            var result = EvaluateAccounts(accounts, group.Members, group.Succeeded, Environment.MachineName, allowedAccounts);
+            var result = EvaluateAccounts(accounts, group.Members, group.Succeeded, Environment.MachineName, allowed);
             result.AdministratorsGroupErrorCode = group.ErrorCode;
 
             foreach (var name in result.Unexpected)
                 _logger.Debug($"{Name}: Unexpected local account: {name}");
             foreach (var name in result.UnexpectedAdminMembers)
                 _logger.Debug($"{Name}: Unexpected Administrators member: {name}");
+            foreach (var name in result.RoleViolations)
+                _logger.Debug($"{Name}: Allowed only as a standard user but an Administrators member: {name}");
 
             return result;
         }
@@ -508,10 +560,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         ///   - every local account is checked, disabled ones included (state is reported);
         ///   - a local account is an Administrators member when its SID matches a group member,
         ///     or (SID unavailable) its name matches a member of the local machine domain;
-        ///   - an account is allowed by name (allowed list, globs) or by well-known RID
-        ///     (<see cref="IsWellKnownBuiltInRid"/>) — localized built-ins are never flagged;
-        ///   - <c>UnexpectedAdminMembers</c> = unexpected accounts holding membership, plus local
-        ///     members not on the allowed list that the WMI inventory did not return at all;
+        ///   - each account is decided by <see cref="Decide"/>; an account no entry allows, or one
+        ///     that breaks a standard-user entry, is unexpected (and an unexpected admin when it
+        ///     holds membership; the latter also a role violation);
+        ///   - local members the WMI inventory did not return at all are decided as administrators
+        ///     and land in both unexpected lists, like any unknown administrator;
+        ///   - with membership unknown (enumeration failed) nobody counts as an administrator, so a
+        ///     standard-user entry acts like a plain one;
         ///   - members outside the local machine domain (Entra role SIDs, domain groups) are
         ///     listed for delta comparison but never flagged — they are expected on joined devices.
         /// </summary>
@@ -520,7 +575,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             IList<LocalGroupMember> adminMembers,
             bool adminGroupEnumerated,
             string machineName,
-            List<string> allowedAccounts)
+            IReadOnlyList<AllowedEntry> allowed)
         {
             var result = new LocalAccountCheckResult { AdministratorsGroupEnumerated = adminGroupEnumerated };
 
@@ -539,43 +594,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 }
             }
 
+            var inventorySids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var inventoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var account in accounts ?? new List<LocalAccountInfo>())
             {
                 var isAdmin = (!string.IsNullOrEmpty(account.Sid) && adminSids.Contains(account.Sid))
                               || adminLocalNames.Contains(account.Name);
+                var rid = MachineAccountRid(account.Sid);
+
+                if (!string.IsNullOrEmpty(account.Sid))
+                    inventorySids.Add(account.Sid);
+                inventoryNames.Add(account.Name);
 
                 result.AllChecked.Add(account.Name);
                 result.AccountDetails.Add(new Dictionary<string, object>
                 {
                     { "name",                  account.Name },
                     { "disabled",              account.Disabled },
-                    { "administrators_member", isAdmin }
+                    { "administrators_member", isAdmin },
+                    { "rid",                   rid }
                 });
 
-                if (account.Sid != null && account.Sid.EndsWith("-500", StringComparison.Ordinal))
+                if (rid == 500)
                     result.BuiltInAdministratorEnabled = !account.Disabled;
 
-                if (IsWellKnownBuiltInRid(account.Sid) || IsAllowed(account.Name, allowedAccounts))
-                    continue;
-
-                result.Unexpected.Add(account.Name);
-                if (isAdmin)
-                    result.UnexpectedAdminMembers.Add(account.Name);
+                Record(result, account.Name, Decide(account.Name, account.Sid, isAdmin, allowed), isAdmin);
             }
 
             // Local members the WMI inventory did not surface (WMI failure, or an account the
-            // provider does not list) — still an unexpected admin when not on the allowed list.
+            // provider does not list): the SAM is authoritative for membership.
             foreach (var member in adminLocalMembers)
             {
-                var name = member.Name;
-                if (IsWellKnownBuiltInRid(member.Sid) || IsAllowed(name, allowedAccounts))
+                var returnedByWmi = !string.IsNullOrEmpty(member.Sid)
+                    ? inventorySids.Contains(member.Sid)
+                    : inventoryNames.Contains(member.Name);
+                if (returnedByWmi)
                     continue;
-                if (result.UnexpectedAdminMembers.Any(u => string.Equals(u, name, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                result.UnexpectedAdminMembers.Add(name);
+                Record(result, member.Name, Decide(member.Name, member.Sid, isAdmin: true, allowed), isAdmin: true);
             }
 
             return result;
+        }
+
+        private static void Record(LocalAccountCheckResult result, string name, AccountDecision decision, bool isAdmin)
+        {
+            if (decision == AccountDecision.Allowed)
+                return;
+            AddOnce(result.Unexpected, name);
+            if (isAdmin)
+                AddOnce(result.UnexpectedAdminMembers, name);
+            if (decision == AccountDecision.RoleViolation)
+                AddOnce(result.RoleViolations, name);
+        }
+
+        private static void AddOnce(List<string> names, string name)
+        {
+            if (!names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
+                names.Add(name);
         }
 
         private static bool IsLocalMember(LocalGroupMember member, string machineName)
@@ -586,7 +661,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             return string.Equals(domain, machineName, StringComparison.OrdinalIgnoreCase);
         }
 
-        private UserProfileCheckResult CheckUserProfiles(List<string> allowedAccounts)
+        private UserProfileCheckResult CheckUserProfiles(IReadOnlyList<AllowedEntry> allowed)
         {
             var allFound   = new List<string>();
             var unexpected = new List<string>();
@@ -616,7 +691,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
                     allFound.Add(folderName);
 
-                    if (!IsAllowed(folderName, allowedAccounts))
+                    if (!IsAllowedFolder(folderName, allowed))
                     {
                         unexpected.Add(folderName);
                         _logger.Debug($"{Name}: Unexpected profile folder: {folderName}");
@@ -740,7 +815,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             /// <summary>Unexpected accounts that are members of the Administrators group.</summary>
             public List<string> UnexpectedAdminMembers { get; set; } = new List<string>();
 
-            /// <summary>Per-account state: name, disabled, administrators_member.</summary>
+            /// <summary>Administrators members that an entry allows only as a standard user (subset of <see cref="UnexpectedAdminMembers"/>).</summary>
+            public List<string> RoleViolations { get; set; } = new List<string>();
+
+            /// <summary>Per-account state: name, disabled, administrators_member, rid.</summary>
             public List<Dictionary<string, object>> AccountDetails { get; set; } = new List<Dictionary<string, object>>();
 
             /// <summary>Every Administrators member (DOMAIN\name or SID), local or not — for delta comparison.</summary>
@@ -751,6 +829,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
             /// <summary>Enabled state of the built-in Administrator (RID 500); null when not found.</summary>
             public bool? BuiltInAdministratorEnabled { get; set; }
+        }
+
+        /// <summary>One effective allowed-list entry: a name or glob and what it may allow.</summary>
+        internal sealed class AllowedEntry
+        {
+            public AllowedEntry(string pattern, LocalAccountRole role, bool profileFolderOnly)
+            {
+                Pattern = pattern;
+                Role = role;
+                ProfileFolderOnly = profileFolderOnly;
+            }
+
+            public string Pattern { get; }
+
+            public LocalAccountRole Role { get; }
+
+            /// <summary>Allows the C:\Users folder of this name, never a local account.</summary>
+            public bool ProfileFolderOnly { get; }
+
+            /// <summary>Canonical entry text as the event lists it ("Guest|user").</summary>
+            public string Display => LocalAdminAllowList.Format(Pattern, Role);
+        }
+
+        internal enum AccountDecision
+        {
+            Allowed,
+
+            /// <summary>No entry allows the account.</summary>
+            Unlisted,
+
+            /// <summary>An administrator that a standard-user entry (or a built-in RID) allows only as a standard user.</summary>
+            RoleViolation,
         }
 
         /// <summary>Logged-in users at shutdown, split by whether the name is a local SAM account.</summary>

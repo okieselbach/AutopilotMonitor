@@ -1,9 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import {
+  BUILT_IN_GROUPS,
+  formatAllowedEntry,
+  isBuiltInName,
+  isCoveredByBuiltIn,
+  parseAllowedEntry,
+  validateNewEntry,
+  type AllowedRole,
+} from "../lib/allowedAccounts";
 
 interface AgentAnalyzersSectionProps {
   enableLocalAdminAnalyzer: boolean;
@@ -26,19 +36,27 @@ interface AgentAnalyzersSectionProps {
   readOnly?: boolean;
 }
 
-const BUILTIN_ACCOUNTS = [
-  "Administrator",
-  "Guest",
-  "DefaultAccount",
-  "WDAGUtilityAccount",
-  "defaultuser0",
-  "defaultuser1",
-  "defaultuser2",
-  "Public",
-  "Default",
-  "Default User",
-  "All Users",
-];
+const ROLE_LABELS: Record<AllowedRole, string> = {
+  any: "Admin allowed",
+  user: "Standard user only",
+};
+
+function BuiltInGroup({ label, names }: { label: string; names: readonly string[] }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-3">
+      <p className="text-xs text-gray-500 sm:w-36 sm:shrink-0 sm:pt-1">{label}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {names.map((name) => (
+          <span key={name} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+            {name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const namesOf = (entries: readonly { name: string }[]) => entries.map((e) => e.name);
 
 export default function AgentAnalyzersSection({
   enableLocalAdminAnalyzer,
@@ -58,20 +76,31 @@ export default function AgentAnalyzersSection({
   unsaved,
   readOnly = false,
 }: AgentAnalyzersSectionProps) {
+  const [newRole, setNewRole] = useState<AllowedRole>("any");
   const trimmed = newAllowedAccount.trim();
+  // An entry typed in full ("kiosk|user") keeps its own role; otherwise the role picker decides.
+  const typed = parseAllowedEntry(trimmed);
+  const newEntry = typed?.role === "user" ? trimmed : formatAllowedEntry(trimmed, newRole);
+  const newPattern = typed?.pattern ?? trimmed;
   const isDuplicate =
     trimmed !== "" &&
-    (localAdminAllowedAccounts.some((a) => a.toLowerCase() === trimmed.toLowerCase()) ||
-      BUILTIN_ACCOUNTS.some((a) => a.toLowerCase() === trimmed.toLowerCase()));
-  // Wildcard patterns (* / ?) need at least 2 literal characters — a bare "*"
-  // would silently disable the analyzer for the whole tenant.
-  const isTooBroad =
-    /[*?]/.test(trimmed) && trimmed.replace(/[*?]/g, "").length < 2;
+    (isBuiltInName(newPattern) ||
+      localAdminAllowedAccounts.some((a) => (parseAllowedEntry(a)?.pattern ?? a).toLowerCase() === newPattern.toLowerCase()));
+  // Same rules the backend applies to a new entry (a bare "*" would disable the analyzer).
+  const entryError = trimmed === "" || isDuplicate ? null : validateNewEntry(newEntry);
 
   const addAccount = () => {
-    if (!trimmed || isDuplicate || isTooBroad) return;
-    setLocalAdminAllowedAccounts([...localAdminAllowedAccounts, trimmed]);
+    if (!trimmed || isDuplicate || entryError) return;
+    setLocalAdminAllowedAccounts([...localAdminAllowedAccounts, newEntry]);
     setNewAllowedAccount("");
+  };
+
+  const setEntryRole = (index: number, role: AllowedRole) => {
+    const parsed = parseAllowedEntry(localAdminAllowedAccounts[index]);
+    if (!parsed) return;
+    setLocalAdminAllowedAccounts(
+      localAdminAllowedAccounts.map((entry, i) => (i === index ? formatAllowedEntry(parsed.pattern, role) : entry)),
+    );
   };
 
   return (
@@ -114,23 +143,25 @@ export default function AgentAnalyzersSection({
         <div className={`p-4 rounded-lg border border-gray-200 transition-opacity ${!enableLocalAdminAnalyzer ? 'opacity-50' : ''}`}>
           <p className="font-medium text-gray-900 mb-1">Allowed Local Accounts</p>
           <p className="text-sm text-gray-500 mb-3">
-            Accounts listed here are considered expected on enrolled devices and will not trigger alerts. These are merged with the built-in defaults on the agent.
+            Accounts listed here are considered expected on enrolled devices and will not trigger alerts. These are merged with the built-in entries on the agent.
             Wildcards are supported: <code className="px-1 bg-gray-100 rounded">*</code> matches any sequence of characters,{" "}
             <code className="px-1 bg-gray-100 rounded">?</code> exactly one — e.g.{" "}
             <code className="px-1 bg-gray-100 rounded">adm-*</code> allows generated accounts like <code className="px-1 bg-gray-100 rounded">adm-83921</code>.
             Matching is case-insensitive and applies to both account names and profile folders.
+            Choose <span className="font-medium text-gray-700">Standard user only</span> for an account that must never be a local administrator:
+            it is still reported as soon as it is a member of the Administrators group.
           </p>
 
-          {/* Built-in accounts (read-only) */}
-          <div className="mb-3">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Built-in (always allowed)</p>
-            <div className="flex flex-wrap gap-1.5">
-              {BUILTIN_ACCOUNTS.map((account) => (
-                <span key={account} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                  {account}
-                </span>
-              ))}
-            </div>
+          {/* Built-in entries (read-only) */}
+          <div className="mb-3 space-y-2">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Built-in (always applied)</p>
+            <BuiltInGroup label={ROLE_LABELS.any} names={namesOf(BUILT_IN_GROUPS.adminAllowed)} />
+            <BuiltInGroup label={ROLE_LABELS.user} names={namesOf(BUILT_IN_GROUPS.standardUser)} />
+            <BuiltInGroup label="Profile folders only" names={namesOf(BUILT_IN_GROUPS.folders)} />
+            <p className="text-xs text-gray-500">
+              Built-in accounts are recognised in every language. Other accounts that only carry the name{" "}
+              {namesOf(BUILT_IN_GROUPS.sharedNames).join(", ")} are allowed as standard users.
+            </p>
           </div>
 
           {/* Custom allowed accounts */}
@@ -138,49 +169,76 @@ export default function AgentAnalyzersSection({
             <div className="mb-3">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Your allowed accounts</p>
               <div className="space-y-1.5">
-                {localAdminAllowedAccounts.map((account, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-                    <p className="text-sm text-rose-900">{account}</p>
-                    <button
-                      onClick={() => setLocalAdminAllowedAccounts(localAdminAllowedAccounts.filter((_, i) => i !== idx))}
-                      className="ml-2 flex-shrink-0 text-rose-400 hover:text-red-600 transition-colors"
-                      title="Remove"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
+                {localAdminAllowedAccounts.map((account, idx) => {
+                  const parsed = parseAllowedEntry(account);
+                  return (
+                    <div key={idx} className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                      <p className="flex-1 basis-40 min-w-0 truncate text-sm text-rose-900">{parsed?.pattern ?? account}</p>
+                      {!parsed ? (
+                        <span className="text-xs text-red-600">Not valid — the agent ignores it</span>
+                      ) : isCoveredByBuiltIn(account) ? (
+                        <span className="text-xs text-rose-600">Built in — not needed</span>
+                      ) : null}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={parsed?.role ?? "any"}
+                          disabled={!parsed}
+                          onChange={(e) => setEntryRole(idx, e.target.value as AllowedRole)}
+                          aria-label={`Role for ${parsed?.pattern ?? account}`}
+                          className="px-2 py-1 border border-rose-200 rounded-lg text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 disabled:opacity-50"
+                        >
+                          <option value="any">{ROLE_LABELS.any}</option>
+                          <option value="user">{ROLE_LABELS.user}</option>
+                        </select>
+                        <button
+                          onClick={() => setLocalAdminAllowedAccounts(localAdminAllowedAccounts.filter((_, i) => i !== idx))}
+                          className="flex-shrink-0 text-rose-400 hover:text-red-600 transition-colors"
+                          title="Remove"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {/* Add new account */}
-          <div className="flex gap-2 mt-2">
+          <div className="flex flex-wrap gap-2 mt-2">
             <input
               type="text"
               placeholder="Account name or pattern (e.g. SupportAdmin, adm-*)"
               value={newAllowedAccount}
               onChange={(e) => setNewAllowedAccount(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAccount(); } }}
-              className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+              className="flex-1 basis-56 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
             />
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value as AllowedRole)}
+              aria-label="Role for the new account"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+            >
+              <option value="any">{ROLE_LABELS.any}</option>
+              <option value="user">{ROLE_LABELS.user}</option>
+            </select>
             <button
               onClick={addAccount}
-              disabled={!trimmed || isDuplicate || isTooBroad}
+              disabled={!trimmed || isDuplicate || entryError !== null}
               className="px-4 py-1.5 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               Add
             </button>
           </div>
           {isDuplicate && (
-            <p className="text-xs text-red-500 mt-1">This account is already in the list.</p>
+            <p className="text-xs text-red-500 mt-1">This account is already in the list or built in.</p>
           )}
-          {isTooBroad && (
-            <p className="text-xs text-red-500 mt-1">
-              Pattern is too broad — it needs at least 2 characters besides <code>*</code>/<code>?</code>, otherwise the analyzer would be effectively disabled.
-            </p>
+          {entryError && (
+            <p className="text-xs text-red-500 mt-1">{entryError}</p>
           )}
         </div>
 

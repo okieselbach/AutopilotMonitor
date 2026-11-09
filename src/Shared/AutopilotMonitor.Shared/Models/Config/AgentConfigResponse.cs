@@ -627,11 +627,11 @@ namespace AutopilotMonitor.Shared.Models
         public bool EnableLocalAdminAnalyzer { get; set; } = true;
 
         /// <summary>
-        /// Additional local account names considered expected on a newly enrolled device.
-        /// These are merged (union) with the built-in defaults:
-        /// Administrator, Guest, DefaultAccount, WDAGUtilityAccount, Public, Default.
-        /// Any local account not in the merged list will be flagged.
-        /// Default: empty list (built-in defaults only)
+        /// The tenant's allowed-list entries, merged with the built-in entries of
+        /// <see cref="LocalAdminAllowList"/>: <c>name</c> (glob allowed) in any role, or <c>name|user</c>
+        /// only while the account is not a member of the local Administrators group. A local account
+        /// that no entry allows, or that breaks a standard-user entry, is flagged.
+        /// Default: empty list (built-in entries only)
         /// </summary>
         public List<string> LocalAdminAllowedAccounts { get; set; } = new List<string>();
 

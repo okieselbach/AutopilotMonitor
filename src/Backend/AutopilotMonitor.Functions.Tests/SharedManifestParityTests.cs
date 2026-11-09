@@ -175,6 +175,30 @@ public sealed class SharedManifestParityTests
             // Limits of feedback and reports (text lengths, the report body cap, the daily feedback cap):
             // the portal's counters and upload budget read the same numbers the backend enforces.
             ["submissionLimits"] = ConstInts(typeof(Constants.SubmissionLimits)),
+            // Local Admin Analyzer allowed list: the built-in entries and the entry grammar. The portal's
+            // Allowed Local Accounts card renders and checks against these; agent and backend use the class.
+            ["localAdminAllowList"] = new Dictionary<string, object?>
+            {
+                ["roleSeparator"] = LocalAdminAllowList.RoleSeparator.ToString(),
+                ["standardUserQualifier"] = LocalAdminAllowList.StandardUserQualifier,
+                ["maxEntries"] = LocalAdminAllowList.MaxEntries,
+                ["maxEntryLength"] = LocalAdminAllowList.MaxEntryLength,
+                ["minPatternLiterals"] = LocalAdminAllowList.MinPatternLiterals,
+                ["forbiddenNameCharacters"] = LocalAdminAllowList.ForbiddenNameCharacters,
+                ["builtIns"] = LocalAdminAllowList.BuiltIns.Select(b => new Dictionary<string, object?>
+                {
+                    ["name"] = b.Name,
+                    ["match"] = b.Match switch
+                    {
+                        LocalAdminBuiltInMatch.Rid => "rid",
+                        LocalAdminBuiltInMatch.AccountName => "account",
+                        LocalAdminBuiltInMatch.ProfileFolder => "folder",
+                        _ => throw new InvalidOperationException($"Unmapped built-in match {b.Match}"),
+                    },
+                    ["role"] = b.Role == LocalAccountRole.StandardUser ? "user" : "any",
+                    ["rid"] = b.Rid,
+                }).ToArray(),
+            },
             // Every IApiResponse + IApiRequest implementer + [WireContract] type, transitively closed —
             // the source of lib/generated/wire-types.generated.ts. See WireTypeManifestBuilder.
             ["types"] = WireTypeManifestBuilder.BuildTypesSection(),

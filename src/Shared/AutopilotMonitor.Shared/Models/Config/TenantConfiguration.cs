@@ -696,14 +696,17 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableConsoleBypassDetection { get; set; } = null;
 
         /// <summary>
-        /// JSON-serialized list of additional local account names that are considered expected
-        /// on a newly enrolled device (merged with built-in defaults on the agent).
-        /// Example: ["SupportAdmin", "TechDesk"]
+        /// JSON-serialized list of additional local accounts that are expected on a newly enrolled
+        /// device (merged with the built-in entries on the agent). An entry is an account name or a
+        /// glob (<c>*</c>, <c>?</c>), allowed in any role; <c>name|user</c> allows the account only
+        /// while it is not a member of the local Administrators group. Grammar and built-ins:
+        /// <see cref="LocalAdminAllowList"/>.
+        /// Example: ["SupportAdmin", "adm-*", "kiosk|user"]
         /// </summary>
         public string LocalAdminAllowedAccountsJson { get; set; } = default!;
 
         /// <summary>
-        /// Returns the deserialized list of additional allowed local admin account names.
+        /// Returns the deserialized list of additional allowed local account entries.
         /// </summary>
         public List<string> GetLocalAdminAllowedAccounts()
         {

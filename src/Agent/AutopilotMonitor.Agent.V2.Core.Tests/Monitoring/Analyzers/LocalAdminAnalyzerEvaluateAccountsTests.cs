@@ -18,10 +18,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
         private const string Machine = "DESKTOP-TEST01";
         private const string MachineSidPrefix = "S-1-5-21-111-222-333-";
 
-        private static readonly List<string> Allowed = new List<string>
-        {
-            "Administrator", "Guest", "DefaultAccount", "WDAGUtilityAccount", "defaultuser0", "defaultuser1", "adm-*"
-        };
+        // The real built-in catalog plus one tenant glob.
+        private static readonly List<LocalAdminAnalyzer.AllowedEntry> Allowed =
+            LocalAdminAnalyzer.BuildAllowedEntries(new[] { "adm-*" }, new List<string>());
 
         private static LocalAdminAnalyzer.LocalAccountInfo Account(string name, bool disabled, int rid) =>
             new LocalAdminAnalyzer.LocalAccountInfo { Name = name, Disabled = disabled, Sid = MachineSidPrefix + rid };
@@ -126,7 +125,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
         [Fact]
         public void Local_admin_member_missing_from_the_wmi_inventory_is_still_flagged()
         {
-            // WMI failed or did not list the account — the SAM group membership alone is enough.
+            // WMI failed or did not list the account — the SAM group membership alone is enough,
+            // and the account counts as unexpected too, like any unknown administrator (score 80).
             var members = new List<LocalGroupMember>
             {
                 LocalMember("Administrator", 500),
@@ -136,8 +136,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
             var result = LocalAdminAnalyzer.EvaluateAccounts(
                 new List<LocalAdminAnalyzer.LocalAccountInfo>(), members, true, Machine, Allowed);
 
-            Assert.Empty(result.Unexpected);
+            Assert.Equal(new[] { "backdoor" }, result.Unexpected);
             Assert.Equal(new[] { "backdoor" }, result.UnexpectedAdminMembers);
+            Assert.Empty(result.RoleViolations);
         }
 
         [Fact]
@@ -191,26 +192,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
         }
 
         [Fact]
-        public void Well_known_rid_does_not_cover_ordinary_accounts_or_foreign_sids()
+        public void Machine_account_rid_is_read_only_from_local_machine_sids()
         {
-            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "500"));
-            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "501"));
-            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "503"));
-            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "504"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "502"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "1500"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "1001"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid("S-1-12-1-1-2-3-500"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid("S-1-5-32-544"));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(null));
-            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(""));
+            Assert.Equal(500, LocalAdminAnalyzer.MachineAccountRid(MachineSidPrefix + "500"));
+            Assert.Equal(501, LocalAdminAnalyzer.MachineAccountRid(MachineSidPrefix + "501"));
+            Assert.Equal(1001, LocalAdminAnalyzer.MachineAccountRid(MachineSidPrefix + "1001"));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid("S-1-12-1-1-2-3-500"));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid("S-1-5-32-544"));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid(MachineSidPrefix));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid(MachineSidPrefix + "x1"));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid(null!));
+            Assert.Null(LocalAdminAnalyzer.MachineAccountRid(""));
         }
 
         [Fact]
-        public void Account_named_like_a_builtin_but_with_an_ordinary_rid_is_still_matched_by_name_only()
+        public void Localized_builtin_name_on_an_ordinary_rid_is_not_allowed()
         {
-            // Name-based allowance is unchanged: the RID match only ADDS coverage.
+            // Only the RID makes a built-in: an ordinary account merely named like a localized
+            // built-in is no entry at all.
             var accounts = new List<LocalAdminAnalyzer.LocalAccountInfo>
             {
                 Account("Gast", disabled: false, rid: 1001)

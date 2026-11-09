@@ -71,7 +71,7 @@ function fullRow(): TenantConfiguration {
     diagnosticsUploadMode: "OnFailure",
     diagnosticsUploadDestination: "CustomerSas",
     diagnosticsLogPathsJson: JSON.stringify([{ path: "C:\\Logs\\setup.log", description: "Setup" }]),
-    localAdminAllowedAccountsJson: JSON.stringify(["svc-deploy"]),
+    localAdminAllowedAccountsJson: JSON.stringify(["svc-deploy", "kiosk|user"]),
     enableSoftwareInventoryAnalyzer: true,
     unrestrictedMode: false,
   };

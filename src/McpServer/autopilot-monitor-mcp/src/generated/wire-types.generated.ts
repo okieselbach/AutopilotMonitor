@@ -401,7 +401,7 @@ export interface AnalyzeRuleListResponse {
 export interface AnalyzerConfiguration {
   /** Whether to run the LocalAdminAnalyzer at startup and shutdown. Detects pre-enrollment local admin account creation (Autopilot bypass technique). Default: true */
   enableLocalAdminAnalyzer: boolean;
-  /** Additional local account names considered expected on a newly enrolled device. These are merged (union) with the built-in defaults: Administrator, Guest, DefaultAccount, WDAGUtilityAccount, Public, Default. Any local account not in the merged list will be flagged. Default: empty list (built-in defaults only) */
+  /** The tenant's allowed-list entries, merged with the built-in entries of LocalAdminAllowList: name (glob allowed) in any role, or name|user only while the account is not a member of the local Administrators group. A local account that no entry allows, or that breaks a standard-user entry, is flagged. Default: empty list (built-in entries only) */
   localAdminAllowedAccounts: string[];
   /** Whether to run the SoftwareInventoryAnalyzer at startup and shutdown. Collects installed software registry inventory, normalizes entries, and emits a baseline snapshot (startup) plus delta (shutdown) for vulnerability insight. Default: true */
   enableSoftwareInventoryAnalyzer: boolean;
@@ -5917,7 +5917,7 @@ export interface TenantConfiguration {
   keepAwakeDuringUserEsp?: boolean | null;
   /** Whether to detect a SYSTEM console opened during enrollment (Shift+F10 OOBE bypass) for this tenant's devices. Gates the live ConsoleBypass watcher + the startup prefetch scanner. On by default (opt-out); tenants that knowingly use Shift+F10 for support can disable it. null = use agent default (true). */
   enableConsoleBypassDetection?: boolean | null;
-  /** JSON-serialized list of additional local account names that are considered expected on a newly enrolled device (merged with built-in defaults on the agent). Example: ["SupportAdmin", "TechDesk"] */
+  /** JSON-serialized list of additional local accounts that are expected on a newly enrolled device (merged with the built-in entries on the agent). An entry is an account name or a glob (*, ?), allowed in any role; name|user allows the account only while it is not a member of the local Administrators group. Grammar and built-ins: LocalAdminAllowList. Example: ["SupportAdmin", "adm-*", "kiosk|user"] */
   localAdminAllowedAccountsJson: string;
   /** Per-tenant ADDITIVE enable for OOBE Bootstrap Sessions (Global Admin only). The Pro plan includes the feature regardless of this flag; for Community tenants this is the on-request escape hatch. Effective value = plan-included OR this flag — resolved via TenantEntitlementService.IsBootstrapEnabled (backend); when effectively false, the feature is hidden in the UI and all bootstrap API endpoints reject requests. */
   bootstrapTokenEnabled: boolean;

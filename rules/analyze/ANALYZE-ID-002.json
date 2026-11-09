@@ -2,10 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ID-002",
   "title": "Unexpected Local Admin Accounts Detected",
-  "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts or profile directories on the device. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
+  "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts on the device, including accounts allowed only as standard users that hold local admin rights. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
   "severity": "high",
   "category": "identity",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -65,6 +65,18 @@
       "filterOperator": "equals",
       "filterValue": "unexpected_local_admins_detected",
       "required": false
+    },
+    {
+      "signal": "role_violations",
+      "source": "event_data",
+      "eventType": "local_admin_analysis",
+      "dataField": "checks.role_violations",
+      "operator": "not_equals",
+      "value": "",
+      "filterField": "finding",
+      "filterOperator": "equals",
+      "filterValue": "unexpected_local_admins_detected",
+      "required": false
     }
   ],
   "confidenceFactors": [
@@ -80,7 +92,7 @@
     }
   ],
   "confidenceThreshold": 50,
-  "explanation": "The agent detected unexpected local user accounts or profile directories on this device that are not in the built-in or tenant-configured allowed list.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not on the allowed list — disabled accounts included, a dormant account can be re-enabled later), unexpected_admin_members (unexpected accounts that are members of the local Administrators group — the actual backdoor), account_details (per account: disabled state and Administrators membership), unexpected_profiles (C:\\Users profile directories not on the allowed list), logged_in_local_accounts (local accounts that were signed in when the shutdown scan ran — a signed-in local account is never exempted, only Entra/domain users are), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list in Tenant Settings.",
+  "explanation": "The agent detected unexpected local user accounts on this device: accounts the built-in or tenant-configured allowed list does not allow, or accounts it allows only as standard users that are members of the local Administrators group.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not allowed by the list — disabled accounts included, a dormant account can be re-enabled later), unexpected_admin_members (unexpected accounts that are members of the local Administrators group — the actual backdoor), role_violations (accounts allowed only as standard users that are members of Administrators — Windows never puts Guest, kioskUser0 or WsiAccount there), account_details (per account: disabled state, Administrators membership and RID — 500 is the built-in Administrator), unexpected_profiles (C:\\Users profile directories not on the allowed list), logged_in_local_accounts (local accounts that were signed in when the shutdown scan ran — a signed-in local account is never exempted, only Entra/domain users are), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list under Settings → Agent Analyzers. Choose Standard user only for an account that must never be a local administrator.",
   "remediation": [
     {
       "title": "Review the unexpected accounts",
@@ -94,7 +106,8 @@
       "title": "Add expected accounts to the allowed list (false positive)",
       "steps": [
         "Go to Settings → Agent Analyzers section",
-        "Under 'Allowed Admin Accounts', add the account names that are expected in your environment",
+        "Under 'Allowed Local Accounts', add the account names that are expected in your environment",
+        "Choose 'Standard user only' for an account that must not be a local administrator — it is still reported if it ever joins the Administrators group",
         "Save the settings — future enrollments will no longer flag these accounts"
       ]
     },
@@ -104,6 +117,7 @@
         "Check if the BypassNRO registry flag was set (indicates OOBE was bypassed)",
         "Review the enrollment timeline for Shift+F10 or other OOBE escape indicators",
         "Check 'unexpected_admin_members' and 'account_details' — an unexpected account with Administrators membership is a backdoor even while it is disabled (it can be re-enabled by a scheduled task after enrollment)",
+        "Check 'role_violations' — a built-in Windows account or an account you allowed as standard user that sits in Administrators was put there on purpose",
         "Consider re-imaging the device if unauthorized admin access is confirmed"
       ]
     }
@@ -125,6 +139,11 @@
       {
         "label": "In Administrators",
         "value": "{{unexpected_admin_members.value}}",
+        "format": "code"
+      },
+      {
+        "label": "Allowed only as standard user",
+        "value": "{{role_violations.value}}",
         "format": "code"
       }
     ]

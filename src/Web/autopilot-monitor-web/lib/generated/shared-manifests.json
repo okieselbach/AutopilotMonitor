@@ -1265,6 +1265,118 @@
     "reportRequestMaxBytes": 20971520,
     "generalFeedbackPerUserPerDay": 10
   },
+  "localAdminAllowList": {
+    "roleSeparator": "|",
+    "standardUserQualifier": "user",
+    "maxEntries": 200,
+    "maxEntryLength": 64,
+    "minPatternLiterals": 2,
+    "forbiddenNameCharacters": "\"/\\[]:;=,+<>",
+    "builtIns": [
+      {
+        "name": "Administrator",
+        "match": "rid",
+        "role": "any",
+        "rid": 500
+      },
+      {
+        "name": "Guest",
+        "match": "rid",
+        "role": "user",
+        "rid": 501
+      },
+      {
+        "name": "DefaultAccount",
+        "match": "rid",
+        "role": "user",
+        "rid": 503
+      },
+      {
+        "name": "WDAGUtilityAccount",
+        "match": "rid",
+        "role": "user",
+        "rid": 504
+      },
+      {
+        "name": "Administrator",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "Guest",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "DefaultAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "WDAGUtilityAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "defaultuser0",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "defaultuser1",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "defaultuser2",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "kioskUser0",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "WsiAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "Public",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "Default",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "Default User",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "All Users",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      }
+    ]
+  },
   "types": {
     "AcceptDelegationInvitationRequest": {
       "kind": "object",
@@ -2911,7 +3023,7 @@
               "name": "string"
             }
           },
-          "doc": "Additional local account names considered expected on a newly enrolled device. These are merged (union) with the built-in defaults: Administrator, Guest, DefaultAccount, WDAGUtilityAccount, Public, Default. Any local account not in the merged list will be flagged. Default: empty list (built-in defaults only)"
+          "doc": "The tenant's allowed-list entries, merged with the built-in entries of LocalAdminAllowList: name (glob allowed) in any role, or name|user only while the account is not a member of the local Administrators group. A local account that no entry allows, or that breaks a standard-user entry, is flagged. Default: empty list (built-in entries only)"
         },
         {
           "name": "enableSoftwareInventoryAnalyzer",
@@ -27004,7 +27116,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "JSON-serialized list of additional local account names that are considered expected on a newly enrolled device (merged with built-in defaults on the agent). Example: [\"SupportAdmin\", \"TechDesk\"]"
+          "doc": "JSON-serialized list of additional local accounts that are expected on a newly enrolled device (merged with the built-in entries on the agent). An entry is an account name or a glob (*, ?), allowed in any role; name|user allows the account only while it is not a member of the local Administrators group. Grammar and built-ins: LocalAdminAllowList. Example: [\"SupportAdmin\", \"adm-*\", \"kiosk|user\"]"
         },
         {
           "name": "bootstrapTokenEnabled",

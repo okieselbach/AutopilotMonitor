@@ -1268,5 +1268,117 @@ export const SHARED_MANIFEST = {
     "contactEmailMaxChars": 254,
     "reportRequestMaxBytes": 20971520,
     "generalFeedbackPerUserPerDay": 10
+  },
+  "localAdminAllowList": {
+    "roleSeparator": "|",
+    "standardUserQualifier": "user",
+    "maxEntries": 200,
+    "maxEntryLength": 64,
+    "minPatternLiterals": 2,
+    "forbiddenNameCharacters": "\"/\\[]:;=,+<>",
+    "builtIns": [
+      {
+        "name": "Administrator",
+        "match": "rid",
+        "role": "any",
+        "rid": 500
+      },
+      {
+        "name": "Guest",
+        "match": "rid",
+        "role": "user",
+        "rid": 501
+      },
+      {
+        "name": "DefaultAccount",
+        "match": "rid",
+        "role": "user",
+        "rid": 503
+      },
+      {
+        "name": "WDAGUtilityAccount",
+        "match": "rid",
+        "role": "user",
+        "rid": 504
+      },
+      {
+        "name": "Administrator",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "Guest",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "DefaultAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "WDAGUtilityAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "defaultuser0",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "defaultuser1",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "defaultuser2",
+        "match": "account",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "kioskUser0",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "WsiAccount",
+        "match": "account",
+        "role": "user",
+        "rid": null
+      },
+      {
+        "name": "Public",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "Default",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "Default User",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      },
+      {
+        "name": "All Users",
+        "match": "folder",
+        "role": "any",
+        "rid": null
+      }
+    ]
   }
 } as const;

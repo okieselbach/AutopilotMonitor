@@ -489,6 +489,36 @@ public class TenantConfigPatchServiceTests
         Assert.Equal(PatchFailure.ValidationFailed, outcome.Failure);
     }
 
+    [Theory]
+    [InlineData("[\"*\"]")]
+    [InlineData("[\"kiosk|admin\"]")]
+    [InlineData("[\"S-1-12-1-1-2-3-4\"]")]
+    [InlineData("\"kiosk\"")]
+    public async Task Patch_InvalidAllowedLocalAccount_ValidationFails_NoWrite(string json)
+    {
+        var harness = new Harness(Stored());
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("localAdminAllowedAccountsJson", json)), Ga, "mcp-patch", null);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PatchFailure.ValidationFailed, outcome.Failure);
+        Assert.Contains("allowed local accounts", outcome.Error);
+        Assert.Equal(0, harness.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task Patch_StandardUserAllowedLocalAccount_Applies()
+    {
+        var harness = new Harness(Stored());
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("localAdminAllowedAccountsJson", "[\"adm-*\",\"kiosk|user\"]")), Ga, "mcp-patch", null);
+
+        Assert.True(outcome.Success, outcome.Error);
+        Assert.Equal("[\"adm-*\",\"kiosk|user\"]", harness.Current!.LocalAdminAllowedAccountsJson);
+    }
+
     [Fact]
     public async Task Patch_UnrestrictedModeWithoutGate_ExplicitError_NotSilentFlip()
     {

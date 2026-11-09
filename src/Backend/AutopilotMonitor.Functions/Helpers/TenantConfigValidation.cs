@@ -98,6 +98,78 @@ namespace AutopilotMonitor.Functions.Helpers
             return null;
         }
 
+        /// <summary>
+        /// Validates a change of the Local Admin Analyzer's allowed list
+        /// (<see cref="TenantConfiguration.LocalAdminAllowedAccountsJson"/>). Only entries that are NEW
+        /// against the stored list pass <see cref="LocalAdminAllowList.ValidateNewEntry"/>: a stored
+        /// entry keeps its meaning, and the portal always sends the whole list. A new entry must also
+        /// not repeat another entry's pattern ("X" next to "X|user" contradicts itself). Without this
+        /// check the agent would ignore a malformed entry — and the MCP write path never saw the
+        /// portal's "too broad" rule. Returns a user-facing reason, or null.
+        /// </summary>
+        internal static string? ValidateLocalAdminAllowedAccounts(string? candidateJson, string? existingJson)
+        {
+            if (string.Equals(candidateJson ?? string.Empty, existingJson ?? string.Empty, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(candidateJson))
+                return null;
+
+            var candidate = ParseStringList(candidateJson);
+            if (candidate == null)
+                return "must be a JSON array of account names.";
+            if (candidate.Count > LocalAdminAllowList.MaxEntries)
+                return $"at most {LocalAdminAllowList.MaxEntries} entries are allowed.";
+
+            var stored = new HashSet<string>(ParseStringList(existingJson) ?? new List<string>(), StringComparer.Ordinal);
+            for (var i = 0; i < candidate.Count; i++)
+            {
+                if (stored.Contains(candidate[i]))
+                    continue;
+
+                var entryError = LocalAdminAllowList.ValidateNewEntry(candidate[i]);
+                if (entryError != null)
+                    return entryError;
+
+                var pattern = PatternOf(candidate[i]);
+                for (var j = 0; j < candidate.Count; j++)
+                {
+                    if (j != i && string.Equals(pattern, PatternOf(candidate[j]), StringComparison.OrdinalIgnoreCase))
+                        return $"\"{pattern}\" is listed twice.";
+                }
+            }
+
+            return null;
+        }
+
+        private static string PatternOf(string entry)
+            => LocalAdminAllowList.TryParseEntry(entry, out var pattern, out _) ? pattern : entry;
+
+        /// <summary>A JSON array of strings, an empty list for blank input, or null when the input is anything else.</summary>
+        private static List<string>? ParseStringList(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return new List<string>();
+
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+                    return null;
+
+                var items = new List<string>();
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    if (item.ValueKind != System.Text.Json.JsonValueKind.String)
+                        return null;
+                    items.Add(item.GetString()!);
+                }
+                return items;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+
         // Generous for a CDN asset URL; bounds the command line the agent composes from it.
         internal const int MaxBrandingImageUrlLength = 2048;
 
@@ -222,6 +294,11 @@ namespace AutopilotMonitor.Functions.Helpers
             var modelWhitelistError = ValidateHardwareWhitelist(candidate.ModelWhitelist);
             if (modelWhitelistError != null)
                 return $"Invalid model whitelist: {modelWhitelistError}";
+
+            var allowedAccountsError = ValidateLocalAdminAllowedAccounts(
+                candidate.LocalAdminAllowedAccountsJson, existing.LocalAdminAllowedAccountsJson);
+            if (allowedAccountsError != null)
+                return $"Invalid allowed local accounts: {allowedAccountsError}";
 
             // Only validate the customer-supplied SAS URL when the tenant has actually selected
             // the CustomerSas destination — a stale value left over from a prior CustomerSas

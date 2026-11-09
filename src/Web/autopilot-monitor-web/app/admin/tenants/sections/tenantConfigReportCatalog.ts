@@ -196,7 +196,7 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
 
   // Analyzers
   enableLocalAdminAnalyzer: { section: "Analyzers", label: "Local Admin Analyzer" },
-  localAdminAllowedAccountsJson: { section: "Analyzers", label: "Allowed Local Admin Accounts" },
+  localAdminAllowedAccountsJson: { section: "Analyzers", label: "Allowed Local Accounts" },
   enableSoftwareInventoryAnalyzer: { section: "Analyzers", label: "Software Inventory Analyzer" },
   enableIntegrityBypassAnalyzer: { section: "Analyzers", label: "Integrity Bypass Analyzer" },
   enableConsoleBypassDetection: { section: "Analyzers", label: "Console Bypass Detection" },
@@ -349,7 +349,7 @@ export const COLLECTOR_FIELDS: Record<keyof CollectorConfiguration, RuntimeRow |
 
 export const ANALYZER_FIELDS: Record<keyof AnalyzerConfiguration, RuntimeRow | Excluded> = {
   enableLocalAdminAnalyzer: { section: "Analyzers", label: "Local Admin Analyzer", source: "tenant" },
-  localAdminAllowedAccounts: { section: "Analyzers", label: "Allowed Local Admin Accounts", source: "tenant" },
+  localAdminAllowedAccounts: { section: "Analyzers", label: "Allowed Local Accounts", source: "tenant" },
   enableSoftwareInventoryAnalyzer: { section: "Analyzers", label: "Software Inventory Analyzer", source: "tenant" },
   enableIntegrityBypassAnalyzer: { section: "Analyzers", label: "Integrity Bypass Analyzer", source: "tenant" },
   enableRealmJoinWatcher: { section: "Analyzers", label: "Realm Join Watcher", source: "tenant" },
