@@ -109,9 +109,11 @@ function ValidationTour() {
 
   const close = useCallback(() => endSetupTour(), []);
 
+  // Only the Windows Autopilot bubble approves from here; with device preparation the admin picks
+  // one of the two options in the highlighted block, each with its own switch and access check.
   const approve = () => {
-    trackEvent("setup_consent_started", { target });
-    void beginDeviceValidationConsentFlow(target === "autopilot" ? "autopilot" : "device-preparation");
+    trackEvent("setup_consent_started");
+    void beginDeviceValidationConsentFlow("autopilot");
   };
 
   const copyLink = async () => {
@@ -211,15 +213,18 @@ function ValidationTour() {
             <div className="mt-2 space-y-2">
               <p className="text-sm text-gray-600 dark:text-gray-300">
                 Send the approval link to your Global Administrator. Once they approved it, click{" "}
-                <span className="font-semibold">Detect existing access</span>.
+                <span className="font-semibold">Detect existing access</span>
+                {target === "autopilot" ? "." : " under the validation you use."}
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className={secondaryButton} disabled={readOnly} onClick={() => void copyLink()}>
                   {copied ? "Link copied" : "Copy approval link"}
                 </button>
-                <button type="button" className={secondaryButton} disabled={readOnly} onClick={() => void detectExistingAccess("autopilot")}>
-                  Detect existing access
-                </button>
+                {target === "autopilot" && (
+                  <button type="button" className={secondaryButton} disabled={readOnly} onClick={() => void detectExistingAccess("autopilot")}>
+                    Detect existing access
+                  </button>
+                )}
               </div>
               {copyFailed && <p className="text-xs text-red-600 dark:text-red-400">The link could not be copied. Try again.</p>}
             </div>
