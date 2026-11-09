@@ -69,6 +69,7 @@ export const DOCS_PATHS = {
   // Dashboard welcome card (tenant without sessions)
   portalSetup: "/getting-started/portal-setup",
   deployTheAgent: "/getting-started/deploy-the-agent",
+  autopilotDevicePreparation: "/getting-started/autopilot-device-preparation",
 } as const;
 
 /** Top-level URL segments GitBook publishes for docs.autopilotmonitor.com (SUMMARY.md groups + root pages). */

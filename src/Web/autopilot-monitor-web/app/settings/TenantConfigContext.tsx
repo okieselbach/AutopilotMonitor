@@ -41,6 +41,7 @@ import {
   type SettingsFormSetters,
 } from "./lib/settingsForm";
 import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
+import { subscribeTenantConfigPatches } from "@/lib/tenantConfigPatches";
 import { leaveOrAsk } from "@/lib/unsavedChanges";
 import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
@@ -419,6 +420,22 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
     fetchConfiguration();
   }, [tenantId, getAccessToken, addNotification, user?.isTenantAdmin, user?.isGlobalAdmin]);
+
+  // Field writes from the setup guide (outside this provider): the patched fields go into the
+  // loaded copy and the form alike, so they show at once and do not count as unsaved; a card's
+  // unsaved edits to other fields stay.
+  useEffect(() => subscribeTenantConfigPatches((patchedTenantId, fields) => {
+    if (patchedTenantId !== tenantId) return;
+    setConfig((prev) => (prev ? ({ ...prev, ...fields } as TenantConfiguration) : prev));
+    setForm((prev) => {
+      const next: SettingsForm = { ...prev };
+      const writable = next as unknown as Record<string, unknown>;
+      for (const [key, value] of Object.entries(fields)) {
+        if (key in writable) writable[key] = value;
+      }
+      return next;
+    });
+  }), [tenantId]);
 
   // -----------------------------------------------------------------------
   // Fetch admins

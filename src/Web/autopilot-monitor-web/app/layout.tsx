@@ -13,6 +13,7 @@ import ScrollToTopButton from "../components/ScrollToTopButton";
 import FeedbackBubble from "../components/FeedbackBubble";
 import { WhatsNewPanelHost } from "../components/WhatsNewPanelHost";
 import { FeedbackDialogHost } from "../components/FeedbackDialogHost";
+import { SetupGuideHost } from "../components/setup/SetupGuideHost";
 import { SidebarProvider } from "../contexts/SidebarContext";
 import { GlobalSidebar } from "../components/GlobalSidebar";
 import AppInsightsInit from "../components/AppInsightsInit";
@@ -216,6 +217,7 @@ export default function RootLayout({
                         <FeedbackBubble />
                         <WhatsNewPanelHost />
                         <FeedbackDialogHost />
+                        <SetupGuideHost />
                       </SidebarProvider>
                     </TenantProvider>
                   </TenantNotificationProvider>

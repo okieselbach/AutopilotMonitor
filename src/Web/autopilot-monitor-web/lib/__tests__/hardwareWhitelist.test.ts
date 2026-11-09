@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addWhitelistEntry, parseList, toWhitelistEntry } from "../hardwareWhitelist";
+import { addWhitelistEntry, parseList, splitTypedWhitelistInput, toWhitelistEntry } from "../hardwareWhitelist";
 
 describe("hardware whitelist CSV helpers", () => {
   it("adds a plain value as one entry", () => {
@@ -26,5 +26,27 @@ describe("hardware whitelist CSV helpers", () => {
 
   it("toWhitelistEntry trims and replaces every comma", () => {
     expect(toWhitelistEntry("  a,b,,c ")).toBe("a?b??c");
+  });
+});
+
+describe("splitTypedWhitelistInput", () => {
+  it("keeps a company-form suffix with its name as one literal pattern", () => {
+    expect(splitTypedWhitelistInput("VMware, Inc.")).toEqual(["VMware? Inc."]);
+    expect(splitTypedWhitelistInput("NZXT, Inc")).toEqual(["NZXT? Inc"]);
+    expect(splitTypedWhitelistInput("SAMSUNG ELECTRONICS CO., LTD.")).toEqual(["SAMSUNG ELECTRONICS CO.? LTD."]);
+  });
+
+  it("still splits a typed list of entries", () => {
+    expect(splitTypedWhitelistInput("Dell*, HP*, Microsoft Corporation")).toEqual(["Dell*", "HP*", "Microsoft Corporation"]);
+    expect(splitTypedWhitelistInput("Dell*, *")).toEqual(["Dell*", "*"]);
+  });
+
+  it("mixes both in one input", () => {
+    expect(splitTypedWhitelistInput("Fujitsu*, VMware, Inc., Acer")).toEqual(["Fujitsu*", "VMware? Inc.", "Acer"]);
+  });
+
+  it("drops empty parts and never starts with a lone suffix", () => {
+    expect(splitTypedWhitelistInput(" , Inc., Dell* ,")).toEqual(["Inc.", "Dell*"]);
+    expect(splitTypedWhitelistInput("")).toEqual([]);
   });
 });

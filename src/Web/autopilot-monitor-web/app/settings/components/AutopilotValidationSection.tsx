@@ -190,8 +190,8 @@ export default function AutopilotValidationSection({
           )}
         </div>
 
-        {/* Windows Autopilot (v1) */}
-        <div className="space-y-3">
+        {/* Windows Autopilot (v1) — data-tour: the setup guide's spotlight target */}
+        <div className="space-y-3" data-tour="autopilot-validation">
           <p className="text-sm font-semibold text-gray-700 tracking-wide">Windows Autopilot</p>
           <label className="flex items-start justify-between gap-4">
             <div>
@@ -212,7 +212,7 @@ export default function AutopilotValidationSection({
         </div>
 
         {/* Windows Autopilot Device Preparation (v2) */}
-        <div className="border-t border-gray-100 pt-5 space-y-3">
+        <div className="border-t border-gray-100 pt-5 space-y-3" data-tour="device-preparation-validation">
           <p className="text-sm font-semibold text-gray-700 tracking-wide">Windows Autopilot Device Preparation</p>
           <label className="flex items-start justify-between gap-4">
             <div>

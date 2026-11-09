@@ -156,7 +156,7 @@ export default function AgentParametersSection({
         )}
 
         {/* Geo Location */}
-        <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
+        <div data-tour="geo-location" className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
           <div>
             <p className="font-medium text-gray-900">Geo-Location Detection</p>
             <p className="text-sm text-gray-500">Capture device location, ISP and network info at enrollment start (queries external IP service)</p>
@@ -169,7 +169,7 @@ export default function AgentParametersSection({
 
         {/* Timezone Auto-Set (sub-toggle of Geo-Location) */}
         {enableGeoLocation && (
-          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors ml-4">
+          <div data-tour="timezone" className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors ml-4">
             <div>
               <p className="font-medium text-gray-900">Set Timezone Automatically</p>
               <p className="text-sm text-gray-500">Set the device timezone based on IP geolocation result (uses tzutil /s)</p>

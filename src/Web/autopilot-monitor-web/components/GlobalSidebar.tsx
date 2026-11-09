@@ -15,6 +15,7 @@ import { DOCS_URL } from "@/lib/config";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
 import { viewAsBarHeight } from "@/lib/viewAs";
 import { useUnsavedPages } from "@/lib/unsavedChanges";
+import { SetupGuideNavItem } from "@/components/setup/SetupGuideNavItem";
 
 /** Amber dot on a sidebar entry whose settings page holds unsaved edits (lib/unsavedChanges). */
 function UnsavedMarker({ className = "" }: { className?: string }) {
@@ -365,7 +366,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   const visibleGroups = NAV_GROUPS.filter((group) => isNavGroupVisible(group, navFlags));
   const hasPageSections = pageSections.length > 0;
 
-  const { isRegularUser, showDashboard } = navFlags;
+  const { isRegularUser, showDashboard, showSetupGuide } = navFlags;
 
   const renderNavContent = (isMobile = false) => (
     <>
@@ -376,6 +377,9 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           {showDashboard && (
             <ul className="space-y-0.5">
               {renderGlobalItem(DASHBOARD_ITEM)}
+              {showSetupGuide && (
+                <SetupGuideNavItem iconsOnly={collapseState === "icons" && !isMobile} onNavigate={() => setMobileDrawerOpen(false)} />
+              )}
             </ul>
           )}
 

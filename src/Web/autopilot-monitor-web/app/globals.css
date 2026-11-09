@@ -1008,3 +1008,22 @@ html.auth-pending .landing-v2::after {
 .animate-fade-in-up {
   animation: fadeInUp 0.3s ease-out both;
 }
+
+/* Setup guide spotlight: the dashed ring around the highlighted setting marches slowly. */
+@keyframes setup-tour-march {
+  to { stroke-dashoffset: -28; }
+}
+.setup-tour-ring {
+  animation: setup-tour-march 1.1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-tour-ring { animation: none; }
+}
+/* The dimming around the cut-out: one wide shadow. Stronger on the dark theme, where a slate tint
+   leaves light text almost as bright as before. */
+.setup-tour-spot {
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+}
+.dark .setup-tour-spot {
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72);
+}

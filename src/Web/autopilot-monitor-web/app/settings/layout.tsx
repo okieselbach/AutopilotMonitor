@@ -7,6 +7,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { hasOwnTenantOrPlatformRole } from "@/lib/tenantScope";
 import { TenantConfigProvider } from "./TenantConfigContext";
 import { UnsavedChangesGuard } from "./UnsavedChangesGuard";
+import { SetupGuideTour } from "./SetupGuideTour";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -35,6 +36,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     <ProtectedRoute>
       <TenantConfigProvider>
         <UnsavedChangesGuard />
+        <SetupGuideTour />
         <div className="min-h-screen bg-gray-50">
           {children}
         </div>

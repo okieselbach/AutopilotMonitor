@@ -120,6 +120,22 @@ describe("deriveNavFlags", () => {
     expect(flags.showDashboard).toBe(dashboard);
   });
 
+  it.each([
+    ["GlobalAdmin+adminModeOn", false],
+    ["GlobalAdmin+adminModeOff", true],
+    ["GlobalReader+adminModeOn", false],
+    ["DelegatedPure", false],
+    ["Delegated+OwnAdminRole", true],
+    ["Delegated+GlobalAdmin", false],
+    ["TenantAdmin", true],
+    ["Operator", false],
+    ["Viewer", false],
+    ["RegularMember", false],
+    ["NoUser(authLoading)", false],
+  ] as const)("%s → showSetupGuide=%s", (name, expected) => {
+    expect(flagsOf(name).showSetupGuide).toBe(expected);
+  });
+
   it("all three tenant roles count as tenant members", () => {
     for (const name of ["TenantAdmin", "Operator", "Viewer"]) {
       expect(flagsOf(name).isTenantMember).toBe(true);

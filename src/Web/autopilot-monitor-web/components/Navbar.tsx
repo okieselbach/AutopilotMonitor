@@ -21,6 +21,7 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { WhatsNewCountBadge, WhatsNewIconBadge } from "./WhatsNewPanel";
 import { openFeedbackDialog } from "@/lib/feedbackDialogStore";
+import { openSetupGuide } from "@/lib/setupGuideStore";
 import { isPushAppPath } from "@/lib/push/pushAppPath";
 
 export default function Navbar() {
@@ -144,6 +145,8 @@ export default function Navbar() {
   // all). Only Admins / Global Admins are permitted to dismiss; Operators and Viewers see the
   // bell as read-only. See TenantNotificationContext + EndpointAccessPolicyCatalog.
   const canDismissTenant = isTenantAdmin || (user?.isGlobalAdmin ?? false);
+  // The setup guide works on the own tenant's settings: tenant admins and Global Admins open it.
+  const canOpenSetupGuide = isTenantAdmin || (user?.isGlobalAdmin ?? false);
 
   // Role-less members (no tenant role, no platform scope): show minimal navbar with only
   // Progress Portal. Viewers get the full navbar (read-only tier — they see everything,
@@ -225,8 +228,14 @@ export default function Navbar() {
           {/* Global Search — centered on desktop, lupe pushed right on mobile */}
           <GlobalSearch />
 
-          {/* Right side — Dark Mode, Notifications, Settings, Overflow, User */}
+          {/* Right side — Company name, Dark Mode, Notifications, Settings, Overflow, User */}
           <div className="flex items-center space-x-1">
+            {/* The tenant's company name, when set: wide screens only, it gives way to the search below xl */}
+            {user?.companyName && (
+              <span className="hidden xl:block max-w-[14rem] truncate px-2 text-sm text-gray-500 dark:text-gray-400" title={user.companyName}>
+                {user.companyName}
+              </span>
+            )}
             {/* Dark Mode Toggle — hidden on <sm, moved to overflow */}
             <button
               onClick={toggleTheme}
@@ -503,6 +512,17 @@ export default function Navbar() {
                     <span>Documentation</span>
                   </a>
 
+                  {canOpenSetupGuide && (
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      onClick={() => { setShowHelp(false); openSetupGuide("help"); }}
+                    >
+                      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                      <span>Setup guide</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -729,6 +749,12 @@ export default function Navbar() {
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                         <span>Documentation</span>
                       </a>
+                      {canOpenSetupGuide && (
+                        <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); openSetupGuide("overflow"); }}>
+                          <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                          <span>Setup guide</span>
+                        </button>
+                      )}
                       <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); whatsNew.open("overflow"); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                         <span>What&apos;s new</span>

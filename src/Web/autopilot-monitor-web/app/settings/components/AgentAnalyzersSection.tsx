@@ -188,7 +188,7 @@ export default function AgentAnalyzersSection({
         <div className="border-t border-gray-200" />
 
         {/* ── Software Inventory & Vulnerability Analyzer ── */}
-        <div>
+        <div data-tour="software-inventory">
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Software Inventory & Vulnerability Analyzer</h3>
           <p className="text-sm text-gray-500 mb-4">
             Collects installed software from the Windows registry at enrollment start and completion.

@@ -7,7 +7,7 @@ import { TenantNotifications } from "../../TenantNotifications";
 import HardwareWhitelistSection from "../../components/HardwareWhitelistSection";
 import HardwareRejectionInsights from "../../components/HardwareRejectionInsights";
 import TpmIncompatibleDevicesInsights from "../../components/TpmIncompatibleDevicesInsights";
-import { addWhitelistEntry } from "../../lib/hardwareWhitelist";
+import { addWhitelistEntry } from "@/lib/hardwareWhitelist";
 
 export function SectionHardwareWhitelist() {
   const { getAccessToken } = useAuth();

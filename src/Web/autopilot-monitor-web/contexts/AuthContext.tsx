@@ -389,6 +389,8 @@ function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
     dpaAcceptancePending: data.dpaAcceptancePending || false,
     // A Global Admin viewing this tenant as its member (lib/viewAs.ts); absent on an ordinary sign-in.
     viewAs: data.viewAs,
+    // The tenant's company name, for callers with a tenant role; shown in the navbar on wide screens.
+    companyName: data.companyName,
   };
 }
 

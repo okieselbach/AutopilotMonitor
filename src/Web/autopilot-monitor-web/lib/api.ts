@@ -167,6 +167,8 @@ export const api = {
     plan: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/plan`,
     /** POST — tenant-admin self-service 30-day Pro trial (once per tenant, 409 after). */
     trial: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/trial`,
+    /** POST — setup guide marker: { step: "settings" | "hardware" | "dismiss" | "restore" }. */
+    setupGuide: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/setup-guide`,
     autopilotConsentUrl: (tenantId: string, redirectUri: string) =>
       `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/consent-url${qs({ redirectUri })}`,
     autopilotConsentStatus: (tenantId: string) =>

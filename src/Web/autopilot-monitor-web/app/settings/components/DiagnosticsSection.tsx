@@ -106,7 +106,7 @@ export default function DiagnosticsSection({
         {/* Destination selector — explicit admin choice between customer-controlled SAS
             (default, data stays in customer's storage) and hosted (opt-in, data leaves
             tenant boundary). Never silently flipped. */}
-        <div data-testid="diagnostics-destination" className="border border-gray-200 rounded-lg p-3">
+        <div data-testid="diagnostics-destination" data-tour="diagnostics-upload" className="border border-gray-200 rounded-lg p-3">
           <p className="text-gray-700 font-medium text-sm mb-2">Upload destination</p>
           <div className="flex flex-col sm:flex-row gap-2">
             <label

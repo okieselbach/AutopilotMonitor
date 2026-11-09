@@ -3,7 +3,7 @@
 import { useState } from "react";
 import SaveBar from "./SaveBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
-import { joinList, parseList } from "../lib/hardwareWhitelist";
+import { joinList, parseList, splitTypedWhitelistInput } from "@/lib/hardwareWhitelist";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -35,9 +35,10 @@ function WhitelistEditor({
 }) {
   const [newItem, setNewItem] = useState("");
   // Admin-typed input is a LIST: "Dell*, *" adds two patterns (the placeholder invites
-  // exactly that). Only the insights buttons neutralize ',' — their values are untrusted.
+  // exactly that), but "VMware, Inc." stays one manufacturer (splitTypedWhitelistInput). The
+  // insights buttons neutralize every ',' instead — their values are untrusted.
   const existing = new Set(items.map((a) => a.toLowerCase()));
-  const typed = parseList(newItem);
+  const typed = splitTypedWhitelistInput(newItem);
   const fresh = typed.filter((t, i) =>
     !existing.has(t.toLowerCase()) && typed.findIndex((u) => u.toLowerCase() === t.toLowerCase()) === i);
   const isDuplicate = typed.length > 0 && fresh.length === 0;

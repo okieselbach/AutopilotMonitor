@@ -11,7 +11,7 @@ import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { StatsCard } from "./components/StatsCards";
-import { WelcomeMessage } from "./components/WelcomeMessage";
+import { FirstEnrollmentCard, NoSessionsNote, SetupChecklistCard } from "./components/SetupChecklistCard";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { AppHomingBanner } from "./components/AppHomingBanner";
 import { GraphAccessBanner } from "./components/GraphAccessBanner";
@@ -21,6 +21,8 @@ import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
 import TipOfTheDay from "./components/TipOfTheDay";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { useSetupChecklist } from "@/hooks/useSetupChecklist";
+import { markSetup } from "@/lib/setupGuideStore";
 import { useDeleteSession } from "./hooks/useDeleteSession";
 import { useBlockDevice } from "./hooks/useBlockDevice";
 import { useTenantSecurityConfig } from "./hooks/useTenantSecurityConfig";
@@ -264,6 +266,34 @@ function HomeContent() {
     graphAccessRejected, graphAccessAppMissing, addOnPermissionMissing, addOnPermissionMissingBlocksAll,
   } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
 
+  // A tenant that never enrolled a device gets the setup checklist instead of an empty page. While
+  // the checklist is on, its required validation step stands in for the red validation banner; the
+  // banner waits for the checklist's flags, so it does not flash before the card replaces it.
+  const setup = useSetupChecklist();
+  const setupOwnsEmptyState = !crossTenant && !!setup.checklist?.visible;
+  const showSetupCard = setupOwnsEmptyState && !loading && sessions.length === 0;
+
+  // The first session arriving while the checklist was on screen gets a one-time success card.
+  // Adjust-during-render (compare-prev), keyed on the tenant so a view-as switch never reads as an arrival.
+  // A cross-tenant view forgets the card: on the way back the cross-tenant list is still loaded for one render.
+  const [setupCardSeenFor, setSetupCardSeenFor] = useState<string | null>(null);
+  const [firstArrival, setFirstArrival] = useState<{ tenantId: string; sessionId: string; label: string; dismissed: boolean } | null>(null);
+  if (showSetupCard && setupCardSeenFor !== tenantId) {
+    setSetupCardSeenFor(tenantId);
+  }
+  if (crossTenant && setupCardSeenFor !== null) {
+    setSetupCardSeenFor(null);
+  }
+  if (!crossTenant && setupCardSeenFor === tenantId && firstArrival?.tenantId !== tenantId && sessions.length > 0) {
+    const first = sessions[0];
+    setFirstArrival({ tenantId, sessionId: first.sessionId, label: first.deviceName || first.serialNumber || "A device", dismissed: false });
+  }
+  const arrivedTenant = firstArrival?.tenantId ?? null;
+  useEffect(() => {
+    if (arrivedTenant) markSetup(arrivedTenant, { enrolled: true });
+  }, [arrivedTenant]);
+  const showFirstArrival = !crossTenant && firstArrival !== null && firstArrival.tenantId === tenantId && !firstArrival.dismissed;
+
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).
   useEffect(() => {
@@ -373,7 +403,17 @@ function HomeContent() {
             <AppHomingBanner />
           )}
 
-          {deviceValidationEnabled === false && (
+          {firstArrival && showFirstArrival && (
+            <FirstEnrollmentCard
+              deviceLabel={firstArrival.label}
+              href={sessionUrl(firstArrival.sessionId)}
+              onDismiss={() => setFirstArrival({ ...firstArrival, dismissed: true })}
+            />
+          )}
+
+          {showSetupCard && <SetupChecklistCard setup={setup} />}
+
+          {deviceValidationEnabled === false && !setup.pending && !setupOwnsEmptyState && (
             <div className="mb-6 bg-red-600 border-2 border-red-700 rounded-xl p-5 shadow-lg">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -516,8 +556,10 @@ function HomeContent() {
             </div>
           )}
 
-          {/* Welcome message - only show when no sessions */}
-          {!loading && sessions.length === 0 && <WelcomeMessage />}
+          {/* Own tenant, no sessions, no checklist: the guide is hidden or the caller has no tenant role. */}
+          {!loading && sessions.length === 0 && !crossTenant && !setupOwnsEmptyState && !setup.pending && (
+            <NoSessionsNote canOpenGuide={!!(user?.isTenantAdmin || user?.isGlobalAdmin)} />
+          )}
 
           {/* Fleet-context rule filter chip (from a session-detail "View sessions" link). */}
           {ruleFilter && (

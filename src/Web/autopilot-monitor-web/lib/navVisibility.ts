@@ -48,6 +48,11 @@ export interface NavFlags {
   isRegularUser: boolean;
   /** The cross-tenant session browser link. */
   showDashboard: boolean;
+  /**
+   * The setup guide entry, shown while the own tenant's checklist is open: tenant admins and
+   * Global Admins of their own tenant, not in the Global View, where the dashboard is cross-tenant.
+   */
+  showSetupGuide: boolean;
 }
 
 export function deriveNavFlags({ user, hasGlobalScope, hasFleetScope, globalAdminMode }: NavVisibilityInput): NavFlags {
@@ -79,6 +84,7 @@ export function deriveNavFlags({ user, hasGlobalScope, hasFleetScope, globalAdmi
     // Own-tenant/platform users see their own/all sessions; a delegated ("MSP") admin sees a
     // bounded aggregate across their managed tenants — so they get the link too.
     showDashboard: isTenantMember || hasGlobalScope || isDelegated,
+    showSetupGuide: (isTenantAdmin || isGlobalAdmin) && !(globalAdminMode && hasGlobalScope),
   };
 }
 

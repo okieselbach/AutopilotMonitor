@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "4 November 2026";
+const LAST_UPDATED = "9 November 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -178,9 +178,9 @@ export default function PrivacyPage() {
           <p className="text-gray-700">
             Diagnostics upload is <strong>off by default</strong>. When enabled, the default destination is{" "}
             <strong>your own Azure storage account</strong> — the package never reaches our infrastructure. Hosted upload
-            exists as an alternative but is opt-in only and requires an explicit administrator action — in Settings, or
-            in the one-step dialog offered on a session — always behind a clearly marked disclosure that data leaves your
-            tenant. It is never enabled silently. One explicit exception: when an administrator submits a session report
+            exists as an alternative. It takes an explicit administrator action to turn it on, and in the portal that
+            action always comes with a clearly marked disclosure that data leaves your tenant. It is never enabled
+            silently. One explicit exception: when an administrator submits a session report
             for analysis and chooses to include the session&apos;s uploaded diagnostics archive, a copy of that package
             is stored with the report so it remains available for the investigation.
           </p>
