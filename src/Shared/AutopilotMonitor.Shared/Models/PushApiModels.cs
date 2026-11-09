@@ -34,6 +34,12 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime RedeemedUtc { get; set; }
     }
 
+    /// <summary>POST push/pairings/{pairingId}/confirm — optional body; a blank label keeps the name the device sent.</summary>
+    public class ConfirmPairingRequest : IApiRequest
+    {
+        public string? Label { get; set; }
+    }
+
     /// <summary>POST push/pairings/{pairingId}/confirm — the device is Active from now on.</summary>
     public class ConfirmPairingResponse : IApiResponse
     {
@@ -139,6 +145,12 @@ namespace AutopilotMonitor.Shared.Models
         /// (D-334); the tenant routes do not act on it — it is managed under the platform's device list.
         /// </summary>
         public string Scope { get; set; } = "tenant";
+    }
+
+    /// <summary>PATCH push/devices/{deviceId} · PATCH global/push/devices/{deviceId} — rename (owner or scope admin); 204.</summary>
+    public class RenamePushDeviceRequest : IApiRequest
+    {
+        public string Label { get; set; } = default!;
     }
 
     /// <summary>GET/PUT/DELETE sessions/{sessionId}/watch — "notify my devices when this session ends".</summary>

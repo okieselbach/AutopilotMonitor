@@ -324,6 +324,12 @@ export async function reconcileDevice(): Promise<ReconcileResult> {
     return { state: "error", message: describePushError(error), meta };
   }
 
+  // The portal can rename the device; the stored name is what the app shows while offline.
+  if (device.label && device.label !== meta[META_KEYS.label]) {
+    await writeMeta({ [META_KEYS.label]: device.label }).catch(() => {});
+    meta[META_KEYS.label] = device.label;
+  }
+
   let subscriptionPresent = false;
   let repair: ReconcileAction = "none";
   let repairError: string | null = null;

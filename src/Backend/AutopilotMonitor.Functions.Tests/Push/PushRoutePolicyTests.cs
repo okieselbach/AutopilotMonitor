@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Functions.Tests.Push;
 
 /// <summary>
 /// Pins the Web Push surface of the route policy catalog: the tier and tenant scoping of every push
-/// route, that the surface is exactly these 22 routes (a 23rd cannot appear unnoticed), that only the
+/// route, that the surface is exactly these 24 routes (a 25th cannot appear unnoticed), that only the
 /// five receiver routes skip JWT validation (the phone never signs in), that no push route carries a
 /// grant-widening opt-in, and that every push path is stamped <c>Cache-Control: no-store</c>.
 /// </summary>
@@ -14,7 +14,7 @@ public class PushRoutePolicyTests
 {
     private const string SampleId = "22222222-2222-2222-2222-222222222222";
 
-    /// <summary>The 22 push routes, as "METHOD template" — the one list the surface test compares against.</summary>
+    /// <summary>The 24 push routes, as "METHOD template" — the one list the surface test compares against.</summary>
     private static readonly string[] PinnedRoutes =
     {
         // Receiver (the phone): one-shot pairing code, then the device token in X-Push-Device-Token.
@@ -29,6 +29,7 @@ public class PushRoutePolicyTests
         "POST push/pairings/{pairingId}/confirm",
         "POST push/pairings/{pairingId}/reject",
         "GET push/devices",
+        "PATCH push/devices/{deviceId}",
         "DELETE push/devices/{deviceId}",
         "POST push/devices/{deviceId}/test",
         // Session watches: ?tenantId= like the annotations route.
@@ -41,6 +42,7 @@ public class PushRoutePolicyTests
         "POST global/push/pairings/{pairingId}/confirm",
         "POST global/push/pairings/{pairingId}/reject",
         "GET global/push/devices",
+        "PATCH global/push/devices/{deviceId}",
         "DELETE global/push/devices/{deviceId}",
         "POST global/push/devices/{deviceId}/test",
     };
@@ -60,6 +62,7 @@ public class PushRoutePolicyTests
     [InlineData("POST",   "push/pairings/{pairingId}/confirm",        EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
     [InlineData("POST",   "push/pairings/{pairingId}/reject",         EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
     [InlineData("GET",    "push/devices",                             EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
+    [InlineData("PATCH",  "push/devices/{deviceId}",                  EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
     [InlineData("DELETE", "push/devices/{deviceId}",                  EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
     [InlineData("POST",   "push/devices/{deviceId}/test",             EndpointPolicy.TenantAdminOrOperator, TenantScoping.Jwt)]
     // Session watches: ?tenantId= (optional, falls back to the JWT tenant; middleware cross-tenant check).
@@ -72,6 +75,7 @@ public class PushRoutePolicyTests
     [InlineData("POST",   "global/push/pairings/{pairingId}/confirm", EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
     [InlineData("POST",   "global/push/pairings/{pairingId}/reject",  EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
     [InlineData("GET",    "global/push/devices",                      EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
+    [InlineData("PATCH",  "global/push/devices/{deviceId}",           EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
     [InlineData("DELETE", "global/push/devices/{deviceId}",           EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
     [InlineData("POST",   "global/push/devices/{deviceId}/test",      EndpointPolicy.GlobalAdminOnly,       TenantScoping.None)]
     public void Push_route_resolves_to_its_tier_and_tenant_scoping(string method, string template, EndpointPolicy policy, TenantScoping scoping)
@@ -85,7 +89,7 @@ public class PushRoutePolicyTests
     }
 
     [Fact]
-    public void The_push_surface_is_exactly_the_22_pinned_routes()
+    public void The_push_surface_is_exactly_the_24_pinned_routes()
     {
         var expected = PinnedRoutes.OrderBy(k => k, StringComparer.Ordinal).ToArray();
         var actual = PushSurface().Select(Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();

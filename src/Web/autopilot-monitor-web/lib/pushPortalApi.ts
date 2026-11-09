@@ -6,14 +6,16 @@
  * anonymous calls live in lib/push/pushApi.ts and are deliberately separate.
  */
 import { api } from "@/lib/api";
-import { ApiError, fetchJson, fetchOk, type GetAccessToken } from "@/lib/apiClient";
+import { ApiError, fetchJson, fetchOk, jsonBody, type GetAccessToken } from "@/lib/apiClient";
 import type { ApiErrorCode } from "@/lib/apiErrorCodes";
 import type { PushScope } from "@/lib/pushPortal";
 import type {
+  ConfirmPairingRequest,
   ConfirmPairingResponse,
   CreatePairingResponse,
   PairingStatusResponse,
   PushDeviceListResponse,
+  RenamePushDeviceRequest,
   SessionWatchResponse,
   TestWebhookNotificationResponse,
 } from "@/lib/generated/wire-types.generated";
@@ -33,8 +35,12 @@ export function getPairingStatus(scope: PushScope, pairingId: string, getAccessT
   return fetchJson<PairingStatusResponse>(api.push.pairing(scope, pairingId), getAccessToken, { signal });
 }
 
-export function confirmPairing(scope: PushScope, pairingId: string, getAccessToken: GetAccessToken): Promise<ConfirmPairingResponse> {
-  return fetchJson<ConfirmPairingResponse>(api.push.confirmPairing(scope, pairingId), getAccessToken, { method: "POST" });
+/** `label` is the name chosen in the dialog; blank keeps the name the device sent. */
+export function confirmPairing(scope: PushScope, pairingId: string, label: string, getAccessToken: GetAccessToken): Promise<ConfirmPairingResponse> {
+  return fetchJson<ConfirmPairingResponse>(api.push.confirmPairing(scope, pairingId), getAccessToken, {
+    method: "POST",
+    body: jsonBody<ConfirmPairingRequest>({ label }),
+  });
 }
 
 export async function rejectPairing(scope: PushScope, pairingId: string, getAccessToken: GetAccessToken): Promise<void> {
@@ -43,6 +49,13 @@ export async function rejectPairing(scope: PushScope, pairingId: string, getAcce
 
 export function listPushDevices(scope: PushScope, getAccessToken: GetAccessToken): Promise<PushDeviceListResponse> {
   return fetchJson<PushDeviceListResponse>(api.push.devices(scope), getAccessToken);
+}
+
+export async function renamePushDevice(scope: PushScope, deviceId: string, label: string, getAccessToken: GetAccessToken): Promise<void> {
+  await fetchOk(api.push.device(scope, deviceId), getAccessToken, {
+    method: "PATCH",
+    body: jsonBody<RenamePushDeviceRequest>({ label }),
+  });
 }
 
 export async function removePushDevice(scope: PushScope, deviceId: string, getAccessToken: GetAccessToken): Promise<void> {

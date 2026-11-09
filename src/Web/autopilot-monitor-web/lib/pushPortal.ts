@@ -3,7 +3,7 @@
  * constant, the pairing-code grouping shown next to the QR code, the human names of the wire's
  * closed platform and status lists, and the channel gates — whether the saved Push channel is
  * enabled (K4: the channel is the one switch for pairing and delivery), whether another channel
- * of a list already is Push, and whether a devices panel renders.
+ * of a list already is Push, and whether a scope's own device is listed.
  *
  * No Tailwind class strings live here — lib/ is outside the Tailwind content globs, so the chip
  * classes stay in the component and key off {@link statusTone}.
@@ -115,17 +115,13 @@ export function hasOtherPushChannel(channels: readonly { id: string; providerTyp
 }
 
 /**
- * Whether a devices panel renders: always while the scope's Push channel is enabled; with the
- * channel off only while a device paired in this very scope is left to remove (a Global
- * Administrator's platform device listed in the home tenant is managed on the platform side).
- * Unknown devices — still loading or failed to load — count as none.
+ * Whether a device paired in this very scope is listed — with the channel off, the devices panel
+ * then says the channel is off (the devices stay removable) instead of how to set push up. A
+ * Global Administrator's platform device listed in the home tenant is managed on the platform
+ * side and does not count. Unknown devices (still loading or failed to load) count as none.
  */
-export function showPushDevicesPanel(
-  channelEnabled: boolean,
-  devices: readonly { scope: string }[] | null | undefined,
-  scope: PushScope,
-): boolean {
-  return channelEnabled || (devices ?? []).some((d) => d.scope === scope);
+export function hasScopeDevice(devices: readonly { scope: string }[] | null | undefined, scope: PushScope): boolean {
+  return (devices ?? []).some((d) => d.scope === scope);
 }
 
 function parseChannelList(json: string | null | undefined): PushChannelLike[] {

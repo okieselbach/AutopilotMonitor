@@ -33,6 +33,7 @@ public enum PushOpError
     InvalidSubscription,
     NotConfigured,
     Conflict,
+    InvalidLabel,
 }
 
 public sealed record PushOpResult<T>(T? Value, PushOpError Error, string? Message = null)
@@ -158,7 +159,11 @@ public class PushPairingService
         return PushOpResult<PairingStatusResponse>.Success(new PairingStatusResponse { Status = status, Device = dto });
     }
 
-    public async Task<PushOpResult<ConfirmPairingResponse>> ConfirmAsync(NotificationScope scope, string pairingId, PushCaller caller)
+    /// <summary>
+    /// <paramref name="label"/> is the name the owner chose in the confirm dialog; blank keeps the
+    /// name the device sent.
+    /// </summary>
+    public async Task<PushOpResult<ConfirmPairingResponse>> ConfirmAsync(NotificationScope scope, string pairingId, PushCaller caller, string? label = null)
     {
         var grant = await GetOwnedGrantAsync(scope, pairingId, caller).ConfigureAwait(false);
         if (grant == null || grant.DeviceId == null)
@@ -176,14 +181,23 @@ public class PushPairingService
         if (!await _repo.TryUpdateGrantAsync(grant).ConfigureAwait(false))
             return PushOpResult<ConfirmPairingResponse>.Fail(PushOpError.Conflict, "The pairing changed concurrently — reload and try again.");
 
-        await _repo.MutateDeviceAsync(scope.Key, device.DeviceId, _ => new Dictionary<string, object?>
+        var chosenLabel = PushAlertProjector.Clean(label, Constants.Push.MaxLabelLength);
+        await _repo.MutateDeviceAsync(scope.Key, device.DeviceId, _ =>
         {
-            ["Status"] = Constants.Push.DeviceStatus.Active,
-            ["StatusReason"] = null,
-            ["ConfirmedUtc"] = now,
-            ["StatusChangedUtc"] = now,
+            var patch = new Dictionary<string, object?>
+            {
+                ["Status"] = Constants.Push.DeviceStatus.Active,
+                ["StatusReason"] = null,
+                ["ConfirmedUtc"] = now,
+                ["StatusChangedUtc"] = now,
+            };
+            if (chosenLabel.Length > 0)
+                patch["Label"] = chosenLabel;
+            return patch;
         }).ConfigureAwait(false);
         device.Status = Constants.Push.DeviceStatus.Active;
+        if (chosenLabel.Length > 0)
+            device.Label = chosenLabel;
 
         var paired = PushAlertProjector.SystemMessage("push_paired", "Device paired",
             $"This device now receives Autopilot Monitor alerts for {await ScopeNameAsync(scope).ConfigureAwait(false)}.",
@@ -452,6 +466,34 @@ public class PushPairingService
         return PushOpError.None;
     }
 
+    /// <summary>Same access rule as <see cref="DeleteAsync"/>: the owner, or an admin of the scope.</summary>
+    public async Task<PushOpError> RenameAsync(NotificationScope scope, string deviceId, string? label, PushCaller caller)
+    {
+        var device = await _repo.GetDeviceAsync(scope.Key, deviceId).ConfigureAwait(false);
+        if (device == null || !(caller.IsScopeAdmin || IsOwn(device, caller)))
+            return PushOpError.NotFound;
+
+        var clean = PushAlertProjector.Clean(label, Constants.Push.MaxLabelLength);
+        if (clean.Length == 0)
+            return PushOpError.InvalidLabel;
+
+        string? previous = null;
+        var written = await _repo.MutateDeviceAsync(scope.Key, device.DeviceId, current =>
+        {
+            if (string.Equals(current.Label, clean, StringComparison.Ordinal))
+                return null;
+            previous = current.Label;
+            return new Dictionary<string, object?> { ["Label"] = clean };
+        }).ConfigureAwait(false);
+        if (!written)
+            return PushOpError.None;
+
+        device.Label = clean;
+        await AuditAsync(scope, "UPDATE", device, caller, previous).ConfigureAwait(false);
+        Track("renamed", scope, device.Platform);
+        return PushOpError.None;
+    }
+
     public async Task<PushOpResult<TestWebhookNotificationResponse>> TestAsync(NotificationScope scope, string deviceId, PushCaller caller)
     {
         var device = await _repo.GetDeviceAsync(scope.Key, deviceId).ConfigureAwait(false);
@@ -565,12 +607,14 @@ public class PushPairingService
             : parseError ?? "The subscription keys have the wrong shape.";
     }
 
-    private Task AuditAsync(NotificationScope scope, string action, PushDevice device, PushCaller caller)
+    private Task AuditAsync(NotificationScope scope, string action, PushDevice device, PushCaller caller, string? previousLabel = null)
     {
         if (scope.IsPlatform)
             return Task.CompletedTask;
-        return _maintenanceRepo.LogAuditEntryAsync(scope.Key, action, "PushDevice", device.DeviceId, caller.Upn,
-            new Dictionary<string, string> { ["platform"] = device.Platform, ["label"] = device.Label, ["owner"] = device.OwnerUpn });
+        var details = new Dictionary<string, string> { ["platform"] = device.Platform, ["label"] = device.Label, ["owner"] = device.OwnerUpn };
+        if (previousLabel != null)
+            details["previousLabel"] = previousLabel;
+        return _maintenanceRepo.LogAuditEntryAsync(scope.Key, action, "PushDevice", device.DeviceId, caller.Upn, details);
     }
 
     private void Track(string action, NotificationScope scope, string? platform = null, string? reason = null)

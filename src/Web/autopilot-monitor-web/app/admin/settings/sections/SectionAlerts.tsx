@@ -60,8 +60,7 @@ export function SectionAlerts() {
       />
       {/* Platform Push devices (plan push-relay K4), once the config is loaded: the SAVED ops channel
           list says whether the channel is on — opsNotificationChannels mirrors the stored config, the
-          editor above keeps its own draft. With the channel off the panel shows only while devices
-          are left to remove. */}
+          editor above keeps its own draft. Without the channel the panel says which channel to add. */}
       {adminConfig != null && (
         <PushDevicesPanel scope="platform" channelEnabled={hasEnabledPushChannel(opsNotificationChannels)} />
       )}

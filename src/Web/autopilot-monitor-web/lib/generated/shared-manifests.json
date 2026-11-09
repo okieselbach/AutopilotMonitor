@@ -6177,6 +6177,21 @@
         }
       ]
     },
+    "ConfirmPairingRequest": {
+      "kind": "object",
+      "doc": "POST push/pairings/{pairingId}/confirm — optional body; a blank label keeps the name the device sent.",
+      "fields": [
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "ConfirmPairingResponse": {
       "kind": "object",
       "doc": "POST push/pairings/{pairingId}/confirm — the device is Active from now on.",
@@ -19490,6 +19505,19 @@
       "fields": [
         {
           "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "RenamePushDeviceRequest": {
+      "kind": "object",
+      "doc": "PATCH push/devices/{deviceId} · PATCH global/push/devices/{deviceId} — rename (owner or scope admin); 204.",
+      "fields": [
+        {
+          "name": "label",
           "type": {
             "kind": "primitive",
             "name": "string"

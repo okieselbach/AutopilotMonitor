@@ -423,6 +423,12 @@ export default function PushPairPage() {
       {isAndroid && !standalone && (
         <p className="text-xs text-gray-500">Adding this page to the Home screen is recommended: Android keeps notification permission for installed apps.</p>
       )}
+      {/* Desktop browsers may answer the request with only a small address-bar icon instead of a prompt. */}
+      {!isIos && !isAndroid && permission === "default" && (
+        <p className="text-xs text-gray-500">
+          No prompt from the browser? On a computer it may show only a small icon in the address bar. Click it and choose Allow.
+        </p>
+      )}
     </Card>
   );
 }

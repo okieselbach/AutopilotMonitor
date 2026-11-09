@@ -15,6 +15,9 @@ namespace AutopilotMonitor.Functions.Functions.Push;
 /// </summary>
 internal static class PushFunctionSupport
 {
+    /// <summary>Body cap of the portal routes that carry only a device label.</summary>
+    public const long LabelBodyMaxBytes = 1024;
+
     /// <summary>
     /// The tenant scope of a <c>push/…</c> route: the caller's own tenant. A Global Admin passes
     /// the TenantAdminOrOperator tier by bypass, so pairing re-checks the member role (K2/K5) and
@@ -57,6 +60,7 @@ internal static class PushFunctionSupport
             PushOpError.NotConfigured => req.ErrorAsync(HttpStatusCode.ServiceUnavailable, Constants.ApiErrorCodes.ServiceUnavailable,
                 "The push channel is not configured on the platform."),
             PushOpError.Conflict => req.ConflictAsync(message ?? "The operation conflicts with the current state."),
+            PushOpError.InvalidLabel => req.BadRequestAsync(message ?? "Enter a device name."),
             _ => req.InternalServerErrorAsync(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
                 new InvalidOperationException("unmapped push error"), "Push"),
         };

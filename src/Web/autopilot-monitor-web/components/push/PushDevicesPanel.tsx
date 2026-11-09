@@ -6,16 +6,17 @@ import { PairDeviceDialog } from "@/components/push/PairDeviceDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { apiErrorText } from "@/lib/apiClient";
+import { LABEL_MAX_CHARS } from "@/lib/push/pushCore";
 import { formatRelativeTime } from "@/lib/push/pushFormat";
 import {
   describePortalDeviceStatus,
+  hasScopeDevice,
   platformLabel,
-  showPushDevicesPanel,
   statusTone,
   type PushScope,
   type StatusTone,
 } from "@/lib/pushPortal";
-import { listPushDevices, removePushDevice, testPushDevice } from "@/lib/pushPortalApi";
+import { listPushDevices, removePushDevice, renamePushDevice, testPushDevice } from "@/lib/pushPortalApi";
 import type { PairingDeviceDto, PushDeviceDto } from "@/lib/generated/wire-types.generated";
 
 /** Status chip colours: green = delivering, orange = unclear, gray = idle (no new families). */
@@ -35,16 +36,19 @@ interface PushDevicesPanelProps {
   scope: PushScope;
   /** The SAVED channel list carries an enabled Push channel (K4: the one switch for pairing and delivery). */
   channelEnabled: boolean;
+  /** The viewer can edit the channel list above (an Operator cannot) — picks the wording of the setup hint. */
+  canEditChannels?: boolean;
 }
 
 /**
  * The paired devices of a scope (plan push-relay): everyone sees their own, scope admins every
  * device. Hosts render it for everyone who may pair (Admin/Operator of the tenant, or a Global
  * Admin on the platform card), deliberately OUTSIDE any read-only fieldset: an Operator cannot
- * edit channels but pairs. With the channel off the panel stays only while a device of this
- * scope is left, so it can be removed; pairing and tests wait for the channel.
+ * edit channels but pairs. The panel shows even without a Push channel, so the feature can be
+ * found: it then says which channel to add; pairing and tests wait for the channel, renaming and
+ * removing do not.
  */
-export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProps) {
+export function PushDevicesPanel({ scope, channelEnabled, canEditChannels = true }: PushDevicesPanelProps) {
   const { getAccessToken } = useAuth();
   const { addNotification, notifyError } = useNotifications();
   const [devices, setDevices] = useState<PushDeviceDto[] | null>(null);
@@ -56,6 +60,9 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [labelDraft, setLabelDraft] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,8 +99,6 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
     setPairingOpen(false);
   }, []);
 
-  if (!showPushDevicesPanel(channelEnabled, devices, scope)) return null;
-
   const sendTest = async (device: PushDeviceDto) => {
     setTestingId(device.deviceId);
     try {
@@ -103,6 +108,33 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
       notifyError("Push test", err, TOAST_KEY);
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const startRename = (device: PushDeviceDto) => {
+    setConfirmRemoveId(null);
+    setLabelDraft(device.label);
+    setEditingId(device.deviceId);
+  };
+
+  const saveRename = async (device: PushDeviceDto) => {
+    const label = labelDraft.trim();
+    if (!label) return;
+    if (label === device.label) {
+      setEditingId(null);
+      return;
+    }
+    setRenamingId(device.deviceId);
+    try {
+      await renamePushDevice(scope, device.deviceId, label, getAccessToken);
+      setDevices((list) => (list ? list.map((d) => (d.deviceId === device.deviceId ? { ...d, label } : d)) : list));
+      setEditingId(null);
+      // The server cleans the name (control characters, length); the reload shows what it stored.
+      reload();
+    } catch (err) {
+      notifyError("Push devices", err, TOAST_KEY);
+    } finally {
+      setRenamingId(null);
     }
   };
 
@@ -129,6 +161,17 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
     : "bg-sky-600 hover:bg-sky-700";
 
   const pairBlocked = channelRequired || !channelEnabled;
+  const setupHint = canEditChannels ? (
+    <>
+      Push sends alerts to your phone or computer. To pair one, add a channel of the type{" "}
+      <span className="font-medium">Push to paired devices</span> above and save.
+    </>
+  ) : (
+    <>
+      Push sends alerts to your phone or computer. Once a Tenant Admin adds a channel of the type{" "}
+      <span className="font-medium">Push to paired devices</span> above, you can pair yours here.
+    </>
+  );
   const pairButton = (
     <button
       type="button"
@@ -159,9 +202,13 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
       />
       <div className="p-6 space-y-3">
         {!channelEnabled ? (
-          <p className="text-sm text-orange-700">
-            The Push channel is off — paired devices receive nothing. Remove devices here or switch the channel back on.
-          </p>
+          hasScopeDevice(devices, scope) ? (
+            <p className="text-sm text-orange-700">
+              The Push channel is off — paired devices receive nothing. Remove devices here or switch the channel back on.
+            </p>
+          ) : (
+            <p className="text-sm text-gray-600">{setupHint}</p>
+          )
         ) : (
           channelRequired && <p className="text-sm text-orange-700">Enable a Push channel above first.</p>
         )}
@@ -174,7 +221,7 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
           </p>
         )}
         {devices === null && !loadError && <p className="text-sm text-gray-500">Loading devices…</p>}
-        {devices !== null && devices.length === 0 && (
+        {devices !== null && devices.length === 0 && channelEnabled && (
           <p className="text-sm text-gray-500">No device paired yet.</p>
         )}
         {devices !== null && devices.length > 0 && (
@@ -182,14 +229,37 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
             {devices.map((device) => {
               const tone = statusTone(device.status);
               const confirming = confirmRemoveId === device.deviceId;
-              const busy = removingId === device.deviceId || testingId === device.deviceId;
+              const editing = editingId === device.deviceId;
+              const renaming = renamingId === device.deviceId;
+              const busy = removingId === device.deviceId || testingId === device.deviceId || renaming;
               const canTest = device.status !== "Pending";
               // A Global Administrator's platform device shown in their home tenant (D-334): it receives
               // this tenant's alerts without a second pairing and is managed on the platform side.
               const viaPlatform = device.scope === "platform";
               return (
                 <li key={device.deviceId} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                  <span className="font-medium text-gray-900 min-w-0 break-words">{device.label || "Device"}</span>
+                  {editing ? (
+                    <input
+                      type="text"
+                      value={labelDraft}
+                      maxLength={LABEL_MAX_CHARS}
+                      onChange={(e) => setLabelDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void saveRename(device);
+                        } else if (e.key === "Escape") {
+                          setEditingId(null);
+                        }
+                      }}
+                      disabled={renaming}
+                      autoFocus
+                      aria-label="Device name"
+                      className="basis-56 shrink-0 max-w-full min-w-0 px-2 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 disabled:opacity-50"
+                    />
+                  ) : (
+                    <span className="font-medium text-gray-900 min-w-0 break-words">{device.label || "Device"}</span>
+                  )}
                   <span className="text-gray-500">{platformLabel(device.platform)}</span>
                   {viaPlatform && (
                     <span
@@ -216,7 +286,26 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
                     <span className="text-xs text-gray-500 sm:ml-auto">Managed under Platform › Push devices</span>
                   ) : (
                     <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
-                      {confirming ? (
+                      {editing ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void saveRename(device)}
+                            disabled={renaming || !labelDraft.trim()}
+                            className={`px-3 py-1 text-sm text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${pairButtonClass}`}
+                          >
+                            {renaming ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            disabled={renaming}
+                            className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : confirming ? (
                         <>
                           <span className="text-xs text-gray-600">{`Remove ${device.label || "this device"}?`}</span>
                           <button
@@ -255,7 +344,18 @@ export function PushDevicesPanel({ scope, channelEnabled }: PushDevicesPanelProp
                           </button>
                           <button
                             type="button"
-                            onClick={() => setConfirmRemoveId(device.deviceId)}
+                            onClick={() => startRename(device)}
+                            disabled={busy}
+                            className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50 transition-colors"
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null);
+                              setConfirmRemoveId(device.deviceId);
+                            }}
                             disabled={busy}
                             className="px-3 py-1 text-sm text-gray-600 hover:text-red-600 disabled:opacity-50 transition-colors"
                           >

@@ -5,13 +5,13 @@ import {
   formatPairingCode,
   hasEnabledPushChannel,
   hasOtherPushChannel,
+  hasScopeDevice,
   isPushProvider,
   PAIRING_GRANT_SECONDS,
   pairPageUrl,
   pairingSecondsLeft,
   platformLabel,
   PUSH_PROVIDER,
-  showPushDevicesPanel,
   statusTone,
 } from "../pushPortal";
 
@@ -126,31 +126,25 @@ describe("hasOtherPushChannel", () => {
   });
 });
 
-describe("showPushDevicesPanel", () => {
+describe("hasScopeDevice", () => {
   const tenantDevice = { scope: "tenant" };
   const platformDevice = { scope: "platform" };
 
-  it("always renders while the channel is enabled, even before the devices are known", () => {
-    expect(showPushDevicesPanel(true, null, "tenant")).toBe(true);
-    expect(showPushDevicesPanel(true, undefined, "platform")).toBe(true);
-    expect(showPushDevicesPanel(true, [], "tenant")).toBe(true);
-  });
-
-  it("with the channel off renders only while a device of the panel's own scope is left", () => {
-    expect(showPushDevicesPanel(false, [tenantDevice], "tenant")).toBe(true);
-    expect(showPushDevicesPanel(false, [platformDevice, tenantDevice], "tenant")).toBe(true);
-    expect(showPushDevicesPanel(false, [platformDevice], "platform")).toBe(true);
-    expect(showPushDevicesPanel(false, [], "tenant")).toBe(false);
-    expect(showPushDevicesPanel(false, [], "platform")).toBe(false);
+  it("finds a device paired in the panel's own scope", () => {
+    expect(hasScopeDevice([tenantDevice], "tenant")).toBe(true);
+    expect(hasScopeDevice([platformDevice, tenantDevice], "tenant")).toBe(true);
+    expect(hasScopeDevice([platformDevice], "platform")).toBe(true);
+    expect(hasScopeDevice([], "tenant")).toBe(false);
+    expect(hasScopeDevice([], "platform")).toBe(false);
   });
 
   it("does not count a Global Administrator's platform device listed in the home tenant", () => {
-    expect(showPushDevicesPanel(false, [platformDevice], "tenant")).toBe(false);
+    expect(hasScopeDevice([platformDevice], "tenant")).toBe(false);
   });
 
-  it("renders nothing with the channel off while the devices are unknown (loading or failed)", () => {
-    expect(showPushDevicesPanel(false, null, "tenant")).toBe(false);
-    expect(showPushDevicesPanel(false, undefined, "platform")).toBe(false);
+  it("counts unknown devices (loading or failed) as none", () => {
+    expect(hasScopeDevice(null, "tenant")).toBe(false);
+    expect(hasScopeDevice(undefined, "platform")).toBe(false);
   });
 });
 

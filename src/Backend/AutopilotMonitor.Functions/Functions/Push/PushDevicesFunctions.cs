@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Push;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -10,7 +11,7 @@ namespace AutopilotMonitor.Functions.Functions.Push;
 
 /// <summary>
 /// Device management from the portal: list (own devices for everyone on the tier, every device
-/// of the scope for its admins), remove (wipe push, then the row is gone) and test. Tenant routes
+/// of the scope for its admins), rename, remove (wipe push, then the row is gone) and test. Tenant routes
 /// under <c>push/devices…</c> (TenantAdminOrOperator), platform routes under
 /// <c>global/push/devices…</c> (GlobalAdminOnly).
 /// </summary>
@@ -36,6 +37,12 @@ public class PushDevicesFunctions
         string deviceId)
         => DeleteCoreAsync(req, deviceId, PushFunctionSupport.TenantContext(req));
 
+    [Function("RenamePushDevice")]
+    public Task<HttpResponseData> Rename(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "push/devices/{deviceId}")] HttpRequestData req,
+        string deviceId)
+        => RenameCoreAsync(req, deviceId, PushFunctionSupport.TenantContext(req));
+
     [Function("TestPushDevice")]
     public Task<HttpResponseData> Test(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "push/devices/{deviceId}/test")] HttpRequestData req,
@@ -52,6 +59,12 @@ public class PushDevicesFunctions
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "global/push/devices/{deviceId}")] HttpRequestData req,
         string deviceId)
         => DeleteCoreAsync(req, deviceId, PushFunctionSupport.PlatformContext(req));
+
+    [Function("RenamePlatformPushDevice")]
+    public Task<HttpResponseData> RenamePlatform(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "global/push/devices/{deviceId}")] HttpRequestData req,
+        string deviceId)
+        => RenameCoreAsync(req, deviceId, PushFunctionSupport.PlatformContext(req));
 
     [Function("TestPlatformPushDevice")]
     public Task<HttpResponseData> TestPlatform(
@@ -85,6 +98,25 @@ public class PushDevicesFunctions
         catch (Exception ex)
         {
             return await req.InternalServerErrorAsync(_logger, ex, "DeletePushDevice");
+        }
+    }
+
+    private async Task<HttpResponseData> RenameCoreAsync(HttpRequestData req, string deviceId, (NotificationScope Scope, PushCaller Caller) ctx)
+    {
+        try
+        {
+            if (!PushFunctionSupport.IsPlausibleId(deviceId))
+                return await req.NotFoundAsync("Device not found.");
+            var read = await req.ReadAsync<RenamePushDeviceRequest>(PushFunctionSupport.LabelBodyMaxBytes);
+            if (read.Error != null) return read.Error;
+            var error = await _pairing.RenameAsync(ctx.Scope, deviceId, read.Value!.Label, ctx.Caller);
+            if (error != PushOpError.None)
+                return await PushFunctionSupport.ErrorAsync(req, error, error == PushOpError.NotFound ? "Device not found." : null);
+            return req.CreateResponse(HttpStatusCode.NoContent);
+        }
+        catch (Exception ex)
+        {
+            return await req.InternalServerErrorAsync(_logger, ex, "RenamePushDevice");
         }
     }
 

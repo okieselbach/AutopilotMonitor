@@ -158,6 +158,7 @@ internal sealed class InMemoryPushDeviceRepository : IPushDeviceRepository
             case "P256dh": d.P256dh = (string)value!; break;
             case "Auth": d.Auth = (string)value!; break;
             case "VapidKid": d.VapidKid = (string)value!; break;
+            case "Label": d.Label = (string)value!; break;
             default: throw new InvalidOperationException($"unexpected patch key {key}");
         }
     }

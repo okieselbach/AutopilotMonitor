@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCopy } from "@/hooks/useCopy";
 import { useLatest } from "@/hooks/useLatest";
 import { apiErrorText } from "@/lib/apiClient";
+import { LABEL_MAX_CHARS } from "@/lib/push/pushCore";
 import {
   formatCountdown,
   formatPairingCode,
@@ -36,6 +37,9 @@ interface PairDeviceDialogProps {
  * confirmation and the owner confirms or rejects it here. The code is valid for ten minutes
  * and never leaves the fragment of the link, so nothing here reaches a server log.
  *
+ * The owner may rename the device before confirming: the name it sent prefills the field, and
+ * the confirm call carries the field's value (blank keeps the sent name).
+ *
  * Expiry is the server's call: the poll runs until it reports Confirmed, Rejected or Expired.
  * The countdown is anchored on the moment the code arrived on this clock (not on `expiresUtc`,
  * which a PC clock ten minutes ahead would read as already past) and at zero only changes the
@@ -49,6 +53,8 @@ export function PairDeviceDialog({ scope, onClose, onPaired, onChannelRequired }
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<PairingStatus>("Pending");
   const [device, setDevice] = useState<PairingDeviceDto | null>(null);
+  /** The owner's edit of the device name; null = untouched, the name the device sent applies. */
+  const [labelInput, setLabelInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -92,7 +98,9 @@ export function PairDeviceDialog({ scope, onClose, onPaired, onChannelRequired }
 
   const pairingId = pairing?.pairingId ?? null;
   const secondsLeft = receivedAtMs === null ? PAIRING_GRANT_SECONDS : pairingSecondsLeft(receivedAtMs, nowMs);
-  const polling = pairingId !== null && (status === "Pending" || status === "Redeemed");
+  // A confirm or reject in flight pauses the poll: a tick between the server's grant and device
+  // writes would report Confirmed with the old name and close the dialog before the rename landed.
+  const polling = pairingId !== null && (status === "Pending" || status === "Redeemed") && !busy;
   const countingDown = polling && secondsLeft > 0;
   // The grant expires lazily on the server (GET pairings/{id} reports Expired past expiresUtc);
   // the local zero only changes the wording until that answer arrives.
@@ -136,13 +144,15 @@ export function PairDeviceDialog({ scope, onClose, onPaired, onChannelRequired }
     return () => clearInterval(interval);
   }, [countingDown]);
 
+  const label = labelInput ?? device?.label ?? "";
+
   const confirm = async () => {
     if (!pairingId) return;
     setBusy(true);
     setError(null);
     try {
-      await confirmPairing(scope, pairingId, getAccessToken);
-      onPaired(device);
+      await confirmPairing(scope, pairingId, label.trim(), getAccessToken);
+      onPaired(device && label.trim() ? { ...device, label: label.trim() } : device);
       onClose();
     } catch (err) {
       setError(apiErrorText(err, "Could not confirm the device."));
@@ -170,6 +180,7 @@ export function PairDeviceDialog({ scope, onClose, onPaired, onChannelRequired }
     setReceivedAtMs(null);
     setStatus("Pending");
     setDevice(null);
+    setLabelInput(null);
     setError(null);
     setAttempt((a) => a + 1);
   };
@@ -265,6 +276,24 @@ export function PairDeviceDialog({ scope, onClose, onPaired, onChannelRequired }
                   </p>
                   <p className="text-xs text-gray-600 mt-1">Confirm only if this is your device. {expiryText}.</p>
                 </div>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-700">Device name</span>
+                  <input
+                    type="text"
+                    value={label}
+                    maxLength={LABEL_MAX_CHARS}
+                    onChange={(e) => setLabelInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !busy) {
+                        e.preventDefault();
+                        void confirm();
+                      }
+                    }}
+                    disabled={busy}
+                    className="mt-1 block w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors disabled:opacity-50"
+                  />
+                  <span className="block text-xs text-gray-500 mt-1">Shown in the device list. You can rename it there later.</span>
+                </label>
                 <div className="flex justify-end gap-3">
                   <button
                     type="button"

@@ -38,8 +38,8 @@ export function SectionNotifications() {
   );
 
   // Push devices (plan push-relay K4): the SAVED config says whether the channel is on, not the
-  // draft — a Push channel added but not yet saved has nothing to pair against on the server. With
-  // the channel off the panel shows only while devices are left to remove. Pairing is open to
+  // draft — a Push channel added but not yet saved has nothing to pair against on the server.
+  // Without the channel the panel still shows and says which channel to add. Pairing is open to
   // Admins and Operators of the tenant (a Global Admin without a member row is refused by the
   // server with a hint), so the panel sits outside the read-only fieldset above.
   const canPairDevices =
@@ -61,7 +61,11 @@ export function SectionNotifications() {
         health={channelHealth}
       />
       {canPairDevices && config != null && (
-        <PushDevicesPanel scope="tenant" channelEnabled={hasEnabledPushChannel(config.notificationChannelsJson)} />
+        <PushDevicesPanel
+          scope="tenant"
+          channelEnabled={hasEnabledPushChannel(config.notificationChannelsJson)}
+          canEditChannels={canEditConfig}
+        />
       )}
     </>
   );

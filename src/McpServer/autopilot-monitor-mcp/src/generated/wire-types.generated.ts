@@ -1141,6 +1141,11 @@ export interface ConfidenceFactor {
   weight: number;
 }
 
+/** POST push/pairings/{pairingId}/confirm — optional body; a blank label keeps the name the device sent. */
+export interface ConfirmPairingRequest {
+  label?: string | null;
+}
+
 /** POST push/pairings/{pairingId}/confirm — the device is Active from now on. */
 export interface ConfirmPairingResponse {
   deviceId: string;
@@ -4217,6 +4222,11 @@ export interface RemediationStep {
 
 export interface RemoveManagedTenantRequest {
   tenantId: string;
+}
+
+/** PATCH push/devices/{deviceId} · PATCH global/push/devices/{deviceId} — rename (owner or scope admin); 204. */
+export interface RenamePushDeviceRequest {
+  label: string;
 }
 
 /** Response of POST rules/reseed-from-github: per-catalog reseed counters. */

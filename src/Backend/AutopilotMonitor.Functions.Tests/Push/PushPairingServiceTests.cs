@@ -400,6 +400,54 @@ public class PushPairingServiceTests
         Assert.Empty(h.Repo.Devices);
     }
 
+    [Fact]
+    public async Task Confirm_takes_the_name_chosen_on_the_computer_and_a_blank_one_keeps_the_devices()
+    {
+        var h = new Harness();
+        var renamed = await h.Sut.CreateAsync(Tenant, Admin);
+        await h.Sut.RedeemAsync(h.RedeemRequest(renamed.Value!.Code, label: "iPhone"));
+        Assert.True((await h.Sut.ConfirmAsync(Tenant, renamed.Value.PairingId, Admin, "  iPhone \u0007IT  ")).Ok);
+        var device = h.Repo.Devices.Values.Single();
+        Assert.Equal("iPhone IT", device.Label);
+        Assert.Equal(Constants.Push.DeviceStatus.Active, device.Status);
+        h.Maintenance.Verify(m => m.LogAuditEntryAsync(TenantId, "CREATE", "PushDevice", device.DeviceId, Admin.Upn,
+            It.Is<Dictionary<string, string>>(d => d["label"] == "iPhone IT" && !d.ContainsKey("previousLabel"))), Times.Once);
+
+        var kept = await h.Sut.CreateAsync(Tenant, Operator);
+        await h.Sut.RedeemAsync(h.RedeemRequest(kept.Value!.Code, label: "ops phone"));
+        Assert.True((await h.Sut.ConfirmAsync(Tenant, kept.Value.PairingId, Operator, " \u0007 ")).Ok);
+        Assert.Equal("ops phone", h.Repo.Devices.Values.Single(d => d.OwnerUpn == Operator.Upn).Label);
+    }
+
+    [Fact]
+    public async Task Rename_follows_the_remove_rule_cleans_the_name_and_audits_only_a_change()
+    {
+        var h = new Harness();
+        var adminDevice = await PairAsync(h, Admin);
+        var opsDevice = await PairAsync(h, Operator);
+
+        // An Operator renames only their own device; someone else's answers like a missing one.
+        Assert.Equal(PushOpError.NotFound, await h.Sut.RenameAsync(Tenant, adminDevice, "taken over", Operator));
+        Assert.Equal(PushOpError.None, await h.Sut.RenameAsync(Tenant, opsDevice, "Ops phone", Operator));
+        Assert.Equal(PushOpError.NotFound, await h.Sut.RenameAsync(Tenant, "missing", "x", Admin));
+
+        // A scope admin renames every device of the scope.
+        Assert.Equal(PushOpError.None, await h.Sut.RenameAsync(Tenant, opsDevice, " iPhone\u0007 Otto " + new string('z', 60), Admin));
+        var renamed = h.Repo.Devices[(TenantId, opsDevice)];
+        Assert.StartsWith("iPhone Otto zz", renamed.Label);
+        Assert.Equal(Constants.Push.MaxLabelLength, renamed.Label.Length);
+        Assert.Equal(renamed.Label, (await h.Sut.ListAsync(Tenant, Admin)).Devices.Single(d => d.DeviceId == opsDevice).Label);
+        h.Maintenance.Verify(m => m.LogAuditEntryAsync(TenantId, "UPDATE", "PushDevice", opsDevice, Admin.Upn,
+            It.Is<Dictionary<string, string>>(d => d["label"] == renamed.Label && d["previousLabel"] == "Ops phone")), Times.Once);
+
+        // Blank after cleaning is refused; the same name again writes nothing and audits nothing.
+        Assert.Equal(PushOpError.InvalidLabel, await h.Sut.RenameAsync(Tenant, opsDevice, " \u0007 ", Admin));
+        Assert.Equal(PushOpError.InvalidLabel, await h.Sut.RenameAsync(Tenant, opsDevice, null, Admin));
+        Assert.Equal(PushOpError.None, await h.Sut.RenameAsync(Tenant, opsDevice, renamed.Label, Admin));
+        h.Maintenance.Verify(m => m.LogAuditEntryAsync(It.IsAny<string>(), "UPDATE", It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()), Times.Exactly(2));
+    }
+
     /// <summary>Create → redeem → confirm: one Active device of <paramref name="owner"/>; returns its id.</summary>
     private static async Task<string> PairAsync(Harness h, PushCaller owner)
     {
@@ -467,6 +515,8 @@ public class PushPairingServiceTests
         public VapidKeyRing Keys { get; }
         public Mock<PushEligibility> Eligibility { get; }
         public Mock<OpsEventService> OpsEvents { get; }
+        /// <summary>The tenant audit log the pairing service writes to.</summary>
+        public Mock<IMaintenanceRepository> Maintenance { get; } = new();
         public RecordingHandler Http { get; } = new();
         public PushPairingService Sut { get; }
         public PushDeliveryService Delivery { get; }
@@ -499,7 +549,7 @@ public class PushPairingServiceTests
                 .ReturnsAsync((new AutopilotMonitor.Shared.Models.TenantConfiguration { TenantId = TenantId, CompanyName = "Contoso" }, true));
 
             Sut = new PushPairingService(Repo, Eligibility.Object, settings, Delivery, OpsEvents.Object,
-                Mock.Of<IMaintenanceRepository>(), tenantConfig.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<PushPairingService>.Instance, telemetry);
+                Maintenance.Object, tenantConfig.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<PushPairingService>.Instance, telemetry);
 
             // A browser-shaped subscription: a fresh P-256 point + 16-byte auth secret.
             using var ua = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);

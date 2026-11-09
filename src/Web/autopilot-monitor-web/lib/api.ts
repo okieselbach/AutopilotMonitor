@@ -888,7 +888,7 @@ export const api = {
     /** GET → PairingStatusResponse (Pending · Redeemed · Confirmed · Rejected · Expired). */
     pairing: (scope: PushScope, pairingId: string) =>
       `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}`,
-    /** POST → ConfirmPairingResponse; 409 when the pairing is not waiting for confirmation. */
+    /** POST ConfirmPairingRequest (optional label) → ConfirmPairingResponse; 409 when the pairing is not waiting for confirmation. */
     confirmPairing: (scope: PushScope, pairingId: string) =>
       `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}/confirm`,
     /** POST → 204. */
@@ -896,7 +896,10 @@ export const api = {
       `${API_BASE_URL}/api/${pushRoot(scope)}/pairings/${encodeURIComponent(pairingId)}/reject`,
     /** GET → PushDeviceListResponse (own devices; scope admins see every device, isOwn marks the caller's). */
     devices: (scope: PushScope) => `${API_BASE_URL}/api/${pushRoot(scope)}/devices`,
-    /** DELETE → 204 (own device, or any for scope admins; the wipe push goes out first). */
+    /**
+     * Own device, or any for scope admins. PATCH RenamePushDeviceRequest → 204 (400 for a blank
+     * name); DELETE → 204 (the wipe push goes out first).
+     */
     device: (scope: PushScope, deviceId: string) =>
       `${API_BASE_URL}/api/${pushRoot(scope)}/devices/${encodeURIComponent(deviceId)}`,
     /** POST → TestWebhookNotificationResponse. */

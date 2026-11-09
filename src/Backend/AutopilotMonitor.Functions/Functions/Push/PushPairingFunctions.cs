@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Push;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -114,7 +115,10 @@ public class PushPairingFunctions
         {
             if (!PushFunctionSupport.IsPlausibleId(pairingId))
                 return await req.NotFoundAsync("Pairing not found.");
-            var result = await _pairing.ConfirmAsync(ctx.Scope, pairingId, ctx.Caller);
+            // The body is optional: without one the device keeps the name it sent.
+            var read = await req.ReadOptionalAsync<ConfirmPairingRequest>(PushFunctionSupport.LabelBodyMaxBytes);
+            if (read.Error != null) return read.Error;
+            var result = await _pairing.ConfirmAsync(ctx.Scope, pairingId, ctx.Caller, read.Value?.Label);
             return result.Ok
                 ? await req.OkAsync(result.Value!)
                 : await PushFunctionSupport.ErrorAsync(req, result.Error, result.Message ?? "Pairing not found.");
