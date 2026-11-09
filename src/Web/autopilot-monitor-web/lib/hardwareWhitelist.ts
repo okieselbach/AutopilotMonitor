@@ -49,6 +49,17 @@ export function splitTypedWhitelistInput(text: string): string[] {
   return entries;
 }
 
+/**
+ * The pattern a manufacturer or model from a device report may become, or null. Reports reach
+ * the backend unauthenticated, and the matcher has no escape for its wildcards ('*' any run, '?'
+ * one character): a reported "*" saved as an entry would admit every device. No real SMBIOS
+ * value contains either character, so such a value is never offered as an addition at all.
+ */
+export function reportedValueEntry(value: string | null | undefined): string | null {
+  if (!value || /[*?]/.test(value)) return null;
+  return toWhitelistEntry(value) || null;
+}
+
 /** Appends `value` as one pattern unless an equal (case-insensitive) entry already exists. */
 export function addWhitelistEntry(csv: string, value: string): string {
   const entry = toWhitelistEntry(value);

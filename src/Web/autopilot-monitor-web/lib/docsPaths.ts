@@ -66,8 +66,7 @@ export const DOCS_PATHS = {
   deviceValidationPermissionMissing: "/troubleshooting-and-support/device-validation-permission-missing",
   // Progress Portal access hint (members without a role)
   progressPortalOnly: "/troubleshooting-and-support/progress-portal-only",
-  // Dashboard welcome card (tenant without sessions)
-  portalSetup: "/getting-started/portal-setup",
+  // Setup guide (dashboard checklist, guide dialog, empty-dashboard note)
   deployTheAgent: "/getting-started/deploy-the-agent",
   autopilotDevicePreparation: "/getting-started/autopilot-device-preparation",
 } as const;

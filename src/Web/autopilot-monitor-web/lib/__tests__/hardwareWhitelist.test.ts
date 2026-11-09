@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addWhitelistEntry, parseList, splitTypedWhitelistInput, toWhitelistEntry } from "../hardwareWhitelist";
+import { addWhitelistEntry, parseList, reportedValueEntry, splitTypedWhitelistInput, toWhitelistEntry } from "../hardwareWhitelist";
 
 describe("hardware whitelist CSV helpers", () => {
   it("adds a plain value as one entry", () => {
@@ -26,6 +26,28 @@ describe("hardware whitelist CSV helpers", () => {
 
   it("toWhitelistEntry trims and replaces every comma", () => {
     expect(toWhitelistEntry("  a,b,,c ")).toBe("a?b??c");
+  });
+});
+
+describe("reportedValueEntry", () => {
+  // Manufacturer and model strings from device reports reach the backend unauthenticated.
+  it("never turns a reported wildcard into a pattern", () => {
+    for (const value of ["*", "Dell*", "Del?", "Dell Inc.,*", "?*"]) {
+      expect(reportedValueEntry(value)).toBeNull();
+    }
+  });
+
+  it("keeps a real value as one literal entry", () => {
+    expect(reportedValueEntry("Getac")).toBe("Getac");
+    expect(reportedValueEntry("VMware, Inc.")).toBe("VMware? Inc.");
+    expect(parseList(addWhitelistEntry("Dell*", reportedValueEntry("VMware, Inc.")!))).toEqual(["Dell*", "VMware? Inc."]);
+  });
+
+  it("offers nothing for an empty value", () => {
+    expect(reportedValueEntry("")).toBeNull();
+    expect(reportedValueEntry("   ")).toBeNull();
+    expect(reportedValueEntry(null)).toBeNull();
+    expect(reportedValueEntry(undefined)).toBeNull();
   });
 });
 

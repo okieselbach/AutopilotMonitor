@@ -17,7 +17,7 @@ import type {
   HardwareRejectedResponse,
   TenantConfiguration,
 } from "@/lib/generated/wire-types.generated";
-import { addWhitelistEntry } from "@/lib/hardwareWhitelist";
+import { addWhitelistEntry, reportedValueEntry } from "@/lib/hardwareWhitelist";
 import { route } from "@/lib/routes";
 import { SETUP_STEPS, type SetupStepId } from "@/lib/setupGuide";
 import { markSetup, openSetupGuide } from "@/lib/setupGuideStore";
@@ -216,14 +216,15 @@ function WaitingDetails({ canEdit, tenantId }: { canEdit: boolean; tenantId: str
     };
   }, [getAccessToken]);
 
-  const accept = async (manufacturer: string) => {
+  // `entry` comes from reportedValueEntry: the reported manufacturer as one literal pattern.
+  const accept = async (entry: string) => {
     setError(null);
     try {
       const config = await fetchJson<TenantConfiguration>(api.config.tenant(tenantId), getAccessToken);
-      const next = addWhitelistEntry(config.manufacturerWhitelist ?? "", manufacturer);
+      const next = addWhitelistEntry(config.manufacturerWhitelist ?? "", entry);
       await writeGuideConfigFields(tenantId, { manufacturerWhitelist: next }, "setup-guide:accept-hardware", getAccessToken);
       markSetup(tenantId, { hardware: true });
-      setAccepted((prev) => new Set(prev).add(manufacturer));
+      setAccepted((prev) => new Set(prev).add(entry));
       trackEvent("setup_hardware_accepted");
     } catch (err) {
       setError(apiErrorText(err, "The manufacturer could not be added."));
@@ -240,21 +241,32 @@ function WaitingDetails({ canEdit, tenantId }: { canEdit: boolean; tenantId: str
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2 dark:border-amber-800 dark:bg-amber-900/20">
           <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Devices we turned away</p>
           <ul className="space-y-1.5 text-sm text-gray-700 dark:text-gray-200">
-            {shownHardware.map((item) => (
-              <li key={`hw-${item.manufacturer}-${item.model}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="min-w-0 flex-1 basis-60">
-                  <span className="font-mono text-xs">{item.manufacturer} · {item.model}</span>
-                  <span className="text-gray-500 dark:text-gray-400"> — manufacturer not on your hardware whitelist</span>
-                </span>
-                {accepted.has(item.manufacturer) ? (
-                  <span className="text-xs font-medium text-green-700 dark:text-green-400">Added: its next enrollments are accepted</span>
-                ) : canEdit ? (
-                  <button type="button" onClick={() => void accept(item.manufacturer)} className="px-2.5 py-1 rounded-md border border-amber-300 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-100 dark:hover:bg-amber-900/40">
-                    Accept this manufacturer
-                  </button>
-                ) : null}
-              </li>
-            ))}
+            {shownHardware.map((item) => {
+              // Reported values arrive unauthenticated: a wildcard in them never becomes an entry.
+              const entry = reportedValueEntry(item.manufacturer);
+              return (
+                <li key={`hw-${item.manufacturer}-${item.model}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="min-w-0 flex-1 basis-60">
+                    <span className="font-mono text-xs">{item.manufacturer} · {item.model}</span>
+                    <span className="text-gray-500 dark:text-gray-400"> — manufacturer not on your hardware whitelist</span>
+                  </span>
+                  {entry && accepted.has(entry) ? (
+                    <span className="text-xs font-medium text-green-700 dark:text-green-400">
+                      Added <span className="font-mono">{entry}</span>: its next enrollments are accepted
+                    </span>
+                  ) : entry && canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => void accept(entry)}
+                      title={`Adds "${entry}" to the manufacturer whitelist`}
+                      className="px-2.5 py-1 rounded-md border border-amber-300 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                    >
+                      Accept this manufacturer
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
             {shownUnregistered.map((item) => (
               <li key={`nr-${item.serialNumber}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="min-w-0 flex-1 basis-60">

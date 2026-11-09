@@ -24,8 +24,8 @@ export function SectionHardwareWhitelist() {
 
   const hasWebhook = notificationChannels.some((c) => c.enabled && (c.url ?? "").length > 0);
 
-  // Values come from UNAUTHENTICATED distress signals — addWhitelistEntry guarantees each
-  // click adds exactly one pattern (a ',' inside the value cannot split the list).
+  // The insights pass an entry from reportedValueEntry: the reported value as one literal
+  // pattern (no wildcard, a ',' cannot split the list); addWhitelistEntry skips duplicates.
   const handleAddManufacturer = useCallback((value: string) => {
     setManufacturerWhitelist(addWhitelistEntry(manufacturerWhitelist, value));
   }, [manufacturerWhitelist, setManufacturerWhitelist]);

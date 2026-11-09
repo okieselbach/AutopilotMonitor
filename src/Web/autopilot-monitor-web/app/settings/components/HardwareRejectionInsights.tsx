@@ -4,13 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import type { HardwareRejectedResponse } from "@/lib/generated/wire-types.generated";
+import { reportedValueEntry } from "@/lib/hardwareWhitelist";
 
 
 
 interface HardwareRejectionInsightsProps {
   getAccessToken: () => Promise<string | null>;
-  onAddManufacturer?: (value: string) => void;
-  onAddModel?: (value: string) => void;
+  /** Receives the whitelist entry for a reported value (see reportedValueEntry), never the raw value. */
+  onAddManufacturer?: (entry: string) => void;
+  onAddModel?: (entry: string) => void;
   webhookNotifyOnHardwareRejection: boolean;
   onToggleNotification: (value: boolean) => void;
   hasWebhook: boolean;
@@ -215,6 +217,9 @@ export default function HardwareRejectionInsights({
                   {data!.aggregated.map((row) => {
                     const rowKey = `${row.manufacturer}|${row.model}`;
                     const isExpanded = expandedRow === rowKey;
+                    // Reported values arrive unauthenticated: one literal entry, or no button at all.
+                    const manufacturerEntry = reportedValueEntry(row.manufacturer);
+                    const modelEntry = reportedValueEntry(row.model);
 
                     return (
                       <tr key={rowKey} className="group">
@@ -257,20 +262,20 @@ export default function HardwareRejectionInsights({
                         <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">{formatDate(row.lastSeen)}</td>
                         <td className="py-3">
                           <div className="flex gap-1">
-                            {onAddManufacturer && row.manufacturer && (
+                            {onAddManufacturer && manufacturerEntry && (
                               <button
-                                onClick={() => onAddManufacturer(row.manufacturer)}
+                                onClick={() => onAddManufacturer(manufacturerEntry)}
                                 className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-colors whitespace-nowrap"
-                                title={`Add "${row.manufacturer}" to manufacturer whitelist`}
+                                title={`Add "${manufacturerEntry}" to manufacturer whitelist`}
                               >
                                 + Mfr
                               </button>
                             )}
-                            {onAddModel && row.model && (
+                            {onAddModel && modelEntry && (
                               <button
-                                onClick={() => onAddModel(row.model)}
+                                onClick={() => onAddModel(modelEntry)}
                                 className="px-2 py-1 text-xs bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition-colors whitespace-nowrap"
-                                title={`Add "${row.model}" to model whitelist`}
+                                title={`Add "${modelEntry}" to model whitelist`}
                               >
                                 + Model
                               </button>
