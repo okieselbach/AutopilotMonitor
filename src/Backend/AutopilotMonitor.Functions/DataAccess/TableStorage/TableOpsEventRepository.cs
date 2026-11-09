@@ -86,36 +86,28 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             OpsEventQueryFilters? filters = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
-            try
+            // Single-category path: PK-targeted query, RowKey is reverse-tick →
+            // Azure-native (PK asc, RK asc) already yields newest-first. No re-sort.
+            if (!string.IsNullOrEmpty(category))
             {
-                // Single-category path: PK-targeted query, RowKey is reverse-tick →
-                // Azure-native (PK asc, RK asc) already yields newest-first. No re-sort.
-                if (!string.IsNullOrEmpty(category))
-                {
-                    var filter = BuildFilter(category, dateFrom, dateTo, filters);
-                    var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
-                        client: _table,
-                        filter: filter,
-                        pageSize: pageSize,
-                        continuation: continuation);
+                var filter = BuildFilter(category, dateFrom, dateTo, filters);
+                var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
+                    client: _table,
+                    filter: filter,
+                    pageSize: pageSize,
+                    continuation: continuation);
 
-                    var page = new List<OpsEventEntry>(entities.Count);
-                    foreach (var entity in entities) page.Add(MapToEntry(entity));
-                    return new RawPage<OpsEventEntry>(page, nextRawToken);
-                }
+                var page = new List<OpsEventEntry>(entities.Count);
+                foreach (var entity in entities) page.Add(MapToEntry(entity));
+                return new RawPage<OpsEventEntry>(page, nextRawToken);
+            }
 
-                // All-category path: per-partition fan-out + merge-sort. Azure pages
-                // cross-partition queries by (PK asc, RK asc), so without this fan-out
-                // the first page would come entirely from the alphabetically-first
-                // category — defeating "newest first globally". Mirrors the same
-                // pattern used for cross-tenant session queries.
-                return await FanOutAcrossCategoriesAsync(dateFrom, dateTo, pageSize, continuation, filters);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get ops events page");
-                return RawPage<OpsEventEntry>.Empty;
-            }
+            // All-category path: per-partition fan-out + merge-sort. Azure pages
+            // cross-partition queries by (PK asc, RK asc), so without this fan-out
+            // the first page would come entirely from the alphabetically-first
+            // category — defeating "newest first globally". Mirrors the same
+            // pattern used for cross-tenant session queries.
+            return await FanOutAcrossCategoriesAsync(dateFrom, dateTo, pageSize, continuation, filters);
         }
 
         // Fixed list, owned by OpsEventCategory.All so it cannot drift from the vocabulary. It did
@@ -135,7 +127,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 {
                     var filter = BuildFilterWithRowKeyBound(category, dateFrom, dateTo, bound, filters);
                     var read = new List<(string RowKey, OpsEventEntry Item)>();
-                    await foreach (var e in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: limit, cancellationToken: ct))
+                    await foreach (var e in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: AzureTablesPaginator.ServerPageSize(limit), cancellationToken: ct))
                     {
                         read.Add((e.RowKey, MapToEntry(e)));
                         if (read.Count >= limit) break;

@@ -175,6 +175,7 @@ public class PerPartitionFanOutMergeTests
     [InlineData(5)]
     [InlineData(15)]
     [InlineData(100)]
+    [InlineData(1000)]
     public async Task Walk_returns_every_row_once_in_global_order_and_never_an_empty_page(int pageSize)
     {
         // Uneven partitions: one empty, one dominant, interleaved timestamps and a tie.

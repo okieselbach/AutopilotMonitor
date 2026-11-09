@@ -34,6 +34,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     /// exactly when more than <c>pageSize</c> were read in total: if no partition reached its limit,
     /// every partition is exhausted.
     /// </para>
+    /// <para>
+    /// That limit is a row count, not an Azure page size: Azure Tables refuses <c>$top</c> above
+    /// 1000, so a reader passes <c>AzureTablesPaginator.ServerPageSize(limit)</c> as
+    /// <c>maxPerPage</c> and keeps reading across server pages until it has its limit.
+    /// </para>
     /// </remarks>
     internal static class PerPartitionFanOutMerge
     {

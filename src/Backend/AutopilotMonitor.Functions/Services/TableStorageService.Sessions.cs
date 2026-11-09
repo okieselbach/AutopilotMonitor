@@ -3095,7 +3095,7 @@ namespace AutopilotMonitor.Functions.Services
 
             var query = tableClient.QueryAsync<TableEntity>(
                 filter: $"PartitionKey eq '{partitionKey}'",
-                maxPerPage: maxResults
+                maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults)
             );
 
             await foreach (var entity in query)
@@ -3167,7 +3167,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,
-                    maxPerPage: maxResults
+                    maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults)
                 );
 
                 await foreach (var entity in query)
@@ -3316,7 +3316,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,
-                    maxPerPage: maxResults);
+                    maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults));
 
                 await foreach (var entity in query)
                 {

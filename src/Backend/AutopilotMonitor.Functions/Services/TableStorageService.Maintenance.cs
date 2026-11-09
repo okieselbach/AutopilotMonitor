@@ -235,52 +235,44 @@ namespace AutopilotMonitor.Functions.Services
             string? filter, int pageSize, string? continuation)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
 
-                // RowKey scheme is `!{revtick}_{guid}` so Azure-native (PK asc, RK asc)
-                // already yields newest-first within the partition. No re-sort needed.
-                // Legacy entries (bare GUID RowKey) sort *after* all new entries because
-                // '!' (0x21) precedes hex digits — they appear at the tail of the result
-                // in undefined order until they age out of the date window.
-                //
-                // Back-fill loop: a server-side exclusion (e.g. "exclude
-                // deletions") can make a single Azure page return far fewer than
-                // pageSize matches — during a cleanup sweep the first scanned
-                // rows may all be deletion bookkeeping. We follow the opaque
-                // continuation until we have at least pageSize matches or the
-                // partition is exhausted, then return the last consumed page's
-                // token. Accumulating whole Azure pages (rather than trimming to
-                // pageSize) keeps that token gap-free, so we may overshoot by up
-                // to one Azure page — harmless for the caller. Without an
-                // exclusion the first page already fills, so the loop exits
-                // immediately and behaviour is unchanged.
-                var logs = new List<AuditLogEntry>(pageSize);
-                string? nextRawToken = continuation;
-                var roundTrips = 0;
-                do
-                {
-                    var (entities, token) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
-                        client: tableClient,
-                        filter: filter,
-                        pageSize: pageSize,
-                        continuation: nextRawToken);
-                    foreach (var entity in entities) logs.Add(MapToAuditLogEntry(entity));
-                    nextRawToken = token;
-                    roundTrips++;
-                }
-                while (logs.Count < pageSize
-                    && !string.IsNullOrEmpty(nextRawToken)
-                    && roundTrips < AuditLogMaxFillRoundTrips);
-
-                return new RawPage<AuditLogEntry>(logs, nextRawToken);
-            }
-            catch (Exception ex)
+            // RowKey scheme is `!{revtick}_{guid}` so Azure-native (PK asc, RK asc)
+            // already yields newest-first within the partition. No re-sort needed.
+            // Legacy entries (bare GUID RowKey) sort *after* all new entries because
+            // '!' (0x21) precedes hex digits — they appear at the tail of the result
+            // in undefined order until they age out of the date window.
+            //
+            // Back-fill loop: a server-side exclusion (e.g. "exclude
+            // deletions") can make a single Azure page return far fewer than
+            // pageSize matches — during a cleanup sweep the first scanned
+            // rows may all be deletion bookkeeping. We follow the opaque
+            // continuation until we have at least pageSize matches or the
+            // partition is exhausted, then return the last consumed page's
+            // token. Accumulating whole Azure pages (rather than trimming to
+            // pageSize) keeps that token gap-free, so we may overshoot by up
+            // to one Azure page — harmless for the caller. Without an
+            // exclusion the first page already fills, so the loop exits
+            // immediately and behaviour is unchanged.
+            var logs = new List<AuditLogEntry>(pageSize);
+            string? nextRawToken = continuation;
+            var roundTrips = 0;
+            do
             {
-                _logger.LogError(ex, "Failed to get audit logs page");
-                return RawPage<AuditLogEntry>.Empty;
+                var (entities, token) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
+                    client: tableClient,
+                    filter: filter,
+                    pageSize: pageSize,
+                    continuation: nextRawToken);
+                foreach (var entity in entities) logs.Add(MapToAuditLogEntry(entity));
+                nextRawToken = token;
+                roundTrips++;
             }
+            while (logs.Count < pageSize
+                && !string.IsNullOrEmpty(nextRawToken)
+                && roundTrips < AuditLogMaxFillRoundTrips);
+
+            return new RawPage<AuditLogEntry>(logs, nextRawToken);
         }
 
         private async Task<RawPage<AuditLogEntry>> FetchAllAuditLogsPageAsync(
@@ -288,43 +280,35 @@ namespace AutopilotMonitor.Functions.Services
             AuditLogQueryFilters? filters = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
-            try
+            // Tenants come from TenantConfiguration (1 row per tenant — cheap).
+            // PLUS the synthetic global-tenant partition (Constants.AuditGlobalTenantId)
+            // where platform-action audits are written from TenantOffboardFunction,
+            // VersionBlockFunction, PatchAdminConfigurationFunction, … TenantConfiguration
+            // has no row for it because it's a virtual partition, so it'd be
+            // silently skipped without this explicit add.
+            var tenantIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                // Tenants come from TenantConfiguration (1 row per tenant — cheap).
-                // PLUS the synthetic global-tenant partition (Constants.AuditGlobalTenantId)
-                // where platform-action audits are written from TenantOffboardFunction,
-                // VersionBlockFunction, PatchAdminConfigurationFunction, … TenantConfiguration
-                // has no row for it because it's a virtual partition, so it'd be
-                // silently skipped without this explicit add.
-                var tenantIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    Constants.AuditGlobalTenantId,
-                };
-                foreach (var tenantId in await GetTenantIdsCachedAsync())
-                {
-                    tenantIds.Add(tenantId);
-                }
+                Constants.AuditGlobalTenantId,
+            };
+            foreach (var tenantId in await GetTenantIdsCachedAsync())
+            {
+                tenantIds.Add(tenantId);
+            }
 
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
-                return await PerPartitionFanOutMerge.FetchPageAsync<AuditLogEntry>(
-                    tenantIds, pageSize, continuation,
-                    async (tenantId, bound, limit, ct) =>
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
+            return await PerPartitionFanOutMerge.FetchPageAsync<AuditLogEntry>(
+                tenantIds, pageSize, continuation,
+                async (tenantId, bound, limit, ct) =>
+                {
+                    var filter = BuildAuditLogFilterWithRowKeyBound(tenantId, dateFrom, dateTo, bound, excludeDeletions, filters);
+                    var read = new List<(string RowKey, AuditLogEntry Item)>();
+                    await foreach (var e in tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: AzureTablesPaginator.ServerPageSize(limit), cancellationToken: ct))
                     {
-                        var filter = BuildAuditLogFilterWithRowKeyBound(tenantId, dateFrom, dateTo, bound, excludeDeletions, filters);
-                        var read = new List<(string RowKey, AuditLogEntry Item)>();
-                        await foreach (var e in tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: limit, cancellationToken: ct))
-                        {
-                            read.Add((e.RowKey, MapToAuditLogEntry(e)));
-                            if (read.Count >= limit) break;
-                        }
-                        return read;
-                    });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get all audit logs page");
-                return RawPage<AuditLogEntry>.Empty;
-            }
+                        read.Add((e.RowKey, MapToAuditLogEntry(e)));
+                        if (read.Count >= limit) break;
+                    }
+                    return read;
+                });
         }
 
         // Suppress automated maintenance entries (SessionTimeout, DataRetentionCleanup, …)
@@ -482,11 +466,11 @@ namespace AutopilotMonitor.Functions.Services
                 // Bound the server read: cap page size to maxResults and stop enumerating once we
                 // have that many. Azure Tables has no server-side OrderBy, so this returns the first
                 // maxResults rows in RowKey order — the same ordering as the previous full scan, it
-                // just stops reading once the cap is reached. Unbounded callers pass int.MaxValue.
+                // just stops reading once the cap is reached. Unbounded callers pass int.MaxValue,
+                // which caps to the server default of 1000.
                 // With excludeInFlightDeletions the scan continues past locked rows, so it may read
                 // more pages than maxResults — bounded by the tenant's eligible backlog.
-                int? maxPerPage = maxResults == int.MaxValue ? (int?)null : maxResults;
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: maxPerPage);
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: AzureTablesPaginator.ServerPageSize(maxResults));
 
                 var sessions = new List<SessionSummary>();
                 int skippedInFlight = 0;

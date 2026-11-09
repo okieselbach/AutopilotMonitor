@@ -18,6 +18,16 @@ namespace AutopilotMonitor.Functions.Pagination
     /// </remarks>
     public static class AzureTablesPaginator
     {
+        /// <summary>Largest <c>$top</c> Azure Tables accepts; a larger one is refused with 400 InvalidInput.</summary>
+        public const int MaxServerPageSize = 1000;
+
+        /// <summary>
+        /// The <c>maxPerPage</c> for a read of up to <paramref name="rows"/> rows. Every query that
+        /// passes a computed page size goes through here; the rows beyond one server page come
+        /// from the following pages of the same enumeration.
+        /// </summary>
+        public static int ServerPageSize(int rows) => Math.Min(rows, MaxServerPageSize);
+
         /// <summary>
         /// Fetches a single page of entities. Honours <paramref name="pageSize"/>
         /// as both the SDK <c>maxPerPage</c> and the page-size hint when
@@ -52,7 +62,7 @@ namespace AutopilotMonitor.Functions.Pagination
 
             var query = client.QueryAsync<T>(
                 filter: filter,
-                maxPerPage: pageSize,
+                maxPerPage: ServerPageSize(pageSize),
                 select: selectArr,
                 cancellationToken: cancellationToken);
 
