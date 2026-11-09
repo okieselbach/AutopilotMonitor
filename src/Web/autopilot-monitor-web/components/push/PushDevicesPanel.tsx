@@ -234,8 +234,9 @@ export function PushDevicesPanel({ scope, channelEnabled, canEditChannels = true
               const busy = removingId === device.deviceId || testingId === device.deviceId || renaming;
               const canTest = device.status !== "Pending";
               // A Global Administrator's platform device shown in their home tenant (D-334): it receives
-              // this tenant's alerts without a second pairing and is managed on the platform side.
-              const viaPlatform = device.scope === "platform";
+              // this tenant's alerts without a second pairing and is managed on the platform side. On the
+              // platform card itself the same device is this panel's own and stays manageable.
+              const viaPlatform = device.scope !== scope;
               return (
                 <li key={device.deviceId} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                   {editing ? (
