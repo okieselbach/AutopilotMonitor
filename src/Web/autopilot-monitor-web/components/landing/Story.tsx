@@ -76,7 +76,7 @@ export function Story() {
       text: (
         <>
           <p>
-            A new hire unboxes their laptop three time zones away. The bootstrapper you assigned
+            A new hire unboxes their laptop three time zones away. The script you assigned
             once in Intune kicks in, and the enrollment appears on your dashboard — live.
           </p>
           <p>

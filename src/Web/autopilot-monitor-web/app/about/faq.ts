@@ -22,7 +22,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "Can I follow a Windows Autopilot enrollment live?",
     answer:
-      "Yes. Assign the Autopilot Monitor bootstrapper script to your Autopilot device groups in Intune. During enrollment the agent captures Enrollment Status Page (ESP) phases, app downloads and installs, errors, reboots, and performance snapshots and streams them to the portal as they happen. You see every device's progress without refreshing the page or touching the device.",
+      "Yes. Assign the Autopilot Monitor loader script to your Autopilot device groups in Intune. During enrollment the agent captures Enrollment Status Page (ESP) phases, app downloads and installs, errors, reboots, and performance snapshots and streams them to the portal as they happen. You see every device's progress without refreshing the page or touching the device.",
   },
   {
     question: "Why did my Autopilot enrollment fail, and how do I find out without touching the device?",
@@ -67,7 +67,7 @@ export const ABOUT_FAQ: AboutFaqItem[] = [
   {
     question: "How is the agent deployed, and does it stay on the device?",
     answer:
-      "The agent is a small .NET binary installed by an Intune platform script (PowerShell bootstrapper); for Autopilot Device Preparation it ships as a thin MSI line-of-business app. It runs as a scheduled task, not a Windows service, authenticates with the existing Intune MDM device certificate, and exists only for the duration of the enrollment: by default it removes its task and files on completion, and it never runs longer than six hours.",
+      "The agent is a small .NET binary installed by an Intune platform script (a PowerShell loader); for Autopilot Device Preparation it ships as a thin MSI line-of-business app. It runs as a scheduled task, not a Windows service, authenticates with the existing Intune MDM device certificate, and exists only for the duration of the enrollment: by default it removes its task and files on completion, and it never runs longer than six hours.",
   },
   {
     question: "Which Autopilot scenarios are supported?",

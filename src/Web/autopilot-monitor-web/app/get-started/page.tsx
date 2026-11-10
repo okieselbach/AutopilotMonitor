@@ -9,7 +9,7 @@ import { DOCS_URL, SITE_URL } from "@/lib/config";
 export const metadata: Metadata = {
   title: "Get started",
   description:
-    "From sign-in to your first live Autopilot enrollment in five steps: sign in, request access, grant consent, deploy the bootstrapper via Intune, watch live.",
+    "From sign-in to your first live Autopilot enrollment in four steps: sign in, follow the setup guide, add one script in Intune, watch live.",
   alternates: {
     canonical: `${SITE_URL}/get-started`,
   },
@@ -18,33 +18,24 @@ export const metadata: Metadata = {
 const STEPS = [
   {
     title: "Sign in with Microsoft",
-    description:
-      "Use your work account — there is no signup form. The first sign-in creates nothing in your tenant.",
-    note: "30 seconds",
+    description: "Use your work account. Your tenant is usually ready a minute or two later.",
+    note: "No signup form",
   },
   {
-    title: "Tenant activation",
+    title: "Follow the setup guide",
     description:
-      "Every new organization goes through a short activation step — you'll see the status right after signing in, and it usually completes within a couple of minutes.",
-    note: "Usually a few minutes",
+      "A checklist on your dashboard: recommended settings in one click, your hardware models, one admin consent.",
+    note: "A few minutes",
   },
   {
-    title: "Grant consent once",
-    description:
-      "Approve the Entra ID application for your tenant so the portal can operate. One admin consent, fully revocable.",
-    note: "One-time admin consent",
-  },
-  {
-    title: "Deploy the bootstrapper via Intune",
-    description:
-      "Assign one PowerShell script to your Autopilot scope. That is the whole rollout — no servers, no gateways, no infrastructure on your side.",
-    note: "One script assignment",
+    title: "Add one script in Intune",
+    description: "Assign one PowerShell script to your Autopilot devices. No servers, no gateways.",
+    note: "The whole rollout",
   },
   {
     title: "Watch your first enrollment live",
-    description:
-      "The next device that enrolls streams in minutes later: phases, app installs, analysis results, diagnostics on demand.",
-    note: "Minutes later",
+    description: "Enroll a device and follow it on your dashboard as it happens: phases, app installs, errors.",
+    note: "In real time",
   },
 ];
 
@@ -60,11 +51,10 @@ export default function GetStartedPage() {
               Get started
             </p>
             <h1 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)] leading-[1.08] text-balance">
-              From sign-in to your first live enrollment.
+              From <span className="whitespace-nowrap">sign-in</span> to your first live enrollment.
             </h1>
             <p className="mt-4 text-lg text-[var(--lp-ink-soft)] leading-relaxed max-w-xl">
-              Five steps, no infrastructure on your side. Most teams see their first live session
-              the same day.
+              Four steps, a few minutes, no infrastructure on your side.
             </p>
 
             {/* Step sequence */}

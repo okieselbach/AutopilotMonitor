@@ -178,7 +178,7 @@ export function SetupChecklistCard({ setup }: { setup: SetupChecklistState }) {
               </button>
             )}
             {readOnlyReason === "view-as" && <span className="text-xs text-gray-500 dark:text-gray-400">View as is read-only.</span>}
-            <span className="ml-auto text-xs text-gray-400">About 10 minutes, Intune included</span>
+            <span className="ml-auto text-xs text-gray-400">A few minutes, Intune included</span>
           </>
         )}
       </div>

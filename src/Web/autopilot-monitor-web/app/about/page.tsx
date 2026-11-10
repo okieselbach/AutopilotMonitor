@@ -203,16 +203,16 @@ export default function AboutPage() {
         <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
           <h2 className="text-xl font-bold text-gray-900 mb-4">How It Works</h2>
           <p className="text-gray-700 leading-relaxed mb-5">
-            Autopilot Monitor uses a lightweight .NET agent deployed to devices via an Intune bootstrapper
-            script. The agent monitors the enrollment process in real time and streams telemetry events
+            Autopilot Monitor uses a lightweight .NET agent deployed to devices by a loader script you
+            assign in Intune. The agent monitors the enrollment process in real time and streams telemetry events
             — including ESP phases, app installs, performance snapshots, and custom gather rule data —
             to the Azure-hosted backend pipeline. The portal displays live session data, runs analyze rules
             automatically, and alerts on failure conditions.
           </p>
           <ol className="space-y-3">
             {[
-              { step: "1", text: "Assign the bootstrapper PowerShell script to your Autopilot device groups in Intune." },
-              { step: "2", text: "The bootstrapper installs the Autopilot Monitor Agent on each enrolling device." },
+              { step: "1", text: "Assign the loader script (PowerShell) to your Autopilot device groups in Intune." },
+              { step: "2", text: "The script installs the Autopilot Monitor Agent on each enrolling device." },
               { step: "3", text: "The agent captures live enrollment events and uploads them to the backend pipeline." },
               { step: "4", text: "The portal displays real-time session data, analyze rule results, and fleet health metrics." },
               { step: "5", text: "On completion, the agent uploads a diagnostics bundle if configured, then removes itself." },

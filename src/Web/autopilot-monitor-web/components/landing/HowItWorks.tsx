@@ -2,16 +2,16 @@ import { Reveal } from "./Reveal";
 
 const STEPS = [
   {
-    title: "Sign in & grant access",
-    description: "Authenticate with Microsoft and approve tenant access once.",
+    title: "Sign in with Microsoft",
+    description: "Use your work account. No signup form.",
   },
   {
-    title: "Deploy the bootstrapper via Intune",
-    description: "Assign one PowerShell script to your Autopilot scope. That's the whole rollout.",
+    title: "Add one script in Intune",
+    description: "A setup guide in the portal walks you through it in a few minutes. That's the whole rollout.",
   },
   {
     title: "Watch your first enrollment live",
-    description: "Phases, apps, failures, and diagnostics stream in minutes later.",
+    description: "Phases, apps, failures and diagnostics, as they happen.",
   },
 ];
 
