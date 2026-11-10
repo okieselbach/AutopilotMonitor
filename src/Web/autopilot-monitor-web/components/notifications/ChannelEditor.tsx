@@ -303,7 +303,7 @@ export function ChannelEditor({
           <span className="text-gray-700 font-medium text-sm">{isEmail ? "Recipients" : "Webhook URL"}</span>
           <p className="text-xs text-gray-500 mb-1">
             {channel.providerType === 2
-              ? "Create a Workflow in Teams (Channel → Manage channel → Workflows → \"Post to a channel when a webhook request is received\") and paste the URL here."
+              ? "Create a Workflow in Teams (… next to the channel → Workflows → \"Send webhook alerts from anyone to Teams\") and paste the URL here. Variants limited to specific people or your org reject these alerts."
               : channel.providerType === 10
               ? "Create an Incoming Webhook in Slack (Apps → Incoming Webhooks → Add to channel) and paste the URL here."
               : channel.providerType === GENERIC_PROVIDER
