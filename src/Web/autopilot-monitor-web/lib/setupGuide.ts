@@ -127,13 +127,13 @@ export function selectionUsesHostedStorage(config: TenantConfiguration, selected
 // ── Step 2: hardware ───────────────────────────────────────────────────────────────────────
 
 /**
- * One-click additions, ordered by how many tenants had devices of that manufacturer rejected.
- * Virtual machines report their own manufacturer; Hyper-V reports Microsoft Corporation, which
- * the default list already covers.
+ * One-click additions: well-known manufacturers outside the default list. Virtual machines report
+ * their own manufacturer; Hyper-V reports Microsoft Corporation, which the default list already
+ * covers.
  */
 export const QUICK_MANUFACTURERS = {
   virtualMachines: ["VMware*", "QEMU*", "Proxmox*", "Parallels*"],
-  hardware: ["ASUS*", "Getac*", "Acer*", "Fujitsu*", "Panasonic*"],
+  hardware: ["ASUS*", "Samsung*", "Acer*", "Fujitsu*", "Panasonic*"],
 } as const;
 
 // ── Step 4: the agent ──────────────────────────────────────────────────────────────────────
