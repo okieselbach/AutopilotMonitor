@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
@@ -12,6 +13,8 @@ using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using Xunit;
 using SharedEventTypes = AutopilotMonitor.Shared.Constants.EventTypes;
+
+#pragma warning disable xUnit1031 // one test waits on a task on purpose: a blocked call is the failure it looks for
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 {
@@ -137,6 +140,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             public void Dispose()
             {
                 Watcher.Dispose();
+                ReleaseProcessesAndFiles();
+            }
+
+            /// <summary>Teardown that leaves the watcher alone — for a test that found its Dispose blocked.</summary>
+            public void ReleaseProcessesAndFiles()
+            {
                 foreach (var p in Running)
                 {
                     try { if (!p.HasExited) p.Kill(); } catch { }
@@ -208,6 +217,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 .Select(e => Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(e.TypedPayload)["pid"])
                 .ToList();
             Assert.Equal(new object[] { first.Id, second.Id }, pids);
+        }
+
+        [Fact]
+        public void Dispose_returns_while_the_exit_of_the_attached_process_is_being_delivered()
+        {
+            var f = new Fixture();
+            var child = f.Spawn(trusted: true);
+
+            // The watcher gets a Process object that already carries a handler. .NET runs that one
+            // first and holds its own lock on the Process object for as long as it delivers Exited.
+            var delivering = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            f.Watcher.ProcessSource = () =>
+            {
+                var handle = Process.GetProcessById(child.Id);
+                handle.EnableRaisingEvents = true;
+                handle.Exited += (_, __) => { delivering.Set(); release.Wait(TimeSpan.FromSeconds(10)); };
+                return new[] { handle };
+            };
+            f.Watcher.TryAttachNow();
+            Assert.Equal(child.Id, f.Watcher.AttachedProcessId);
+
+            Task dispose;
+            try
+            {
+                child.Kill();
+                Assert.True(delivering.Wait(TimeSpan.FromSeconds(10)), "the exit was not delivered");
+
+                dispose = Task.Run(() => f.Watcher.Dispose());
+                Thread.Sleep(300); // let Dispose reach the Process object
+            }
+            finally
+            {
+                release.Set();
+            }
+
+            var returned = dispose.Wait(TimeSpan.FromSeconds(10));
+            // A blocked Dispose holds the watcher's lock for good; disposing the watcher again would
+            // hang the test run instead of failing this test.
+            f.ReleaseProcessesAndFiles();
+            Assert.True(returned,
+                "Dispose and the exit delivery blocked each other: the Process is disposed under the watcher's lock");
         }
 
         [Fact]

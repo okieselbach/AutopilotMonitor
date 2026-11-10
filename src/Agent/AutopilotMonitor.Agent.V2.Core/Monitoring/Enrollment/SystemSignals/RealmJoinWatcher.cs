@@ -194,6 +194,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // subtree) into RJ's lifecycle.
         private bool _packageWatchersArmed;
         private bool _disposed;
+        // Set by Stop under _stateLock: a registry callback that is still running then must not
+        // arm or attach another watcher.
+        private bool _stopped;
 
         public event EventHandler<RealmJoinDetectedEventArgs>? RealmJoinDetected;
         public event EventHandler<RealmJoinResolvedEventArgs>? RealmJoinResolved;
@@ -228,6 +231,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public void Start()
         {
             if (_disposed) throw new ObjectDisposedException(nameof(RealmJoinWatcher));
+            lock (_stateLock) { _stopped = false; }
 
             // The Services\realmjoin gate is the SOLE entry point. HKLM\SOFTWARE\RealmJoin and
             // the HKU watcher do not run until this fires — RJ presence is the prerequisite for
@@ -277,27 +281,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                var stoppedAny = false;
+                var watchers = new List<RegistryWatcher>(8);
                 lock (_stateLock)
                 {
-                    stoppedAny |= DisposeAndNull(ref _servicesAppearanceWatcher);
-                    stoppedAny |= DisposeAndNull(ref _machineSoftwareAppearanceWatcher);
-                    stoppedAny |= DisposeAndNull(ref _userSoftwareAppearanceWatcher);
-                    stoppedAny |= DisposeAndNull(ref _uninstallAppearanceWatcher);
+                    _stopped = true;
+
+                    Take(ref _servicesAppearanceWatcher, watchers);
+                    Take(ref _machineSoftwareAppearanceWatcher, watchers);
+                    Take(ref _userSoftwareAppearanceWatcher, watchers);
+                    Take(ref _uninstallAppearanceWatcher, watchers);
 
                     _serviceRealmjoinDebounce?.Dispose(); _serviceRealmjoinDebounce = null;
                     _machineRealmJoinDebounce?.Dispose(); _machineRealmJoinDebounce = null;
                     _userRealmJoinDebounce?.Dispose(); _userRealmJoinDebounce = null;
                     _uninstallDebounce?.Dispose(); _uninstallDebounce = null;
 
-                    stoppedAny |= DisposeAndNull(ref _serviceRealmjoinWatcher);
-                    stoppedAny |= DisposeAndNull(ref _machineRealmJoinWatcher);
-                    stoppedAny |= DisposeAndNull(ref _userRealmJoinWatcher);
-                    stoppedAny |= DisposeAndNull(ref _uninstallWatcher);
+                    Take(ref _serviceRealmjoinWatcher, watchers);
+                    Take(ref _machineRealmJoinWatcher, watchers);
+                    Take(ref _userRealmJoinWatcher, watchers);
+                    Take(ref _uninstallWatcher, watchers);
                 }
+
+                // Disposed outside the lock: RegistryWatcher.Dispose waits for a callback that is
+                // still running, and the appearance callback takes _stateLock.
+                foreach (var watcher in watchers)
+                {
+                    try { watcher.Dispose(); } catch { }
+                }
+
                 // Hosts call Stop and then Dispose, which stops again; only the pass that
                 // stopped a watcher logs.
-                if (stoppedAny) _logger.Info($"RealmJoinWatcher: stopped ({reason})");
+                if (watchers.Count > 0) _logger.Info($"RealmJoinWatcher: stopped ({reason})");
             }
             catch (Exception ex)
             {
@@ -391,6 +405,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             Action clearSlot,
             Action onAppeared)
         {
+            lock (_stateLock) { if (_stopped) return; }
             try
             {
                 var watcher = new RegistryWatcher(
@@ -440,7 +455,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             lock (_stateLock)
             {
-                if (_serviceRealmjoinWatcher != null) return;
+                if (_stopped || _serviceRealmjoinWatcher != null) return;
                 try
                 {
                     _serviceRealmjoinDebounce = new Timer(_ => CheckParameters(), null, Timeout.Infinite, Timeout.Infinite);
@@ -486,7 +501,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             lock (_stateLock)
             {
-                if (_machineRealmJoinWatcher != null) return;
+                if (_stopped || _machineRealmJoinWatcher != null) return;
                 try
                 {
                     // Seed dedup sets with every package sub-key already present at arming time.
@@ -529,7 +544,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             lock (_stateLock)
             {
-                if (_userRealmJoinWatcher != null) return;
+                if (_stopped || _userRealmJoinWatcher != null) return;
                 try
                 {
                     // Seed dedup sets — see AttachMachineRealmJoinSubtreeWatcher for rationale.
@@ -711,7 +726,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             lock (_stateLock)
             {
-                if (_disposed || _uninstallWatcher != null) return;
+                if (_disposed || _stopped || _uninstallWatcher != null) return;
                 try
                 {
                     _uninstallDebounce = new Timer(_ => CheckAutoUpdate(), null, Timeout.Infinite, Timeout.Infinite);
@@ -941,12 +956,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
-        private static bool DisposeAndNull(ref RegistryWatcher? w)
+        // Caller holds _stateLock; the taken watchers are disposed after it is released.
+        private static void Take(ref RegistryWatcher? slot, List<RegistryWatcher> taken)
         {
-            if (w == null) return false;
-            try { w.Dispose(); } catch { }
-            w = null;
-            return true;
+            if (slot == null) return;
+            taken.Add(slot);
+            slot = null;
         }
 
         // Test seams — drive the read paths deterministically without touching the real registry.

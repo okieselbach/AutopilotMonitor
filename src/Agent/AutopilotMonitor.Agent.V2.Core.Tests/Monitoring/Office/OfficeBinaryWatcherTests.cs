@@ -2,10 +2,13 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using Xunit;
+
+#pragma warning disable xUnit1031 // one test waits on tasks on purpose: a blocked call is the failure it looks for
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
 {
@@ -146,6 +149,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
             Thread.Sleep(250);
 
             Assert.Equal(afterDispose, Volatile.Read(ref raises)); // no raises after dispose
+        }
+
+        [Fact]
+        public void Dispose_from_another_thread_returns_while_the_initial_scan_handler_is_running()
+        {
+            using var tmp = new TempDirectory();
+            LayDownCoreBinary(tmp.Path); // the initial scan in Start() finds it and raises
+            var watcher = new OfficeBinaryWatcher(tmp.Path, CoreBinaries, NewLogger(tmp.Path));
+
+            using var entered = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
+            watcher.BinaryAppeared += (_, __) => { entered.Set(); release.Wait(TimeSpan.FromSeconds(10)); };
+
+            var start = Task.Run(() => watcher.Start());
+            try
+            {
+                Assert.True(entered.Wait(TimeSpan.FromSeconds(5)), "initial scan did not raise");
+
+                var dispose = Task.Run(() => watcher.Dispose());
+
+                Assert.True(dispose.Wait(TimeSpan.FromSeconds(5)),
+                    "Dispose waited for the running handler: the watcher's lock is held while BinaryAppeared is raised");
+            }
+            finally
+            {
+                release.Set();
+                start.Wait(TimeSpan.FromSeconds(10));
+                watcher.Dispose();
+            }
         }
 
         private static bool SpinUntil(Func<bool> condition, int timeoutMs)

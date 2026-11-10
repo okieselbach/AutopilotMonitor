@@ -4,6 +4,7 @@ using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.DecisionCore.Engine;
+using Microsoft.Win32;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 {
@@ -49,9 +50,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly OfficeInstallDetector _detector;
         private readonly OfficeProcessWatcher _processWatcher;
         private readonly AgentLogger _logger;
+        // Guards the fields below, nothing else. Never held across a call into a watcher or the
+        // detector: their callbacks come back into this host and take it.
         private readonly object _lock = new object();
 
         private readonly OfficeInstallStateData? _resumeState;
+        private readonly RegistryHive _registryHive;
+        private readonly string _registrySubKey;
         private RegistryChangeWatcher? _registryWatcher;
         private OfficeBinaryWatcher? _binaryWatcher;
         private bool _pathObserved;       // InstallationPath known → stop poking the DO collector
@@ -74,16 +79,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int settleSeconds,
             OfficeInstallStatePersistence? statePersistence = null,
             OfficeInstallStateData? resumeState = null)
+            : this(sessionId, tenantId, ingress, clock, logger, settleSeconds, statePersistence, resumeState,
+                  RegistryHive.LocalMachine, ClickToRunSubKey, snapshotProvider: null)
+        {
+        }
+
+        /// <summary>
+        /// Test seam: points the registry watcher at a key a test may write to and feeds the
+        /// detector synthetic snapshots. Production uses the constructor above.
+        /// </summary>
+        internal OfficeInstallDetectorHost(
+            string sessionId,
+            string tenantId,
+            ISignalIngressSink ingress,
+            IClock clock,
+            AgentLogger logger,
+            int settleSeconds,
+            OfficeInstallStatePersistence? statePersistence,
+            OfficeInstallStateData? resumeState,
+            RegistryHive registryHive,
+            string registrySubKey,
+            Func<OfficeC2RSnapshot>? snapshotProvider)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _resumeState = resumeState;
+            _registryHive = registryHive;
+            _registrySubKey = registrySubKey ?? throw new ArgumentNullException(nameof(registrySubKey));
 
             var post = new InformationalEventPost(ingress, clock);
             _detector = new OfficeInstallDetector(sessionId, tenantId, post, logger, clock,
                 onInstallationPathObserved: OnInstallationPathObserved,
-                statePersistence: statePersistence);
+                statePersistence: statePersistence)
+            {
+                SnapshotProvider = snapshotProvider,
+            };
             _processWatcher = new OfficeProcessWatcher(logger, settleSeconds);
             _processWatcher.Started += OnWorkerStarted;
         }
@@ -108,12 +139,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // Arm the registry watcher up front (not at worker-start) so the early Scenario\INSTALL key
             // is caught before the (late) worker process. The watcher's bootstrap fallback handles the
             // case where the ClickToRun key does not exist yet on a clean first install.
-            lock (_lock)
-            {
-                _registryWatcher = new RegistryChangeWatcher(ClickToRunSubKey, _logger);
-                _registryWatcher.Changed += OnRegistryChanged;
-                _registryWatcher.Start();
-            }
+            var registryWatcher = new RegistryChangeWatcher(_registryHive, _registrySubKey, _logger);
+            registryWatcher.Changed += OnRegistryChanged;
+            lock (_lock) { _registryWatcher = registryWatcher; }
+            registryWatcher.Start();
             _processWatcher.Start();
 
             // Resume a persisted *Active* lifecycle (enrollments span reboots) AFTER the watchers are
@@ -134,7 +163,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // re-poking it on every registry value churn is pure log noise (field session 7da7dead).
             bool raise;
             lock (_lock) { raise = !_pathObserved && !_lifecycleEnded; }
-            if (raise)
+            // A callback can still be running after Dispose returned — Dispose never waits for one.
+            if (raise && Volatile.Read(ref _disposed) == 0)
             {
                 try { OfficeExpected?.Invoke(this, EventArgs.Empty); }
                 catch (Exception ex) { _logger.Warning($"[OfficeInstallDetectorHost] OfficeExpected handler threw: {ex.Message}"); }
@@ -147,15 +177,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private void OnInstallationPathObserved(string? installationPath)
         {
+            OfficeBinaryWatcher watcher;
             lock (_lock)
             {
                 _pathObserved = true; // stop raising OfficeExpected (lifecycle has started)
                 if (_lifecycleEnded || _binaryWatcher != null || string.IsNullOrEmpty(installationPath)) return;
+                if (Volatile.Read(ref _disposed) == 1) return;
 
-                _binaryWatcher = new OfficeBinaryWatcher(installationPath!, OfficeInstallDetector.CoreBinaries, _logger);
-                _binaryWatcher.BinaryAppeared += OnBinaryAppeared;
-                _binaryWatcher.Start();
+                watcher = new OfficeBinaryWatcher(installationPath!, OfficeInstallDetector.CoreBinaries, _logger);
+                watcher.BinaryAppeared += OnBinaryAppeared;
+                _binaryWatcher = watcher;
             }
+
+            // Start can raise BinaryAppeared right away (Office already on disk), and that handler
+            // ends in DisposeWatchers.
+            watcher.Start();
         }
 
         private void OnBinaryAppeared(object? sender, EventArgs e)
@@ -191,20 +227,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private void DisposeWatchers()
         {
+            RegistryChangeWatcher? registryWatcher;
+            OfficeBinaryWatcher? binaryWatcher;
             lock (_lock)
             {
-                if (_registryWatcher != null)
-                {
-                    try { _registryWatcher.Changed -= OnRegistryChanged; } catch { }
-                    try { _registryWatcher.Dispose(); } catch { }
-                    _registryWatcher = null;
-                }
-                if (_binaryWatcher != null)
-                {
-                    try { _binaryWatcher.BinaryAppeared -= OnBinaryAppeared; } catch { }
-                    try { _binaryWatcher.Dispose(); } catch { }
-                    _binaryWatcher = null;
-                }
+                registryWatcher = _registryWatcher;
+                _registryWatcher = null;
+                binaryWatcher = _binaryWatcher;
+                _binaryWatcher = null;
+            }
+
+            if (registryWatcher != null)
+            {
+                try { registryWatcher.Changed -= OnRegistryChanged; } catch { }
+                try { registryWatcher.Dispose(); } catch { }
+            }
+            if (binaryWatcher != null)
+            {
+                try { binaryWatcher.BinaryAppeared -= OnBinaryAppeared; } catch { }
+                try { binaryWatcher.Dispose(); } catch { }
             }
         }
     }

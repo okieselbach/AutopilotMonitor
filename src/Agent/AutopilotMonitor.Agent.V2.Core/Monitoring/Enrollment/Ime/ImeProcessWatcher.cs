@@ -200,6 +200,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         public void Dispose()
         {
+            Process attached;
             lock (_lock)
             {
                 if (_disposed) return;
@@ -208,12 +209,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 _discoveryTimer?.Dispose();
                 _discoveryTimer = null;
 
-                if (_imeProcess != null)
-                {
-                    try { _imeProcess.Exited -= OnImeExited; } catch { }
-                    _imeProcess.Dispose();
-                    _imeProcess = null;
-                }
+                attached = _imeProcess;
+                _imeProcess = null;
+            }
+
+            // Not under the lock: .NET holds its own lock on the Process while it delivers Exited,
+            // OnImeExited takes _lock, and Process.Dispose waits for that delivery to finish.
+            if (attached != null)
+            {
+                try { attached.Exited -= OnImeExited; } catch { }
+                try { attached.Dispose(); } catch { }
             }
         }
     }

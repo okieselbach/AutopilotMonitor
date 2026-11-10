@@ -79,11 +79,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
 
         public void Start()
         {
+            bool raise;
             lock (_lock)
             {
                 if (_disposed) return;
-                TryArm();
+                raise = TryArm();
             }
+
+            if (raise) Raise();
         }
 
         /// <summary>
@@ -129,17 +132,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             }
         }
 
-        // Caller holds _lock.
-        private void TryArm()
+        // Caller holds _lock. Returns true when BinaryAppeared is due; the caller raises it after
+        // releasing the lock, like OnRecheck does — the handler probes and may dispose this watcher.
+        private bool TryArm()
         {
-            if (_disposed || _fsw != null) return;
+            if (_disposed || _fsw != null) return false;
 
             // Initial scan — the binaries may already be present (armed late / update over existing).
-            if (CoreBinariesPresent())
-            {
-                Raise();
-                return;
-            }
+            if (CoreBinariesPresent()) return true;
 
             if (!Directory.Exists(_installationPath))
             {
@@ -154,7 +154,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 {
                     _logger.Debug($"[OfficeBinaryWatcher] install path '{_installationPath}' never appeared — giving up (no completion proof)");
                 }
-                return;
+                return false;
             }
 
             try
@@ -172,17 +172,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 _logger.Info($"[OfficeBinaryWatcher] watching '{_installationPath}' for core Office binaries");
 
                 // Race: a binary may have appeared between the scan above and arming — re-scan once.
-                if (CoreBinariesPresent()) Raise();
+                return CoreBinariesPresent();
             }
             catch (Exception ex)
             {
                 _logger.Warning($"[OfficeBinaryWatcher] could not watch '{_installationPath}': {ex.Message}");
+                return false;
             }
         }
 
         private void OnArmRetry(object? state)
         {
-            lock (_lock) { TryArm(); }
+            bool raise;
+            lock (_lock) { raise = TryArm(); }
+
+            if (raise) Raise();
         }
 
         private void OnFileEvent(object sender, FileSystemEventArgs e) => CheckCandidate(e.Name);

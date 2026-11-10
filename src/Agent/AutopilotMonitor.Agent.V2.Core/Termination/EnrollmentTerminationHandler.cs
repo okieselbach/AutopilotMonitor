@@ -324,7 +324,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // DeliveryOptimizationCollector, …) before the diagnostics ZIP is built so
                 // late `performance_snapshot` / `agent_metrics_snapshot` events don't slip in
                 // after `diagnostics_collecting` and the snapshot captured in the package
-                // matches the timeline. Best-effort — never blocks termination.
+                // matches the timeline. Best-effort, and bounded per host by the orchestrator:
+                // a collector that hangs is left behind, so the upload and the cleanup below
+                // still run.
                 StopPeripheralCollectorsBestEffort();
 
                 RunUploadDiagnosticsWithEvents(args);

@@ -26,6 +26,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
     /// </para>
     /// One-shot per OS contract, so it re-arms after each fire. Fail-soft: any failure is logged and
     /// the watcher stays quiet (the detector still gets the process Started/Stopped boundary events).
+    /// <para>
+    /// <b>Locking</b>: the lock guards this watcher's own state and is never held while
+    /// <see cref="Changed"/> is raised. A handler may dispose the watcher or take locks of its own,
+    /// and <see cref="Dispose"/> never waits for a handler. Raising under the lock deadlocks against
+    /// an owner that disposes this watcher under a lock its handler also takes.
+    /// </para>
     /// </summary>
     public sealed class RegistryChangeWatcher : IDisposable
     {
@@ -34,10 +40,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         {
             ChangeName = 0x00000001,      // subkey added/removed (ClickToRun appearing; Scenario\* churn)
             ChangeLastSet = 0x00000004,   // value set (Configuration: VersionToReport / StreamingFinished)
+            // The registration must outlive the thread that issued it: re-arming happens on rotating
+            // ThreadPool threads, and without this flag Windows signals the event when such a thread
+            // ends — reported here as a change that never happened.
+            ThreadAgnostic = 0x10000000,
         }
 
-        private const RegNotifyFilter PrimaryFilter = RegNotifyFilter.ChangeName | RegNotifyFilter.ChangeLastSet;
-        private const RegNotifyFilter BootstrapFilter = RegNotifyFilter.ChangeName; // cheap: direct-child create/delete only
+        private const RegNotifyFilter PrimaryFilter =
+            RegNotifyFilter.ChangeName | RegNotifyFilter.ChangeLastSet | RegNotifyFilter.ThreadAgnostic;
+        // Cheap: direct-child create/delete only.
+        private const RegNotifyFilter BootstrapFilter = RegNotifyFilter.ChangeName | RegNotifyFilter.ThreadAgnostic;
 
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern int RegNotifyChangeKeyValue(
@@ -49,6 +61,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
 
         private enum WatchMode { None, Primary, Bootstrap }
 
+        private readonly RegistryHive _hive;
+        private readonly string _hiveLabel;
         private readonly string _targetSubKey;
         private readonly AgentLogger _logger;
         private readonly object _lock = new object();
@@ -66,13 +80,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
 
         /// <param name="targetSubKey">HKLM-relative key, e.g. <c>SOFTWARE\Microsoft\Office\ClickToRun</c>.</param>
         public RegistryChangeWatcher(string targetSubKey, AgentLogger logger)
+            : this(RegistryHive.LocalMachine, targetSubKey, logger)
         {
+        }
+
+        /// <summary>Test seam: production always watches HKLM; tests use a hive they may write to.</summary>
+        internal RegistryChangeWatcher(RegistryHive hive, string targetSubKey, AgentLogger logger)
+        {
+            _hive = hive;
+            _hiveLabel = hive == RegistryHive.LocalMachine ? "HKLM" : hive.ToString();
             _targetSubKey = targetSubKey ?? throw new ArgumentNullException(nameof(targetSubKey));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        /// <summary>The filter the full target watch is armed with (tests).</summary>
+        internal uint EffectivePrimaryFilter => (uint)PrimaryFilter;
+
         public void Start()
         {
+            bool raise = false;
             lock (_lock)
             {
                 if (_started || _disposed) return;
@@ -81,24 +107,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 {
                     // Forced Registry64 view — consistent with the C2R reads (AnyCPU net48 may otherwise
                     // resolve the stale WOW6432Node mirror).
-                    _baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                    _baseKey = RegistryKey.OpenBaseKey(_hive, RegistryView.Registry64);
                     _signal = new AutoResetEvent(false);
-                    ArmBestEffort(raiseOnPromote: false);
+                    raise = ArmBestEffort(targetIsNews: false);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[RegistryChangeWatcher] failed to start on HKLM\\{_targetSubKey}: {ex.Message}");
+                    _logger.Warning($"[RegistryChangeWatcher] failed to start on {_hiveLabel}\\{_targetSubKey}: {ex.Message}");
                 }
             }
+
+            if (raise) RaiseChanged();
         }
 
         /// <summary>
         /// Arms the best available watch: the target key (full, subtree) if it exists, otherwise a cheap
         /// name-only watch on the nearest existing ancestor until the target appears. Must hold <see cref="_lock"/>.
+        /// Returns true when the target key appeared and the caller has to raise <see cref="Changed"/>
+        /// for it — after releasing the lock.
         /// </summary>
-        private void ArmBestEffort(bool raiseOnPromote)
+        /// <param name="targetIsNews">False when finding the target right away is the expected start
+        /// state; true when the watch was waiting for it.</param>
+        private bool ArmBestEffort(bool targetIsNews)
         {
-            if (_disposed || _baseKey == null) return;
+            if (_disposed || _baseKey == null) return false;
 
             CloseWatchedKey();
 
@@ -107,27 +139,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             {
                 _watchedKey = target;
                 _mode = WatchMode.Primary;
-                if (!ArmNotify(subtree: true, PrimaryFilter)) return;
-                if (raiseOnPromote) RaiseChanged();
-                return;
+                return ArmNotify(subtree: true, PrimaryFilter) && targetIsNews;
             }
 
             // Target absent — watch the nearest existing ancestor (non-recursive, name-only = cheap).
             var ancestor = OpenNearestExistingAncestor(out var ancestorPath);
             if (ancestor == null)
             {
-                _logger.Debug($"[RegistryChangeWatcher] no existing ancestor for HKLM\\{_targetSubKey}; not arming");
-                return;
+                _logger.Debug($"[RegistryChangeWatcher] no existing ancestor for {_hiveLabel}\\{_targetSubKey}; not arming");
+                return false;
             }
             _watchedKey = ancestor;
             _mode = WatchMode.Bootstrap;
-            _logger.Debug($"[RegistryChangeWatcher] target HKLM\\{_targetSubKey} absent — bootstrap-watching HKLM\\{ancestorPath} (name-only)", repeatKey: "RegistryChangeWatcher.bootstrap:" + _targetSubKey);
-            if (!ArmNotify(subtree: false, BootstrapFilter)) return;
+            _logger.Debug($"[RegistryChangeWatcher] target {_hiveLabel}\\{_targetSubKey} absent — bootstrap-watching {_hiveLabel}\\{ancestorPath} (name-only)", repeatKey: "RegistryChangeWatcher.bootstrap:" + _targetSubKey);
+            if (!ArmNotify(subtree: false, BootstrapFilter)) return false;
 
             // TOCTOU: the target may have been created between TryOpen and arming the ancestor watch.
             using (var recheck = TryOpen(_targetSubKey))
             {
-                if (recheck != null) ArmBestEffort(raiseOnPromote: true);
+                return recheck != null && ArmBestEffort(targetIsNews: true);
             }
         }
 
@@ -139,7 +169,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 int rc = RegNotifyChangeKeyValue(_watchedKey.Handle, subtree, filter, _signal.SafeWaitHandle, fAsynchronous: true);
                 if (rc != 0)
                 {
-                    _logger.Warning($"[RegistryChangeWatcher] RegNotifyChangeKeyValue failed rc={rc} (HKLM\\{_targetSubKey})");
+                    _logger.Warning($"[RegistryChangeWatcher] RegNotifyChangeKeyValue failed rc={rc} ({_hiveLabel}\\{_targetSubKey})");
                     return false;
                 }
                 UnregisterWait();
@@ -149,29 +179,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[RegistryChangeWatcher] arm failed (HKLM\\{_targetSubKey}): {ex.Message}");
+                _logger.Warning($"[RegistryChangeWatcher] arm failed ({_hiveLabel}\\{_targetSubKey}): {ex.Message}");
                 return false;
             }
         }
 
         private void OnSignalled(object? state, bool timedOut)
         {
+            bool raise;
+            bool rearmAfterHandler;
             lock (_lock)
             {
                 UnregisterWait();
                 if (_disposed || timedOut) return;
 
-                if (_mode == WatchMode.Primary)
-                {
-                    RaiseChanged();
-                    ArmNotify(subtree: true, PrimaryFilter); // re-arm on the same target key
-                }
-                else
-                {
-                    // A direct child changed under the ancestor — promote to the target watch if it now
-                    // exists (raises Changed on promotion), else keep the cheap bootstrap watch.
-                    ArmBestEffort(raiseOnPromote: true);
-                }
+                rearmAfterHandler = _mode == WatchMode.Primary;
+                // Bootstrap: a direct child changed under the ancestor — promote to the target watch if
+                // it now exists (then Changed is due), else keep the cheap bootstrap watch.
+                raise = rearmAfterHandler || ArmBestEffort(targetIsNews: true);
+            }
+
+            if (raise) RaiseChanged();
+
+            if (!rearmAfterHandler) return;
+            lock (_lock)
+            {
+                // Re-arm on the same target key, and only now: no wait was registered while the handler
+                // ran, so handlers never overlap, and a change that arrived meanwhile completes this
+                // registration at once.
+                ArmNotify(subtree: true, PrimaryFilter);
             }
         }
 
@@ -200,6 +236,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             }
         }
 
+        // Never called with _lock held.
         private void RaiseChanged()
         {
             var handler = Changed;

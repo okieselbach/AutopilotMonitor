@@ -67,6 +67,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// <summary>Default Timeout für den Terminal-Drain beim Stop.</summary>
         public static readonly TimeSpan DefaultTerminalDrainTimeout = TimeSpan.FromSeconds(30);
 
+        /// <summary>
+        /// How long termination waits for ONE collector host to stop (and later to dispose). A whole
+        /// healthy stop pass takes about 0.2 s and the slowest single host seen in the field 7 s, so
+        /// this only ever ends the wait for a host that hangs.
+        /// </summary>
+        public static readonly TimeSpan DefaultCollectorHostStopTimeout = TimeSpan.FromSeconds(30);
+
         private readonly string _sessionId;
         private readonly string _tenantId;
         private readonly string _stateDirectory;
@@ -81,6 +88,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly int _quarantineThreshold;
         private readonly TimeSpan _drainInterval;
         private readonly TimeSpan _terminalDrainTimeout;
+        private readonly TimeSpan _collectorHostStopTimeout;
         private readonly TimeSpan? _agentMaxLifetime;
         private readonly int _uploadBatchSize;
 
@@ -124,6 +132,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private SessionTraceOrdinalProvider? _traceCounter;
         private SignalIngress? _ingress;
         private IReadOnlyList<ICollectorHost>? _collectorHosts;
+        // Hosts that did not come back from Stop or Dispose in time. A thread is still inside them,
+        // so nothing calls into them again. Locked on itself.
+        private readonly HashSet<ICollectorHost> _unresponsiveHosts = new HashSet<ICollectorHost>();
 
         private EventHandler<DeadlineFiredEventArgs>? _deadlineBridge;
 
@@ -181,7 +192,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int uploadBatchSize = 100,
             IDeadlineScheduler? schedulerOverride = null,
             Func<bool>? traceEventsEnabled = null,
-            Func<bool>? espContinueAnywayObservationEnabled = null)
+            Func<bool>? espContinueAnywayObservationEnabled = null,
+            TimeSpan? collectorHostStopTimeout = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId is mandatory.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId is mandatory.", nameof(tenantId));
@@ -211,6 +223,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _quarantineThreshold = quarantineThreshold;
             _drainInterval = drainInterval ?? DefaultDrainInterval;
             _terminalDrainTimeout = terminalDrainTimeout ?? DefaultTerminalDrainTimeout;
+            _collectorHostStopTimeout = collectorHostStopTimeout ?? DefaultCollectorHostStopTimeout;
 
             if (agentMaxLifetime.HasValue && agentMaxLifetime.Value <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(agentMaxLifetime), "AgentMaxLifetime must be positive when set.");
@@ -947,6 +960,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// diagnostics ZIP is built so periodic collectors (PerformanceCollector,
         /// AgentSelfMetricsCollector, …) don't keep emitting <c>performance_snapshot</c> /
         /// <c>agent_metrics_snapshot</c> events while the package is being assembled.
+        /// <para>
+        /// Bounded per host (<see cref="DefaultCollectorHostStopTimeout"/>): a host that hangs is
+        /// left behind and the remaining hosts are still stopped. The diagnostics upload and the
+        /// self-destruct come after this call, so it has to return whatever a collector does.
+        /// </para>
         /// </summary>
         public void StopCollectorHosts()
         {
@@ -955,8 +973,94 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             foreach (var host in _collectorHosts)
             {
-                try { host.Stop(); }
-                catch (Exception ex) { _logger.Warning($"EnrollmentOrchestrator: host '{host.Name}' stop failed: {ex.Message}"); }
+                RunHostStepBounded(host, "stop", h => h.Stop());
+            }
+        }
+
+        /// <summary>
+        /// Runs one host's Stop or Dispose on a thread of its own and waits at most
+        /// <see cref="_collectorHostStopTimeout"/> for it.
+        /// </summary>
+        private void RunHostStepBounded(ICollectorHost host, string step, Action<ICollectorHost> action)
+        {
+            lock (_unresponsiveHosts)
+            {
+                if (_unresponsiveHosts.Contains(host)) return;
+            }
+
+            Exception? failure = null;
+            var worker = new Thread(() =>
+            {
+                try { action(host); }
+                catch (Exception ex) { failure = ex; }
+            })
+            {
+                // Not a ThreadPool thread: a host that hangs would keep one for good, and the pool may
+                // be the very thing that is stuck. Background, so it cannot keep the process alive.
+                IsBackground = true,
+                Name = $"CollectorHost.{step}:{host.Name}",
+            };
+            try { worker.Start(); }
+            catch (Exception ex)
+            {
+                _logger.Warning($"EnrollmentOrchestrator: host '{host.Name}' {step} could not be started: {ex.Message}");
+                return;
+            }
+
+            if (worker.Join(_collectorHostStopTimeout))
+            {
+                if (failure == null) return;
+                if (step == "stop")
+                    _logger.Warning($"EnrollmentOrchestrator: host '{host.Name}' stop failed: {failure.Message}");
+                else
+                    _logger.Debug($"EnrollmentOrchestrator: host '{host.Name}' {step} failed: {failure.Message}");
+                return;
+            }
+
+            lock (_unresponsiveHosts)
+            {
+                _unresponsiveHosts.Add(host);
+            }
+            var seconds = (int)Math.Ceiling(_collectorHostStopTimeout.TotalSeconds);
+            _logger.Warning(
+                $"EnrollmentOrchestrator: host '{host.Name}' did not return from {step} within {seconds}s — " +
+                "termination continues without it.");
+            if (step == "stop") EmitCollectorHostStopTimeout(host.Name, seconds);
+        }
+
+        /// <summary>
+        /// One <c>agent_trace</c> per host that hung in Stop, so the fleet can count it. Deliberately
+        /// not <c>collector_degraded</c>: that one says the collector's signals are missing and gates
+        /// analyze rules, while a host that will not stop has missed nothing. (A host that hangs in
+        /// Dispose is logged only — the ingress is already down by then.)
+        /// </summary>
+        private void EmitCollectorHostStopTimeout(string hostName, int timeoutSeconds)
+        {
+            var ingress = _ingress;
+            if (ingress == null) return;
+            try
+            {
+                new InformationalEventPost(ingress, _clock).Emit(new Shared.Models.EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.AgentTrace,
+                    Severity = Shared.Models.EventSeverity.Warning,
+                    Source = "EnrollmentOrchestrator",
+                    Phase = Shared.Models.EnrollmentPhase.Unknown,
+                    Message = $"Collector host '{hostName}' did not stop within {timeoutSeconds}s; termination continued without it.",
+                    Timestamp = _clock.UtcNow,
+                    Data = new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        ["decision"] = "collector_host_stop_timeout",
+                        ["host"] = hostName,
+                        ["timeoutSeconds"] = timeoutSeconds,
+                    },
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"EnrollmentOrchestrator: failed to post collector_host_stop_timeout: {ex.Message}");
             }
         }
 
@@ -1043,12 +1147,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch (Exception ex) { _logger.Warning($"EnrollmentOrchestrator: final snapshot save failed: {ex.Message}"); }
 
-            // 7) Dispose aller Disposables.
+            // 7) Dispose all disposables. Hosts go through the same bound as in StopCollectorHosts;
+            //    one that is still stuck in Stop is skipped (its Dispose would wait on the same thing).
             if (_collectorHosts != null)
             {
                 foreach (var host in _collectorHosts)
                 {
-                    try { host.Dispose(); } catch { /* best-effort */ }
+                    RunHostStepBounded(host, "dispose", h => h.Dispose());
                 }
             }
             try { _transport?.Dispose(); } catch { /* best-effort */ }

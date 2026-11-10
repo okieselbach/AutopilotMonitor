@@ -44,7 +44,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
             IReadOnlyCollection<string>? whiteGloveSealingPatternIds = null,
             TimeSpan? drainInterval = null,
             TimeSpan? terminalDrainTimeout = null,
-            TimeSpan? agentMaxLifetime = null) =>
+            TimeSpan? agentMaxLifetime = null,
+            TimeSpan? collectorHostStopTimeout = null) =>
             new EnrollmentOrchestrator(
                 sessionId: "S1",
                 tenantId: "T1",
@@ -58,7 +59,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
                 whiteGloveSealingPatternIds: whiteGloveSealingPatternIds,
                 drainInterval: drainInterval ?? TimeSpan.FromDays(1),
                 terminalDrainTimeout: terminalDrainTimeout ?? TimeSpan.FromSeconds(2),
-                agentMaxLifetime: agentMaxLifetime);
+                agentMaxLifetime: agentMaxLifetime,
+                collectorHostStopTimeout: collectorHostStopTimeout);
 
         public void Dispose() => Tmp.Dispose();
     }
