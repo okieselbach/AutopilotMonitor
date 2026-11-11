@@ -240,6 +240,11 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
                     requestTelemetry.Properties[key] = text;
             }
 
+            // SCRIPT-NAME LOOKUP — set by GetScriptDisplayNames when a lookup ran into a time limit
+            // or is the portal's follow-up to one.
+            if (context.Items.TryGetValue(RequestRowMarkers.ScriptNameLookupKey, out var scriptNameLookup) && scriptNameLookup is string scriptNameLookupOutcome)
+                requestTelemetry.Properties[RequestRowMarkers.ScriptNameLookupKey] = scriptNameLookupOutcome;
+
             var reqCtx = context.GetRequestContext();
             var tenantId = ResolveTenantId(
                 reqCtx.IdentityTenantId(),

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Graph;
@@ -77,18 +78,22 @@ public class GetScriptDisplayNamesFunction
 
             var distinctRefs = parsedRefs.Distinct().ToList();
 
-            var resolved = await _resolver.ResolveAsync(requestCtx.TargetTenantId, distinctRefs, default);
+            var lookup = await _resolver.ResolveAsync(requestCtx.TargetTenantId, distinctRefs, default);
 
             var payload = new Dictionary<string, string?>(distinctRefs.Count);
             foreach (var r in distinctRefs)
             {
-                payload[r.ToString()] = resolved.TryGetValue(r, out var name) ? name : null;
+                payload[r.ToString()] = lookup.Names.TryGetValue(r, out var name) ? name : null;
             }
+
+            var marker = RequestRowMarkers.ScriptNameLookup.For(lookup.TimedOut, isRetry: body.Retry == true);
+            if (marker != null) RequestRowMarkers.Stamp(req, RequestRowMarkers.ScriptNameLookupKey, marker);
 
             return await req.OkAsync(new GetScriptDisplayNamesResponse
             {
                 Refs = payload,
                 Malformed = malformed.Count > 0 ? malformed : null,
+                TimedOut = lookup.TimedOut ? true : null,
             });
         }
         catch (Exception ex)

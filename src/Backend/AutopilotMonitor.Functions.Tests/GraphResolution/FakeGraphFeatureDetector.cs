@@ -25,10 +25,21 @@ internal sealed class FakeGraphFeatureDetector : IGraphFeatureDetector
             ctx?.GrantedRoles ?? (IReadOnlySet<string>)new HashSet<string>());
     }
 
-    public Task<GraphTenantTokenContext?> TryGetTokenContextAsync(string tenantId, CancellationToken ct = default)
+    /// <summary>Tenants whose token never arrives: the call waits until the caller's budget cancels it.</summary>
+    public HashSet<string> HangingTenants { get; } = new();
+
+    /// <summary>When set, <see cref="TryGetTokenContextAsync"/> throws it.</summary>
+    public Exception? TokenContextThrows { get; set; }
+
+    public async Task<GraphTenantTokenContext?> TryGetTokenContextAsync(string tenantId, CancellationToken ct = default)
     {
+        if (TokenContextThrows != null) throw TokenContextThrows;
+        if (HangingTenants.Contains(tenantId))
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
+        }
         ContextByTenant.TryGetValue(tenantId, out var ctx);
-        return Task.FromResult(ctx);
+        return ctx;
     }
 
     /// <summary>When set for a tenant, <see cref="GetSnapshotAsync"/> reports it as transient.</summary>

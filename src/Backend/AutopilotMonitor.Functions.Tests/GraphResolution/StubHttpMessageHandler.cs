@@ -16,7 +16,11 @@ namespace AutopilotMonitor.Functions.Tests.GraphResolution;
 internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {
     private readonly List<(string UrlSubstring, HttpStatusCode Status, string Body)> _scripted = new();
+    private readonly List<string> _timedOut = new();
     public List<string> Requests { get; } = new();
+
+    /// <summary>Runs when a request arrives, before it is answered (e.g. to cancel the caller mid-flight).</summary>
+    public Action<string>? OnRequest { get; set; }
 
     public StubHttpMessageHandler When(string urlSubstring, HttpStatusCode status, string body)
     {
@@ -24,10 +28,22 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         return this;
     }
 
+    /// <summary>Scripts a request that ends the way a per-request timeout does, without waiting.</summary>
+    public StubHttpMessageHandler WhenTimedOut(string urlSubstring)
+    {
+        _timedOut.Add(urlSubstring);
+        return this;
+    }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var url = request.RequestUri!.ToString();
         Requests.Add(url);
+        OnRequest?.Invoke(url);
+        if (_timedOut.Any(s => url.Contains(s, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new TaskCanceledException($"StubHttpMessageHandler: scripted timeout for {url}");
+        }
         var match = _scripted.FirstOrDefault(s => url.Contains(s.UrlSubstring, StringComparison.OrdinalIgnoreCase));
         if (match.Equals(default((string, HttpStatusCode, string))))
         {

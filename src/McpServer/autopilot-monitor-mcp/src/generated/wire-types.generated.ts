@@ -2445,6 +2445,8 @@ export interface GetScriptDisplayNamesResponse {
   refs: Record<string, string | null>;
   /** Ref tokens from the request that failed to parse, or null when there were none — the key is omitted when null (the empty-body and empty-refs early-exit sites never wrote this key at all; they leave it null). */
   malformed?: string[];
+  /** True when the lookup ran into one of its time limits before every ref had an answer, so asking again can return more names. Null otherwise — the key is omitted. A failed Graph call does not set it. */
+  timedOut?: boolean;
 }
 
 /** Response of GET sessions/{sessionId}/annotations: the annotation lanes visible to the caller plus the server-computed list of lanes the caller may write. */
@@ -4755,6 +4757,8 @@ export interface SaveNotificationEmailRequest {
 /** Body of POST tenants/{tenantId}/scripts/display-names: Graph script references to resolve. */
 export interface ScriptDisplayNamesRequest {
   refs?: string[];
+  /** True on the one follow-up lookup a client sends after a response with timedOut. The lookup itself runs the same; the flag only labels the request. */
+  retry?: boolean | null;
 }
 
 /** SearchSessions envelope. Sessions carries full SessionSummary items, or dictionary projections of them when the caller passed a fields= subset. */

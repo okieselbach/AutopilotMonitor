@@ -1,6 +1,7 @@
 using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -33,11 +34,11 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
     internal static readonly TimeSpan TotalBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Tight cap on the token-acquire path specifically. The default
-    /// <see cref="GraphTokenService"/> retries 5+15+30 s with no cancellation in older code paths;
-    /// for this optional feature we want a hard wall well below <see cref="TotalBudget"/>.
+    /// Cap on the token-acquire path, whose retry chain (5+15+30 s) would otherwise outlast
+    /// <see cref="TotalBudget"/>. The first mint on a cold instance often needs more than
+    /// 1.5 s; a lower value drops every name on the first lookup after an idle period.
     /// </summary>
-    internal static readonly TimeSpan TokenAcquireBudget = TimeSpan.FromMilliseconds(1500);
+    internal static readonly TimeSpan TokenAcquireBudget = TimeSpan.FromSeconds(3);
 
     private const string GraphBetaBase = Constants.GraphBaseUrl + "/beta";
     private const int PageSize = 100;
@@ -48,6 +49,7 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
     private readonly ILogger<ScriptDisplayNameResolver> _logger;
     private readonly TelemetryClient _telemetry;
     private readonly TimeProvider _time;
+    private readonly TimeSpan _tokenAcquireBudget;
 
     public ScriptDisplayNameResolver(
         IGraphFeatureDetector detector,
@@ -66,7 +68,8 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
         IHttpClientFactory httpClientFactory,
         ILogger<ScriptDisplayNameResolver> logger,
         TelemetryClient telemetry,
-        TimeProvider time)
+        TimeProvider time,
+        TimeSpan? tokenAcquireBudget = null)
     {
         _detector = detector;
         _cache = cache;
@@ -74,38 +77,69 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
         _logger = logger;
         _telemetry = telemetry;
         _time = time;
+        _tokenAcquireBudget = tokenAcquireBudget ?? TokenAcquireBudget;
     }
 
-    public async Task<IReadOnlyDictionary<ScriptRef, string?>> ResolveAsync(
+    // Reasons in the "lookup incomplete" line. The three time limits also set
+    // ScriptDisplayNameLookup.TimedOut, which tells the caller that asking again can help.
+    private const string TokenTimeout = "TokenTimeout";
+    private const string TokenError = "TokenError";
+    private const string LookupTimeout = "LookupTimeout";
+    private const string LookupError = "LookupError";
+
+    public async Task<ScriptDisplayNameLookup> ResolveAsync(
         string tenantId,
         IReadOnlyCollection<ScriptRef> refs,
         CancellationToken ct = default)
     {
         var result = new Dictionary<ScriptRef, string?>();
-        if (refs == null || refs.Count == 0) return result;
+        if (refs == null || refs.Count == 0) return new ScriptDisplayNameLookup(result, TimedOut: false);
         foreach (var r in refs) result[r] = null;
 
-        if (string.IsNullOrWhiteSpace(tenantId)) return result;
+        if (string.IsNullOrWhiteSpace(tenantId)) return new ScriptDisplayNameLookup(result, TimedOut: false);
 
         // Total budget starts BEFORE the detector call. A slow Graph token-acquire used to
         // be able to burn ~50 s before this method even decided whether to proceed; the
         // linked CTS + the detector's CT support cap that to TokenAcquireBudget.
+        var started = Stopwatch.GetTimestamp();
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budgetCts.CancelAfter(TotalBudget);
         var budget = budgetCts.Token;
 
         // 1. Permission gate — with a tight sub-budget so the optional feature can't hang
         //    waiting for a slow Azure AD response on tenants with consent-propagation delay.
-        GraphTenantTokenContext? ctx;
+        GraphTenantTokenContext? ctx = null;
+        string? tokenProblem = null;
         using (var tokenCts = CancellationTokenSource.CreateLinkedTokenSource(budget))
         {
-            tokenCts.CancelAfter(TokenAcquireBudget);
-            ctx = await SafeAsync(_detector.TryGetTokenContextAsync(tenantId, tokenCts.Token)).ConfigureAwait(false);
+            tokenCts.CancelAfter(_tokenAcquireBudget);
+            try
+            {
+                ctx = await _detector.TryGetTokenContextAsync(tenantId, tokenCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Counted below as a timeout when it was this class's cap that fired.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Script-name resolver: token context failed for tenant={Tenant}", tenantId);
+                tokenProblem = TokenError;
+            }
+            if (ctx == null && tokenProblem == null && tokenCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                tokenProblem = TokenTimeout;
+            }
         }
-        if (ctx == null) return result;
+        if (ctx == null)
+        {
+            // No token means no cache read either, so resolved and cacheHits are 0 by construction.
+            if (tokenProblem != null) LogIncomplete(tenantId, new[] { tokenProblem }, refs.Count, resolved: 0, cacheHits: 0, started);
+            return new ScriptDisplayNameLookup(result, TimedOut: tokenProblem == TokenTimeout);
+        }
         if (!ctx.GrantedRoles.Contains(GraphAppPermissions.DeviceManagementScriptsReadAll))
         {
-            return result;
+            return new ScriptDisplayNameLookup(result, TimedOut: false);
         }
 
         // 2. Cache lookup for all refs.
@@ -131,13 +165,16 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
         var triggeredFullPull = false;
 
         var missing = refs.Where(r => !cached.ContainsKey(r)).ToList();
-        if (missing.Count == 0) return result;
+        if (missing.Count == 0) return new ScriptDisplayNameLookup(result, TimedOut: false);
 
         // 3. Decide per kind: list-full-pull when meta stale, else per-ID fallback.
         // Track kinds whose full-pull hit a TRANSIENT failure (429/503/network/timeout).
         // Falling back to per-ID for those kinds in the same call would just amplify the
         // throttling Graph is trying to apply, so we suppress per-ID for that kind here.
         var skipPerIdKinds = new HashSet<ScriptKind>();
+        // Why refs may end without an answer; see LogIncomplete.
+        var incomplete = new List<string>();
+        var timedOut = false;
 
         foreach (var kind in missing.Select(r => r.Kind).Distinct())
         {
@@ -172,6 +209,8 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 {
                     _logger.LogInformation("Script-name resolver: full-pull cancelled for tenant={Tenant} kind={Kind}", tenantId, kind);
                     skipPerIdKinds.Add(kind);
+                    incomplete.Add($"ListTimeout:{kind}");
+                    timedOut = true;
                 }
                 catch (HttpRequestException ex)
                 {
@@ -181,6 +220,7 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                         "Script-name resolver: full-pull transient for tenant={Tenant} kind={Kind} — skipping per-ID fallback for this kind",
                         tenantId, kind);
                     skipPerIdKinds.Add(kind);
+                    incomplete.Add($"ListError:{kind}");
                 }
                 catch (Exception ex)
                 {
@@ -192,12 +232,19 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
         }
 
         // 4. Per-ID fallback for whatever the full-pull (or its absence) did not produce.
+        //    This step stays after a successful list too: the list leaves out some scripts
+        //    that a single GET returns, so "not in the list" never means "not found".
         var stillMissing = refs
             .Where(r => result[r] == null && !cached!.ContainsKey(r) && !skipPerIdKinds.Contains(r.Kind))
             .ToList();
         foreach (var r in stillMissing)
         {
-            if (budget.IsCancellationRequested) break;
+            if (budget.IsCancellationRequested)
+            {
+                incomplete.Add(LookupTimeout);
+                timedOut = true;
+                break;
+            }
             try
             {
                 var (displayName, notFound) = await FetchSingleAsync(r.Kind, r.Id, ctx.AccessToken, budget).ConfigureAwait(false);
@@ -216,6 +263,8 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Script-name resolver: per-ID fetch cancelled for tenant={Tenant} ref={Ref}", tenantId, r);
+                incomplete.Add(LookupTimeout);
+                timedOut = true;
                 break;
             }
             catch (HttpRequestException ex)
@@ -225,28 +274,48 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
                 _logger.LogWarning(ex,
                     "Script-name resolver: per-ID transient for tenant={Tenant} ref={Ref} — aborting remaining per-ID fallbacks",
                     tenantId, r);
+                incomplete.Add(LookupError);
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Script-name resolver: per-ID fetch failed for tenant={Tenant} ref={Ref}", tenantId, r);
+                if (!incomplete.Contains(LookupError)) incomplete.Add(LookupError);
             }
+        }
+
+        var resolved = result.Values.Count(v => v != null);
+        if (incomplete.Count > 0 && !ct.IsCancellationRequested)
+        {
+            LogIncomplete(tenantId, incomplete, refs.Count, resolved, cacheHits, started);
         }
 
         // Usage telemetry — fires only when the optional permission was active AND the
         // resolver actually did work. Volume = once per session-view that has scripts,
         // which is a meaningful "tenant is using this feature" pulse.
-        EmitResolved(tenantId, refs.Count, result, cacheHits, triggeredFullPull);
+        EmitResolved(tenantId, refs.Count, resolved, cacheHits, triggeredFullPull);
 
-        return result;
+        return new ScriptDisplayNameLookup(result, timedOut);
     }
 
-    private void EmitResolved(string tenantId, int refsRequested, Dictionary<ScriptRef, string?> result, int cacheHits, bool triggeredFullPull)
+    /// <summary>
+    /// One Warning per lookup that ended without an answer for every ref because a limit of
+    /// this class fired or Graph failed. Worker logs below Warning are not collected, and the
+    /// health marker reads the message prefix and the <c>reasons=</c> field: keep both stable.
+    /// </summary>
+    private void LogIncomplete(
+        string tenantId, IReadOnlyCollection<string> reasons, int requested, int resolved, int cacheHits, long started)
+    {
+        _logger.LogWarning(
+            "Script-name lookup incomplete: tenant={Tenant} reasons={Reasons} requested={Requested} resolved={Resolved} cacheHits={CacheHits} elapsedMs={ElapsedMs}",
+            tenantId, string.Join(",", reasons), requested, resolved, cacheHits,
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+    }
+
+    private void EmitResolved(string tenantId, int refsRequested, int resolved, int cacheHits, bool triggeredFullPull)
     {
         try
         {
-            var resolved = 0;
-            foreach (var v in result.Values) { if (v != null) resolved++; }
             _telemetry.TrackEvent("ScriptDisplayNamesResolved", new Dictionary<string, string>
             {
                 ["TenantId"] = tenantId,
@@ -313,6 +382,10 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
 
             url = nextUrl;
         }
+
+        // A budget that ends between two pages leaves the loop with pages still to read. That
+        // list is incomplete and must not be stored, or the kind counts as fetched for a week.
+        if (!string.IsNullOrEmpty(url)) ct.ThrowIfCancellationRequested();
 
         if (entries.Count > 0)
         {

@@ -25,6 +25,13 @@ namespace AutopilotMonitor.Shared.Models
         /// wrote this key at all; they leave it null).
         /// </summary>
         public IReadOnlyList<string>? Malformed { get; set; }
+
+        /// <summary>
+        /// True when the lookup ran into one of its time limits before every ref had an answer,
+        /// so asking again can return more names. Null otherwise — the key is omitted. A failed
+        /// Graph call does not set it.
+        /// </summary>
+        public bool? TimedOut { get; set; }
     }
 
     /// <summary>
@@ -65,5 +72,11 @@ namespace AutopilotMonitor.Shared.Models
     public class ScriptDisplayNamesRequest : IApiRequest
     {
         public List<string>? Refs { get; set; }
+
+        /// <summary>
+        /// True on the one follow-up lookup a client sends after a response with
+        /// <c>timedOut</c>. The lookup itself runs the same; the flag only labels the request.
+        /// </summary>
+        public bool? Retry { get; set; }
     }
 }

@@ -77,6 +77,34 @@ public class GraphWireParityTests
     }
 
     [Fact]
+    public void GetScriptDisplayNamesResponse_carries_timedOut_only_when_a_time_limit_fired()
+    {
+        // The portal asks once more when it sees timedOut. Null leaves the key out, so an
+        // answer within the limits keeps the shapes pinned above.
+        var payload = new Dictionary<string, string?>
+        {
+            ["Platform:6cef8fa7-9163-40cf-8f56-52f3aaaa1006"] = null,
+        };
+
+        AssertParity(
+            new { refs = payload, timedOut = true },
+            new GetScriptDisplayNamesResponse { Refs = payload, TimedOut = true });
+    }
+
+    [Fact]
+    public void ScriptDisplayNamesRequest_reads_the_retry_flag_and_tolerates_its_absence()
+    {
+        var options = ApiJsonOptions.Create();
+        const string Ref = "\"Platform:7df090b8-a274-41d0-9067-52f3aaaa1007\"";
+
+        var followUp = JsonSerializer.Deserialize<ScriptDisplayNamesRequest>("{\"refs\":[" + Ref + "],\"retry\":true}", options);
+        var first = JsonSerializer.Deserialize<ScriptDisplayNamesRequest>("{\"refs\":[" + Ref + "]}", options);
+
+        Assert.True(followUp!.Retry);
+        Assert.Null(first!.Retry);
+    }
+
+    [Fact]
     public void GetScriptDisplayNamesResponse_dictionary_keys_are_not_camel_cased()
     {
         // ApiJsonOptions sets PropertyNamingPolicy = CamelCase but NO DictionaryKeyPolicy:

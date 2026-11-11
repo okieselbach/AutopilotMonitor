@@ -92,6 +92,30 @@ namespace AutopilotMonitor.Functions.Security
         public const string ConfigPatchUnchangedKey = "ConfigPatchUnchanged";
 
         /// <summary>
+        /// On a script display-name lookup: one of <see cref="ScriptNameLookup"/>. Absent on a
+        /// first lookup that stayed within its time limits, which is the normal case.
+        /// </summary>
+        public const string ScriptNameLookupKey = "ScriptNameLookup";
+
+        /// <summary>Closed set of <see cref="ScriptNameLookupKey"/> values.</summary>
+        public static class ScriptNameLookup
+        {
+            /// <summary>A first lookup ran into a time limit; the portal asks again once.</summary>
+            public const string TimedOut = "timedOut";
+            /// <summary>The portal's follow-up lookup, answered within the limits.</summary>
+            public const string Retry = "retry";
+            /// <summary>The follow-up ran into a time limit too: the names stay missing until a reload.</summary>
+            public const string RetryTimedOut = "retryTimedOut";
+
+            /// <summary>The value for one lookup, or null when the row gets no marker.</summary>
+            public static string? For(bool timedOut, bool isRetry)
+            {
+                if (isRetry) return timedOut ? RetryTimedOut : Retry;
+                return timedOut ? TimedOut : null;
+            }
+        }
+
+        /// <summary>
         /// Outcome of the Intune device lookup behind the client certificate
         /// (<see cref="IntuneDeviceBindingOutcome"/> name). Absent when no lookup result exists for
         /// the request: the tenant granted no permission, or an observation is still running.

@@ -4,8 +4,7 @@ namespace AutopilotMonitor.Shared.Models.Graph
 {
     /// <summary>
     /// One cached display-name row. Negative results (<see cref="IsNotFound"/> = true) live
-    /// for a shorter TTL than positive results so deleted/renamed Intune scripts get
-    /// re-resolved quickly.
+    /// as long as positive ones.
     /// </summary>
     public sealed class ScriptDisplayNameEntry
     {

@@ -12,8 +12,7 @@ namespace AutopilotMonitor.Functions.Tests.GraphResolution;
 /// <list type="bullet">
 ///   <item>Positive rows older than 7 days are removed.</item>
 ///   <item>Positive rows younger than 7 days are kept.</item>
-///   <item>NotFound rows older than 1 hour are removed.</item>
-///   <item>NotFound rows younger than 1 hour are kept.</item>
+///   <item>NotFound rows follow the same 7 days: older ones are removed, younger ones are kept.</item>
 ///   <item>A failed delete on one row doesn't poison the run — others still get processed.</item>
 /// </list>
 /// </summary>
@@ -55,18 +54,20 @@ public class ScriptNameCacheCleanupFunctionTests
     }
 
     [Fact]
-    public async Task Deletes_notfound_rows_older_than_1_hour()
+    public async Task Deletes_notfound_rows_only_after_the_same_7_days()
     {
+        // A not-found row that goes after hours instead of days sends one Graph lookup per
+        // unknown ID on the first view after every cleanup run.
         var fix = new Fixture();
-        var deletedId = "deleted-1h-ago";
-        var recentId = "recent-30min";
+        var deletedId = "not-found-8-days-ago";
+        var recentId = "not-found-2-hours-ago";
         fix.Repo.Entries[(TenantId, ScriptKind.Remediation, deletedId)] = new ScriptDisplayNameEntry
         {
             TenantId = TenantId,
             Kind = ScriptKind.Remediation,
             ScriptId = deletedId,
             DisplayName = null,
-            FetchedAt = fix.FixedNow - TimeSpan.FromHours(2),
+            FetchedAt = fix.FixedNow - TimeSpan.FromDays(8),
             IsNotFound = true,
         };
         fix.Repo.Entries[(TenantId, ScriptKind.Remediation, recentId)] = new ScriptDisplayNameEntry
@@ -75,7 +76,7 @@ public class ScriptNameCacheCleanupFunctionTests
             Kind = ScriptKind.Remediation,
             ScriptId = recentId,
             DisplayName = null,
-            FetchedAt = fix.FixedNow - TimeSpan.FromMinutes(30),
+            FetchedAt = fix.FixedNow - TimeSpan.FromHours(2),
             IsNotFound = true,
         };
 

@@ -13,9 +13,9 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance;
 /// <list type="bullet">
 ///   <item>Positive (found) rows older than <see cref="PositiveTtl"/> are deleted so a
 ///         renamed Intune script eventually surfaces under its new name.</item>
-///   <item>Negative (NotFound) rows expire much faster (<see cref="NotFoundTtl"/>) — they
-///         exist only to suppress repeated 404 fetches for genuinely deleted scripts;
-///         once the cache is gone the resolver will lazily re-check.</item>
+///   <item>Negative (NotFound) rows live just as long (<see cref="NotFoundTtl"/>): they
+///         suppress repeated 404 fetches for an ID Graph does not know. A list pull that
+///         contains the ID after all overwrites the row.</item>
 ///   <item>Per-tenant meta rows (<c>"{Kind}_$meta"</c>) live forever; they're tiny and
 ///         steer the resolver's "do a full pull vs. per-ID fallback" decision.</item>
 /// </list>
@@ -27,8 +27,11 @@ public class ScriptNameCacheCleanupFunction
     /// <summary>Positive entries are usable for 7 days; covers all reasonable troubleshooting timeframes.</summary>
     public static readonly TimeSpan PositiveTtl = TimeSpan.FromDays(7);
 
-    /// <summary>Negative-cache rows expire in 1h so deleted/renamed scripts come back quickly.</summary>
-    public static readonly TimeSpan NotFoundTtl = TimeSpan.FromHours(1);
+    /// <summary>
+    /// Same lifetime as a name. A shorter one asks Graph again for every unknown ID on the
+    /// first view after each cleanup run.
+    /// </summary>
+    public static readonly TimeSpan NotFoundTtl = PositiveTtl;
 
     /// <summary>03:00 UTC daily — outside European working hours, off the busy maintenance window.</summary>
     private const string Cron = "0 0 3 * * *";
