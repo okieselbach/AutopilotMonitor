@@ -139,7 +139,48 @@ namespace AutopilotMonitor.Functions.Security
         /// add-on permission counts toward the add-on notice.
         /// </param>
         /// <returns>Security validation result</returns>
-        public async Task<SecurityValidationResult> ValidateRequestAsync(HttpRequestData req, string tenantId, string? sessionId = null, bool selfReportedCloudPc = false)
+        public Task<SecurityValidationResult> ValidateRequestAsync(HttpRequestData req, string tenantId, string? sessionId = null, bool selfReportedCloudPc = false)
+            => ValidateRequestAsync(req, tenantId, sessionId, selfReportedCloudPc, configConfirmed: false);
+
+        /// <summary>
+        /// Whether a gate the tenant configuration alone decides would refuse this request: the
+        /// suspension, the bootstrap feature for a token request, "no validation switched on", the
+        /// hardware whitelist. Mirrors those gates of the validation below in their order; pure, logs
+        /// nothing. A gate added there that the configuration decides belongs here too, or it keeps
+        /// refusing on an outdated copy.
+        /// </summary>
+        internal bool RefusesByConfiguration(TenantConfiguration config, HttpRequestData req)
+        {
+            if (config.IsCurrentlyDisabled())
+                return true;
+
+            // A request the bootstrap token admits is decided by the feature switch alone.
+            if (GetBootstrapToken(req) != null && _bootstrapSessionService != null)
+                return !Services.TenantEntitlementService.IsBootstrapEnabled(config, DateTime.UtcNow);
+
+            if (!config.HasAnyDeviceValidation() && !config.AllowInsecureAgentRequests)
+                return true;
+
+            return !HardwareWhitelistValidator.ValidateHardware(
+                req.Headers.Contains("X-Device-Manufacturer") ? req.Headers.GetValues("X-Device-Manufacturer").FirstOrDefault() : null,
+                req.Headers.Contains("X-Device-Model") ? req.Headers.GetValues("X-Device-Model").FirstOrDefault() : null,
+                config.GetManufacturerWhitelist(),
+                config.GetModelWhitelist()).IsValid;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="stored"/> switches on a device validation the chain did not ask
+        /// while it ran on <paramref name="used"/>.
+        /// </summary>
+        internal static bool SwitchesOnUnaskedValidation(TenantConfiguration used, TenantConfiguration stored)
+            => (stored.ValidateAutopilotDevice && !used.ValidateAutopilotDevice)
+                || (stored.ValidateCorporateIdentifier && !used.ValidateCorporateIdentifier)
+                || (stored.ValidateDeviceAssociation && !used.ValidateDeviceAssociation)
+                || (stored.ValidateCloudPcDevice && !used.ValidateCloudPcDevice)
+                || (stored.ValidateIntuneDeviceBinding && !used.ValidateIntuneDeviceBinding);
+
+        private async Task<SecurityValidationResult> ValidateRequestAsync(
+            HttpRequestData req, string tenantId, string? sessionId, bool selfReportedCloudPc, bool configConfirmed)
         {
             // 0. Verify tenant is known and not suspended (cheapest gate — runs before cert/rate/hardware)
             var (config, tenantExists) = await _configService.TryGetConfigurationAsync(tenantId);
@@ -154,6 +195,23 @@ namespace AutopilotMonitor.Functions.Security
                     ErrorMessage = "Tenant not registered",
                     Details = "This tenant ID is not registered with the platform."
                 };
+            }
+
+            // A refusal the configuration decides is never taken from a copy another instance's write
+            // has outdated: the stored row is read first, before any gate has run or logged. Requests
+            // the cached copy admits read nothing here. An unknown tenant needs no confirmation —
+            // nothing is cached for a missing row, so that answer came from storage.
+            if (!configConfirmed && RefusesByConfiguration(config, req))
+            {
+                configConfirmed = true;
+                var stored = await _configService.ConfirmBeforeRefusalAsync(tenantId);
+                if (stored != null)
+                {
+                    RequestRowMarkers.Stamp(req, RequestRowMarkers.ConfigConfirmKey, RefusesByConfiguration(stored, req)
+                        ? RequestRowMarkers.ConfigConfirm.Confirmed
+                        : RequestRowMarkers.ConfigConfirm.Averted);
+                    config = stored;
+                }
             }
 
             if (config.IsCurrentlyDisabled())
@@ -590,6 +648,21 @@ namespace AutopilotMonitor.Functions.Security
                         Details = deviceValidationError,
                         RetryAfterSeconds = deviceValidationRetryAfter ?? 30
                     };
+                }
+
+                // Definitive: no switched-on validation knows the device. When the stored row switches
+                // on one this pass has not asked (another instance's write), the chain runs once more
+                // on it — the read above put that row into this instance's cache.
+                if (!configConfirmed)
+                {
+                    var stored = await _configService.ConfirmBeforeRefusalAsync(tenantId);
+                    if (stored != null && SwitchesOnUnaskedValidation(config, stored))
+                    {
+                        RequestRowMarkers.Stamp(req, RequestRowMarkers.ConfigConfirmKey, RequestRowMarkers.ConfigConfirm.Rerun);
+                        return await ValidateRequestAsync(req, tenantId, sessionId, selfReportedCloudPc, configConfirmed: true);
+                    }
+                    if (stored != null)
+                        RequestRowMarkers.Stamp(req, RequestRowMarkers.ConfigConfirmKey, RequestRowMarkers.ConfigConfirm.Confirmed);
                 }
 
                 LogRequestRejection("device", tenantId, req, sessionId,

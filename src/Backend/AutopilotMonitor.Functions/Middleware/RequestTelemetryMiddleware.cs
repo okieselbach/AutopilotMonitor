@@ -231,6 +231,15 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
                     requestTelemetry.Properties[key] = text;
             }
 
+            // TENANT-CONFIG FRESHNESS — the stored row was read instead of this instance's cached copy
+            // (a caller's own write, a refusal about to happen), or a field patch found values the
+            // client believed it was changing.
+            foreach (var key in RequestRowMarkers.ConfigFreshnessKeys)
+            {
+                if (context.Items.TryGetValue(key, out var value) && value is string text)
+                    requestTelemetry.Properties[key] = text;
+            }
+
             var reqCtx = context.GetRequestContext();
             var tenantId = ResolveTenantId(
                 reqCtx.IdentityTenantId(),

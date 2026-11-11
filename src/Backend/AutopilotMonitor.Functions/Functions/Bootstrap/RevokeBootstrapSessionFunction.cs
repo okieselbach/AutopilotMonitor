@@ -47,8 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var userIdentifier = requestCtx.UserPrincipalName;
 
                 // Check if the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
-                var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
-                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
+                if (!await BootstrapFeatureGate.IsEnabledAsync(_configService, tenantId))
                 {
                     return await req.ForbiddenAsync("Bootstrap token feature is not enabled for this tenant");
                 }

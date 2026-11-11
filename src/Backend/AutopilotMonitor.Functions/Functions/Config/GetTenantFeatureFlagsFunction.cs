@@ -47,8 +47,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
         ///
         /// Adding a field here is a deliberate decision that the field is non-sensitive: it must not
         /// expose webhook URLs, SAS tokens, admin allowlists, or any other admin-only data. The full
-        /// configuration (which does contain such data) lives behind GET /api/config/{tenantId}, gated
-        /// to TenantAdminOrGA.
+        /// configuration (which does contain such data) lives behind GET /api/config/{tenantId}, which
+        /// redacts its secrets for every caller without write authority over the tenant.
         /// </summary>
         [Function("GetTenantFeatureFlags")]
         public async Task<HttpResponseData> Run(
@@ -60,7 +60,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var requestCtx = req.GetRequestContext();
 
-                var config = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
+                // The tenant's row or an error, never a synthesized default (see GetTenantConfiguration):
+                // the flags decide banners and gates, and a failed answer is not cached by the portal.
+                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId)
+                    ?? await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
                 var appHomingFunnelActive = await _appHomingService.IsFunnelEligibleAsync(config);
                 // Only the setup guide needs the enrollment history; a hidden guide skips the read.
                 var hasEnrollmentSessions = config.SetupGuideDismissedAt == null

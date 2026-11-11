@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -94,8 +95,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 
                 // Feature gate — same generic message as not-found so a disabled tenant is
                 // indistinguishable from an unknown code (no enumeration oracle).
-                var tenantConfig = await _configService.GetConfigurationAsync(session.TenantId);
-                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
+                if (!await BootstrapFeatureGate.IsEnabledAsync(_configService, session.TenantId))
                 {
                     _logger.LogWarning("Bootstrap script for code {Code} rejected — feature disabled for tenant {TenantId}", code, session.TenantId);
                     return await ScriptResponseAsync(

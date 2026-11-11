@@ -42,8 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var tenantId = requestCtx.TargetTenantId;
 
                 // Check if the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
-                var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
-                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
+                if (!await BootstrapFeatureGate.IsEnabledAsync(_configService, tenantId))
                 {
                     // Return empty list instead of error — feature simply not visible
                     var emptyResponse = req.CreateResponse(HttpStatusCode.OK);

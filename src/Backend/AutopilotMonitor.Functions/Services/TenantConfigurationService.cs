@@ -29,25 +29,47 @@ namespace AutopilotMonitor.Functions.Services
 
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
+        /// <summary>
+        /// How often <see cref="ConfirmBeforeRefusalAsync"/> reads the stored row per tenant on this
+        /// instance: a burst of refused requests costs one read per interval, not one each.
+        /// </summary>
+        internal static readonly TimeSpan RefusalConfirmInterval = TimeSpan.FromSeconds(15);
+
         // Concurrent misses for one tenant (cold start, after invalidation) share one repository
         // read instead of each issuing their own (audit 2026-09-05 F12).
         private readonly ConcurrentDictionary<string, Lazy<Task<TenantConfiguration>>> _inFlight = new();
+
+        // When this instance last read the stored row before a refusal, per tenant.
+        private readonly ConcurrentDictionary<string, DateTimeOffset> _refusalConfirmedAt = new(StringComparer.OrdinalIgnoreCase);
+        private readonly TimeProvider _time;
 
         public TenantConfigurationService(
             IConfigRepository configRepo,
             ILogger<TenantConfigurationService> logger,
             IMemoryCache cache,
             ManagedTenantProIndex proIndex)
+            : this(configRepo, logger, cache, proIndex, TimeProvider.System)
+        {
+        }
+
+        /// <summary>Test seam — a clock the test moves across <see cref="RefusalConfirmInterval"/>.</summary>
+        internal TenantConfigurationService(
+            IConfigRepository configRepo,
+            ILogger<TenantConfigurationService> logger,
+            IMemoryCache cache,
+            ManagedTenantProIndex proIndex,
+            TimeProvider time)
         {
             _configRepo = configRepo;
             _logger = logger;
             _cache = cache;
             _proIndex = proIndex;
+            _time = time;
         }
 
         /// <summary>
         /// Test seam — no delegation index: no tenant is ever projected as managed. Production DI always
-        /// resolves the four-argument constructor (the longest satisfiable one).
+        /// resolves the four-parameter constructor (the longest public one it can satisfy).
         /// </summary>
         public TenantConfigurationService(IConfigRepository configRepo, ILogger<TenantConfigurationService> logger, IMemoryCache cache)
             : this(configRepo, logger, cache, ManagedTenantProIndex.None)
@@ -320,12 +342,11 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Cache-BYPASSING read (refreshes this instance's cache on hit); null when no row exists,
-        /// never auto-creates. For read-modify-write side-effect writers that persist the WHOLE
-        /// entity (e.g. AuthFunction's LastAuthClientId tracking): a cached view can be up to
-        /// 5 minutes stale on OTHER instances, and blindly saving it would silently rewind any
-        /// field another writer just changed — most critically HomedAppClientId right after a
-        /// consent-driven app-homing flip (the exact login that follows a flip is the one that
-        /// carries a changed audience and triggers the tracking write).
+        /// never auto-creates. A write clears only the cache of the instance that served it, so a
+        /// cached view can be up to 5 minutes stale on every OTHER instance. Callers that must not
+        /// act on such a view read here: a verdict on the tenant's current state (activation), and
+        /// the two wrappers below — <see cref="RefreshFromStoreAsync"/> for a request that follows
+        /// its caller's own write, <see cref="ConfirmBeforeRefusalAsync"/> before a refusal.
         /// </summary>
         public virtual async Task<TenantConfiguration?> GetConfigurationFreshAsync(string tenantId)
         {
@@ -337,6 +358,75 @@ namespace AutopilotMonitor.Functions.Services
                 _cache.Set($"tenant-config:{tenantId}", config, CacheDuration);
 
             return await ProjectAsync(config);
+        }
+
+        /// <summary>
+        /// Reads the stored row into this instance's cache, so that everything the current request
+        /// reads afterwards sees it. For a request whose caller has just written the configuration
+        /// through another instance. Never throws: on a storage failure the cached copy stays in use
+        /// and the request goes on.
+        /// </summary>
+        public virtual async Task RefreshFromStoreAsync(string tenantId)
+        {
+            if (string.IsNullOrEmpty(tenantId))
+                return;
+
+            try
+            {
+                await GetConfigurationFreshAsync(tenantId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Stored configuration of tenant {TenantId} could not be re-read; the cached copy stays in use", tenantId);
+            }
+        }
+
+        /// <summary>
+        /// The stored row for a caller about to refuse a request because of the configuration, or
+        /// null when the cached answer stands. A refusal is never decided on a copy another
+        /// instance's write has outdated: an admin allows a manufacturer or switches a validation on,
+        /// and the next device must not be turned away for up to 5 minutes. Requests that pass never
+        /// come here, so the hot path keeps reading the cache.
+        /// <para>
+        /// Null within <see cref="RefusalConfirmInterval"/> of the last read for this tenant (by then
+        /// this instance's cache holds that read), when no row exists, and when the read fails — the
+        /// caller then refuses as the cached copy says.
+        /// </para>
+        /// </summary>
+        public virtual async Task<TenantConfiguration?> ConfirmBeforeRefusalAsync(string tenantId)
+        {
+            if (string.IsNullOrEmpty(tenantId))
+                return null;
+
+            // The factories can run more than once under contention; each run decides `claimed` anew.
+            var now = _time.GetUtcNow();
+            var claimed = false;
+            _refusalConfirmedAt.AddOrUpdate(
+                tenantId,
+                _ =>
+                {
+                    claimed = true;
+                    return now;
+                },
+                (_, last) =>
+                {
+                    claimed = now - last >= RefusalConfirmInterval;
+                    return claimed ? now : last;
+                });
+            if (!claimed)
+                return null;
+
+            try
+            {
+                return await GetConfigurationFreshAsync(tenantId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Stored configuration of tenant {TenantId} could not be read before a refusal; the cached copy decides", tenantId);
+                return null;
+            }
         }
 
         /// <summary>

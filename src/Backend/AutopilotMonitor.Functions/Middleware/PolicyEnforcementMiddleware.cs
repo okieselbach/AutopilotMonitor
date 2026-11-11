@@ -96,12 +96,18 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             httpContext.Request.Headers[ViewAsHeaders.Tenant].FirstOrDefault(),
             httpContext.Request.Headers[ViewAsHeaders.Role].FirstOrDefault());
 
+        // A signed-in caller that has just written a tenant configuration asks for the stored row
+        // (StoredConfigHeader); the request row counts how often that happens.
+        var readStoredConfig = principal != null && StoredConfigHeader.IsSet(httpContext);
+        if (readStoredConfig)
+            context.Items[RequestRowMarkers.ConfigRefreshKey] = RequestRowMarkers.ConfigRefreshHint;
+
         // All authorization + RequestContext construction is the transport-agnostic DecideAsync seam.
         // Fail-closed on service errors: return 503 (not 500) so clients can retry.
         PolicyResult result;
         try
         {
-            result = await DecideAsync(httpMethod, requestPath, queryTenantId, principal, ClientSourceHeader.IsMcp(httpContext), viewAs);
+            result = await DecideAsync(httpMethod, requestPath, queryTenantId, principal, ClientSourceHeader.IsMcp(httpContext), viewAs, readStoredConfig);
         }
         catch (Exception ex)
         {
@@ -224,10 +230,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// <paramref name="isMcpClient"/> is the self-declared <c>X-Client-Source: mcp</c> marker: it only ever
     /// narrows (the tenant MCP switch), never grants. <paramref name="viewAs"/> (the view-as headers) only
     /// ever narrows too: a Global Admin is decided as the emulated member of the viewed tenant, read-only.
+    /// <paramref name="readStoredConfig"/> (<see cref="StoredConfigHeader"/>) reads the stored configuration of
+    /// the acting and the target tenant into this instance's cache first, so this decision and the function
+    /// behind it see what the caller has just written through another instance.
     /// </summary>
     internal async Task<PolicyResult> DecideAsync(
         string httpMethod, string requestPath, string? queryTenantId, ClaimsPrincipal? principal,
-        bool isMcpClient = false, ViewAsTarget? viewAs = null)
+        bool isMcpClient = false, ViewAsTarget? viewAs = null, bool readStoredConfig = false)
     {
         // Sanitized copies for logging only — never used for routing/authorization decisions.
         var logPath = LogSanitizer.Clean(requestPath);
@@ -255,6 +264,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             viewing = viewAs;
         }
         var actingTenantId = viewing?.TenantId ?? jwtTenantId;
+
+        // Before the roles and the suspension gate below, which read this tenant's configuration too.
+        readStoredConfig = readStoredConfig && principal != null;
+        if (readStoredConfig)
+            await _tenantConfigService.RefreshFromStoreAsync(actingTenantId);
+
         var roles = viewing == null ? CallerRoles.Real(this, principal) : CallerRoles.Emulated(viewing.Role);
 
         var decision = await EvaluateCatalogPolicyAsync(principal, catalogEntry, roles, actingTenantId);
@@ -326,6 +341,11 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 "Access denied. You can only access your own tenant's resources.",
                 decision.UserIdentifier, decision.UserRole, "CrossTenant", catalogEntry.Policy);
         }
+
+        // The target of an admitted cross-tenant call (Global Admin, delegated reader) likewise; only
+        // past the cross-tenant check, so nobody makes this instance read a tenant it may not reach.
+        if (readStoredConfig && !string.Equals(targetTenantId, actingTenantId, StringComparison.OrdinalIgnoreCase))
+            await _tenantConfigService.RefreshFromStoreAsync(targetTenantId);
 
         // Tenant suspension gate — the operator kill-switch (TenantConfiguration.Disabled/DisabledUntil) and
         // the offboarding tombstone. Enforced HERE, on the shared authorization path, so it covers every

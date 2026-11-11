@@ -58,6 +58,40 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
+        /// The agent gate read the stored tenant configuration before refusing a request the cached
+        /// copy would have refused (<c>TenantConfigurationService.ConfirmBeforeRefusalAsync</c>).
+        /// Absent on requests that pass on the cached copy and within the confirm interval.
+        /// </summary>
+        public const string ConfigConfirmKey = "ConfigConfirm";
+
+        /// <summary>Closed set of <see cref="ConfigConfirmKey"/> values.</summary>
+        public static class ConfigConfirm
+        {
+            /// <summary>The stored row no longer refuses: another instance's write had outdated the copy.</summary>
+            public const string Averted = "averted";
+            /// <summary>The stored row refuses as well.</summary>
+            public const string Confirmed = "confirmed";
+            /// <summary>The stored row switches on a validation the chain had not asked; the chain ran again.</summary>
+            public const string Rerun = "rerun";
+        }
+
+        /// <summary>
+        /// A signed-in request asked for the stored tenant configuration (<c>StoredConfigHeader</c>):
+        /// its caller wrote the configuration within the last minutes.
+        /// </summary>
+        public const string ConfigRefreshKey = "ConfigRefresh";
+
+        /// <summary>The one <see cref="ConfigRefreshKey"/> value.</summary>
+        public const string ConfigRefreshHint = "hint";
+
+        /// <summary>
+        /// On a tenant-configuration field patch: how many of the sent fields the stored row already
+        /// held. The client believed they differed, so it was showing an outdated configuration.
+        /// Absent when every sent field changed.
+        /// </summary>
+        public const string ConfigPatchUnchangedKey = "ConfigPatchUnchanged";
+
+        /// <summary>
         /// Outcome of the Intune device lookup behind the client certificate
         /// (<see cref="IntuneDeviceBindingOutcome"/> name). Absent when no lookup result exists for
         /// the request: the tenant granted no permission, or an observation is still running.
@@ -88,6 +122,12 @@ namespace AutopilotMonitor.Functions.Security
         {
             CertDeviceBindingKey, CertDeviceBindingRoleKey, CertDeviceSerialMatchKey,
             CertDeviceOwnerTypeKey, CertDeviceEnrollmentTypeKey,
+        };
+
+        /// <summary>The tenant-configuration freshness keys; copied onto the request row like the ones above.</summary>
+        public static readonly string[] ConfigFreshnessKeys =
+        {
+            ConfigConfirmKey, ConfigRefreshKey, ConfigPatchUnchangedKey,
         };
 
         /// <summary>

@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -88,12 +91,33 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     request.Reason,
                     callerTier);
 
+                StampUnchangedFields(req, request.Fields.Keys, outcome);
                 return await WriteOutcome(req, outcome);
             }
             catch (Exception ex)
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "PatchTenantConfigurationFields");
             }
+        }
+
+        /// <summary>
+        /// Counts the sent fields the stored row already held onto the request row. The portal sends
+        /// only what its user changed, so such a field means the page showed an outdated configuration.
+        /// </summary>
+        private static void StampUnchangedFields(HttpRequestData req, IEnumerable<string> sentFields, PatchOutcome outcome)
+        {
+            var unchanged = UnchangedFieldCount(sentFields, outcome);
+            if (unchanged > 0)
+                RequestRowMarkers.Stamp(req, RequestRowMarkers.ConfigPatchUnchangedKey, unchanged.ToString(CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>Sent fields (wire names) a successful patch did not change; zero for a failed patch.</summary>
+        internal static int UnchangedFieldCount(IEnumerable<string> sentFields, PatchOutcome outcome)
+        {
+            if (!outcome.Success)
+                return 0;
+            var applied = new HashSet<string>(outcome.AppliedFields, StringComparer.OrdinalIgnoreCase);
+            return sentFields.Count(field => !applied.Contains(field));
         }
 
         /// <summary>

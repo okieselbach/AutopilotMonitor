@@ -36,7 +36,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 _logger.LogInformation($"GetTenantConfiguration: {requestCtx.TargetTenantId} by user {userIdentifier}");
 
-                var config = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
+                // The tenant's row or an error, never a synthesized default: this answer is the baseline
+                // of the settings editor and of every read-modify-write in the portal, and the plain
+                // cached read answers a storage failure with defaults. A tenant without a row still
+                // gets its default row.
+                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId)
+                    ?? await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
 
                 // Only a caller with WRITE authority over THIS target tenant sees the full config including
                 // DiagnosticsBlobSasUrl / webhook URLs / custom headers (they manage those in the Settings

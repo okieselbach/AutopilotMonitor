@@ -75,8 +75,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 }
 
                 // Check if the bootstrap feature is enabled for the session's tenant (Pro plan or GA flag)
-                var tenantConfig = await _configService.GetConfigurationAsync(session.TenantId);
-                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
+                if (!await BootstrapFeatureGate.IsEnabledAsync(_configService, session.TenantId))
                 {
                     _logger.LogWarning("Bootstrap code {Code} rejected — feature disabled for tenant {TenantId}", code, session.TenantId);
                     return await req.NotFoundAsync("Code not found, expired, or revoked");
