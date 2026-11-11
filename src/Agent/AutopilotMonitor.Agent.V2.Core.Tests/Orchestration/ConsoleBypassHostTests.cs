@@ -94,8 +94,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
-        public void A_low_confidence_console_waits_for_the_next_upload_and_names_a_gone_parent_unknown()
+        public void A_low_confidence_console_is_uploaded_at_once_too_and_names_a_gone_parent_unknown()
         {
+            // The confidence follows the command line, which whoever opens the console chooses:
+            // it labels the warning, it never delays it.
             _runningCommandLine = "cmd.exe /k whoami";
             var watcher = NewWatcher();
             using var host = Build(watcher);
@@ -104,7 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
             var s = Assert.Single(Events(Constants.EventTypes.OobeConsoleSpawned));
             Assert.Equal("Warning", s.Payload![SignalPayloadKeys.Severity]);
-            Assert.Equal("false", s.Payload![SignalPayloadKeys.ImmediateUpload]);
+            Assert.Equal("true", s.Payload![SignalPayloadKeys.ImmediateUpload]);
             Assert.Equal("low", Data(s)["confidence"]);
             Assert.Equal("unknown", Data(s)["parentProcessName"]);
         }

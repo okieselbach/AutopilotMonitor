@@ -136,7 +136,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     Phase = EnrollmentPhase.Unknown,
                     Message = $"Interactive console spawned during enrollment: {info.ProcessName} " +
                               $"(session {info.SessionId}, {info.Confidence} confidence) — possible Shift+F10",
-                    ImmediateUpload = info.Confidence == "high",
+                    // At once, whatever the confidence: the confidence follows the command line,
+                    // and that is chosen by whoever opens the console.
+                    ImmediateUpload = true,
                     Data = new Dictionary<string, object>
                     {
                         { "decision", "console_spawn_detected" },

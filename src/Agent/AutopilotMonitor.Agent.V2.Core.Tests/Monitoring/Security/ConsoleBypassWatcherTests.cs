@@ -139,6 +139,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
             Assert.Null(rig.Sut.TakeScriptActivity());
         }
 
+        [Fact]
+        public void A_running_process_that_could_not_be_read_at_all_raises_low_confidence()
+        {
+            // The query failed. That says nothing about the process: it is reported, never counted away.
+            using var rig = new Rig((_, __) => ProcessProbe.Unreadable, alive: true);
+
+            rig.Trace();
+
+            var info = Assert.Single(rig.Detected);
+            Assert.Equal("low", info.Confidence);
+            Assert.Equal("interactive_session_unclassified", info.Classification);
+            Assert.Equal(OobeAccount, info.Owner);
+            Assert.Null(rig.Sut.TakeScriptActivity());
+        }
+
         // ---------------------------------------------------------------- starts that are ignored
 
         [Fact]
@@ -227,6 +242,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
         }
 
         [Fact]
+        public void A_process_that_could_not_be_read_and_is_gone_at_the_second_look_is_counted()
+        {
+            using var rig = new Rig((_, __) => ProcessProbe.Unreadable, alive: false);
+
+            rig.Trace();
+
+            Assert.Empty(rig.Detected);
+            Assert.Equal(1, rig.Sut.TakeScriptActivity()!.Count);
+        }
+
+        [Fact]
         public void A_burst_opens_one_window_and_asks_for_each_parent_once()
         {
             using var rig = new Rig(Gone, parentName: _ => "python.exe");
@@ -296,17 +322,80 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
             Assert.Equal(2, rig.Detected.Count);
         }
 
+        // ---------------------------------------------------------------- the probe's decision
+
+        private static readonly ProcessProbe Row = new ProcessProbe(Cmd, 1, Parent, BareCmd, Created);
+
+        [Theory]
+        [InlineData("NotRunning")]
+        [InlineData("OtherImage")]
+        public void The_probe_says_gone_only_when_the_process_list_is_certain(string listed)
+        {
+            var asked = false;
+            var state = (ConsoleBypassWatcher.ListedAs)Enum.Parse(typeof(ConsoleBypassWatcher.ListedAs), listed);
+
+            var probe = ConsoleBypassWatcher.Probe(Pid, state, _ => { asked = true; return Row; });
+
+            Assert.Null(probe);
+            Assert.False(asked, "a process that is certainly gone costs no query");
+        }
+
+        [Theory]
+        [InlineData("Expected")]
+        [InlineData("Unknown")]
+        public void The_probe_returns_the_row_of_a_process_that_may_still_run(string listed)
+        {
+            var state = (ConsoleBypassWatcher.ListedAs)Enum.Parse(typeof(ConsoleBypassWatcher.ListedAs), listed);
+
+            Assert.Same(Row, ConsoleBypassWatcher.Probe(Pid, state, _ => Row));
+        }
+
+        [Fact]
+        public void A_failed_query_is_unreadable_and_never_gone()
+        {
+            var probe = ConsoleBypassWatcher.Probe(
+                Pid, ConsoleBypassWatcher.ListedAs.Expected, _ => throw new InvalidOperationException("WinMgmt did not answer"));
+
+            Assert.Same(ProcessProbe.Unreadable, probe);
+        }
+
+        [Fact]
+        public void A_query_without_a_row_is_unreadable_and_never_gone()
+        {
+            var probe = ConsoleBypassWatcher.Probe(Pid, ConsoleBypassWatcher.ListedAs.Expected, _ => null);
+
+            Assert.Same(ProcessProbe.Unreadable, probe);
+        }
+
+        [Fact]
+        public void The_process_list_tells_running_other_image_and_not_running_apart()
+        {
+            using var me = System.Diagnostics.Process.GetCurrentProcess();
+            const int neverAProcessId = int.MaxValue;
+
+            Assert.Equal(ConsoleBypassWatcher.ListedAs.Expected, ConsoleBypassWatcher.ProcessListState(me.Id, me.ProcessName + ".exe"));
+            Assert.Equal(ConsoleBypassWatcher.ListedAs.OtherImage, ConsoleBypassWatcher.ProcessListState(me.Id, "not-" + me.ProcessName + ".exe"));
+            Assert.Equal(ConsoleBypassWatcher.ListedAs.NotRunning, ConsoleBypassWatcher.ProcessListState(neverAProcessId, Cmd));
+            Assert.True(ConsoleBypassWatcher.IsRunning(me.Id));
+            Assert.False(ConsoleBypassWatcher.IsRunning(neverAProcessId));
+        }
+
         // ---------------------------------------------------------------- IsTracedProcess (pure)
 
         [Theory]
         [InlineData("cmd.exe", 1, Parent, true)]
         [InlineData("CMD.EXE", 2, Parent, true)]     // image name compares without case
         [InlineData("cmd.exe", 1, 0, true)]          // the row does not know its parent
+        // A fact that could not be read contradicts nothing — the process stays the traced one.
+        [InlineData(null, null, null, true)]
+        [InlineData(null, 1, Parent, true)]
+        [InlineData("cmd.exe", null, Parent, true)]
+        [InlineData("cmd.exe", 1, null, true)]
+        // A fact that was read and differs makes it another process.
         [InlineData("conhost.exe", 1, Parent, false)]
-        [InlineData(null, 1, Parent, false)]
         [InlineData("cmd.exe", 0, Parent, false)]
         [InlineData("cmd.exe", 1, 77, false)]
-        public void IsTracedProcess_compares_name_session_and_parent(string? name, int sessionId, int rowParent, bool expected)
+        public void IsTracedProcess_compares_name_session_and_parent(string? name, int? sessionId, int? rowParent, bool expected)
         {
             var probe = new ProcessProbe(name, sessionId, rowParent, BareCmd, Created);
             Assert.Equal(expected, ConsoleBypassWatcher.IsTracedProcess(probe, Cmd, Parent));

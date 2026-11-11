@@ -38,6 +38,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
     /// <see cref="ConsoleScriptActivityTally"/> and reported as one summary, never as a console.
     /// The comparison uses no clock on purpose — trace time and process start time need not follow
     /// the same clock corrections during OOBE, and a wrong tolerance would count real consoles away.
+    /// Counting needs certainty: the process list no longer has the id, or a fact that was read
+    /// contradicts the trace. A query that fails, or a fact that cannot be read, proves nothing —
+    /// such a process is reported at low confidence, exactly as a running console nobody could
+    /// classify.
     /// </para>
     /// <para>
     /// <b>Lifecycle.</b> The host stops this watcher once the real-user desktop has arrived (wired in
@@ -111,9 +115,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         public event EventHandler<Exception>? WatcherArmFailed;
 
         /// <param name="processProbe">Reads a live process by id; the second argument is the image
-        /// name the trace announced. Returns null when the process has exited or the id belongs to
-        /// another program. Defaults to a process-list check followed by one WMI row.</param>
-        /// <param name="isAlive">Whether a process id still runs. Defaults to the process list.</param>
+        /// name the trace announced. Returns null only when the process has certainly exited or
+        /// the id certainly runs another image, and <see cref="ProcessProbe.Unreadable"/> when it
+        /// could not be read. Defaults to a process-list check followed by one WMI row.</param>
+        /// <param name="isAlive">False only when a process id certainly no longer runs. Defaults to
+        /// the process list.</param>
         /// <param name="parentName">Image file name of a process, or null when it cannot be read.</param>
         /// <param name="utcNow">Clock for the timestamps of counted starts.</param>
         public ConsoleBypassWatcher(
@@ -390,14 +396,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         }
 
         /// <summary>
-        /// Whether a probed row is still the process the trace announced (internal for tests): same
-        /// image name, not the service session, and the same parent where both sides know it.
+        /// Whether a probed process is still the one the trace announced (internal for tests). Only
+        /// a fact that contradicts the trace makes it another process — another image name, the
+        /// service session, another parent. A fact that could not be read contradicts nothing: the
+        /// process is then reported, never counted away.
         /// </summary>
         internal static bool IsTracedProcess(ProcessProbe probe, string processName, int parentPid)
         {
-            if (!string.Equals(probe.Name, processName, StringComparison.OrdinalIgnoreCase)) return false;
+            if (probe.Name != null && !string.Equals(probe.Name, processName, StringComparison.OrdinalIgnoreCase)) return false;
             if (probe.SessionId == 0) return false;
-            return parentPid <= 0 || probe.ParentProcessId <= 0 || probe.ParentProcessId == parentPid;
+            return parentPid <= 0 || probe.ParentProcessId == null || probe.ParentProcessId <= 0 || probe.ParentProcessId == parentPid;
         }
 
         /// <summary>Returns the command line with the leading executable token (quoted or
@@ -415,62 +423,93 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             return space >= 0 ? s.Substring(space + 1) : string.Empty;
         }
 
-        private static ProcessProbe? DefaultProbe(int pid, string processName)
+        // The process list first: a WMI query takes a few hundred milliseconds, and in a burst
+        // almost every traced process has already exited. Queried one after the other on the
+        // delivery thread they would pile up, and a real console closed during the backlog would
+        // be counted as a script.
+        private static ProcessProbe? DefaultProbe(int pid, string processName) =>
+            Probe(pid, ProcessListState(pid, processName), ReadRow);
+
+        /// <summary>
+        /// The probe's decision (internal for tests). Null only when the process list says so for
+        /// certain: the id no longer runs, or it runs another image. Everything else comes back as
+        /// a probe — with the row's facts, or <see cref="ProcessProbe.Unreadable"/> when the query
+        /// failed or returned nothing. A failed query says nothing about the process, so it must
+        /// never read as "exited".
+        /// </summary>
+        internal static ProcessProbe? Probe(int pid, ListedAs listed, Func<int, ProcessProbe?> readRow)
         {
-            // The process list first: a WMI query takes a few hundred milliseconds, and in a burst
-            // almost every traced process has already exited. Queried one after the other on the
-            // delivery thread they would pile up, and a real console closed during the backlog
-            // would be counted as a script.
-            if (!IsRunningAs(pid, processName)) return null;
+            if (listed == ListedAs.NotRunning || listed == ListedAs.OtherImage) return null;
 
             try
             {
-                using var searcher = new ManagementObjectSearcher(
-                    $"SELECT Name, SessionId, ParentProcessId, CommandLine, CreationDate FROM Win32_Process WHERE ProcessId = {pid}");
-                using var results = searcher.Get();
-                foreach (ManagementObject mo in results)
-                {
-                    using (mo)
-                    {
-                        return new ProcessProbe(
-                            mo["Name"]?.ToString(),
-                            ToInt(mo["SessionId"]),
-                            ToInt(mo["ParentProcessId"]),
-                            mo["CommandLine"]?.ToString(),
-                            mo["CreationDate"]?.ToString());
-                    }
-                }
+                return readRow(pid) ?? ProcessProbe.Unreadable;
             }
             catch (Exception)
             {
-                // Process gone or query failed — the same as exited.
+                return ProcessProbe.Unreadable; // WinMgmt can fail or hang during OOBE
+            }
+        }
+
+        private static ProcessProbe? ReadRow(int pid)
+        {
+            using var searcher = new ManagementObjectSearcher(
+                $"SELECT Name, SessionId, ParentProcessId, CommandLine, CreationDate FROM Win32_Process WHERE ProcessId = {pid}");
+            using var results = searcher.Get();
+            foreach (ManagementObject mo in results)
+            {
+                using (mo)
+                {
+                    return new ProcessProbe(
+                        mo["Name"]?.ToString(),
+                        ToNullableInt(mo["SessionId"]),
+                        ToNullableInt(mo["ParentProcessId"]),
+                        mo["CommandLine"]?.ToString(),
+                        mo["CreationDate"]?.ToString());
+                }
             }
             return null;
         }
 
-        private static bool IsRunningAs(int pid, string processName)
+        /// <summary>What the process list says about an id and the image name expected under it.</summary>
+        internal enum ListedAs { NotRunning, OtherImage, Expected, Unknown }
+
+        /// <summary>Internal for tests.</summary>
+        internal static ListedAs ProcessListState(int pid, string processName)
         {
             try
             {
                 using var process = Process.GetProcessById(pid);
-                return string.Equals(process.ProcessName, Path.GetFileNameWithoutExtension(processName), StringComparison.OrdinalIgnoreCase);
+                return string.Equals(process.ProcessName, Path.GetFileNameWithoutExtension(processName), StringComparison.OrdinalIgnoreCase)
+                    ? ListedAs.Expected
+                    : ListedAs.OtherImage;
+            }
+            catch (ArgumentException)
+            {
+                return ListedAs.NotRunning; // what GetProcessById throws for an id that does not run
             }
             catch (Exception)
             {
-                return false; // GetProcessById throws for an id that no longer runs
+                return ListedAs.Unknown;
             }
         }
 
-        private static bool IsRunning(int pid)
+        /// <summary>False only when the id certainly does not run; when that cannot be told, true.
+        /// Internal for tests.</summary>
+        internal static bool IsRunning(int pid)
         {
             try
             {
                 using var process = Process.GetProcessById(pid);
                 return !process.HasExited;
             }
-            catch (Exception)
+            catch (ArgumentException)
             {
                 return false;
+            }
+            catch (Exception)
+            {
+                return true;
             }
         }
 
@@ -496,6 +535,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             if (value == null) return 0;
             try { return Convert.ToInt32(value); }
             catch { return 0; }
+        }
+
+        private static int? ToNullableInt(object? value)
+        {
+            if (value == null) return null;
+            try { return Convert.ToInt32(value); }
+            catch { return null; }
         }
 
         private void TearDownStartTrace(ManagementEventWatcher watcher)
@@ -528,11 +574,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
 
     /// <summary>
     /// What was read about a running process: the facts that tell whether it is still the process
-    /// a start trace announced, and its command line. Any text field may be null.
+    /// a start trace announced, and its command line. Every field is null when it could not be
+    /// read; null never means "no" or "zero".
     /// </summary>
     public sealed class ProcessProbe
     {
-        public ProcessProbe(string? name, int sessionId, int parentProcessId, string? commandLine, string? creationDate)
+        /// <summary>
+        /// A process that runs but about which nothing could be read (the query failed or returned
+        /// no row). It goes on as the traced process without a command line, so it is reported.
+        /// </summary>
+        internal static readonly ProcessProbe Unreadable = new ProcessProbe(null, null, null, null, null);
+
+        public ProcessProbe(string? name, int? sessionId, int? parentProcessId, string? commandLine, string? creationDate)
         {
             Name = name;
             SessionId = sessionId;
@@ -542,8 +595,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         }
 
         public string? Name { get; }
-        public int SessionId { get; }
-        public int ParentProcessId { get; }
+        public int? SessionId { get; }
+        public int? ParentProcessId { get; }
         public string? CommandLine { get; }
         /// <summary>The raw WMI creation time; only compared for equality.</summary>
         public string? CreationDate { get; }
