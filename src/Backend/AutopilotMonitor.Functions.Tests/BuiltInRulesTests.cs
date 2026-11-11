@@ -111,17 +111,12 @@ public class BuiltInRulesTests
         Assert.Equal("high", sec003.Severity);
         Assert.Contains(sec003.Conditions, c => c.DataField == "checks.default_password_present");
 
-        // SEC-004: kiosk allow-list TEMPLATE — disabled until configured.
-        var sec004 = rules.FirstOrDefault(r => r.RuleId == "ANALYZE-SEC-004");
-        Assert.NotNull(sec004);
-        Assert.False(sec004!.Enabled, "ANALYZE-SEC-004 is a template and must ship disabled");
-        Assert.NotNull(sec004.TemplateVariables);
-        var tv = Assert.Single(sec004.TemplateVariables);
-        Assert.Equal("allowed_autologon_users", tv.Name);
-        Assert.Equal(1, tv.ConditionIndex);
-        Assert.Equal("value", tv.Field);
-        Assert.Equal("not_in", sec004.Conditions[1].Operator);
-        Assert.Equal("checks.default_user_name", sec004.Conditions[1].DataField);
+        // SEC-004 (kiosk allow-list template) was removed. The ID stays retired, and no surviving
+        // rule may match on the AutoLogon user name: the event reports a sign-in address as its
+        // domain only, so an exact-match list no longer fits that field.
+        Assert.DoesNotContain(rules, r => r.RuleId == "ANALYZE-SEC-004");
+        Assert.DoesNotContain(rules, r =>
+            r.Conditions != null && r.Conditions.Any(c => c.DataField == "checks.default_user_name"));
     }
 
     [Fact]

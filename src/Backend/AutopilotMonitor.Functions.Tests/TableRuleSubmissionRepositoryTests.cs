@@ -33,7 +33,7 @@ public class TableRuleSubmissionRepositoryTests
         Status = RuleSubmissionStatuses.Approved,
         ValidationFindings = new List<RuleSubmissionFinding>
         {
-            new() { Level = "info", Message = "Derived from template ANALYZE-SEC-004" },
+            new() { Level = "info", Message = "Derived from template ANALYZE-SEC-006" },
         },
         SourceFireStats = new RuleSubmissionFireStats { Days = 30, FireCount = 42, SessionsEvaluated = 310, EvaluationCount = 312 },
         ReviewedBy = "ga@example.com",
@@ -41,7 +41,7 @@ public class TableRuleSubmissionRepositoryTests
         ReviewComment = "Taken, generalised for the community.",
         WillBeAdapted = true,
         PublishedRuleId = "ANALYZE-NET-002",
-        DerivedFromTemplateRuleId = "ANALYZE-SEC-004",
+        DerivedFromTemplateRuleId = "ANALYZE-SEC-006",
     };
 
     [Fact]

@@ -27,7 +27,7 @@ public class AnalyzeRulesFunctionAuthorEndpointTests
 {
     private const string TenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     private const string RuleId = "ANALYZE-CUSTOM-777";
-    private const string TemplateRuleId = "ANALYZE-SEC-004";
+    private const string TemplateRuleId = "ANALYZE-SEC-006";
 
     private sealed class FakeHttpResponseData : HttpResponseData
     {
@@ -177,7 +177,7 @@ public class AnalyzeRulesFunctionAuthorEndpointTests
         var template = new AnalyzeRule
         {
             RuleId = TemplateRuleId,
-            Title = "AutoLogon enabled for an unexpected user",
+            Title = "Unexpected Provisioning Package (Custom Allow-List)",
             Description = "Template",
             Severity = "warning",
             Category = "security",
@@ -186,7 +186,7 @@ public class AnalyzeRulesFunctionAuthorEndpointTests
             Author = "Autopilot Monitor",
             Conditions = new List<RuleCondition>
             {
-                new() { Signal = "autologon", Source = "event_type", EventType = "autologon_analysis", Operator = "equals", Value = "PLACEHOLDER", Required = true }
+                new() { Signal = "unexpected_package", Source = "event_type", EventType = "provisioning_package_scan", Operator = "equals", Value = "PLACEHOLDER", Required = true }
             },
             TemplateVariables = new List<TemplateVariable>
             {
@@ -194,7 +194,7 @@ public class AnalyzeRulesFunctionAuthorEndpointTests
             },
         };
         var (function, stored) = BuildFunction(globalRule: template);
-        var req = BuildRequest(AlicePrincipal(), new { variables = new Dictionary<string, string> { ["allowed"] = "KIOSK-1" } });
+        var req = BuildRequest(AlicePrincipal(), new { variables = new Dictionary<string, string> { ["allowed"] = "Contoso.Recovery" } });
 
         var response = await function.CreateFromTemplate(req, TemplateRuleId);
 

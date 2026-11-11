@@ -32,7 +32,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     /// This analyzer reports facts ONLY, always at <see cref="EventSeverity.Info"/>. It never reads
     /// or emits the <c>DefaultPassword</c> value — only its presence. Whether an AutoLogon is a
     /// problem is judged by backend analyze-rules (ANALYZE-SEC-003 = plaintext DefaultPassword on
-    /// disk → escalated; ANALYZE-SEC-004 = optional kiosk allow-list template).
+    /// disk → escalated).
     /// </para>
     /// <para>
     /// <b>Trigger</b>: NOT at agent start — the Winlogon keys are written later by a provisioning
@@ -247,8 +247,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         /// <summary>
         /// A sign-in address is reported as its domain only. Local account names (kiosk,
-        /// defaultuser0) and the provisioning placeholders stay readable — the allow-list rule
-        /// matches on them.
+        /// defaultuser0) and the provisioning placeholders stay readable.
         /// </summary>
         internal static string ReduceUserName(string? userName)
         {

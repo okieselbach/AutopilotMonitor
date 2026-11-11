@@ -187,7 +187,7 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
   { value: "local_admin_analysis", label: "local_admin_analysis", category: "diagnostics",
     description: "Local administrator / user-profile audit detecting pre-enrollment admin account creation (an Autopilot bypass technique); emitted at startup and shutdown for delta detection." },
   { value: "autologon_analysis", label: "autologon_analysis", category: "diagnostics",
-    description: "Winlogon AutoLogon facts (raw, Info-only): AutoAdminLogon/ForceAutoLogon, default user/domain, AutoLogon count, and presence-only of a plaintext DefaultPassword. AutoLogon-enabled alone is not graded (Windows' own ESP auto-logon looks identical on every normal enrollment); backend analyze-rules grade only a plaintext DefaultPassword on disk (ANALYZE-SEC-003) plus an optional kiosk allow-list template (ANALYZE-SEC-004). AutoLogon can be a legitimate kiosk or an enrollment/OOBE manipulation vector." },
+    description: "Winlogon AutoLogon facts (raw, Info-only): AutoAdminLogon/ForceAutoLogon, default user/domain (a sign-in address as its domain only), AutoLogon count, and presence-only of a plaintext DefaultPassword. AutoLogon-enabled alone is not graded (Windows' own ESP auto-logon looks identical on every normal enrollment); backend analyze-rules grade only a plaintext DefaultPassword on disk (ANALYZE-SEC-003). AutoLogon can be a legitimate kiosk or an enrollment/OOBE manipulation vector." },
   { value: "gather_result", label: "gather_result", category: "diagnostics",
     description: "Output of another gather rule (can be chained)." },
   { value: "provisioning_package_scan", label: "provisioning_package_scan", category: "diagnostics",

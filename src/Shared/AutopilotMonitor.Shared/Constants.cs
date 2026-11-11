@@ -1009,9 +1009,9 @@ namespace AutopilotMonitor.Shared
             // raw facts only (Winlogon registry indicators; DefaultPassword presence-only, never the
             // value) at Info severity. AutoLogon-enabled alone is NOT graded — it is the fingerprint
             // of Windows' own ESP auto-logon on every normal Autopilot enrollment. Backend analyze-
-            // rules grade only the unambiguous cases: a plaintext DefaultPassword on disk (ANALYZE-
-            // SEC-003, escalated) and an optional kiosk allow-list template (ANALYZE-SEC-004, off by
-            // default). AutoLogon may be legitimate (kiosk) OR an enrollment/OOBE manipulation vector.
+            // rules grade only the unambiguous case: a plaintext DefaultPassword on disk (ANALYZE-
+            // SEC-003, escalated). AutoLogon may be legitimate (kiosk) OR an enrollment/OOBE
+            // manipulation vector.
             public const string AutoLogonAnalysis         = "autologon_analysis";
             // OOBE-console / Shift+F10 detection (per-tenant opt-OUT, AnalyzerConfiguration.
             // EnableConsoleBypassDetection, default ON). Two complementary Warning signals and one count:

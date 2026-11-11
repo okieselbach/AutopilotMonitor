@@ -68,7 +68,7 @@ public class RuleSubmissionServiceTests
         MarkSessionAsFailed = true,
         Notify = true,
         NotifyChannelIds = new List<string> { "chan-1" },
-        DerivedFromTemplateRuleId = "ANALYZE-SEC-004",
+        DerivedFromTemplateRuleId = "ANALYZE-SEC-006",
         Explanation = "The PAC file could not be fetched.",
         Conditions = new List<RuleCondition>
         {
@@ -89,7 +89,7 @@ public class RuleSubmissionServiceTests
 
         Assert.Equal("ANALYZE-CUSTOM-003", node["ruleId"]!.GetValue<string>());
         Assert.Equal("Alice Admin", node["author"]!.GetValue<string>());
-        Assert.Equal("ANALYZE-SEC-004", node["derivedFromTemplateRuleId"]!.GetValue<string>());
+        Assert.Equal("ANALYZE-SEC-006", node["derivedFromTemplateRuleId"]!.GetValue<string>());
         Assert.Single(node["conditions"]!.AsArray());
     }
 
@@ -430,8 +430,8 @@ public class RuleSubmissionServiceTests
         Assert.Null(s.ContactEmail);
         Assert.Equal("Proxy PAC unreachable", s.Title);
         Assert.Equal("network", s.Category);
-        Assert.Equal("ANALYZE-SEC-004", s.DerivedFromTemplateRuleId);
-        Assert.Contains(s.ValidationFindings, f => f.Level == "info" && f.Message.Contains("ANALYZE-SEC-004"));
+        Assert.Equal("ANALYZE-SEC-006", s.DerivedFromTemplateRuleId);
+        Assert.Contains(s.ValidationFindings, f => f.Level == "info" && f.Message.Contains("ANALYZE-SEC-006"));
         Assert.DoesNotContain(s.ValidationFindings, f => f.Level == "error");
         Assert.Equal(5, s.SourceFireStats!.FireCount);
         Assert.Equal(50, s.SourceFireStats.SessionsEvaluated);

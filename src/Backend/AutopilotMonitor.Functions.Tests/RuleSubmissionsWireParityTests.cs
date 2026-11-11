@@ -27,14 +27,14 @@ public class RuleSubmissionsWireParityTests
         AttributionName = "Community contribution",
         SubmittedAt = T0,
         Status = "approved",
-        ValidationFindings = new List<RuleSubmissionFinding> { new() { Level = "info", Message = "Derived from template ANALYZE-SEC-004" } },
+        ValidationFindings = new List<RuleSubmissionFinding> { new() { Level = "info", Message = "Derived from template ANALYZE-SEC-006" } },
         SourceFireStats = new RuleSubmissionFireStats { Days = 30, FireCount = 42, SessionsEvaluated = 310, EvaluationCount = 312 },
         ReviewedBy = "ga@example.com",
         ReviewedAt = T0.AddDays(1),
         ReviewComment = "Taken.",
         WillBeAdapted = true,
         PublishedRuleId = "ANALYZE-NET-002",
-        DerivedFromTemplateRuleId = "ANALYZE-SEC-004",
+        DerivedFromTemplateRuleId = "ANALYZE-SEC-006",
     };
 
     private static object ItemLiteral() => new
@@ -54,14 +54,14 @@ public class RuleSubmissionsWireParityTests
         attributionName = "Community contribution",
         submittedAt = T0,
         status = "approved",
-        validationFindings = new List<object> { new { level = "info", message = "Derived from template ANALYZE-SEC-004" } },
+        validationFindings = new List<object> { new { level = "info", message = "Derived from template ANALYZE-SEC-006" } },
         sourceFireStats = new { days = 30, fireCount = 42, sessionsEvaluated = 310, evaluationCount = 312 },
         reviewedBy = "ga@example.com",
         reviewedAt = T0.AddDays(1),
         reviewComment = "Taken.",
         willBeAdapted = true,
         publishedRuleId = "ANALYZE-NET-002",
-        derivedFromTemplateRuleId = "ANALYZE-SEC-004",
+        derivedFromTemplateRuleId = "ANALYZE-SEC-006",
     };
 
     [Fact]
