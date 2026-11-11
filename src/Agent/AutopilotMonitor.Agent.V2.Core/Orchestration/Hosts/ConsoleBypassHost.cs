@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -21,12 +22,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// only sees consoles spawned after the agent started; the pre-agent OOBE window is covered
     /// (coarsely) by the ConsolePrefetchScanner. The composition root calls <see cref="Stop"/> once the
     /// real-user desktop arrives (Shift+F10 no longer possible) to avoid post-enrollment false positives.
+    /// <para>
+    /// Short-lived console processes (script children) are not events of their own: the watcher
+    /// counts them and this host reports one Info <c>console_script_activity</c> per window. The
+    /// first counted start opens a window of <see cref="ScriptActivityWindow"/>; at most
+    /// <see cref="MaxScriptActivitySummaries"/> windows are reported per agent run, whatever comes
+    /// after goes into the one line written when the host stops.
+    /// </para>
     /// </summary>
     internal sealed class ConsoleBypassHost : ICollectorHost
     {
         private const string CoverageNote =
             "best-effort: only consoles spawned after the agent started are observable; a Shift+F10 " +
             "pressed earlier in OOBE (before agent install) is covered coarsely by console_prefetch_detected";
+
+        internal const int MaxScriptActivitySummaries = 20;
+        private static readonly TimeSpan ScriptActivityWindow = TimeSpan.FromSeconds(60);
 
         public string Name => "ConsoleBypassWatcher";
 
@@ -36,7 +47,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly AgentLogger _logger;
         private readonly ConsoleBypassWatcher _watcher;
         private readonly SignalIngress? _observableIngress;
+        private readonly object _summaryLock = new object();
         private Action<AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind, IReadOnlyDictionary<string, string>?>? _signalPostedHandler;
+        private Timer? _windowTimer;
+        private int _summariesEmitted;
         private int _disposed;
 
         public ConsoleBypassHost(
@@ -55,11 +69,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _post = new InformationalEventPost(ingress, clock, logger);
             _watcher = watcher ?? new ConsoleBypassWatcher(logger);
             _watcher.BypassConsoleDetected += OnBypassConsoleDetected;
+            _watcher.ScriptActivityStarted += OnScriptActivityStarted;
             _watcher.WatcherArmFailed += OnWatcherArmFailed;
             _observableIngress = ingress as SignalIngress;
         }
 
-        public void Start()
+        public void Start() => StartCore(armWatcher: true);
+
+        /// <summary>Internal for tests: <paramref name="armWatcher"/> = false leaves the WMI
+        /// subscription and the startup probe out; everything else is the real start.</summary>
+        internal void StartCore(bool armWatcher)
         {
             // L14 fallback: the primary stop path is the DesktopArrivalDetector's real-user-owner
             // callback (StopForDesktopArrival). If the DAD misses the owner (no-candidate timeout,
@@ -73,7 +92,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 _observableIngress.SignalPosted += _signalPostedHandler;
             }
 
-            _watcher.Start();
+            if (armWatcher) _watcher.Start();
         }
 
         private void OnSignalPosted(AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
@@ -117,13 +136,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     Phase = EnrollmentPhase.Unknown,
                     Message = $"Interactive console spawned during enrollment: {info.ProcessName} " +
                               $"(session {info.SessionId}, {info.Confidence} confidence) — possible Shift+F10",
-                    ImmediateUpload = true,
+                    ImmediateUpload = info.Confidence == "high",
                     Data = new Dictionary<string, object>
                     {
                         { "decision", "console_spawn_detected" },
                         { "processName", info.ProcessName },
                         { "processId", info.ProcessId },
                         { "parentProcessId", info.ParentProcessId },
+                        { "parentProcessName", info.ParentProcessName ?? "unknown" },
                         { "sessionId", info.SessionId },
                         { "owner", info.Owner ?? "unknown" },
                         { "commandLine", info.CommandLine ?? "unavailable" },
@@ -141,6 +161,132 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
         }
 
+        private void OnScriptActivityStarted(object? sender, EventArgs e)
+        {
+            lock (_summaryLock)
+            {
+                // Checked under the lock Dispose takes for the timer, so no timer is created behind it.
+                if (Interlocked.CompareExchange(ref _disposed, 0, 0) == 1) return;
+                // Past the cap no window opens any more; the watcher keeps counting for the stop line.
+                if (_summariesEmitted >= MaxScriptActivitySummaries) return;
+
+                try
+                {
+                    if (_windowTimer == null)
+                        _windowTimer = new Timer(_ => WindowElapsed(), null, ScriptActivityWindow, Timeout.InfiniteTimeSpan);
+                    else
+                        _windowTimer.Change(ScriptActivityWindow, Timeout.InfiniteTimeSpan);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // stopping
+                }
+            }
+        }
+
+        /// <summary>Internal for tests: what the window timer runs when it elapses.</summary>
+        internal void WindowElapsedForTest() => WindowElapsed();
+
+        private void WindowElapsed()
+        {
+            if (Interlocked.CompareExchange(ref _disposed, 0, 0) == 1) return;
+            ReportScriptActivity(stopping: false);
+        }
+
+        private void ReportScriptActivity(bool stopping)
+        {
+            ConsoleScriptActivity? activity;
+            bool capped;
+            lock (_summaryLock)
+            {
+                capped = _summariesEmitted >= MaxScriptActivitySummaries;
+                if (capped && !stopping) return;
+
+                activity = _watcher.TakeScriptActivity();
+                if (activity == null) return;
+                _summariesEmitted++;
+            }
+
+            // Outside the lock: a post blocks while the ingress is full.
+            try
+            {
+                var data = new Dictionary<string, object>
+                {
+                    { "count", activity.Count },
+                    { "processName", activity.ProcessName },
+                    { "firstSeenUtc", activity.FirstSeenUtc.ToString("o") },
+                    { "lastSeenUtc", activity.LastSeenUtc.ToString("o") },
+                    { "windowsSessions", activity.WindowsSessions.ToList() },
+                    { "owners", activity.Owners.ToList() },
+                    { "ownersTotal", activity.OwnersTotal },
+                    {
+                        "parents", activity.Parents.Select(p => new Dictionary<string, object>
+                        {
+                            { "pid", p.ProcessId },
+                            { "name", p.Name ?? "unknown" },
+                            { "children", p.Children },
+                        }).ToList()
+                    },
+                    { "parentsTotal", activity.ParentsTotal },
+                };
+                if (capped) data["capped"] = true;
+
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.ConsoleScriptActivity,
+                    Severity = EventSeverity.Info,
+                    Source = Name,
+                    Phase = EnrollmentPhase.Unknown,
+                    Timestamp = activity.LastSeenUtc,
+                    Message = DescribeScriptActivity(activity),
+                    ImmediateUpload = false,
+                    Data = data,
+                });
+
+                _logger.Debug($"[ConsoleBypassHost] script activity reported: {activity.Count} short-lived {activity.ProcessName} " +
+                    $"from {activity.ParentsTotal} parent(s){(capped ? " (summary cap reached)" : string.Empty)}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[ConsoleBypassHost] failed to emit console_script_activity: {ex.Message}");
+            }
+        }
+
+        /// <summary>The timeline text of one summary (internal for tests).</summary>
+        internal static string DescribeScriptActivity(ConsoleScriptActivity activity)
+        {
+            var processes = activity.Count == 1
+                ? $"1 short-lived {activity.ProcessName} process"
+                : $"{activity.Count} short-lived {activity.ProcessName} processes";
+
+            var sessions = activity.WindowsSessions.Count == 1
+                ? $"session {activity.WindowsSessions[0]}"
+                : $"sessions {string.Join(", ", activity.WindowsSessions)}";
+
+            string startedBy;
+            if (activity.ParentsTotal == 1 && activity.Parents.Count == 1)
+            {
+                startedBy = activity.Parents[0].Name ?? "an unknown program";
+            }
+            else
+            {
+                var names = activity.Parents
+                    .Select(p => p.Name)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var shown = names.Take(3).ToList();
+                var more = names.Count > shown.Count || activity.Parents.Any(p => p.Name == null) || activity.ParentsTotal > activity.Parents.Count;
+                startedBy = $"{activity.ParentsTotal} parent processes";
+                if (shown.Count > 0)
+                    startedBy += $" ({string.Join(", ", shown)}{(more ? ", …" : string.Empty)})";
+            }
+
+            return $"Script activity: {processes} in {sessions}, started by {startedBy} — counted, not an interactive console";
+        }
+
         // The WMI live watcher could not arm — surface it as collector_degraded so the backend can
         // tell "no console detected" from "live detector never started" (MON-D1 pattern).
         private void OnWatcherArmFailed(object? sender, Exception ex)
@@ -151,12 +297,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+
+            // What was counted goes out first. It has to happen here, in the host's stop: the
+            // handlers below go away, and once the orchestrator has stopped the ingress a post throws.
+            ReportScriptActivity(stopping: true);
+
             if (_observableIngress != null && _signalPostedHandler != null)
             {
                 try { _observableIngress.SignalPosted -= _signalPostedHandler; } catch { }
             }
             try { _watcher.BypassConsoleDetected -= OnBypassConsoleDetected; } catch { }
+            try { _watcher.ScriptActivityStarted -= OnScriptActivityStarted; } catch { }
             try { _watcher.WatcherArmFailed -= OnWatcherArmFailed; } catch { }
+
+            lock (_summaryLock)
+            {
+                try { _windowTimer?.Dispose(); } catch { }
+                _windowTimer = null;
+            }
+
             try { _watcher.Dispose(); } catch { }
         }
 

@@ -43,6 +43,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [InlineData("network_connectivity_check")]
         // Bookkeeping of health-script runs that were deliberately not reported.
         [InlineData("script_recurrence_summary")]
+        // Counted short-lived console processes — a spawning script is not enrollment progress.
+        [InlineData("console_script_activity")]
         // Agent health / control / transport — not device/enrollment progress (P2).
         [InlineData("collector_degraded")]
         [InlineData("telemetry_upload_poisoned")]

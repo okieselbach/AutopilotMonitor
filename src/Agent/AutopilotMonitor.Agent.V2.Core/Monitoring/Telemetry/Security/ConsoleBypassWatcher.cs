@@ -1,10 +1,14 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Management;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
 {
@@ -26,10 +30,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
     /// </list>
     /// </para>
     /// <para>
-    /// <b>Instant-close fallback.</b> Reading the command line still races if the process exits before
-    /// the probe. In that case (<c>SessionID ≠ 0</c> but command line unreadable) the console is still
-    /// surfaced, tagged <c>confidence:"low"</c> — better than missing it. A truly race-free capture of
-    /// the command line would require the ETW Kernel-Process provider (deferred).
+    /// <b>A process id is not an identity.</b> WMI delivers the start trace in batches about once a
+    /// second, so the probe runs up to a second after the start. By then a scripted <c>cmd /c</c> has
+    /// usually exited, and Windows may have given its id to another process. A start whose process is
+    /// gone, or whose id now belongs to a different process (other image name, session 0, other
+    /// parent), is not a console someone types into: it is counted in
+    /// <see cref="ConsoleScriptActivityTally"/> and reported as one summary, never as a console.
+    /// The comparison uses no clock on purpose — trace time and process start time need not follow
+    /// the same clock corrections during OOBE, and a wrong tolerance would count real consoles away.
     /// </para>
     /// <para>
     /// <b>Lifecycle.</b> The host stops this watcher once the real-user desktop has arrived (wired in
@@ -69,9 +77,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         }
 
         private readonly AgentLogger _logger;
-        private readonly Func<int, ProcessProbe?> _processProbe;
+        private readonly Func<int, string, ProcessProbe?> _processProbe;
+        private readonly Func<int, bool> _isAlive;
+        private readonly Func<int, string?> _parentName;
+        private readonly Func<DateTime> _utcNow;
+        private readonly ConsoleScriptActivityTally _tally = new ConsoleScriptActivityTally();
         private readonly object _lock = new object();
-        private readonly HashSet<int> _seen = new HashSet<int>();
+        private readonly HashSet<string> _seen = new HashSet<string>(StringComparer.Ordinal);
 
         private ManagementEventWatcher? _startWatcher;
         private bool _started;
@@ -79,10 +91,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
 
         /// <summary>
         /// Raised once per process when a watched console is classified as an interactive console
-        /// (high confidence) or an unclassifiable interactive-session console (low confidence). The
+        /// (high confidence) or as one that stays open or cannot be classified (low confidence). The
         /// host translates this into a Warning <c>oobe_console_spawned</c> event.
         /// </summary>
         public event EventHandler<ConsoleSpawnInfo>? BypassConsoleDetected;
+
+        /// <summary>
+        /// Raised when a short-lived start is counted into an empty tally. The host opens its
+        /// reporting window on it and collects the content with <see cref="TakeScriptActivity"/>.
+        /// </summary>
+        internal event EventHandler? ScriptActivityStarted;
 
         /// <summary>
         /// Raised when the WMI <c>Win32_ProcessStartTrace</c> watcher fails to arm — the LIVE detector
@@ -92,12 +110,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         /// </summary>
         public event EventHandler<Exception>? WatcherArmFailed;
 
-        /// <param name="processProbe">Resolves the command line + owner for a live PID; returns null
-        /// when the process has already exited (the instant-close race). Defaults to a WMI query.</param>
-        public ConsoleBypassWatcher(AgentLogger logger, Func<int, ProcessProbe?>? processProbe = null)
+        /// <param name="processProbe">Reads a live process by id; the second argument is the image
+        /// name the trace announced. Returns null when the process has exited or the id belongs to
+        /// another program. Defaults to a process-list check followed by one WMI row.</param>
+        /// <param name="isAlive">Whether a process id still runs. Defaults to the process list.</param>
+        /// <param name="parentName">Image file name of a process, or null when it cannot be read.</param>
+        /// <param name="utcNow">Clock for the timestamps of counted starts.</param>
+        public ConsoleBypassWatcher(
+            AgentLogger logger,
+            Func<int, string, ProcessProbe?>? processProbe = null,
+            Func<int, bool>? isAlive = null,
+            Func<int, string?>? parentName = null,
+            Func<DateTime>? utcNow = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _processProbe = processProbe ?? DefaultProbe;
+            _isAlive = isAlive ?? IsRunning;
+            _parentName = parentName ?? ImageFileName;
+            _utcNow = utcNow ?? (() => DateTime.UtcNow);
         }
 
         public void Start()
@@ -114,7 +144,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             // delayed every host after this one — so they run on a background thread. Exceptions
             // are contained in StartCore; a disposal racing the background start is handled by
             // the _disposed re-checks inside.
-            System.Threading.Tasks.Task.Run(() => StartCore());
+            Task.Run(() => StartCore());
         }
 
         private void StartCore()
@@ -147,7 +177,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 watcher.Start();
 
                 // Re-check after arming: Dispose() may have run between the lock release above and
-                // Start() — it then stopped a not-yet-armed watcher and this thread armed it right
+                // Start() — it then tore down a not-yet-armed watcher and this thread armed it right
                 // back, leaving a WMI subscription no code path could ever reach again. If disposal
                 // won that race, tear the watcher down here.
                 bool disposedDuringArm;
@@ -158,9 +188,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 }
                 if (disposedDuringArm)
                 {
-                    try { watcher.EventArrived -= OnProcessStartTrace; } catch { }
-                    try { watcher.Stop(); } catch { }
-                    try { watcher.Dispose(); } catch { }
+                    TearDownStartTrace(watcher);
                     return;
                 }
 
@@ -182,27 +210,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 }
             }
 
-            // 2) Startup probe — catch a console already open before the watcher armed. Win32_Process
-            //    exposes SessionId directly, so the same classification path is reused. Runs AFTER the
-            //    arm so there is no gap; overlap with the live trace is deduped by _seen.
+            // 2) Startup probe — catch a console already open before the watcher armed. One query
+            //    carries everything the classification needs; Handle is selected because the owner
+            //    is a WMI method call on the row. Runs AFTER the arm so there is no gap; overlap
+            //    with the live trace is deduped by _seen.
             try
             {
                 var nameFilter = string.Join(" OR ",
                     Array.ConvertAll(WatchedProcessNames, n => $"Name = '{n}'"));
                 using var searcher = new ManagementObjectSearcher(
-                    $"SELECT Name, ProcessId, ParentProcessId, SessionId FROM Win32_Process WHERE {nameFilter}");
+                    "SELECT Handle, Name, ProcessId, ParentProcessId, SessionId, CommandLine, CreationDate " +
+                    $"FROM Win32_Process WHERE {nameFilter}");
                 using var results = searcher.Get();
-                foreach (var mo in results)
+                foreach (ManagementObject mo in results)
                 {
                     using (mo)
                     {
-                        HandleStart(
-                            ToInt(mo["ProcessId"]),
-                            ToInt(mo["ParentProcessId"]),
-                            ToInt(mo["SessionId"]),
-                            ownerSidHint: null,
-                            detectedVia: "startup_probe",
-                            processName: mo["Name"]?.ToString() ?? WatchedProcessNames[0]);
+                        var sessionId = ToInt(mo["SessionId"]);
+                        var commandLine = mo["CommandLine"]?.ToString();
+                        // The owner costs a method call: only for a row that will be reported.
+                        if (Classify(sessionId, commandLine) == ConsoleVerdict.Ignore) continue;
+
+                        var name = mo["Name"]?.ToString() ?? WatchedProcessNames[0];
+                        var parentPid = ToInt(mo["ParentProcessId"]);
+                        HandleProbed(
+                            ToInt(mo["ProcessId"]), parentPid, sessionId, ProcessOwnerLookup.OwnerSid(mo), "startup_probe", name,
+                            new ProcessProbe(name, sessionId, parentPid, commandLine, mo["CreationDate"]?.ToString()));
                     }
                 }
             }
@@ -230,13 +263,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         }
 
         /// <summary>
-        /// Classification core (internal for tests). Gates race-free on <paramref name="sessionId"/>,
-        /// then probes the live process for its command line; raises <see cref="BypassConsoleDetected"/>
-        /// once per PID for an interactive console (bare command line → high confidence) or an
-        /// unreadable interactive-session console (instant-close → low confidence). Scripted
-        /// invocations (<c>cmd /c</c>) and session-0 (service) cmd are ignored.
+        /// One traced start (internal for tests). Gates race-free on <paramref name="sessionId"/>,
+        /// then probes the process: a start that is gone or whose id belongs to another process is
+        /// counted, everything else goes through <see cref="HandleProbed"/>.
         /// </summary>
-        internal void HandleStart(int pid, int parentPid, int sessionId, string? ownerSidHint, string detectedVia, string? processName = null)
+        internal void HandleStart(int pid, int parentPid, int sessionId, string? ownerSid, string detectedVia, string? processName = null)
         {
             if (pid <= 0) return;
             lock (_lock) { if (_disposed) return; }
@@ -245,16 +276,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             // bulk of legitimate IME/Intune install cmd (SYSTEM, session 0) without even probing.
             if (sessionId == 0) return;
 
-            var probe = _processProbe(pid); // null when the process already exited (instant-close)
-            var verdict = Classify(sessionId, probe?.CommandLine);
+            var name = processName ?? WatchedProcessNames[0];
+            var probe = _processProbe(pid, name);
+            if (probe == null || !IsTracedProcess(probe, name, parentPid))
+            {
+                CountShortLived(name, pid, parentPid, sessionId, ownerSid);
+                return;
+            }
+
+            HandleProbed(pid, parentPid, sessionId, ownerSid, detectedVia, name, probe);
+        }
+
+        /// <summary>
+        /// Classification of a process that was read while it ran (internal for tests). Raises
+        /// <see cref="BypassConsoleDetected"/> once per process for an interactive console (bare
+        /// command line → high confidence), one that stays open after its command (<c>/k</c> → low)
+        /// or a running one whose command line WMI does not return (low). A scripted <c>cmd /c</c>
+        /// is ignored.
+        /// </summary>
+        internal void HandleProbed(int pid, int parentPid, int sessionId, string? ownerSid, string detectedVia, string processName, ProcessProbe probe)
+        {
+            lock (_lock) { if (_disposed) return; }
+
+            // A row without a command line is only a console nobody could classify while the
+            // process still runs; one that ended in the meantime is a short-lived start.
+            if (probe.CommandLine == null && !_isAlive(pid))
+            {
+                CountShortLived(processName, pid, parentPid, sessionId, ownerSid);
+                return;
+            }
+
+            var verdict = Classify(sessionId, probe.CommandLine);
             if (verdict == ConsoleVerdict.Ignore) return; // scripted invocation (cmd /c ...)
 
             // Dedup only on a flagged hit, so the startup probe + live trace observing the same console
-            // collapse to one detection, and an ignored start never pre-empts a later real one.
+            // collapse to one detection, and an ignored start never pre-empts a later real one. The
+            // creation time is part of the key: a later console may be given an id seen before.
             lock (_lock)
             {
                 if (_disposed) return;
-                if (!_seen.Add(pid)) return;
+                if (!_seen.Add(pid + "|" + probe.CreationDate)) return;
             }
 
             bool high = verdict == ConsoleVerdict.InteractiveConsole;
@@ -266,15 +327,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 default: classification = "interactive_session_unclassified"; break;
             }
             var info = new ConsoleSpawnInfo(
-                processName: processName ?? WatchedProcessNames[0],
+                processName: processName,
                 processId: pid,
                 parentProcessId: parentPid,
                 sessionId: sessionId,
-                owner: probe?.Owner ?? ownerSidHint,
-                commandLine: probe?.CommandLine,
+                owner: ownerSid,
+                commandLine: probe.CommandLine,
                 confidence: high ? "high" : "low",
                 classification: classification,
-                detectedVia: detectedVia);
+                detectedVia: detectedVia,
+                parentProcessName: SafeParentName(parentPid));
 
             _logger.Warning($"[ConsoleBypassWatcher] interactive console detected: {info.ProcessName} (PID={pid}) " +
                 $"session={sessionId}, confidence={info.Confidence}, via={detectedVia} — possible Shift+F10");
@@ -283,14 +345,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             catch (Exception ex) { _logger.Warning($"[ConsoleBypassWatcher] handler threw: {ex.Message}"); }
         }
 
+        /// <summary>
+        /// The counted short-lived starts since the last call, or null when there were none. The
+        /// host calls it when its window ends and when it stops.
+        /// </summary>
+        internal ConsoleScriptActivity? TakeScriptActivity() => _tally.Take();
+
+        private void CountShortLived(string processName, int pid, int parentPid, int sessionId, string? ownerSid)
+        {
+            var opened = _tally.Add(processName, pid, parentPid, sessionId, ownerSid, _utcNow(), SafeParentName);
+            _logger.Trace($"[ConsoleBypassWatcher] short-lived {processName} counted (PID={pid}, parent={parentPid}, session={sessionId})");
+            if (!opened) return;
+
+            try { ScriptActivityStarted?.Invoke(this, EventArgs.Empty); }
+            catch (Exception ex) { _logger.Debug($"[ConsoleBypassWatcher] script-activity handler threw: {ex.Message}"); }
+        }
+
+        private string? SafeParentName(int parentPid)
+        {
+            if (parentPid <= 0) return null;
+            try { return _parentName(parentPid); }
+            catch (Exception) { return null; }
+        }
+
         internal enum ConsoleVerdict { Ignore, InteractiveConsole, UnclassifiedInteractive, InteractiveWithCommand }
 
         /// <summary>
         /// Pure classification (internal for tests): session-0 → Ignore; a scripted <c>cmd /c</c> →
         /// Ignore; <c>cmd /k</c> (runs its command, then STAYS interactive — L12) →
-        /// InteractiveWithCommand (low); a bare command line → InteractiveConsole (high); an
-        /// unreadable command line in an interactive session → UnclassifiedInteractive (low, the
-        /// instant-close fallback).
+        /// InteractiveWithCommand (low); a bare command line → InteractiveConsole (high); a running
+        /// process without a readable command line in an interactive session →
+        /// UnclassifiedInteractive (low).
         /// </summary>
         internal static ConsoleVerdict Classify(int sessionId, string? commandLine)
         {
@@ -304,15 +389,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             }
         }
 
-        /// <summary>True when the FIRST <c>/c</c>-or-<c>/k</c> switch on the command line is <c>/c</c>
-        /// (a scripted run-and-exit invocation, mirroring cmd.exe precedence), false for a bare
-        /// interactive shell or a <c>/k</c> run-and-stay shell — even one whose payload contains a
-        /// later <c>/c</c>. The executable token is stripped first so a path can never spoof a
-        /// switch, and switches may be combined (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
-        internal static bool HasScriptArgument(string commandLine)
+        /// <summary>
+        /// Whether a probed row is still the process the trace announced (internal for tests): same
+        /// image name, not the service session, and the same parent where both sides know it.
+        /// </summary>
+        internal static bool IsTracedProcess(ProcessProbe probe, string processName, int parentPid)
         {
-            if (string.IsNullOrEmpty(commandLine)) return false;
-            return FirstRunSwitch(StripExecutable(commandLine)) == RunSwitch.RunAndExit;
+            if (!string.Equals(probe.Name, processName, StringComparison.OrdinalIgnoreCase)) return false;
+            if (probe.SessionId == 0) return false;
+            return parentPid <= 0 || probe.ParentProcessId <= 0 || probe.ParentProcessId == parentPid;
         }
 
         /// <summary>Returns the command line with the leading executable token (quoted or
@@ -330,44 +415,69 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             return space >= 0 ? s.Substring(space + 1) : string.Empty;
         }
 
-        private static ProcessProbe? DefaultProbe(int pid)
+        private static ProcessProbe? DefaultProbe(int pid, string processName)
         {
+            // The process list first: a WMI query takes a few hundred milliseconds, and in a burst
+            // almost every traced process has already exited. Queried one after the other on the
+            // delivery thread they would pile up, and a real console closed during the backlog
+            // would be counted as a script.
+            if (!IsRunningAs(pid, processName)) return null;
+
             try
             {
                 using var searcher = new ManagementObjectSearcher(
-                    $"SELECT CommandLine FROM Win32_Process WHERE ProcessId = {pid}");
+                    $"SELECT Name, SessionId, ParentProcessId, CommandLine, CreationDate FROM Win32_Process WHERE ProcessId = {pid}");
                 using var results = searcher.Get();
                 foreach (ManagementObject mo in results)
                 {
                     using (mo)
                     {
-                        var commandLine = mo["CommandLine"]?.ToString();
-                        return new ProcessProbe(commandLine, TryGetOwner(mo));
+                        return new ProcessProbe(
+                            mo["Name"]?.ToString(),
+                            ToInt(mo["SessionId"]),
+                            ToInt(mo["ParentProcessId"]),
+                            mo["CommandLine"]?.ToString(),
+                            mo["CreationDate"]?.ToString());
                     }
                 }
             }
             catch (Exception)
             {
-                // Process gone or query failed — treated as the instant-close fallback (low confidence).
+                // Process gone or query failed — the same as exited.
             }
             return null;
         }
 
-        private static string? TryGetOwner(ManagementObject process)
+        private static bool IsRunningAs(int pid, string processName)
         {
             try
             {
-                var outParams = process.InvokeMethod("GetOwner", null, null);
-                if (outParams != null && Convert.ToInt32(outParams["ReturnValue"]) == 0)
-                {
-                    var domain = outParams["Domain"]?.ToString();
-                    var user = outParams["User"]?.ToString();
-                    if (!string.IsNullOrEmpty(user))
-                        return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-                }
+                using var process = Process.GetProcessById(pid);
+                return string.Equals(process.ProcessName, Path.GetFileNameWithoutExtension(processName), StringComparison.OrdinalIgnoreCase);
             }
-            catch { /* best-effort enrichment */ }
-            return null;
+            catch (Exception)
+            {
+                return false; // GetProcessById throws for an id that no longer runs
+            }
+        }
+
+        private static bool IsRunning(int pid)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return !process.HasExited;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static string? ImageFileName(int pid)
+        {
+            var path = ProcessImagePath.Query(pid);
+            return string.IsNullOrEmpty(path) ? null : Path.GetFileName(path);
         }
 
         private static string? TryReadSid(object? sidValue)
@@ -388,42 +498,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             catch { return 0; }
         }
 
+        private void TearDownStartTrace(ManagementEventWatcher watcher)
+        {
+            try { watcher.EventArrived -= OnProcessStartTrace; } catch { }
+            try { watcher.Stop(); } catch { }
+            try { watcher.Dispose(); } catch { }
+        }
+
         public void Dispose()
         {
+            ManagementEventWatcher? startWatcher;
             lock (_lock)
             {
                 if (_disposed) return;
                 _disposed = true;
+                startWatcher = _startWatcher;
+                _startWatcher = null;
             }
 
-            if (_startWatcher != null)
+            if (startWatcher != null)
             {
-                try { _startWatcher.EventArrived -= OnProcessStartTrace; } catch { }
-                try { _startWatcher.Stop(); } catch { }
-                try { _startWatcher.Dispose(); } catch { }
-                _startWatcher = null;
+                // Cancelling a WMI subscription can take tens of seconds on a busy WinMgmt. The caller
+                // is the agent's stop path, so it never waits for it.
+                var armed = startWatcher;
+                Task.Run(() => TearDownStartTrace(armed));
             }
         }
     }
 
-    /// <summary>Command line + owner for a probed PID; either may be null (best-effort).</summary>
+    /// <summary>
+    /// What was read about a running process: the facts that tell whether it is still the process
+    /// a start trace announced, and its command line. Any text field may be null.
+    /// </summary>
     public sealed class ProcessProbe
     {
-        public ProcessProbe(string? commandLine, string? owner)
+        public ProcessProbe(string? name, int sessionId, int parentProcessId, string? commandLine, string? creationDate)
         {
+            Name = name;
+            SessionId = sessionId;
+            ParentProcessId = parentProcessId;
             CommandLine = commandLine;
-            Owner = owner;
+            CreationDate = creationDate;
         }
 
+        public string? Name { get; }
+        public int SessionId { get; }
+        public int ParentProcessId { get; }
         public string? CommandLine { get; }
-        public string? Owner { get; }
+        /// <summary>The raw WMI creation time; only compared for equality.</summary>
+        public string? CreationDate { get; }
     }
 
     /// <summary>Immutable detail record for a detected interactive console spawn.</summary>
     public sealed class ConsoleSpawnInfo
     {
         public ConsoleSpawnInfo(string processName, int processId, int parentProcessId, int sessionId,
-            string? owner, string? commandLine, string confidence, string classification, string detectedVia)
+            string? owner, string? commandLine, string confidence, string classification, string detectedVia,
+            string? parentProcessName)
         {
             ProcessName = processName;
             ProcessId = processId;
@@ -434,17 +565,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             Confidence = confidence;
             Classification = classification;
             DetectedVia = detectedVia;
+            ParentProcessName = parentProcessName;
         }
 
         public string ProcessName { get; }
         public int ProcessId { get; }
         public int ParentProcessId { get; }
         public int SessionId { get; }
+        /// <summary>Owner SID, or null when it could not be read.</summary>
         public string? Owner { get; }
         public string? CommandLine { get; }
-        /// <summary>"high" (bare interactive shell) or "low" (interactive session, command line unreadable).</summary>
+        /// <summary>"high" (bare interactive shell) or "low" (stays open after a command, or not classifiable).</summary>
         public string Confidence { get; }
         public string Classification { get; }
         public string DetectedVia { get; }
+        /// <summary>
+        /// Image name of the parent while it still ran, else null. The launcher behind Shift+F10
+        /// exits within milliseconds, so null is the expected value for that case.
+        /// </summary>
+        public string? ParentProcessName { get; }
     }
 }

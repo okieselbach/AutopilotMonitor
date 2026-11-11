@@ -1014,22 +1014,30 @@ namespace AutopilotMonitor.Shared
             // default). AutoLogon may be legitimate (kiosk) OR an enrollment/OOBE manipulation vector.
             public const string AutoLogonAnalysis         = "autologon_analysis";
             // OOBE-console / Shift+F10 detection (per-tenant opt-OUT, AnalyzerConfiguration.
-            // EnableConsoleBypassDetection, default ON). Two complementary Warning signals:
-            //   oobe_console_spawned    — LIVE: an interactive-session cmd.exe (SessionID != 0) with a
-            //                             bare, non-scripted command line (no /c|/k) — an interactive
-            //                             console a human can type into. confidence=high; an instant-close
-            //                             cmd whose command line was unreadable is confidence=low. Stopped
-            //                             on real-user desktop arrival (Shift+F10 gone). NOT parent-based:
-            //                             the Shift+F10 cmd's parent is a short-lived non-winlogon launcher
-            //                             (field 24H2). Misses presses BEFORE the agent installed.
+            // EnableConsoleBypassDetection, default ON). Two complementary Warning signals and one count:
+            //   oobe_console_spawned    — LIVE: an interactive-session cmd.exe (SessionID != 0) that is
+            //                             still running when probed, with a bare, non-scripted command
+            //                             line (no /c|/k) — an interactive console a human can type
+            //                             into. confidence=high; one that stays open after its command
+            //                             (/k), or whose command line WMI does not return, is
+            //                             confidence=low. Stopped on real-user desktop arrival (Shift+F10
+            //                             gone). NOT parent-based: the Shift+F10 cmd's parent is a
+            //                             short-lived non-winlogon launcher (field 24H2), so
+            //                             parentProcessName is "unknown" there. Misses presses BEFORE the
+            //                             agent installed.
             //   console_prefetch_detected — STARTUP FORENSIC: a CMD.EXE-*.pf prefetch artifact whose
             //                             last-run is after boot. Covers the pre-agent OOBE window the
             //                             live watcher cannot see, but cannot attribute the run to
             //                             Shift+F10 vs. a legitimate install-launched cmd once ESP runs
             //                             (cmd.exe shares one .pf). Both carry coverageComplete=false +
             //                             an honest coverageNote — detection is best-effort, not gapless.
+            //   console_script_activity — Info: interactive-session cmd.exe that had already exited when
+            //                             probed (script children), counted per 60 s window instead of
+            //                             listed: count, Windows sessions, owner SIDs and the parents
+            //                             with their image name (never a command line). Not a console.
             public const string OobeConsoleSpawned        = "oobe_console_spawned";
             public const string ConsolePrefetchDetected   = "console_prefetch_detected";
+            public const string ConsoleScriptActivity     = "console_script_activity";
 
             // Termination / diagnostics / server actions
             public const string EnrollmentSummaryShown    = "enrollment_summary_shown";

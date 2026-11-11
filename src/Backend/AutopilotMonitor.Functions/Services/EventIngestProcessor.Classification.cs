@@ -483,6 +483,9 @@ namespace AutopilotMonitor.Functions.Services
             // A platform run corrected after the fact from IME's saved result (D-316): registry
             // observation of an earlier run, not progress — a stalled session stays Stalled.
             Constants.EventTypes.ScriptOutputReconciliation => true,
+            // The agent's count of short-lived console processes: a script that keeps spawning
+            // them is not enrollment progress — a stalled session stays Stalled.
+            Constants.EventTypes.ConsoleScriptActivity => true,
             _ => false
         };
 

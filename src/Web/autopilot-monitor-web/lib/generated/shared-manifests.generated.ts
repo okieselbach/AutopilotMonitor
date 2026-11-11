@@ -1081,6 +1081,7 @@ export const SHARED_MANIFEST = {
     "completion_waiting",
     "configmgr_client_detected",
     "console_prefetch_detected",
+    "console_script_activity",
     "decision_process_completion",
     "desktop_arrived",
     "desktop_detector_first_poll",

@@ -101,6 +101,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // The OOBE update registry snapshot (D-310) is observation at agent start/stop and at
             // the update page — the page's own records (oobe_update_page) stay activity.
             SharedConstants.EventTypes.OobeUpdateState,
+            // The count of short-lived console processes: a script that keeps spawning them for
+            // hours would otherwise hold the periodic collectors awake and reset the stall clock.
+            // The work those scripts do arrives as its own app, script or phase event.
+            SharedConstants.EventTypes.ConsoleScriptActivity,
         };
 
         /// <summary>

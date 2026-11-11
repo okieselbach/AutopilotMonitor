@@ -222,6 +222,7 @@ export const EVENT_TYPES_CATALOG = {
     'autologon_analysis',
     'oobe_console_spawned',
     'console_prefetch_detected',
+    'console_script_activity',
     'security_warning',
     'security_audit',
     'provisioning_package_scan',

@@ -1,3 +1,4 @@
+using System;
 using System.Management;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
@@ -117,6 +118,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             catch
             {
                 wmiErrored = true;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Owner SID of a <c>Win32_Process</c> row via <c>GetOwnerSid</c>, or <c>null</c> on failure.
+        /// The row must have been selected with <c>Handle</c>: without its key property WMI cannot
+        /// invoke a method on the object and throws.
+        /// </summary>
+        public static string OwnerSid(ManagementObject process)
+        {
+            try
+            {
+                using (var result = process.InvokeMethod("GetOwnerSid", null, null))
+                {
+                    if (result != null && Convert.ToUInt32(result["ReturnValue"]) == 0)
+                        return result["Sid"]?.ToString();
+                }
+            }
+            catch
+            {
+                // Process gone or owner not readable.
             }
 
             return null;
