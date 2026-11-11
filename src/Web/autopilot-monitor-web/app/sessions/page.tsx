@@ -63,12 +63,20 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { SubmitSessionReportRequest } from "@/lib/generated/wire-types.generated";
 
 export default function SessionDetailPage() {
-  // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
+  // useSearchParams() below requires a Suspense boundary for static prerender.
   return (
     <Suspense fallback={null}>
-      <SessionDetailContent />
+      <SessionDetailForCurrentId />
     </Suspense>
   );
+}
+
+function SessionDetailForCurrentId() {
+  // A link to another session only changes `?id=`, so this route stays mounted. The key
+  // gives every session its own state: without it the previous session's events stay in
+  // the append-only list and mix into the new session's timeline.
+  const id = useSearchParams()?.get("id") ?? "";
+  return <SessionDetailContent key={id} />;
 }
 
 function SessionDetailContent() {
