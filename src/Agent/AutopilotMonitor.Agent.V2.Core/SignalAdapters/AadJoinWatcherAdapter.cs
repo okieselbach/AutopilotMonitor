@@ -78,7 +78,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 // Don't log the full email in decision signals — user PII. Keep domain only
                 // for audit trail; full email lives only in local agent logs if at all.
-                ["userDomain"] = ExtractDomain(userEmail),
+                ["userDomain"] = AadJoinInfo.ExtractUserDomain(userEmail),
                 ["hasThumbprint"] = string.IsNullOrEmpty(thumbprint) ? "false" : "true",
                 // The AadJoinWatcher fires AadUserJoined ONLY when isPlaceholderUser==false
                 // (placeholder accounts go via the separate PlaceholderUserDetected event).
@@ -137,7 +137,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var placeholderType = ClassifyPlaceholder(userEmail);
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["userDomain"] = ExtractDomain(userEmail),
+                ["userDomain"] = AadJoinInfo.ExtractUserDomain(userEmail),
                 ["placeholderType"] = placeholderType,
                 ["registryKey"] = @"HKLM\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo",
             };
@@ -152,13 +152,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 immediateUpload: true,
                 data: data,
                 occurredAtUtc: _clock.UtcNow);
-        }
-
-        private static string ExtractDomain(string email)
-        {
-            if (string.IsNullOrEmpty(email)) return "unknown";
-            var at = email.IndexOf('@');
-            return at >= 0 && at + 1 < email.Length ? email.Substring(at + 1) : "unknown";
         }
 
         private static string ClassifyPlaceholder(string email)

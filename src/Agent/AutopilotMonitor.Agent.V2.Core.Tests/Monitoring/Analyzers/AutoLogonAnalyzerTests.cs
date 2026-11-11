@@ -135,6 +135,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
             Assert.Equal("CONTOSO", checks["default_domain_name"]);
         }
 
+        [Fact]
+        public void BuildPayload_reports_a_sign_in_address_as_its_domain_only()
+        {
+            var snap = new AutoLogonSnapshot
+            {
+                WinlogonKeyPresent = true,
+                AutoAdminLogon = "1",
+                DefaultUserName = "luke.skywalker@example.net",
+                AltDefaultUserName = @"AzureAD\luke.skywalker@example.net",
+            };
+            var data = AutoLogonAnalyzer.BuildPayload(snap, "shutdown");
+
+            var checks = Checks(data);
+            Assert.Equal("[redacted]@example.net", checks["default_user_name"]);
+            Assert.Equal("[redacted]@example.net", checks["alt_default_user_name"]);
+            Assert.DoesNotContain(checks.Values.OfType<string>(), v => v.Contains("skywalker"));
+            // The reduction is presentation only — the identity is still reported as present.
+            Assert.True((bool)checks["default_identity_present"]);
+        }
+
+        [Theory]
+        [InlineData("kioskuser", "kioskuser")]
+        [InlineData("defaultuser0", "defaultuser0")]
+        [InlineData("foouser@example.net", "foouser@example.net")]
+        [InlineData("autopilot@example.net", "autopilot@example.net")]
+        [InlineData("luke.skywalker@example.net", "[redacted]@example.net")]
+        [InlineData("luke@skywalker@example.net", "[redacted]@example.net")]
+        [InlineData("luke.skywalker@", "[redacted]@unknown")]
+        [InlineData("", "")]
+        [InlineData(null, "")]
+        public void ReduceUserName_keeps_local_accounts_and_placeholders_readable(string? raw, string expected)
+        {
+            Assert.Equal(expected, AutoLogonAnalyzer.ReduceUserName(raw));
+        }
+
         [Theory]
         [InlineData("1", true)]
         [InlineData("true", true)]

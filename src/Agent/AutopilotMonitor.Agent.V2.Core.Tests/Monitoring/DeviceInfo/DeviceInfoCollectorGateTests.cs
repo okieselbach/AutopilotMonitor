@@ -45,7 +45,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.DeviceInfo
         {
             using var rig = new Rig();
             var notJoined = new Dictionary<string, object> { { "joinType", "Not Joined" } };
-            var joined = new Dictionary<string, object> { { "joinType", "Azure AD Joined" }, { "userEmail", "alice@contoso.com" } };
+            var joined = DeviceInfoCollector.BuildAadJoinedData("T1", "alice@contoso.com", "AABB", isPlaceholderUser: false);
 
             Assert.True(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, notJoined));
             Assert.False(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, notJoined));
@@ -54,6 +54,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.DeviceInfo
             // re-collected by the next agent run) MUST re-emit — only identical repeats dedup.
             Assert.True(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, joined));
             Assert.False(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, joined));
+        }
+
+        [Fact]
+        public void Placeholder_replaced_by_a_user_of_the_same_domain_reemits()
+        {
+            // Pre-provisioning hands the device from the placeholder account to the real user
+            // in the same domain — the two payloads must still differ for the gate.
+            using var rig = new Rig();
+            var placeholder = DeviceInfoCollector.BuildAadJoinedData("T1", "foouser@contoso.com", "AABB", isPlaceholderUser: true);
+            var realUser = DeviceInfoCollector.BuildAadJoinedData("T1", "alice@contoso.com", "AABB", isPlaceholderUser: false);
+
+            Assert.True(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, placeholder));
+            Assert.True(rig.Sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, realUser));
         }
 
         [Fact]
@@ -111,6 +124,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.DeviceInfo
 
             Assert.True(sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.OsInfo, data));
             Assert.True(sut.ShouldEmitDeviceInfoEvent(Constants.EventTypes.OsInfo, data));
+        }
+    }
+
+    /// <summary>Payload of <c>aad_join_status</c> for a joined device.</summary>
+    public sealed class AadJoinStatusPayloadTests
+    {
+        [Fact]
+        public void Joined_payload_carries_the_domain_of_the_signed_in_address_only()
+        {
+            var data = DeviceInfoCollector.BuildAadJoinedData("T1", "alice@contoso.com", "AABB", isPlaceholderUser: false);
+
+            Assert.Equal("Azure AD Joined", data["joinType"]);
+            Assert.Equal("T1", data["tenantId"]);
+            Assert.Equal("AABB", data["thumbprint"]);
+            Assert.Equal("contoso.com", data["userDomain"]);
+            Assert.False(data.ContainsKey("isFooUser"));
+            Assert.DoesNotContain(data.Values, v => v is string s && s.Contains("alice"));
+        }
+
+        [Fact]
+        public void Joined_payload_flags_the_placeholder_and_omits_the_domain_without_an_address()
+        {
+            var placeholder = DeviceInfoCollector.BuildAadJoinedData("T1", "foouser@contoso.com", "AABB", isPlaceholderUser: true);
+            Assert.Equal(true, placeholder["isFooUser"]);
+            Assert.Equal("contoso.com", placeholder["userDomain"]);
+
+            var deviceOnly = DeviceInfoCollector.BuildAadJoinedData("T1", null!, "AABB", isPlaceholderUser: false);
+            Assert.False(deviceOnly.ContainsKey("userDomain"));
+            Assert.False(deviceOnly.ContainsKey("isFooUser"));
         }
     }
 

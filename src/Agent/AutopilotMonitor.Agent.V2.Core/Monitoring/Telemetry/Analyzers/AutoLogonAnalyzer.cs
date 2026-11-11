@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -218,9 +219,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 { "force_auto_logon", snap.ForceAutoLogon ?? string.Empty },
                 { "force_auto_logon_enabled", forceAutoLogonEnabled },
                 { "autologon_enabled", autologonEnabled },
-                { "default_user_name", snap.DefaultUserName ?? string.Empty },
+                { "default_user_name", ReduceUserName(snap.DefaultUserName) },
                 { "default_domain_name", snap.DefaultDomainName ?? string.Empty },
-                { "alt_default_user_name", snap.AltDefaultUserName ?? string.Empty },
+                { "alt_default_user_name", ReduceUserName(snap.AltDefaultUserName) },
                 { "alt_default_domain_name", snap.AltDefaultDomainName ?? string.Empty },
                 { "auto_logon_sid", snap.AutoLogonSid ?? string.Empty },
                 { "auto_logon_count", snap.AutoLogonCount.HasValue ? (object)snap.AutoLogonCount.Value : string.Empty },
@@ -243,6 +244,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         // -----------------------------------------------------------------------
         // Small fail-soft helpers.
         // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// A sign-in address is reported as its domain only. Local account names (kiosk,
+        /// defaultuser0) and the provisioning placeholders stay readable — the allow-list rule
+        /// matches on them.
+        /// </summary>
+        internal static string ReduceUserName(string? userName)
+        {
+            if (userName is not string name || name.Length == 0) return string.Empty;
+            if (name.IndexOf('@') < 0 || AadJoinInfo.IsPlaceholderUserEmail(name)) return name;
+            return "[redacted]@" + AadJoinInfo.ExtractUserDomain(name);
+        }
 
         /// <summary>AutoLogon flags are REG_SZ "0"/"1"; treat "1"/"true" (any case) as enabled.</summary>
         private static bool IsTruthy(string? value)

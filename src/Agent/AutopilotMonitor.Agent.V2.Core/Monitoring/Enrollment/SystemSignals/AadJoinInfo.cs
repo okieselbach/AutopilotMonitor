@@ -80,5 +80,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             return email.StartsWith("foouser@", StringComparison.OrdinalIgnoreCase)
                 || email.StartsWith("autopilot@", StringComparison.OrdinalIgnoreCase);
         }
+
+        /// <summary>
+        /// The domain part of a sign-in address, or "unknown" when there is none. Telemetry
+        /// carries this instead of the address: the part before the last '@' stays on the device.
+        /// </summary>
+        internal static string ExtractUserDomain(string email)
+        {
+            if (string.IsNullOrEmpty(email)) return "unknown";
+            var at = email.LastIndexOf('@');
+            return at >= 0 && at + 1 < email.Length ? email.Substring(at + 1) : "unknown";
+        }
     }
 }

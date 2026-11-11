@@ -640,58 +640,72 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         {
             try
             {
-                var data = new Dictionary<string, object>();
+                Dictionary<string, object> data;
 
                 // Read AAD join info via shared helper. Placeholder users (foouser@, autopilot@)
                 // are transient provisioning accounts and must NOT be treated as a real AAD join;
                 // HasAadJoinedUser is only set for real user emails.
-                if (AadJoinInfo.TryReadAadJoinedUser(out var userEmail, out var thumbprint, out var isPlaceholderUser))
+                if (AadJoinInfo.TryReadAadJoinedUser(out var userEmail, out var thumbprint, out var isPlaceholderUser)
+                    && !string.IsNullOrEmpty(thumbprint))
                 {
-                    // Still need TenantId — open the subkey directly when we have a thumbprint.
-                    if (!string.IsNullOrEmpty(thumbprint))
+                    // Still need TenantId — open the subkey directly.
+                    string tenantId;
+                    using (var joinInfoKey = Registry.LocalMachine.OpenSubKey(AadJoinInfo.JoinInfoRegistryPath))
+                    using (var subKey = joinInfoKey?.OpenSubKey(thumbprint))
                     {
-                        using (var joinInfoKey = Registry.LocalMachine.OpenSubKey(AadJoinInfo.JoinInfoRegistryPath))
-                        using (var subKey = joinInfoKey?.OpenSubKey(thumbprint))
-                        {
-                            data["tenantId"] = subKey?.GetValue("TenantId")?.ToString();
-                        }
-
-                        data["userEmail"] = userEmail;
-                        data["joinType"] = "Azure AD Joined";
-                        data["thumbprint"] = thumbprint;
-
-                        if (!string.IsNullOrWhiteSpace(userEmail))
-                        {
-                            if (isPlaceholderUser)
-                            {
-                                IsFooUserDetected = true;
-                                data["isFooUser"] = true;
-                                _logger.Info($"AAD join: placeholder user detected ({userEmail}) — pre-provisioning indicator, NOT a real AAD join");
-                            }
-                            else
-                            {
-                                HasAadJoinedUser = true;
-                            }
-                        }
+                        tenantId = subKey?.GetValue("TenantId")?.ToString();
                     }
-                    else
+
+                    data = BuildAadJoinedData(tenantId, userEmail, thumbprint, isPlaceholderUser);
+
+                    if (!string.IsNullOrWhiteSpace(userEmail))
                     {
-                        data["joinType"] = "Not Joined";
+                        if (isPlaceholderUser)
+                        {
+                            IsFooUserDetected = true;
+                            _logger.Info($"AAD join: placeholder user detected ({userEmail}) — pre-provisioning indicator, NOT a real AAD join");
+                        }
+                        else
+                        {
+                            HasAadJoinedUser = true;
+                        }
                     }
                 }
                 else
                 {
-                    data["joinType"] = "Not Joined";
+                    data = new Dictionary<string, object> { ["joinType"] = "Not Joined" };
                 }
 
-                object joinTypeValue;
-                var joinType = data.TryGetValue("joinType", out joinTypeValue) ? joinTypeValue?.ToString() ?? "Unknown" : "Unknown";
-                EmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, $"AAD join: {joinType}", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, $"AAD join: {data["joinType"]}", data);
             }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTracker: failed to collect AAD join status: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// The <c>aad_join_status</c> payload of a joined device. The signed-in address is
+        /// reported as its domain only.
+        /// </summary>
+        internal static Dictionary<string, object> BuildAadJoinedData(
+            string tenantId, string userEmail, string thumbprint, bool isPlaceholderUser)
+        {
+            var data = new Dictionary<string, object>
+            {
+                ["tenantId"] = tenantId,
+                ["joinType"] = "Azure AD Joined",
+                ["thumbprint"] = thumbprint,
+            };
+
+            if (!string.IsNullOrWhiteSpace(userEmail))
+            {
+                data["userDomain"] = AadJoinInfo.ExtractUserDomain(userEmail);
+                if (isPlaceholderUser)
+                    data["isFooUser"] = true;
+            }
+
+            return data;
         }
 
         /// <summary>
