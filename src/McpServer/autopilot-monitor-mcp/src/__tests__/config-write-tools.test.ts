@@ -59,6 +59,13 @@ describe('get_tenant_config — forced redaction pin', () => {
     const path = apiFetchMock.mock.calls[0][0] as string;
     expect(path).toBe(`/api/config/${TENANT}?view=redacted`);
   });
+
+  it('asks for the stored row — the read that checks update_tenant_config must not come from an instance cache', async () => {
+    apiFetchMock.mockResolvedValueOnce({ tenantId: TENANT });
+    await captureToolHandlers(true, true).get_tenant_config({ tenantId: TENANT });
+
+    expect(apiFetchMock.mock.calls[0][1]).toEqual({ headers: { 'X-Tenant-Config': 'stored' } });
+  });
 });
 
 describe('get_tenant_config_schema — request shape', () => {

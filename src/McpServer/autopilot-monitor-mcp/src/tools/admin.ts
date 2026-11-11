@@ -1818,7 +1818,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // view=redacted is load-bearing: without it the backend serves a GA the
         // clear-text secrets, which must never enter model context (pinned by
         // security-guards tests).
-        const data = await apiFetch<TenantConfiguration>(`/api/config/${encodeURIComponent(args.tenantId)}?view=redacted`);
+        // X-Tenant-Config asks for the stored row: the backend caches a configuration per
+        // instance, and this read is how a caller checks what update_tenant_config just wrote.
+        const data = await apiFetch<TenantConfiguration>(
+          `/api/config/${encodeURIComponent(args.tenantId)}?view=redacted`,
+          { headers: { 'X-Tenant-Config': 'stored' } });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_tenant_config', args, error);
