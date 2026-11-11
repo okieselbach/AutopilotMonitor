@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 {
@@ -130,43 +129,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             try { pid = process.Id; } catch { }
             try { session = process.SessionId; } catch { }
             try { start = process.StartTime.ToUniversalTime(); } catch { }
-            try { path = QueryImagePath(pid); } catch { }
+            try { path = ProcessImagePath.Query(pid); } catch { }
             if (path == null)
             {
                 try { path = process.MainModule?.FileName; } catch { }
             }
 
             return new ImeProcessCandidate(pid, session, path, start);
-        }
-
-        private const int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(int desiredAccess, bool inheritHandle, int processId);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool CloseHandle(IntPtr handle);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder exeName, ref int size);
-
-        private static string QueryImagePath(int pid)
-        {
-            if (pid <= 0) return null;
-            var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if (handle == IntPtr.Zero) return null;
-            try
-            {
-                var sb = new StringBuilder(1024);
-                int size = sb.Capacity;
-                return QueryFullProcessImageName(handle, 0, sb, ref size) && size > 0 ? sb.ToString(0, size) : null;
-            }
-            finally
-            {
-                CloseHandle(handle);
-            }
         }
     }
 }
