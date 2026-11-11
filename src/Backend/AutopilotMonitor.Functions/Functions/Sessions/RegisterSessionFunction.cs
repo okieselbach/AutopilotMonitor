@@ -435,10 +435,6 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             });
 
         /// <summary>
-        /// 410 Gone response for the cascade-delete guard. Mirrors the V2 ingest 410 contract so
-        /// the agent treats register and telemetry uniformly when a session is being deleted.
-        /// </summary>
-        /// <summary>
         /// Clamps <see cref="SessionRegistration.StartedAt"/> to the same plausibility window
         /// events get (<see cref="EventTimestampValidator.SanitizeTimestamp"/>): outside
         /// [utcNow − 168h, utcNow + 24h] the anchor becomes the server receive time. Runs in the
@@ -492,6 +488,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 ErrorCode = Constants.AgentErrorCodes.SessionOwnerMismatch,
             });
 
+        /// <summary>
+        /// 410 Gone for the cascade-delete guard: a cascade owns the session, or its tombstone is
+        /// still fresh. Same status as the telemetry ingest. The agent ends monitoring on it and
+        /// removes itself; a WhiteGlove Part 2 start registers under a new session id instead.
+        /// </summary>
         private static Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
             => req.JsonAsync(HttpStatusCode.Gone, new RegisterSessionResponse
             {
