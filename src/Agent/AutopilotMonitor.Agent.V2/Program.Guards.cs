@@ -257,7 +257,7 @@ namespace AutopilotMonitor.Agent.V2
         /// <c>true</c> when the file-based <c>enrollment-complete.marker</c> signals that a
         /// previous session already completed enrollment — written by
         /// <see cref="EndMonitoringAtStart"/> (emergency break, intercepted-registration give-up,
-        /// config kill signal) right before it fires the cleanup retry, so that a next-boot observing the marker exits
+        /// session gone at registration, config kill signal) right before it fires the cleanup retry, so that a next-boot observing the marker exits
         /// cleanly even if the cleanup retry failed to remove the Scheduled Task. Triggers another
         /// self-destruct attempt when <paramref name="selfDestructOnComplete"/> is set.
         /// <para>
@@ -369,10 +369,11 @@ namespace AutopilotMonitor.Agent.V2
         /// next start exits cleanly even if the cleanup retry fails (Scheduled Task still alive,
         /// files locked, …), runs the cleanup retry when <paramref name="runSelfDestruct"/> is set
         /// (the emergency break and the give-up pass <c>SelfDestructOnComplete</c>, the kill signal
-        /// forces it), and deletes the persisted session files. Shared by the session-age emergency
-        /// break, the intercepted-registration give-up
-        /// (<c>BackendSessionRegistration.ConcludeFailedRun</c>) and the config-channel kill signal
-        /// so all three leave the device in the same state. Never throws.
+        /// and the session-gone end force it), and deletes the persisted session files. Shared by
+        /// the session-age emergency break, the intercepted-registration give-up
+        /// (<c>BackendSessionRegistration.ConcludeFailedRun</c>), the registration answered with 410
+        /// (<c>BackendSessionRegistration.ConcludeSessionGone</c>) and the config-channel kill signal
+        /// so all four leave the device in the same state. Never throws.
         /// </summary>
         internal static void EndMonitoringAtStart(
             string stateDirectory,

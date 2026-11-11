@@ -15,7 +15,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     ///   - Same error key (ErrorType + HTTP status code) is only ever sent once per session
     ///   - At most <see cref="MaxReportsPerSession"/> emergency reports total per session
     ///   - At most one report every <see cref="MinIntervalMinutes"/> minutes regardless of error type
-    ///     (the terminal <see cref="AgentErrorType.TelemetryRejectedSessionUnknown"/> report is exempt)
+    ///     (the terminal session-gone reports <see cref="AgentErrorType.TelemetryRejectedSessionUnknown"/>
+    ///     and <see cref="AgentErrorType.RegistrationRejectedSessionGone"/> are exempt)
     ///
     /// A failure in this reporter is silently swallowed — it must never cascade into the main loop.
     /// </summary>
@@ -123,11 +124,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     return;
                 }
 
-                // The session-unknown report is terminal and sent at most once per process (the
+                // A session-gone report is terminal and sent at most once per process (the
                 // termination follows immediately): a routine report minutes earlier must not cost
                 // the last word about the session. Only the cooldown is waived; key dedup and the
                 // per-session maximum still apply.
-                var exemptFromCooldown = errorType == AgentErrorType.TelemetryRejectedSessionUnknown;
+                var exemptFromCooldown = errorType == AgentErrorType.TelemetryRejectedSessionUnknown
+                    || errorType == AgentErrorType.RegistrationRejectedSessionGone;
                 if (!exemptFromCooldown && _lastReportTime != null &&
                     (now - _lastReportTime.Value).TotalMinutes < MinIntervalMinutes)
                 {

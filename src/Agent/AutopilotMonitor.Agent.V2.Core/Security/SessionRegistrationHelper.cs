@@ -46,6 +46,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///     authorized agent.</item>
     ///   <item>Any other coded 409 (<see cref="BackendRefusalException"/>) → <see cref="SessionRegistrationOutcome.Failed"/>
     ///     without retrying — a refusal with a code does not clear by waiting.</item>
+    ///   <item>410 from the backend (<see cref="BackendSessionGoneException"/>): the persisted
+    ///     session was deleted. With <c>rotateOnSessionGone</c> (a WhiteGlove Part 2 start, whose
+    ///     enrollment is only now continuing) the session is rotated like above and registered
+    ///     once more. Every other start returns <see cref="SessionRegistrationOutcome.SessionGone"/>
+    ///     without retrying — the caller ends monitoring. So does a second 410 or a failed rotation:
+    ///     the 48-hour break skips a WhiteGlove resume, so no path here may leave it retrying.</item>
     ///   <item>Any other exception on the last attempt → <see cref="EmergencyReporter.TrySendAsync"/>
     ///     with <c>AgentErrorType.RegisterSessionFailed</c> so operators see the final cause.</item>
     /// </list>
@@ -75,6 +81,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// Optional pre-registration link wait used by tests. Production callers pass
         /// <c>null</c> → <see cref="WaitForNetworkLinkAsync"/> (bounded by <see cref="NetworkLinkWaitMax"/>).
         /// </param>
+        /// <param name="rotateOnSessionGone">
+        /// True at a WhiteGlove Part 2 start: a 410 for the persisted session then becomes a new
+        /// session through <paramref name="rotateSession"/> instead of ending monitoring.
+        /// </param>
         public static async Task<SessionRegistrationResult> RegisterWithRetryAsync(
             BackendApiClient apiClient,
             AgentConfiguration agentConfig,
@@ -86,7 +96,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             Func<Exception, Task> onTerminalTransportFailure = null,
             (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null,
             Func<AgentLogger, Task> networkLinkWait = null,
-            Func<string> rotateSession = null)
+            Func<string> rotateSession = null,
+            bool rotateOnSessionGone = false)
         {
             if (apiClient == null) throw new ArgumentNullException(nameof(apiClient));
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
@@ -101,6 +112,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             string lastError = null;
             Exception lastException = null;
             string rotatedFromSessionId = null;
+            string rotationReason = null;
 
             for (int attempt = 1; attempt <= MaxAttempts; attempt++)
             {
@@ -112,7 +124,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     if (response != null && response.Success)
                     {
                         logger.Info($"Session registered successfully: {response.SessionId} (validatedBy={response.ValidatedBy}, adminAction={response.AdminAction ?? "(none)"})");
-                        return SessionRegistrationResult.Succeeded(response, rotatedFromSessionId);
+                        return SessionRegistrationResult.Succeeded(response, rotatedFromSessionId, rotationReason);
                     }
 
                     lastError = response?.Message ?? "(null response)";
@@ -149,8 +161,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         $"Backend refused registration with {Constants.AgentErrorCodes.SessionOwnerMismatch}: session {rotatedFromSessionId} " +
                         $"is not this device's (bound to another device identity after a re-enrollment without wipe, or claimed by another tenant). " +
                         $"Rotated to {newSessionId}; re-registering.");
+                    rotationReason = SessionRotationReasons.OwnerMismatch;
                     registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
                     continue;
+                }
+                catch (BackendSessionGoneException ex)
+                {
+                    if (rotateOnSessionGone && rotateSession != null && rotatedFromSessionId == null)
+                    {
+                        var goneSessionId = registration.SessionId;
+                        string newSessionId = null;
+                        try
+                        {
+                            newSessionId = rotateSession();
+                        }
+                        catch (Exception rotateEx)
+                        {
+                            logger.Error($"Backend answered 410 for session {goneSessionId} but session rotation failed: {rotateEx.Message}", rotateEx);
+                        }
+
+                        if (newSessionId != null)
+                        {
+                            rotatedFromSessionId = goneSessionId;
+                            rotationReason = SessionRotationReasons.SessionGone;
+                            logger.Warning(
+                                $"Backend answered 410 for session {goneSessionId} at the start of a WhiteGlove Part 2: " +
+                                $"the session was deleted. Rotated to {newSessionId}; re-registering.");
+                            registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
+                            continue;
+                        }
+                    }
+
+                    logger.Error($"Session registration refused with 410 Gone — the backend deleted session {registration.SessionId}.");
+                    return SessionRegistrationResult.SessionGone(ex.StatusCode, ex.Message);
                 }
                 catch (BackendRefusalException ex)
                 {
@@ -294,6 +337,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
         /// <summary>All attempts failed with non-auth errors (network, 5xx, malformed response).</summary>
         Failed = 2,
+
+        /// <summary>
+        /// 410 from the backend: the persisted session was deleted. No retry was attempted; the
+        /// caller ends monitoring and cleans up.
+        /// </summary>
+        SessionGone = 3,
+    }
+
+    /// <summary>Why a run registered under a new SessionId (<see cref="SessionRegistrationResult.RotationReason"/>).</summary>
+    public static class SessionRotationReasons
+    {
+        /// <summary>The backend refused the persisted id with <c>session_owner_mismatch</c>.</summary>
+        public const string OwnerMismatch = "owner_mismatch";
+
+        /// <summary>The backend answered 410 for the persisted id at a WhiteGlove Part 2 start.</summary>
+        public const string SessionGone = "session_gone";
     }
 
     /// <summary>Result of <see cref="SessionRegistrationHelper.RegisterWithRetryAsync"/>.</summary>
@@ -308,11 +367,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public ValidatorType ValidatedBy => Response?.ValidatedBy ?? ValidatorType.Unknown;
 
         /// <summary>
-        /// SESSION-OWNER-BINDING: the SessionId this run started with when the backend refused it
-        /// with <c>session_owner_mismatch</c> and the session was rotated before the successful
+        /// The SessionId this run started with when the backend refused it (<c>session_owner_mismatch</c>,
+        /// or 410 at a WhiteGlove Part 2 start) and the session was rotated before the successful
         /// registration. Null on the normal path.
         /// </summary>
         public string RotatedFromSessionId { get; }
+
+        /// <summary>One of <see cref="SessionRotationReasons"/> when <see cref="RotatedFromSessionId"/> is set, else null.</summary>
+        public string RotationReason { get; }
 
         /// <summary>
         /// True when the run ended on a 401/403 that something on the network path answered (TLS
@@ -327,7 +389,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             int httpStatusCode,
             string errorMessage,
             string rotatedFromSessionId = null,
-            bool isIntercepted = false)
+            bool isIntercepted = false,
+            string rotationReason = null)
         {
             Outcome = outcome;
             Response = response;
@@ -335,10 +398,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             ErrorMessage = errorMessage;
             RotatedFromSessionId = rotatedFromSessionId;
             IsIntercepted = isIntercepted;
+            RotationReason = rotatedFromSessionId != null ? rotationReason : null;
         }
 
-        public static SessionRegistrationResult Succeeded(RegisterSessionResponse response, string rotatedFromSessionId = null)
-            => new SessionRegistrationResult(SessionRegistrationOutcome.Succeeded, response, 200, null, rotatedFromSessionId);
+        public static SessionRegistrationResult Succeeded(
+            RegisterSessionResponse response, string rotatedFromSessionId = null, string rotationReason = null)
+            => new SessionRegistrationResult(
+                SessionRegistrationOutcome.Succeeded, response, 200, null, rotatedFromSessionId, rotationReason: rotationReason);
+
+        public static SessionRegistrationResult SessionGone(int statusCode, string message)
+            => new SessionRegistrationResult(SessionRegistrationOutcome.SessionGone, null, statusCode, message);
 
         public static SessionRegistrationResult AuthFailed(int statusCode, string message, bool intercepted = false)
             => new SessionRegistrationResult(SessionRegistrationOutcome.AuthFailed, null, statusCode, message, isIntercepted: intercepted);

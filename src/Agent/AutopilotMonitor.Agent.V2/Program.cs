@@ -275,7 +275,9 @@ namespace AutopilotMonitor.Agent.V2
             // mapping + on-failure client disposal) is encapsulated in BackendSessionRegistration.
             // Exit codes: 6 = AuthFailed, 7 = anything else. A registration intercepted on more
             // starts than the buffer allows cleans up like the emergency break (state folder +
-            // cleanup factory) and still exits 6. See Runtime/BackendSessionRegistration.cs.
+            // cleanup factory) and still exits 6. A registration the backend answers with 410
+            // (session deleted) cleans up the same way and exits 0; a WhiteGlove Part 2 start
+            // registers a new session instead. See Runtime/BackendSessionRegistration.cs.
             var registration = Runtime.BackendSessionRegistration.Register(
                 bootstrap.AgentConfig, auth, telemetry.MtlsHttpClient, GetAgentVersion(), consoleMode, logger,
                 rotateSession: () => Runtime.BackendSessionRegistration.RotateSession(
@@ -283,7 +285,8 @@ namespace AutopilotMonitor.Agent.V2
                 sessionPersistence: bootstrap.SessionPersistence,
                 configFetchOutcome: runtimeConfig.RemoteConfigService.LastFetchOutcome.ToString(),
                 stateDirectory: stateSubdir,
-                cleanupServiceFactory: bootstrap.CleanupServiceFactory);
+                cleanupServiceFactory: bootstrap.CleanupServiceFactory,
+                isWhiteGloveResume: bootstrap.IsWhiteGloveResume);
             if (registration.ShouldExit)
             {
                 return registration.ExitCode;

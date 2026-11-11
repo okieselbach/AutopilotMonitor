@@ -260,6 +260,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 {
                     await ThrowOnAuthFailureAsync(response, correlationId).ConfigureAwait(false);
                     await ThrowOnCodedConflictAsync(response).ConfigureAwait(false);
+                    ThrowOnSessionGone(response, correlationId);
                     response.EnsureSuccessStatusCode();
 
                     var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -413,6 +414,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         }
 
         /// <summary>
+        /// Throws <see cref="BackendSessionGoneException"/> for a 410 the backend answered: the
+        /// session was deleted or is being deleted. Only a response that echoes this request's
+        /// <c>X-Correlation-ID</c> counts — the caller ends monitoring on it, so a 410 from the
+        /// network path stays an ordinary failure (<c>EnsureSuccessStatusCode</c>) and is retried.
+        /// </summary>
+        private static void ThrowOnSessionGone(HttpResponseMessage response, string correlationId)
+        {
+            if (response.StatusCode != HttpStatusCode.Gone)
+                return;
+            if (!ResponseOriginClassifier.EchoesCorrelationId(response, correlationId))
+                return;
+
+            throw new BackendSessionGoneException(
+                "Backend returned 410 Gone: the session was deleted or is being deleted.",
+                (int)response.StatusCode);
+        }
+
+        /// <summary>
         /// Pulls <c>errorCode</c> out of a backend JSON error body. Tolerant: any parse failure
         /// or a non-string value yields null, never an exception.
         /// </summary>
@@ -535,6 +554,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         {
             StatusCode = statusCode;
             ErrorCode = errorCode;
+        }
+    }
+
+    /// <summary>
+    /// Thrown for a 410 Gone the backend answered: the session named in the request was deleted or
+    /// is being deleted. No retry can clear it and it says nothing about the device's authorization.
+    /// </summary>
+    public class BackendSessionGoneException : Exception
+    {
+        /// <summary>HTTP status code returned by the backend (410).</summary>
+        public int StatusCode { get; }
+
+        public BackendSessionGoneException(string message, int statusCode) : base(message)
+        {
+            StatusCode = statusCode;
         }
     }
 }

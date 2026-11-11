@@ -47,6 +47,14 @@ namespace AutopilotMonitor.Shared.Models
         /// channel is exactly what was refused.
         /// </summary>
         TelemetryRejectedSessionUnknown = 5,
+
+        /// <summary>
+        /// POST /api/agent/register-session answered 410 Gone at agent start: the session this
+        /// device resumes was deleted or is being deleted. The agent ends monitoring and removes
+        /// itself; this single report is the last thing the device says about the session. A
+        /// WhiteGlove Part 2 start registers a new session instead and sends no report.
+        /// </summary>
+        RegistrationRejectedSessionGone = 6,
     }
 
     /// <summary>

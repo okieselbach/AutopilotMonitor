@@ -81,6 +81,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
         }
 
         [Fact]
+        public async Task Registration_session_gone_report_is_exempt_from_the_cooldown_like_the_telemetry_one()
+        {
+            // The integrity report goes out post-config, seconds before the registration is refused.
+            var clock = Clock();
+            var client = new FakeApiClient();
+            client.Results.Enqueue(true);
+            client.Results.Enqueue(true);
+            var reporter = Reporter(client, clock);
+
+            await reporter.TrySendAsync(AgentErrorType.IntegrityCheckFailed, "m");
+            clock.Advance(TimeSpan.FromSeconds(5));
+            await reporter.TrySendAsync(AgentErrorType.RegistrationRejectedSessionGone, "m", httpStatusCode: 410);
+
+            Assert.Equal(2, client.Calls);
+            Assert.Equal(AgentErrorType.RegistrationRejectedSessionGone, client.Reports[1].ErrorType);
+            Assert.Equal(410, client.Reports[1].HttpStatusCode);
+
+            // Key dedup still applies: a second one is held back.
+            await reporter.TrySendAsync(AgentErrorType.RegistrationRejectedSessionGone, "m", httpStatusCode: 410);
+            Assert.Equal(2, client.Calls);
+        }
+
+        [Fact]
         public async Task Second_session_unknown_report_within_the_window_is_still_suppressed()
         {
             var clock = Clock();

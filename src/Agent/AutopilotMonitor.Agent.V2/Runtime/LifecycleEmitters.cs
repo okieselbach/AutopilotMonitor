@@ -47,7 +47,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             RemoteConfigService remoteConfigService,
             AgentLogger logger,
             string rotatedFromSessionId = null,
-            PriorRegistrationFailures priorRegistrationFailures = null)
+            PriorRegistrationFailures priorRegistrationFailures = null,
+            string sessionRotationReason = null)
         {
             try
             {
@@ -72,9 +73,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     { "diagnosticsUploadMode", agentConfig.DiagnosticsUploadMode ?? "Off" },
                     { "previousExitType", previousExit?.ExitType ?? "unknown" },
                     { "unrestrictedMode", agentConfig.UnrestrictedMode },
-                    // SESSION-OWNER-BINDING: true when the backend refused the persisted session
-                    // id (session_owner_mismatch) and this run rotated to a new session before
-                    // registering — the re-enroll-without-wipe shape, made visible on the timeline.
+                    // True when the backend refused the persisted session id and this run rotated
+                    // to a new session before registering: session_owner_mismatch (re-enroll
+                    // without wipe) or 410 at a WhiteGlove Part 2 start (session deleted).
+                    // sessionRotationReason below names which.
                     { "sessionRotated", rotatedFromSessionId != null },
                     { "previousSessionId", rotatedFromSessionId ?? string.Empty },
                     // remoteConfigFetched answers "is the agent running on a live-fetched
@@ -95,6 +97,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
                 if (recovered)
                     data["remoteConfigRecovered"] = true;
+
+                if (rotatedFromSessionId != null && !string.IsNullOrEmpty(sessionRotationReason))
+                    data["sessionRotationReason"] = sessionRotationReason;
 
                 // Which bootstrap installed this agent (installer and loader versions, MSI or
                 // Intune loader, OOBE go-script), read from the scripts' own logs: makes the

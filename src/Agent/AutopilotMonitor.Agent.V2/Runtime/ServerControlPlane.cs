@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
@@ -193,14 +192,6 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             };
         }
 
-        // Bounded blocking send for the one session-gone report: the terminate that follows ends
-        // the process and the cleanup script deletes the agent, so a fire-and-forget send would
-        // be abandoned mid-flight. Retries stay inside one anti-flood reservation (ONE report).
-        private const int SessionGoneReportAttempts = 2;
-        private static readonly TimeSpan SessionGoneReportTimeout = TimeSpan.FromSeconds(15);
-        private static readonly TimeSpan SessionGoneReportRetryDelay = TimeSpan.FromSeconds(3);
-        private static readonly TimeSpan SessionGoneReportBudget = TimeSpan.FromSeconds(40);
-
         /// <summary>
         /// The backend answered HTTP 410 for the current session's telemetry: the session is over
         /// server-side. (a) Send ONE <see cref="AgentErrorType.TelemetryRejectedSessionUnknown"/>
@@ -227,25 +218,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             logger.Error($"Backend no longer knows this session (HTTP 410: {reason}) — reporting once over the emergency channel, then terminating with self-destruct.");
 
-            if (emergencyReporter != null)
-            {
-                try
-                {
-                    emergencyReporter
-                        .TrySendAsync(
-                            AgentErrorType.TelemetryRejectedSessionUnknown,
-                            $"Telemetry upload rejected with HTTP 410 — backend no longer knows this session ({reason}). Agent terminating with self-destruct.",
-                            httpStatusCode: (int)HttpStatusCode.Gone,
-                            attempts: SessionGoneReportAttempts,
-                            perAttemptTimeout: SessionGoneReportTimeout,
-                            retryDelay: SessionGoneReportRetryDelay)
-                        .Wait(SessionGoneReportBudget);
-                }
-                catch (Exception ex)
-                {
-                    logger.Debug($"Session-gone report send failed (best-effort): {ex.Message}");
-                }
-            }
+            SessionGoneReport.SendBlocking(
+                emergencyReporter,
+                AgentErrorType.TelemetryRejectedSessionUnknown,
+                $"Telemetry upload rejected with HTTP 410 — backend no longer knows this session ({reason}). Agent terminating with self-destruct.",
+                logger);
 
             var terminateAction = new ServerAction
             {

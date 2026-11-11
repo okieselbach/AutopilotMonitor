@@ -138,6 +138,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                 () => client.GetDiagnosticsUploadUrlAsync("tenant-1", "session-1", "package.zip"));
         }
 
+        // ── 410: session gone, only when the backend said so ────────────────
+
+        [Fact]
+        public async Task Backend_410_on_registration_is_session_gone()
+        {
+            using var client = BuildClient(
+                HttpStatusCode.Gone,
+                "{\"success\":false,\"message\":\"Session is being deleted by an administrator (state=Tombstoned); registration is rejected.\"}",
+                "application/json");
+
+            var ex = await Assert.ThrowsAsync<BackendSessionGoneException>(
+                () => client.RegisterSessionAsync(new AutopilotMonitor.Shared.Models.SessionRegistration()));
+
+            Assert.Equal(410, ex.StatusCode);
+        }
+
+        [Fact]
+        public async Task A_410_without_the_backends_echo_stays_a_plain_http_error()
+        {
+            // Answered on the network path: the caller would end monitoring on a session-gone
+            // signal, so it must stay an ordinary, retried failure.
+            using var client = BuildClient(
+                HttpStatusCode.Gone,
+                "<html><head><title>Gone</title></head><body>Gone</body></html>",
+                "text/html",
+                fromBackend: false);
+
+            await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.RegisterSessionAsync(new AutopilotMonitor.Shared.Models.SessionRegistration()));
+        }
+
         [Theory]
         [InlineData(null, null)]
         [InlineData("", null)]

@@ -26,6 +26,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     /// the next boot. The failed run is recorded for the emergency break report. A registration
     /// that something on the network path answered gets <c>InterceptedRegistrationRetryBoots</c>
     /// further boots, then the agent cleans up like the emergency break (<see cref="ConcludeFailedRun"/>).
+    /// A registration the backend answers with 410 — the session was deleted — ends monitoring at
+    /// once (<see cref="ConcludeSessionGone"/>); only a WhiteGlove Part 2 start registers a new
+    /// session instead, because its enrollment is only now continuing.
     /// A successful registration after failed starts reports them on <c>agent_started</c>
     /// (<see cref="ClearAfterSuccess"/>).
     /// </summary>
@@ -37,8 +40,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// </summary>
         internal static readonly TimeSpan PendingDistressBound = TimeSpan.FromSeconds(5);
 
-        /// <param name="stateDirectory">State folder for <c>enrollment-complete.marker</c> on the intercepted-registration give-up.</param>
-        /// <param name="cleanupServiceFactory">Self-destruct for the give-up (run when <c>SelfDestructOnComplete</c>).</param>
+        /// <param name="stateDirectory">State folder for <c>enrollment-complete.marker</c> on the intercepted-registration give-up and the session-gone end.</param>
+        /// <param name="cleanupServiceFactory">Self-destruct for the give-up (run when <c>SelfDestructOnComplete</c>) and the session-gone end (always run).</param>
+        /// <param name="isWhiteGloveResume">This start is a WhiteGlove Part 2: a 410 for the persisted session becomes a new session.</param>
         public static SessionRegistrationOutcomeResult Register(
             AgentConfiguration agentConfig,
             BackendAuthBundle auth,
@@ -50,7 +54,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             SessionIdPersistence sessionPersistence = null,
             string configFetchOutcome = null,
             string stateDirectory = null,
-            Func<CleanupService> cleanupServiceFactory = null)
+            Func<CleanupService> cleanupServiceFactory = null,
+            bool isWhiteGloveResume = false)
         {
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (auth == null) throw new ArgumentNullException(nameof(auth));
@@ -86,7 +91,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 // Reuse the single hardened hardware read from the auth bundle so the session row
                 // matches the security headers the backend validated against (no second WMI query).
                 deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
-                rotateSession: rotateSession)
+                rotateSession: rotateSession,
+                rotateOnSessionGone: isWhiteGloveResume)
                 .GetAwaiter().GetResult();
 
             if (registrationResult.Outcome == SessionRegistrationOutcome.Succeeded)
@@ -95,6 +101,17 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     registrationResult,
                     ClearAfterSuccess(sessionPersistence, NetworkFingerprint.TryCapture, logger,
                         startContext.DeviceBootUtc, auth.ClientCertificateThumbprint));
+            }
+
+            if (registrationResult.Outcome == SessionRegistrationOutcome.SessionGone)
+            {
+                // The report goes out through the auth bundle's client: dispose only afterwards.
+                var exitCode = ConcludeSessionGone(
+                    agentConfig, auth.EmergencyReporter, sessionPersistence, stateDirectory,
+                    cleanupServiceFactory, consoleMode, logger);
+                try { mtlsHttpClient?.Dispose(); } catch { }
+                try { auth.BackendApiClient?.Dispose(); } catch { }
+                return SessionRegistrationOutcomeResult.Exit(exitCode);
             }
 
             var record = RecordFailedRun(
@@ -262,6 +279,41 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             // Exit code differs so the diag skill can distinguish Auth vs Network in Scheduled-Task history.
             return registrationResult.Outcome == SessionRegistrationOutcome.AuthFailed ? 6 : 7;
+        }
+
+        /// <summary>
+        /// The end of a start whose registration the backend answered with 410: the session was
+        /// deleted. One report over the emergency channel (a deleted session has no timeline to
+        /// carry an event), then monitoring ends like on the telemetry-channel 410 — marker first,
+        /// self-destruct regardless of <c>SelfDestructOnComplete</c>, session files deleted
+        /// (<see cref="Program.EndMonitoringAtStart"/>). Returns exit code 0: an intended end.
+        /// </summary>
+        internal static int ConcludeSessionGone(
+            AgentConfiguration agentConfig,
+            EmergencyReporter emergencyReporter,
+            SessionIdPersistence sessionPersistence,
+            string stateDirectory,
+            Func<CleanupService> cleanupServiceFactory,
+            bool consoleMode,
+            AgentLogger logger)
+        {
+            logger.Error(
+                $"=== SESSION GONE (HTTP 410): the backend deleted session {agentConfig.SessionId} — " +
+                "reporting once over the emergency channel, then cleaning up with self-destruct. ===");
+            if (consoleMode)
+                Console.Error.WriteLine("Session was deleted in the backend. Cleaning up and exiting.");
+
+            SessionGoneReport.SendBlocking(
+                emergencyReporter,
+                AgentErrorType.RegistrationRejectedSessionGone,
+                "Session registration rejected with HTTP 410 — the backend deleted this session. Agent cleaning up with self-destruct.",
+                logger);
+
+            Program.EndMonitoringAtStart(
+                stateDirectory, sessionPersistence, runSelfDestruct: true, cleanupServiceFactory, logger,
+                markerText: $"Session gone at {DateTime.UtcNow:O} (registration refused with HTTP 410)",
+                cleanupReason: "session_gone");
+            return 0;
         }
 
         /// <summary>

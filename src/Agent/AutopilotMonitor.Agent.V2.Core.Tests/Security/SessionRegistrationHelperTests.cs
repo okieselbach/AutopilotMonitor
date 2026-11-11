@@ -166,6 +166,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.Equal(0, tracker.ConsecutiveFailures);
             Assert.Equal(new[] { originalSessionId, rotatedTo }, seenSessionIds);
             Assert.Equal(originalSessionId, result.RotatedFromSessionId);
+            Assert.Equal(SessionRotationReasons.OwnerMismatch, result.RotationReason);
         }
 
         private static BackendRefusalException TenantConflict()
@@ -311,6 +312,136 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.Equal(SessionRegistrationOutcome.AuthFailed, result.Outcome);
             Assert.Equal(1, apiClient.CallCount);
             Assert.Equal(1, tracker.ConsecutiveFailures);
+        }
+
+        // ── 410 at registration: the backend deleted the session ────────────
+
+        private static BackendSessionGoneException SessionGone()
+            => new BackendSessionGoneException("Backend returned 410 Gone: the session was deleted or is being deleted.", 410);
+
+        [Fact]
+        public async Task Session_gone_ends_the_run_at_once_without_retry_rotation_or_auth_failure()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var rotations = 0;
+
+            var apiClient = new FakeApiClient(_ => throw SessionGone());
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            // The rotation hook is wired on every start; without the Part 2 flag it must stay unused.
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker,
+                backoffDelay: _ => throw new InvalidOperationException("a 410 must not be retried"),
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { rotations++; return Guid.NewGuid().ToString(); });
+
+            Assert.Equal(SessionRegistrationOutcome.SessionGone, result.Outcome);
+            Assert.Equal(410, result.HttpStatusCode);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Equal(0, rotations);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            Assert.Null(result.RotatedFromSessionId);
+            Assert.Null(result.RotationReason);
+        }
+
+        [Fact]
+        public async Task Session_gone_at_a_whiteglove_part2_start_rotates_once_and_registers_the_new_session()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var originalSessionId = config.SessionId;
+            var rotatedTo = Guid.NewGuid().ToString();
+            var seenSessionIds = new System.Collections.Generic.List<string>();
+            var rotations = 0;
+
+            var apiClient = new FakeApiClient(
+                attempt => attempt == 1
+                    ? throw SessionGone()
+                    : new RegisterSessionResponse { Success = true, SessionId = rotatedTo, ValidatedBy = ValidatorType.AutopilotV1 },
+                onRegister: r => seenSessionIds.Add(r.SessionId));
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker,
+                backoffDelay: _ => throw new InvalidOperationException("rotation must retry without backoff"),
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { rotations++; config.SessionId = rotatedTo; return rotatedTo; },
+                rotateOnSessionGone: true);
+
+            Assert.Equal(SessionRegistrationOutcome.Succeeded, result.Outcome);
+            Assert.Equal(2, apiClient.CallCount);
+            Assert.Equal(1, rotations);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            Assert.Equal(new[] { originalSessionId, rotatedTo }, seenSessionIds);
+            Assert.Equal(originalSessionId, result.RotatedFromSessionId);
+            Assert.Equal(SessionRotationReasons.SessionGone, result.RotationReason);
+        }
+
+        [Fact]
+        public async Task Second_session_gone_after_rotation_ends_the_run()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var rotations = 0;
+
+            var apiClient = new FakeApiClient(_ => throw SessionGone());
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => throw new InvalidOperationException("a 410 must not be retried"),
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { rotations++; config.SessionId = Guid.NewGuid().ToString(); return config.SessionId; },
+                rotateOnSessionGone: true);
+
+            Assert.Equal(SessionRegistrationOutcome.SessionGone, result.Outcome);
+            Assert.Equal(2, apiClient.CallCount);
+            Assert.Equal(1, rotations);
+        }
+
+        [Fact]
+        public async Task Session_gone_with_a_failing_rotation_ends_the_run()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ => throw SessionGone());
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => throw new IOException("disk full"),
+                rotateOnSessionGone: true);
+
+            Assert.Equal(SessionRegistrationOutcome.SessionGone, result.Outcome);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Null(result.RotatedFromSessionId);
+        }
+
+        [Fact]
+        public async Task Session_gone_at_a_whiteglove_part2_start_without_rotation_hook_ends_the_run()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ => throw SessionGone());
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateOnSessionGone: true);
+
+            Assert.Equal(SessionRegistrationOutcome.SessionGone, result.Outcome);
+            Assert.Equal(1, apiClient.CallCount);
         }
 
         [Fact]
