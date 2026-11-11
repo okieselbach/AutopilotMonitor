@@ -148,5 +148,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
                 "the window never closed: the worker exited before the watcher subscribed to Exited");
             Assert.False(watcher.IsActive);
         }
+
+        [Fact]
+        public void A_traced_id_that_belongs_to_another_program_is_not_tracked()
+        {
+            // The start trace arrives late: by then the id can belong to an unrelated process.
+            using var watcher = new OfficeProcessWatcher(_logger, settleSeconds: 0);
+            watcher.WorkerSource = () => Array.Empty<Process>();
+            watcher.Start(armWmi: false);
+            var child = Spawn();
+
+            watcher.TrackTracedProcess(child.Id, "OfficeC2RClient");
+
+            Assert.False(watcher.IsActive);
+        }
+
+        [Fact]
+        public void A_traced_id_that_still_carries_the_expected_name_is_tracked()
+        {
+            using var watcher = new OfficeProcessWatcher(_logger, settleSeconds: 0);
+            watcher.WorkerSource = () => Array.Empty<Process>();
+            watcher.Start(armWmi: false);
+            var child = Spawn();
+
+            watcher.TrackTracedProcess(child.Id, "cmd");
+
+            Assert.True(watcher.IsActive);
+        }
     }
 }

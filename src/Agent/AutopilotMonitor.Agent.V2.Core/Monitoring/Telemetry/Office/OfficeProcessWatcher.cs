@@ -166,17 +166,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             {
                 var pidObj = e.NewEvent?["ProcessID"];
                 if (pidObj == null) return;
-                var pid = Convert.ToInt32(pidObj);
-
-                Process? proc = null;
-                try { proc = Process.GetProcessById(pid); }
-                catch { /* already gone — ignore */ }
-                if (proc != null) TrackWorker(proc);
+                TrackTracedProcess(Convert.ToInt32(pidObj), WorkerProcessNameNoExt);
             }
             catch (Exception ex)
             {
                 _logger.Debug($"[OfficeProcessWatcher] start-trace handler error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Tracks the process a start trace announced (internal for tests). WMI delivers the trace
+        /// with a delay, so the id may already belong to another process: only a process that still
+        /// carries the worker's name is tracked. A foreign process would hold the install window
+        /// open until it exits.
+        /// </summary>
+        internal void TrackTracedProcess(int pid, string processNameNoExt)
+        {
+            Process? proc = null;
+            try { proc = Process.GetProcessById(pid); }
+            catch { /* already gone — ignore */ }
+            if (proc == null) return;
+
+            bool isWorker;
+            try { isWorker = string.Equals(proc.ProcessName, processNameNoExt, StringComparison.OrdinalIgnoreCase); }
+            catch { isWorker = false; /* exited between the lookup and the name read */ }
+
+            if (isWorker)
+            {
+                TrackWorker(proc);
+                return;
+            }
+
+            try { proc.Dispose(); } catch { }
         }
 
         private void TrackWorker(Process proc)
