@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import {
   deriveSetupChecklist,
+  parseSetupStep,
   parseSetupTour,
   recommendedPatch,
   recommendedStatus,
@@ -136,5 +137,17 @@ describe("parseSetupTour", () => {
     expect(parseSetupTour("showme:diagnostics")).toBe("showme:diagnostics");
     expect(parseSetupTour("showme:elsewhere")).toBeNull();
     expect(parseSetupTour(null)).toBeNull();
+  });
+});
+
+describe("parseSetupStep", () => {
+  it("accepts the four steps a link may name", () => {
+    expect(["settings", "hardware", "validation", "deploy"].map(parseSetupStep)).toEqual(["settings", "hardware", "validation", "deploy"]);
+  });
+
+  it("ignores anything else, so a link can never open a state the guide does not have", () => {
+    for (const raw of ["complete", "Settings", "", "reset", "showme:timezone", null, undefined]) {
+      expect(parseSetupStep(raw)).toBeNull();
+    }
   });
 });

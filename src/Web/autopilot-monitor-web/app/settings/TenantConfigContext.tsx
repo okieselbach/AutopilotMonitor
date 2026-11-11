@@ -29,18 +29,20 @@ const ACCESS_RESTORED_MESSAGE = "Access restored. The notice on the dashboard ca
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin } from "./types";
-import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
+import type { SettingsSectionName } from "./sectionFieldMap";
 import {
   DEFAULT_SETTINGS_FORM,
-  configFromForm,
   formFromConfig,
   hardwareRejectionNotify,
+  sectionSavePayload,
   sectionsWithUnsavedEdits,
   settingsFormSetters,
+  type SectionSaveOverrides,
   type SettingsForm,
   type SettingsFormSetters,
 } from "./lib/settingsForm";
-import { changedTenantConfigFields, patchTenantConfigFields } from "@/lib/tenantConfigSave";
+import { noteTenantConfigWritten } from "@/lib/storedConfigHint";
+import { patchTenantConfigFields } from "@/lib/tenantConfigSave";
 import { subscribeTenantConfigPatches } from "@/lib/tenantConfigPatches";
 import { leaveOrAsk } from "@/lib/unsavedChanges";
 import { looksLikeGuid, type MemberKind } from "@/lib/principalKeys";
@@ -309,8 +311,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     trackEvent("app_homing_flipped", { source });
     setHomingFlipped(true);
     setAppHomingFunnelActive(false);
-    // The flip changed appHomingFunnelActive in the feature flags the dashboard banner reads.
+    // The flip changed appHomingFunnelActive in the feature flags the dashboard banner reads. The
+    // backend wrote it during a GET, which the fetch layer does not see as a configuration write.
     invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+    noteTenantConfigWritten();
     setHomingMissingRoles(null);
     homingPendingRef.current = false;
     setConfig(prev => (prev ? { ...prev, homedAppClientId: primaryClientId() ?? prev.homedAppClientId } : prev));
@@ -500,7 +504,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
   // Resolves to null when the save went through, otherwise to the text of the failure.
-  const runSectionSave = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; validateIntuneDeviceBinding?: boolean; unrestrictedMode?: boolean }): Promise<string | null> => {
+  const runSectionSave = useCallback(async (sectionName: SettingsSectionName, overrides?: SectionSaveOverrides): Promise<string | null> => {
     // Read-only viewers (Operators) have no save affordances; this guard covers any path
     // that still reaches a save (the backend would 403 the PATCH regardless).
     if (!tenantId || !config || !canEditConfig) return "This configuration cannot be edited right now.";
@@ -526,17 +530,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setError(null);
       setSuccessMessage(null);
 
-      // A gate toggle passes its new value explicitly: the state update it made before calling
-      // has not rendered yet, so the form still holds the previous value.
-      const gateOverrides = Object.fromEntries(Object.entries(overrides ?? {}).filter(([, value]) => value != null));
-      const updatedConfig: TenantConfiguration = { ...configFromForm(config, form), ...gateOverrides };
-
-      // Per-section PATCH: send ONLY this section's fields (plus documented write-throughs)
-      // that actually differ from the loaded config. The other ~90 fields never round-trip,
-      // so a stale read cannot revert unrelated fields (the 2026-07-31 incident class), and
-      // GA-only toggles a tenant admin cannot edit are simply never in the payload.
-      const spec: SectionFieldSpec = SECTION_FIELD_MAP[sectionName];
-      const patchFields = changedTenantConfigFields(config, updatedConfig, [...spec.fields, ...(spec.alsoWrites ?? [])]);
+      // Per-section PATCH: send ONLY what the admin changed in this section (plus documented
+      // write-throughs), as sectionSavePayload decides it. Untouched fields never round-trip, so a
+      // page loaded before somebody else's write cannot revert it (the 2026-07-31 incident class),
+      // and GA-only toggles a tenant admin cannot edit are simply never in the payload. A gate
+      // toggle passes its new value explicitly: the state update it made before calling has not
+      // rendered yet, so the form still holds the previous value.
+      const patchFields = sectionSavePayload(config, form, sectionName, overrides);
 
       // The PATCH response carries applied field names + masked diff, not the config: the
       // backend verified exactly these fields changed, so merge them locally.
@@ -635,8 +635,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       setGraphAccessRejected(false);
       setGraphAccessAppMissing(false);
-      // The state just changed in the feature flags the dashboard banner reads.
+      // The state just changed in the feature flags the dashboard banner reads; the backend wrote
+      // it during the probe (a GET), so the fetch layer has not noted a configuration write.
       invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
+      noteTenantConfigWritten();
       return true;
     },
     [saveConfiguration],

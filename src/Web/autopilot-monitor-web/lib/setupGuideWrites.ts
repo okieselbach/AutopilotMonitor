@@ -8,12 +8,16 @@ import { patchTenantConfigFields } from "@/lib/tenantConfigSave";
 /** The steps the setup-guide endpoint records. */
 export type SetupGuideMarker = "settings" | "hardware" | "dismiss" | "restore";
 
-/** POST config/{tenantId}/setup-guide: the server stamps time and UPN. */
+/**
+ * POST config/{tenantId}/setup-guide: the server stamps time and UPN. The markers are part of the
+ * feature flags, so the cached flags go like after any other configuration write.
+ */
 export async function recordSetupGuideStep(tenantId: string, step: SetupGuideMarker, getAccessToken: GetAccessToken): Promise<void> {
   await fetchOk(api.config.setupGuide(tenantId), getAccessToken, {
     method: "POST",
     body: jsonBody<SetupGuideStepRequest>({ step }),
   });
+  invalidateCachedAuthFetch(CONFIG_PATH_PREFIX);
 }
 
 /**

@@ -4,6 +4,7 @@ import { HELLO_WAIT_TIMEOUT_DEFAULT_SECONDS } from "./helloWaitTimeout";
 import {
   SAVE_BAR_SECTIONS,
   SECTION_FIELD_MAP,
+  type SectionFieldSpec,
   type SettingsSectionName,
   type TenantConfigFieldName,
 } from "../sectionFieldMap";
@@ -342,28 +343,80 @@ export function hardwareRejectionNotify(
     : form.webhookNotifyOnHardwareRejection;
 }
 
+/** The switch a section without a Save bar has just flipped, by field. */
+export type SectionSaveOverrides = Partial<Record<TenantConfigFieldName, boolean>>;
+
+/** The stored row and the form, both written back in the stored shape; computed once per comparison. */
+interface SavedAndEdited {
+  savedForm: SettingsForm;
+  saved: TenantConfiguration;
+  edited: TenantConfiguration;
+}
+
+function savedAndEdited(config: TenantConfiguration, form: SettingsForm): SavedAndEdited {
+  const savedForm = formFromConfig(config);
+  return { savedForm, saved: configFromForm(config, savedForm), edited: configFromForm(config, form) };
+}
+
+/** What a Save bar section sends; see {@link sectionSavePayload}. */
+function saveBarPayload(
+  config: TenantConfiguration,
+  form: SettingsForm,
+  section: SettingsSectionName,
+  { savedForm, saved, edited }: SavedAndEdited,
+): Record<string, unknown> {
+  const spec: SectionFieldSpec = SECTION_FIELD_MAP[section];
+  const writeThroughs = spec.alsoWrites ?? [];
+
+  if (section === "hardwareWhitelist") {
+    // The rejection switch is a view over the channel flags: the legacy flag behind it and its
+    // write-through into the channels travel only when what the switch shows has changed.
+    const payload = changedTenantConfigFields(saved, edited, spec.fields.filter((f) => f !== "webhookNotifyOnHardwareRejection"));
+    if (hardwareRejectionNotify(savedForm) !== hardwareRejectionNotify(form)) {
+      Object.assign(payload, changedTenantConfigFields(saved, edited, ["webhookNotifyOnHardwareRejection", ...writeThroughs]));
+    }
+    return payload;
+  }
+
+  const payload = changedTenantConfigFields(saved, edited, spec.fields);
+  // A write-through rides along with an edit and is compared with the stored row itself: it clears
+  // what the projection never shows (the legacy single webhook behind the notification channels).
+  if (Object.keys(payload).length > 0) {
+    Object.assign(payload, changedTenantConfigFields(config, edited, writeThroughs));
+  }
+  return payload;
+}
+
 /**
- * The sections with a Save bar whose fields the user changed: the stored and the edited values
- * pass through the same projection before they are compared, so only an edit counts. A section
- * that saves on change (`immediate`) never counts.
+ * The fields saving `section` sends: what the admin changed, nothing else. The stored and the
+ * edited values pass through the same projection before they are compared, so a model default
+ * the row never stored, a trim or a synthesized channel never travels. That is what keeps a save
+ * from writing a form default over a value somebody else has stored since this page loaded.
+ *
+ * A section that saves on change (`immediate`) sends exactly the switch that was flipped, also
+ * when the loaded copy already holds that value: the copy may be outdated, and the backend ignores
+ * a value it already has.
+ */
+export function sectionSavePayload(
+  config: TenantConfiguration,
+  form: SettingsForm,
+  section: SettingsSectionName,
+  overrides: SectionSaveOverrides = {},
+): Record<string, unknown> {
+  const spec: SectionFieldSpec = SECTION_FIELD_MAP[section];
+  if (spec.immediate) {
+    return Object.fromEntries(
+      Object.entries(overrides).filter(([field, value]) => value != null && (spec.fields as readonly string[]).includes(field)),
+    );
+  }
+  return saveBarPayload(config, form, section, savedAndEdited(config, form));
+}
+
+/**
+ * The sections with a Save bar that hold unsaved edits: exactly those whose save would send
+ * something. A section that saves on change (`immediate`) never counts.
  */
 export function sectionsWithUnsavedEdits(config: TenantConfiguration, form: SettingsForm): ReadonlySet<SettingsSectionName> {
-  const savedForm = formFromConfig(config);
-  const saved = configFromForm(config, savedForm);
-  const edited = configFromForm(config, form);
-  const unsaved = new Set<SettingsSectionName>();
-  for (const section of SAVE_BAR_SECTIONS) {
-    let fields: readonly TenantConfigFieldName[] = SECTION_FIELD_MAP[section].fields;
-    let switchChanged = false;
-    if (section === "hardwareWhitelist") {
-      // Compare what the switch shows, not the legacy flag behind it: with channels the switch
-      // writes through to them, and the legacy flag alone may not move.
-      fields = fields.filter((f) => f !== "webhookNotifyOnHardwareRejection");
-      switchChanged = hardwareRejectionNotify(savedForm) !== hardwareRejectionNotify(form);
-    }
-    if (switchChanged || Object.keys(changedTenantConfigFields(saved, edited, fields)).length > 0) {
-      unsaved.add(section);
-    }
-  }
-  return unsaved;
+  const projections = savedAndEdited(config, form);
+  return new Set(SAVE_BAR_SECTIONS.filter((section) => Object.keys(saveBarPayload(config, form, section, projections)).length > 0));
 }

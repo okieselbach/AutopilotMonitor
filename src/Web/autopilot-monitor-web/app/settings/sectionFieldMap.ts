@@ -23,11 +23,12 @@ export interface SectionFieldSpec {
 }
 
 /**
- * Section → exact TenantConfiguration fields each Settings section saves. TenantConfigContext
- * builds its per-section PATCH from this map: only the section's fields (plus alsoWrites) that
- * actually DIFFER from the loaded config are sent — the other ~90 fields never round-trip, so
- * a stale read can no longer revert unrelated fields (the 2026-07-31 incident class). The same
- * map decides which sections can hold unsaved edits and where the sidebar marks them.
+ * Section → exact TenantConfiguration fields each Settings section saves. The per-section PATCH
+ * is built from this map (lib/settingsForm.ts, sectionSavePayload): only the section's fields the
+ * admin CHANGED travel, plus its alsoWrites — untouched fields never round-trip, in this section
+ * or any other, so a page loaded before somebody else's write cannot revert it (the 2026-07-31
+ * incident class). The same map decides which sections can hold unsaved edits and where the
+ * sidebar marks them.
  */
 export const SECTION_FIELD_MAP = {
   hardwareWhitelist: {

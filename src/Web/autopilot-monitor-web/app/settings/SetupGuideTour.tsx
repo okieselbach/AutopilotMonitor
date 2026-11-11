@@ -90,7 +90,7 @@ function ValidationTour() {
   const { user, getAccessToken } = useAuth();
   const { tenantId } = useTenant();
   const {
-    canEditConfig, error, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
+    config, canEditConfig, error, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
     validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding,
   } = useTenantConfig();
   const [target, setTarget] = useState<"autopilot" | "preparation">("autopilot");
@@ -101,7 +101,8 @@ function ValidationTour() {
   const anyGate = validateAutopilotDevice || validateCorporateIdentifier || validateDeviceAssociation
     || validateCloudPcDevice || validateIntuneDeviceBinding;
   const readOnly = !!user?.viewAs || !canEditConfig;
-  const failed = !!error && !anyGate && !autopilotConsentInProgress;
+  // Only with a loaded configuration: a failed load sets the same error and says nothing about the approval.
+  const failed = !!config && !!error && !anyGate && !autopilotConsentInProgress;
 
   useEffect(() => {
     if (anyGate && tenantId) markSetup(tenantId, { validation: true });

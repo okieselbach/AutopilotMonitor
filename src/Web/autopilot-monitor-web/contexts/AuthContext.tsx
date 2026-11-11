@@ -26,6 +26,7 @@ import { clearCachedAuthFetch } from '@/lib/cachedAuthFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { seedDashboardFirstFetch } from '@/lib/dashboardSeed';
 import { captureSignupConsentFromUrl, hasSignupConsent, stripSignupConsentParam } from '@/lib/signupConsent';
+import { storedConfigHeaders } from '@/lib/storedConfigHint';
 import { abandonViewAs, captureViewAsFromUrl, stripViewAsParams, viewAsHeaders } from '@/lib/viewAs';
 import { peekPostLoginReturnUrl } from '@/lib/postLoginReturn';
 import { DEFAULT_PORTAL_LANDING } from '@/lib/hostRouting';
@@ -228,7 +229,7 @@ const msalInitPromise = msalInstance
         // behind it (consumed once by authenticatedFetch, see lib/dashboardSeed.ts).
         seedDashboardFirstFetch(tokenResponse.accessToken, accounts[0].tenantId);
         const res = await fetch(api.auth.me({ signupConsent: hasSignupConsent() }), {
-          headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}`, ...viewAsHeaders() },
+          headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}`, ...viewAsHeaders(), ...storedConfigHeaders() },
           signal: AbortSignal.timeout(8000),
         });
         return res.ok ? (await res.json()) as AuthMeResponse : null;
@@ -472,6 +473,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
           headers: {
             'Authorization': `Bearer ${tokenResponse.accessToken}`,
             ...viewAsHeaders(),
+            // After the terms tick or a settings save, auth/me must not come from an older copy.
+            ...storedConfigHeaders(),
           },
           signal: authMeController.signal,
         });

@@ -12,6 +12,11 @@ import type { TenantConfigFieldName } from "@/lib/tenantConfigSave";
 export const SETUP_STEPS = ["settings", "hardware", "validation", "deploy"] as const;
 export type SetupStepId = (typeof SETUP_STEPS)[number];
 
+/** The step a `?setup-guide=` link names, or null. */
+export function parseSetupStep(raw: string | null | undefined): SetupStepId | null {
+  return (SETUP_STEPS as readonly string[]).includes(raw ?? "") ? (raw as SetupStepId) : null;
+}
+
 /** The feature-flag fields the checklist reads. */
 export type SetupGuideFlags = Pick<
   TenantFeatureFlagsResponse,
@@ -19,8 +24,8 @@ export type SetupGuideFlags = Pick<
 >;
 
 /**
- * What this browser learned ahead of the flags. The backend caches a tenant's configuration per
- * instance for a few minutes, so a step the admin just finished could otherwise show as open again.
+ * What this browser learned ahead of the flags: a step the admin just finished shows as done at
+ * once, and the first session counts before the tenant's enrollment counter has it.
  */
 export interface SetupGuideLocalMarks {
   settings?: boolean;

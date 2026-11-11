@@ -14,6 +14,7 @@
 import { trackEvent } from "./appInsights";
 import { CORRELATION_HEADER, newCorrelationId } from "./correlationId";
 import { takeSeed } from "./prefetchSeeds";
+import { noteTenantConfigWritten, storedConfigHeaders, writesTenantConfig } from "./storedConfigHint";
 import { viewAsHeaders } from "./viewAs";
 
 /** Default request timeout in milliseconds */
@@ -79,14 +80,28 @@ export async function authenticatedFetch(
 
   // A view-as tab (lib/viewAs.ts) names the viewed tenant on every call. It shares the browser's HTTP
   // cache with ordinary tabs and no response varies on those headers, so it bypasses that cache.
+  // A browser that has just written a tenant configuration asks for the stored row
+  // (lib/storedConfigHint.ts). That header leaves the cache mode alone: with "no-store" the browser
+  // preflights every call again, and the API's answers carry no freshness lifetime to serve from.
   const viewAs = viewAsHeaders();
+  const extraHeaders = { ...viewAs, ...storedConfigHeaders() };
   const cache = Object.keys(viewAs).length > 0 ? 'no-store' : init?.cache;
   const headersFor = (bearer: string): Headers => {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${bearer}`);
     headers.set(CORRELATION_HEADER, correlationId);
-    for (const [name, value] of Object.entries(viewAs)) headers.set(name, value);
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     return headers;
+  };
+
+  const settle = (final: Response): Response => {
+    if (final.status >= 400) {
+      trackFailure(url, method, final.status, correlationId);
+    } else if (final.ok && writesTenantConfig(method, url)) {
+      // From here on this browser's reads ask for the stored row: another instance may answer them.
+      noteTenantConfigWritten();
+    }
+    return final;
   };
 
   // Apply a default timeout unless the caller already provided an AbortSignal
@@ -106,10 +121,8 @@ export async function authenticatedFetch(
     if (retryResponse.status === 401) {
       throw new TokenExpiredError();
     }
-    if (retryResponse.status >= 400) trackFailure(url, method, retryResponse.status, correlationId);
-    return retryResponse;
+    return settle(retryResponse);
   }
 
-  if (response.status >= 400) trackFailure(url, method, response.status, correlationId);
-  return response;
+  return settle(response);
 }

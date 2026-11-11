@@ -31,6 +31,7 @@ import {
 } from "@/lib/setupGuide";
 import { closeSetupGuide, markSetup, startSetupTour } from "@/lib/setupGuideStore";
 import { recordSetupGuideStep, writeGuideConfigFields } from "@/lib/setupGuideWrites";
+import { subscribeTenantConfigPatches } from "@/lib/tenantConfigPatches";
 
 const STEP_TITLES: Record<SetupStepId, string> = {
   settings: "Recommended settings",
@@ -72,6 +73,13 @@ export function SetupGuideModal({ initialStep }: { initialStep: SetupStepId | nu
       cancelled = true;
     };
   }, [tenantId, getAccessToken]);
+
+  // The guide's own writes go into the copy the steps read: after "Back" a step shows what was
+  // just applied instead of offering it again.
+  useEffect(() => subscribeTenantConfigPatches((patchedTenantId, fields) => {
+    if (patchedTenantId !== tenantId) return;
+    setConfig((prev) => (prev ? ({ ...prev, ...fields } as TenantConfiguration) : prev));
+  }), [tenantId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -160,7 +168,14 @@ export function SetupGuideModal({ initialStep }: { initialStep: SetupStepId | nu
           )}
           {step === "validation" && <ValidationStep onContinue={() => goTo("validation")} />}
           {step === "deploy" && <DeployStep config={config} />}
-          {step === "complete" && <CompleteStep />}
+          {step === "complete" && (
+            <CompleteStep
+              onRestart={() => {
+                trackEvent("setup_guide_opened", { source: "again", step: "settings" });
+                goTo("settings");
+              }}
+            />
+          )}
 
           {checklist?.dismissed && !checklist.done.deploy && canEdit && (
             <RestoreLine tenantId={tenantId} getAccessToken={getAccessToken} />
@@ -396,7 +411,7 @@ function HardwareStep({ config, loadError, tenantId, canEdit, getAccessToken, on
         </p>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Accepted now</p>
         <div className="flex flex-wrap gap-1.5">
-          {entries.length === 0 && <span className="text-sm text-red-600 dark:text-red-400">Nothing is accepted: every device would be rejected.</span>}
+          {entries.length === 0 && <span className="text-sm text-red-600 dark:text-red-400">Add at least one manufacturer.</span>}
           {entries.map((entry) => (
             <span key={entry} className={`${chip} pr-1 bg-blue-50 text-blue-900 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800`}>
               {entry}
@@ -568,14 +583,14 @@ function DeployStep({ config }: { config: TenantConfiguration | null }) {
   );
 }
 
-function CompleteStep() {
+function CompleteStep({ onRestart }: { onRestart: () => void }) {
   return (
     <>
       <div className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
         Your tenant receives enrollments. Every setting the guide touched stays under Configuration.
       </div>
       <Footer>
-        <span />
+        <button type="button" className={linkButton} onClick={onRestart}>Go through the steps again</button>
         <button type="button" className={primaryButton} onClick={closeSetupGuide}>Close</button>
       </Footer>
     </>

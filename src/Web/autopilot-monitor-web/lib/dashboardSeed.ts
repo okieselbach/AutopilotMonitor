@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { CORRELATION_HEADER, newCorrelationId } from "@/lib/correlationId";
 import { registerSeed } from "@/lib/prefetchSeeds";
+import { storedConfigHeaders } from "@/lib/storedConfigHint";
 import { readViewAs } from "@/lib/viewAs";
 import {
   DASHBOARD_STATS_DEFAULT_DAYS,
@@ -43,7 +44,8 @@ export function seedDashboardFirstFetch(accessToken: string, tenantId: string | 
       url,
       correlationId,
       fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}`, [CORRELATION_HEADER]: correlationId },
+        // The same headers authenticatedFetch would send for this URL.
+        headers: { Authorization: `Bearer ${accessToken}`, [CORRELATION_HEADER]: correlationId, ...storedConfigHeaders() },
         signal: AbortSignal.timeout(30_000),
       }),
     );

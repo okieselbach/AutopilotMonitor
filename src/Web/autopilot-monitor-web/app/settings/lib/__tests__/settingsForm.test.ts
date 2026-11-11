@@ -1,18 +1,23 @@
 /**
- * The Settings form projections and the unsaved-changes check built on them. A freshly loaded row
- * must never count as edited (otherwise the sidebar marks pages nobody touched and leaving asks for
- * nothing), an edit must mark exactly its own section, and the merge after a save must clear it.
+ * The Settings form projections, what a save sends and the unsaved-changes check built on them. A
+ * freshly loaded row must never count as edited (otherwise the sidebar marks pages nobody touched
+ * and leaving asks for nothing), an edit must mark exactly its own section, the merge after a save
+ * must clear it — and a save sends what the admin changed, nothing else: a form default the row
+ * never stored must not travel, or a page loaded before somebody else's write reverts that write.
  * Rows are built here by hand; expectations are test-local lists, never derived from the map.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { changedTenantConfigFields } from "@/lib/tenantConfigSave";
-import { SECTION_FIELD_MAP, type SettingsSectionName } from "../../sectionFieldMap";
+import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import { SAVE_BAR_SECTIONS, type SettingsSectionName } from "../../sectionFieldMap";
 import type { NotificationChannel, TenantConfiguration } from "../../types";
 import {
   DEFAULT_SETTINGS_FORM,
   configFromForm,
   formFromConfig,
   hardwareRejectionNotify,
+  sectionSavePayload,
   sectionsWithUnsavedEdits,
   settingsFormSetters,
   type SettingsForm,
@@ -108,12 +113,9 @@ const LOADED_ROWS: Record<string, () => TenantConfiguration> = {
   }),
 };
 
-/** What runSectionSave sends for a section, and the row after its merge. */
+/** The row after a section save: what the save sends, merged like the settings provider merges it. */
 function saveAndMerge(row: TenantConfiguration, form: SettingsForm, section: SettingsSectionName): TenantConfiguration {
-  const spec = SECTION_FIELD_MAP[section];
-  const alsoWrites = "alsoWrites" in spec ? spec.alsoWrites : [];
-  const patch = changedTenantConfigFields(row, configFromForm(row, form), [...spec.fields, ...alsoWrites]);
-  return { ...row, ...patch } as TenantConfiguration;
+  return { ...row, ...sectionSavePayload(row, form, section) } as TenantConfiguration;
 }
 
 function unsaved(row: TenantConfiguration, form: SettingsForm): string[] {
@@ -299,23 +301,229 @@ describe("formFromConfig / configFromForm", () => {
     expect(config.webhookUrl).toBeUndefined();
   });
 
-  it("a single log-level edit on a row that stores every agent parameter sends only the log level", () => {
-    // A row missing a field would also send that field's default on the first save, as before.
-    const row: TenantConfiguration = {
-      ...fullRow(),
-      enableGeoLocation: true,
-      enableTimezoneAutoSet: false,
-      enableDoGroupIdAutoSet: false,
-      keepAwakeDuringUserEsp: false,
-      enableImeMatchLog: false,
-      enableGatherRuleDebugLog: false,
-      showScriptOutput: true,
-      enrollmentSummaryTimeoutSeconds: 60,
-      enrollmentSummaryLaunchRetrySeconds: 120,
-    };
+});
+
+describe("sectionSavePayload", () => {
+  it("is the one place that decides what the settings provider sends", () => {
+    // A second diff next to it (the raw row against the form) is how untouched defaults travelled.
+    const provider = readFileSync(join(__dirname, "..", "..", "TenantConfigContext.tsx"), "utf8");
+    expect(provider).toContain("sectionSavePayload(config, form, sectionName, overrides)");
+    expect(provider).not.toContain("changedTenantConfigFields");
+  });
+
+  it.each(Object.entries(LOADED_ROWS))("a freshly loaded row sends nothing in any section: %s", (_, build) => {
+    const row = build();
+    for (const section of SAVE_BAR_SECTIONS) {
+      expect(sectionSavePayload(row, formFromConfig(row), section)).toEqual({});
+    }
+  });
+
+  it("a single edit sends only that field, also on a row that never stored the fields beside it", () => {
+    // minimalRow stores none of the agent parameters: their form defaults must stay at home.
+    const row = minimalRow();
     const form = { ...formFromConfig(row), logLevel: "Debug" };
-    const spec = SECTION_FIELD_MAP.agentParameters;
-    expect(changedTenantConfigFields(row, configFromForm(row, form), spec.fields)).toEqual({ logLevel: "Debug" });
+    expect(sectionSavePayload(row, form, "agentParameters")).toEqual({ logLevel: "Debug" });
+  });
+
+  it("a field the row never stored travels once the admin changes it, and no longer after he takes it back", () => {
+    const row = minimalRow();
+    const loaded = formFromConfig(row);
+    expect(sectionSavePayload(row, { ...loaded, enableTimezoneAutoSet: true }, "agentParameters")).toEqual({ enableTimezoneAutoSet: true });
+    expect(sectionSavePayload(row, { ...loaded, enableTimezoneAutoSet: false }, "agentParameters")).toEqual({});
+  });
+
+  it("a page loaded before somebody else's write does not revert that write", () => {
+    // Loaded: the timezone was never set. Since then the setup guide stored it as on (another
+    // instance answered this page from its older copy). The admin edits the log level and saves.
+    const loadedBefore = minimalRow();
+    const storedNow: TenantConfiguration = { ...minimalRow(), enableTimezoneAutoSet: true, enableSoftwareInventoryAnalyzer: true };
+    const form = { ...formFromConfig(loadedBefore), logLevel: "Debug" };
+
+    const afterSave = { ...storedNow, ...sectionSavePayload(loadedBefore, form, "agentParameters") } as TenantConfiguration;
+
+    expect(afterSave.logLevel).toBe("Debug");
+    expect(afterSave.enableTimezoneAutoSet).toBe(true);
+    expect(afterSave.enableSoftwareInventoryAnalyzer).toBe(true);
+  });
+
+  it.each(Object.entries(LOADED_ROWS))("unsaved means exactly: a save would send something: %s", (_, build) => {
+    const row = build();
+    const edits: SettingsForm[] = [
+      formFromConfig(row),
+      { ...formFromConfig(row), logLevel: "Trace" },
+      { ...formFromConfig(row), manufacturerWhitelist: "Contoso*" },
+      toggleHardwareNotify(formFromConfig(row), !hardwareRejectionNotify(formFromConfig(row))),
+    ];
+    for (const form of edits) {
+      const sending = SAVE_BAR_SECTIONS.filter((section) => Object.keys(sectionSavePayload(row, form, section)).length > 0);
+      expect([...sending].sort()).toEqual(unsaved(row, form));
+    }
+  });
+
+  describe("sections that save on change", () => {
+    it("send exactly the switch that was flipped", () => {
+      const row = fullRow();
+      expect(sectionSavePayload(row, formFromConfig(row), "autopilotValidation", { validateCloudPcDevice: true })).toEqual({ validateCloudPcDevice: true });
+      expect(sectionSavePayload(row, formFromConfig(row), "unrestrictedMode", { unrestrictedMode: true })).toEqual({ unrestrictedMode: true });
+    });
+
+    it("send the flipped switch even when the loaded copy already holds that value", () => {
+      // The copy may be outdated; an explicit click is never swallowed by it.
+      const row = fullRow();
+      expect(row.validateAutopilotDevice).toBe(true);
+      expect(sectionSavePayload(row, formFromConfig(row), "autopilotValidation", { validateAutopilotDevice: true })).toEqual({ validateAutopilotDevice: true });
+    });
+
+    it("send nothing from the form: a gate that only differs there is not a click", () => {
+      const row = fullRow();
+      const form = { ...formFromConfig(row), validateDeviceAssociation: true, validateIntuneDeviceBinding: true };
+      expect(sectionSavePayload(row, form, "autopilotValidation")).toEqual({});
+      expect(sectionSavePayload(row, form, "autopilotValidation", { validateCloudPcDevice: false })).toEqual({ validateCloudPcDevice: false });
+    });
+
+    it("drop a field the section does not own", () => {
+      const row = fullRow();
+      expect(sectionSavePayload(row, formFromConfig(row), "unrestrictedMode", { validateAutopilotDevice: false })).toEqual({});
+    });
+  });
+
+  it("a section with a Save bar ignores switch values", () => {
+    const row = fullRow();
+    expect(sectionSavePayload(row, formFromConfig(row), "agentParameters", { unrestrictedMode: true })).toEqual({});
+  });
+
+  describe("hardware card", () => {
+    it("a whitelist edit sends the whitelist and leaves the channels alone, whatever their stored formatting", () => {
+      for (const build of [fullRow, LOADED_ROWS["channels stored with other formatting"], LOADED_ROWS["malformed JSON lists"]]) {
+        const row = build();
+        const form = { ...formFromConfig(row), manufacturerWhitelist: "Dell*" };
+        expect(sectionSavePayload(row, form, "hardwareWhitelist")).toEqual({ manufacturerWhitelist: "Dell*" });
+      }
+    });
+
+    it("a whitelist edit does not carry a channel edit waiting on the notifications card", () => {
+      const row = fullRow();
+      const loaded = formFromConfig(row);
+      const form = {
+        ...loaded,
+        manufacturerWhitelist: "Dell*",
+        notificationChannels: loaded.notificationChannels.map((c) => ({ ...c, name: `${c.name}!` })),
+      };
+      expect(sectionSavePayload(row, form, "hardwareWhitelist")).toEqual({ manufacturerWhitelist: "Dell*" });
+    });
+
+    it("the moved switch sends the flag and its write-through into the channels", () => {
+      const row = fullRow();
+      const form = toggleHardwareNotify(formFromConfig(row), true);
+      expect(sectionSavePayload(row, form, "hardwareWhitelist")).toEqual({
+        webhookNotifyOnHardwareRejection: true,
+        notificationChannelsJson: JSON.stringify(form.notificationChannels),
+      });
+    });
+
+    it("the switch moved and moved back sends nothing, also when the legacy flag behind it differs", () => {
+      const row = { ...fullRow(), webhookNotifyOnHardwareRejection: true };
+      const form = toggleHardwareNotify(toggleHardwareNotify(formFromConfig(row), true), false);
+      expect(form.webhookNotifyOnHardwareRejection).toBe(false);
+      expect(sectionSavePayload(row, form, "hardwareWhitelist")).toEqual({});
+      expect(sectionSavePayload(row, { ...form, modelWhitelist: "Latitude*" }, "hardwareWhitelist")).toEqual({ modelWhitelist: "Latitude*" });
+    });
+
+    it("without channels the switch is the legacy flag alone", () => {
+      const row = { ...minimalRow(), webhookNotifyOnHardwareRejection: false };
+      expect(sectionSavePayload(row, toggleHardwareNotify(formFromConfig(row), true), "hardwareWhitelist")).toEqual({ webhookNotifyOnHardwareRejection: true });
+    });
+  });
+
+  describe("tenant with the legacy single webhook", () => {
+    const legacy = LOADED_ROWS["legacy single webhook without channels"];
+
+    it("a whitelist edit leaves the webhook as it is stored", () => {
+      const row = legacy();
+      const form = { ...formFromConfig(row), manufacturerWhitelist: "Dell*" };
+      expect(sectionSavePayload(row, form, "hardwareWhitelist")).toEqual({ manufacturerWhitelist: "Dell*" });
+    });
+
+    it("deleting the synthesized channel clears the legacy webhook with it", () => {
+      const row = legacy();
+      const form = { ...formFromConfig(row), notificationChannels: [] };
+      expect(sectionSavePayload(row, form, "notifications")).toEqual({
+        notificationChannelsJson: "",
+        webhookProviderType: 0,
+        webhookUrl: null,
+      });
+    });
+
+    it("the hardware switch materializes the channel and does not touch the legacy webhook fields", () => {
+      const row = legacy();
+      const form = toggleHardwareNotify(formFromConfig(row), false);
+      const payload = sectionSavePayload(row, form, "hardwareWhitelist");
+      expect(Object.keys(payload).sort()).toEqual(["notificationChannelsJson", "webhookNotifyOnHardwareRejection"]);
+      expect(JSON.parse(payload.notificationChannelsJson as string)).toHaveLength(1);
+    });
+  });
+});
+
+describe("form defaults", () => {
+  // A field the admin never saved stays empty in the row, and the form shows its default for good.
+  // That default has to be what the backend does with an empty field; the generated manifest carries
+  // the model's and the agent's defaults, so a change there without the form fails here.
+  it("a default row shows exactly the form's defaults", () => {
+    const defaults = SHARED_MANIFEST.tenantConfiguration.defaults as unknown as TenantConfiguration;
+    expect(formFromConfig(defaults)).toEqual(DEFAULT_SETTINGS_FORM);
+  });
+
+  it("match what the agent does when a setting was never stored", () => {
+    const { responseDefaults: agent, collectorDefaults: collectors, analyzerDefaults: analyzers } = SHARED_MANIFEST.agentConfig;
+    const form = formFromConfig(minimalRow());
+    expect({
+      selfDestructOnComplete: form.selfDestructOnComplete,
+      keepLogFile: form.keepLogFile,
+      enableGeoLocation: form.enableGeoLocation,
+      enableImeMatchLog: form.enableImeMatchLog,
+      enableGatherRuleDebugLog: form.enableGatherRuleDebugLog,
+      logLevel: form.logLevel,
+      rebootOnComplete: form.rebootOnComplete,
+      rebootDelaySeconds: form.rebootDelaySeconds,
+      showEnrollmentSummary: form.showEnrollmentSummary,
+      enrollmentSummaryTimeoutSeconds: form.enrollmentSummaryTimeoutSeconds,
+      enrollmentSummaryLaunchRetrySeconds: form.enrollmentSummaryLaunchRetrySeconds,
+      diagnosticsUploadMode: form.diagnosticsUploadMode,
+      unrestrictedMode: form.unrestrictedMode,
+      enableTimezoneAutoSet: form.enableTimezoneAutoSet,
+      enableDoGroupIdAutoSet: form.enableDoGroupIdAutoSet,
+    }).toEqual({
+      selfDestructOnComplete: agent.selfDestructOnComplete,
+      keepLogFile: agent.keepLogFile,
+      enableGeoLocation: agent.enableGeoLocation,
+      enableImeMatchLog: agent.enableImeMatchLog,
+      enableGatherRuleDebugLog: agent.enableGatherRuleDebugLog,
+      logLevel: agent.logLevel,
+      rebootOnComplete: agent.rebootOnComplete,
+      rebootDelaySeconds: agent.rebootDelaySeconds,
+      showEnrollmentSummary: agent.showEnrollmentSummary,
+      enrollmentSummaryTimeoutSeconds: agent.enrollmentSummaryTimeoutSeconds,
+      enrollmentSummaryLaunchRetrySeconds: agent.enrollmentSummaryLaunchRetrySeconds,
+      diagnosticsUploadMode: agent.diagnosticsUploadMode,
+      unrestrictedMode: agent.unrestrictedMode,
+      enableTimezoneAutoSet: agent.enableTimezoneAutoSet,
+      enableDoGroupIdAutoSet: agent.enableDoGroupIdAutoSet,
+    });
+    expect({
+      enableLocalAdminAnalyzer: form.enableLocalAdminAnalyzer,
+      localAdminAllowedAccounts: form.localAdminAllowedAccounts,
+      enableSoftwareInventoryAnalyzer: form.enableSoftwareInventoryAnalyzer,
+      enableIntegrityBypassAnalyzer: form.enableIntegrityBypassAnalyzer,
+      enableRealmJoinWatcher: form.enableRealmJoinWatcher,
+      enableConfigMgrWatcher: form.enableConfigMgrWatcher,
+      keepAwakeDuringUserEsp: form.keepAwakeDuringUserEsp,
+      enableConsoleBypassDetection: form.enableConsoleBypassDetection,
+    }).toEqual(analyzers);
+    // minimalRow stores the collector values itself; the defaults are what a row without them shows.
+    const bare = formFromConfig({ ...minimalRow(), enablePerformanceCollector: undefined, performanceCollectorIntervalSeconds: undefined } as unknown as TenantConfiguration);
+    expect(bare.enablePerformanceCollector).toBe(collectors.enablePerformanceCollector);
+    expect(bare.performanceCollectorInterval).toBe(collectors.performanceIntervalSeconds);
+    expect(bare.helloWaitTimeoutSeconds).toBe(collectors.helloWaitTimeoutSeconds);
   });
 });
 
