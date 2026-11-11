@@ -182,7 +182,8 @@ function SessionDetailContent() {
   // Resolves Intune script display names via the optional Graph add-on permission.
   // Returns an empty map when the tenant hasn't granted DeviceManagementScripts.Read.All.
   // Map keys are "{Kind}:{Id}" -- the renderer uses lookupScriptDisplayName to read them.
-  const scriptDisplayNamesByRefKey = useScriptDisplayNames(sessionTenantId ?? tenantId, events, getAccessToken);
+  // The lookup waits for the full event walk, so it runs once with every script of the session.
+  const scriptDisplayNamesByRefKey = useScriptDisplayNames(sessionTenantId ?? tenantId, events, getAccessToken, eventsApi.initialWalkComplete);
   const { analysisResults, loadingAnalysis, analysisLoaded, vulnerabilityReport, fetchAnalysisResults, fetchVulnerabilityReport, persistFailureRuleIds, stoppedRuleIds } = analysis;
   const { showScriptOutput, enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer } = tenantConfig;
   const {

@@ -85,10 +85,20 @@ function pickString(d: Record<string, unknown>, keys: string[]): string | undefi
 /** Backend's per-request cap on ref count (mirrors `MaxRefsPerRequest` in the C# function). */
 export const SCRIPT_DISPLAY_NAMES_CHUNK_SIZE = 200;
 
+/** How long the portal waits before its one follow-up lookup. */
+export const SCRIPT_NAMES_FOLLOW_UP_DELAY_MS = 5_000;
+
+/** One answer of the backend: the names it has, and whether a time limit cut the lookup short. */
+export interface ScriptNamesAnswer {
+  names: DisplayNamesByRefKey;
+  timedOut: boolean;
+}
+
 /**
- * POSTs the resolve request to the backend. Returns a map keyed by the canonical
- * `Kind:id` form. Returns an empty map on transport / non-2xx errors so callers can
- * fall back to "show the ID" without surfacing an error to the user.
+ * POSTs the resolve request to the backend. `names` is keyed by the canonical `Kind:id`
+ * form and stays empty on transport / non-2xx errors, so callers can fall back to "show
+ * the ID" without surfacing an error to the user. `timedOut` repeats the backend's flag:
+ * a time limit cut the lookup short, and asking again can return more names.
  *
  * Refs above {@link SCRIPT_DISPLAY_NAMES_CHUNK_SIZE} are split into batches and POSTed
  * sequentially -- the first batch warms the backend cache for the tenant so subsequent
@@ -100,11 +110,13 @@ export async function fetchScriptDisplayNames(
   tenantId: string,
   refs: ScriptRef[],
   getAccessToken: GetAccessToken,
-): Promise<DisplayNamesByRefKey> {
-  if (refs.length === 0) return {};
+  isFollowUp = false,
+): Promise<ScriptNamesAnswer> {
+  const merged: DisplayNamesByRefKey = {};
+  let timedOut = false;
+  if (refs.length === 0) return { names: merged, timedOut };
 
   const url = api.graphPermissions.scriptDisplayNames(tenantId);
-  const merged: DisplayNamesByRefKey = {};
 
   for (let i = 0; i < refs.length; i += SCRIPT_DISPLAY_NAMES_CHUNK_SIZE) {
     const chunk = refs.slice(i, i + SCRIPT_DISPLAY_NAMES_CHUNK_SIZE);
@@ -112,11 +124,15 @@ export async function fetchScriptDisplayNames(
     try {
       const body = await fetchJson<GetScriptDisplayNamesResponse>(url, getAccessToken, {
         method: "POST",
-        body: jsonBody<ScriptDisplayNamesRequest>({ refs: chunk.map(formatRefKey) }),
+        body: jsonBody<ScriptDisplayNamesRequest>({
+          refs: chunk.map(formatRefKey),
+          ...(isFollowUp ? { retry: true } : {}),
+        }),
       });
       if (body.refs) {
         Object.assign(merged, body.refs);
       }
+      if (body.timedOut === true) timedOut = true;
     } catch (err) {
       // Auth signal MUST propagate so the hook can short-circuit and the app's auth flow
       // can react (token refresh / sign-in redirect). Any partial map collected so far is
@@ -130,13 +146,77 @@ export async function fetchScriptDisplayNames(
     }
   }
 
+  return { names: merged, timedOut };
+}
+
+/**
+ * The names after a follow-up lookup: every name the follow-up resolved, plus every name
+ * only the first answer had. A follow-up can itself be cut short (at the token, say) and
+ * then knows less than the first answer; it must never take away a name already on screen.
+ */
+export function mergeFollowUpNames(
+  first: DisplayNamesByRefKey,
+  followUp: DisplayNamesByRefKey,
+): DisplayNamesByRefKey {
+  const merged: DisplayNamesByRefKey = { ...first };
+  for (const [key, name] of Object.entries(followUp)) {
+    if (name != null || !(key in merged)) merged[key] = name;
+  }
   return merged;
+}
+
+/**
+ * Runs one lookup and, when the backend reports that a time limit cut it short, exactly
+ * one follow-up after `wait`. `publish` receives the names after each answer. A follow-up
+ * that is cut short as well ends the attempt: a backend that stays slow gains nothing from
+ * more requests. `isCancelled` is read after every await, so a lookup whose question is no
+ * longer current publishes nothing and sends no follow-up.
+ */
+export async function lookUpWithOneFollowUp(
+  ask: (isFollowUp: boolean) => Promise<ScriptNamesAnswer>,
+  publish: (names: DisplayNamesByRefKey) => void,
+  wait: () => Promise<void>,
+  isCancelled: () => boolean,
+): Promise<void> {
+  const first = await ask(false);
+  if (isCancelled()) return;
+  publish(first.names);
+  if (!first.timedOut) return;
+
+  await wait();
+  if (isCancelled()) return;
+  const followUp = await ask(true);
+  if (isCancelled()) return;
+  publish(mergeFollowUpNames(first.names, followUp.names));
+}
+
+/**
+ * The key a stored answer must carry to be served, and "" while no lookup may run: no
+ * tenant, no script refs, or the caller is not `ready` yet. It covers both staleness cases:
+ *   (a) Tenant changed: previous tenant's names must not linger on new tenant's rows.
+ *   (b) Refset changed to empty (events not yet loaded, or filtered to none): we have
+ *       no authoritative data anymore, so the previous map is stale.
+ */
+export function scriptNamesLookupKey(
+  tenantId: string | null | undefined,
+  refsKey: string,
+  ready: boolean,
+): string {
+  return ready && tenantId && refsKey.length > 0 ? `${tenantId}::${refsKey}` : "";
 }
 
 /**
  * React hook: collects refs from `events`, fires a single backend lookup, and exposes
  * a lookup map keyed by the canonical "{Kind}:{Id}" form. Same id under different kinds
  * stays distinct -- callers must always supply both kind and id when looking up.
+ *
+ * `ready` holds the lookup back until the caller's event list is complete. The session
+ * page loads events page by page; without the gate every page that adds a script fires
+ * its own lookup for the growing set, and on a cold backend cache each of them pulls the
+ * tenant's whole script list from Graph.
+ *
+ * When the backend reports that a time limit cut the lookup short, the hook asks once more
+ * after {@link SCRIPT_NAMES_FOLLOW_UP_DELAY_MS}; see {@link lookUpWithOneFollowUp}.
  *
  * Stale-state protection: the hook keys its effect off a STABLE refset-fingerprint
  * (`refsKey`) instead of the raw `events` array identity, which the parent typically
@@ -149,6 +229,7 @@ export function useScriptDisplayNames(
   tenantId: string | null | undefined,
   events: readonly { eventType?: string; data?: unknown }[],
   getAccessToken: GetAccessToken,
+  ready: boolean,
 ): DisplayNamesByRefKey {
   const [loaded, setLoaded] = useState<{ key: string; map: DisplayNamesByRefKey }>({
     key: "",
@@ -165,14 +246,10 @@ export function useScriptDisplayNames(
     [refs],
   );
 
-  // The key a stored map must answer to be served. Covers both staleness cases:
-  //   (a) Tenant changed: previous tenant's names must not linger on new tenant's rows.
-  //   (b) Refset changed to empty (events not yet loaded, or filtered to none): we have
-  //       no authoritative data anymore, so the previous map is stale.
-  const lookupKey = tenantId && refsKey.length > 0 ? `${tenantId}::${refsKey}` : "";
+  const lookupKey = scriptNamesLookupKey(tenantId, refsKey, ready);
 
   useEffect(() => {
-    if (!tenantId || refsKey.length === 0) return;
+    if (!lookupKey || !tenantId) return;
 
     // Reconstruct refs from the stable key so this effect doesn't depend on the
     // `refs` array identity (which is already covered transitively via refsKey).
@@ -184,19 +261,22 @@ export function useScriptDisplayNames(
     });
 
     let cancelled = false;
-    (async () => {
-      try {
-        const refsMap = await fetchScriptDisplayNames(tenantId, stableRefs, getAccessToken);
-        if (cancelled) return;
-        setLoaded({ key: `${tenantId}::${refsKey}`, map: refsMap });
-      } catch (err) {
-        if (err instanceof TokenExpiredError) return; // user signed out / token expired
-        console.warn("useScriptDisplayNames: lookup failed", err);
-      }
-    })();
+    let followUpTimer: ReturnType<typeof setTimeout> | undefined;
+    lookUpWithOneFollowUp(
+      isFollowUp => fetchScriptDisplayNames(tenantId, stableRefs, getAccessToken, isFollowUp),
+      names => setLoaded({ key: lookupKey, map: names }),
+      () => new Promise<void>(resolve => { followUpTimer = setTimeout(resolve, SCRIPT_NAMES_FOLLOW_UP_DELAY_MS); }),
+      () => cancelled,
+    ).catch(err => {
+      if (err instanceof TokenExpiredError) return; // user signed out / token expired
+      console.warn("useScriptDisplayNames: lookup failed", err);
+    });
 
-    return () => { cancelled = true; };
-  }, [tenantId, refsKey, getAccessToken]);
+    return () => {
+      cancelled = true;
+      clearTimeout(followUpTimer);
+    };
+  }, [lookupKey, tenantId, refsKey, getAccessToken]);
 
   return loaded.key === lookupKey && lookupKey ? loaded.map : EMPTY_DISPLAY_NAMES;
 }
