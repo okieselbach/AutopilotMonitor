@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canAdministerTenant,
+  canChangeOwnTenantSettings,
   canManageBootstrapSessions,
   canUseAdminMode,
   hasOwnTenantOrPlatformRole,
@@ -139,6 +140,38 @@ describe("canAdministerTenant (TenantAdminOrGA with the session's tenant)", () =
     expect(canAdministerTenant(null, own, own)).toBe(false);
     expect(canAdministerTenant(user({ isTenantAdmin: true }), "", own)).toBe(false);
     expect(canAdministerTenant(user({ isTenantAdmin: true }), own, null)).toBe(false);
+  });
+});
+
+describe("canChangeOwnTenantSettings (Settings pages: own tenant, TenantAdminOrGA, no view-as)", () => {
+  const own = "11111111-1111-1111-1111-111111111111";
+  const other = "22222222-2222-2222-2222-222222222222";
+
+  it("lets the tenant Admin and a Global Admin change their own tenant, case-insensitively", () => {
+    expect(canChangeOwnTenantSettings(user({ isTenantAdmin: true, role: "Admin" }), own.toUpperCase(), own)).toBe(true);
+    expect(canChangeOwnTenantSettings(user({ role: "Admin" }), own, own)).toBe(true);
+    expect(canChangeOwnTenantSettings(user({ isGlobalAdmin: true }), own, own)).toBe(true);
+  });
+
+  it("refuses every foreign tenant, a Global Admin's too: the Settings pages would edit the home tenant", () => {
+    expect(canChangeOwnTenantSettings(user({ isGlobalAdmin: true }), other, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isTenantAdmin: true, role: "Admin" }), other, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isDelegated: true, isTenantAdmin: true, role: "Admin" }), other, own)).toBe(false);
+  });
+
+  it("lets a delegated admin with an own Admin role change the own tenant", () => {
+    expect(canChangeOwnTenantSettings(user({ isDelegated: true, isTenantAdmin: true, role: "Admin" }), own, own)).toBe(true);
+  });
+
+  it("refuses Operator, Viewer, Global Reader, a view-as tab and missing input", () => {
+    expect(canChangeOwnTenantSettings(user({ role: "Operator" }), own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ role: "Viewer" }), own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isGlobalReader: true }), own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isTenantAdmin: true, role: "Admin", viewAs: { homeTenantId: other } }), own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ role: "Operator", viewAs: { homeTenantId: other } }), own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(null, own, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isTenantAdmin: true }), null, own)).toBe(false);
+    expect(canChangeOwnTenantSettings(user({ isTenantAdmin: true }), own, "")).toBe(false);
   });
 });
 

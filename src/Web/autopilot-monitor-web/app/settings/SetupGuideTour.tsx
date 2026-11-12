@@ -44,24 +44,38 @@ function CloseButton() {
   );
 }
 
-const SHOW_ME: Record<Exclude<SetupTour, "validation">, { anchors: readonly string[]; title: string; crumb: string; text: string }> = {
+/** `fromGuide`: opened by the guide's "Show me where", so the card says so and leads back to it. */
+const SHOW_ME: Record<
+  Exclude<SetupTour, "validation">,
+  { anchors: readonly string[]; title: string; crumb: string; text: string; fromGuide: boolean }
+> = {
   "showme:timezone": {
     anchors: ["timezone", "geo-location"],
     title: "Set Timezone Automatically",
     crumb: "Agent › Agent Settings › Agent Parameters",
     text: "The guide turns it on if you keep it checked. You can switch it here at any time. It appears once Geo-Location Detection is on.",
+    fromGuide: true,
   },
   "showme:diagnostics": {
     anchors: ["diagnostics-upload"],
     title: "Upload destination",
     crumb: "Agent › Diagnostics Package",
     text: "The guide picks hosted storage here, or keeps your own storage account. Upload Mode, further down on this page, sets when a package is uploaded. You can change both at any time.",
+    fromGuide: true,
   },
   "showme:inventory": {
     anchors: ["software-inventory"],
     title: "Software Inventory & Vulnerability Analyzer",
     crumb: "Agent › Agent Analyzers",
     text: "The guide turns it on. Its findings show up in each session and under Software.",
+    fromGuide: true,
+  },
+  "spot:inventory": {
+    anchors: ["software-inventory"],
+    title: "Software Inventory & Vulnerability Analyzer",
+    crumb: "Agent › Agent Analyzers",
+    text: "Turn it on here and save. Enrollments are scanned from then on; findings appear in each session and under Software › Vulnerabilities.",
+    fromGuide: false,
   },
 };
 
@@ -72,14 +86,18 @@ function ShowMeTour({ tour }: { tour: Exclude<SetupTour, "validation"> }) {
     openSetupGuide("showme", "settings");
   };
   return (
-    <TourSpotlight anchors={text.anchors} label="Setup guide hint" onClose={endSetupTour}>
+    <TourSpotlight anchors={text.anchors} label={text.fromGuide ? "Setup guide hint" : "Settings hint"} onClose={endSetupTour}>
       <div className="space-y-2">
-        <p className={eyebrow}>Setup guide · Where to find it<CloseButton /></p>
+        <p className={eyebrow}>{text.fromGuide ? "Setup guide · Where to find it" : "Where to find it"}<CloseButton /></p>
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{text.title}</h3>
         <p className="text-xs text-gray-400">{text.crumb}</p>
         <p className="text-sm text-gray-600 dark:text-gray-300">{text.text}</p>
         <div className="pt-1">
-          <button type="button" className={primaryButton} onClick={back}>Back to the guide</button>
+          {text.fromGuide ? (
+            <button type="button" className={primaryButton} onClick={back}>Back to the guide</button>
+          ) : (
+            <button type="button" className={primaryButton} onClick={endSetupTour}>Got it</button>
+          )}
         </div>
       </div>
     </TourSpotlight>

@@ -1,6 +1,7 @@
 "use client";
 
 import { appsHubUrl, sessionUrl } from "@/lib/routes";
+import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -364,16 +365,26 @@ function AppDetailContent() {
         <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <button
-              onClick={() => {
-                // Tenant scope is carried in sessionStorage, so the list restores it on its own;
-                // a non-default window travels back as ?days=.
-                router.push(appsHubUrl({ days: days === APPS_DEFAULT_WINDOW_DAYS ? undefined : days }));
-              }}
-              className="text-sm text-green-700 hover:underline mb-2 inline-flex items-center"
-            >
-              ← Back to all apps
-            </button>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <button
+                onClick={() => {
+                  // Tenant scope is carried in sessionStorage, so the list restores it on its own;
+                  // a non-default window travels back as ?days=.
+                  router.push(appsHubUrl({ days: days === APPS_DEFAULT_WINDOW_DAYS ? undefined : days }));
+                }}
+                className="text-sm text-green-700 hover:underline inline-flex items-center"
+              >
+                ← Back to all apps
+              </button>
+              {/* The hub's exposure view, same scope (sessionStorage) and window; not filtered to this app. */}
+              <Link
+                href={appsHubUrl({ tab: "vulnerabilities", days: days === APPS_DEFAULT_WINDOW_DAYS ? undefined : days })}
+                onClick={() => trackEvent("vuln_link_clicked", { from: "app_detail" })}
+                className="text-sm text-green-700 hover:underline"
+              >
+                Vulnerability exposure →
+              </Link>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div className="min-w-0">
                 <h1 className="text-2xl font-normal text-gray-900 flex flex-wrap items-center gap-x-3 gap-y-1">

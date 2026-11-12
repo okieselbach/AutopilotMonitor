@@ -150,7 +150,11 @@ export const AUTOPILOT_DEVICE_GROUP_RULE = '(device.devicePhysicalIds -any _ -st
 
 // ── Spotlight tours on settings pages ────────────────────────────────────────────────────────
 
-export const SETUP_TOURS = ["validation", "showme:timezone", "showme:diagnostics", "showme:inventory"] as const;
+/**
+ * `showme:*` come from the setup guide and lead back to it; `spot:inventory` is the same spotlight
+ * opened from outside the guide (the dashboard's vulnerability card, the Software hub's notices).
+ */
+export const SETUP_TOURS = ["validation", "showme:timezone", "showme:diagnostics", "showme:inventory", "spot:inventory"] as const;
 export type SetupTour = (typeof SETUP_TOURS)[number];
 
 /**
@@ -162,6 +166,7 @@ export const SETUP_TOUR_TARGETS: Record<SetupTour, { path: Route }> = {
   "showme:timezone": { path: route("/settings/agent/settings") },
   "showme:diagnostics": { path: route("/settings/agent/diagnostics") },
   "showme:inventory": { path: route("/settings/agent/analyzers") },
+  "spot:inventory": { path: route("/settings/agent/analyzers") },
 };
 
 export const SHOW_ME_TOUR: Record<RecommendedItem, SetupTour> = {

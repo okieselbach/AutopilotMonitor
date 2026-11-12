@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import type { SoftwareTabScope } from "./types";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 import { notifyApiError } from "@/contexts/NotificationContext";
+import { AnalyzerOffNotice } from "@/components/vulnerability/AnalyzerOffNotice";
 
 interface InventoryItem {
   displayName: string;
@@ -33,7 +34,17 @@ interface InventoryResponse {
 
 const PAGE_SIZE = 20;
 
-export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
+export default function InventoryTab({
+  scope,
+  analyzerOn,
+  canEnable,
+}: {
+  scope: SoftwareTabScope;
+  /** The tenant's analyzer switch: null while it loads, undefined when unknown. */
+  analyzerOn?: boolean | null;
+  /** May turn the analyzer on from here (lib/tenantScope.ts canChangeOwnTenantSettings). */
+  canEnable: boolean;
+}) {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
@@ -110,6 +121,11 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
     );
   }
 
+  // Nothing collected because the analyzer is off: say so instead of empty tiles and a search box.
+  if (!loading && analyzerOn === false && (resp?.total ?? 0) === 0) {
+    return <AnalyzerOffNotice subject="inventory" canEnable={canEnable} />;
+  }
+
   return (
     <>
       {resp && (
@@ -146,7 +162,9 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
           <div className="p-8 text-center text-gray-500">
             {search
               ? "No software matches your search."
-              : "No software inventory collected for this tenant yet. It fills once the Software Inventory & Vulnerability Analyzer is on in the agent settings."}
+              : analyzerOn
+                ? "No software inventory collected for this tenant yet. It fills with the next enrollment."
+                : "No software inventory collected for this tenant yet. It fills once the Software Inventory & Vulnerability Analyzer is on in the agent settings."}
           </div>
         ) : (
           <>

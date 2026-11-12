@@ -62,9 +62,15 @@ export function appDetailUrl(
   });
 }
 
-/** The Software hub; `days` carries a window other than the hub's default. */
-export function appsHubUrl(opts?: { days?: number }): Route {
-  return withQuery("/apps", { days: opts?.days?.toString() });
+/** Software hub tabs a link can open; Installs is the default and never in the URL. */
+export type AppsHubTab = "inventory" | "vulnerabilities";
+
+/**
+ * The Software hub. `days` carries a window other than the hub's default. `tenantId` opens a Global
+ * Admin on that tenant (the hub seeds its scope from it on first load); everyone else keeps their scope.
+ */
+export function appsHubUrl(opts?: { tab?: AppsHubTab; days?: number; tenantId?: string }): Route {
+  return withQuery("/apps", { tab: opts?.tab, days: opts?.days?.toString(), tenantId: opts?.tenantId });
 }
 
 export function dashboardUrl(opts?: {

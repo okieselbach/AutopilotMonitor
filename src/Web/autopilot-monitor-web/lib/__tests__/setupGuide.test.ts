@@ -135,7 +135,9 @@ describe("parseSetupTour", () => {
   it("accepts the known tours only", () => {
     expect(parseSetupTour("validation")).toBe("validation");
     expect(parseSetupTour("showme:diagnostics")).toBe("showme:diagnostics");
+    expect(parseSetupTour("spot:inventory")).toBe("spot:inventory");
     expect(parseSetupTour("showme:elsewhere")).toBeNull();
+    expect(parseSetupTour("spot:elsewhere")).toBeNull();
     expect(parseSetupTour(null)).toBeNull();
   });
 });

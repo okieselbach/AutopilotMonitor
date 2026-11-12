@@ -1,6 +1,6 @@
 "use client";
 
-import { diagnosisUrl } from "@/lib/routes";
+import { appsHubUrl, diagnosisUrl } from "@/lib/routes";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -82,7 +82,7 @@ function SessionDetailForCurrentId() {
 function SessionDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken, user, hasGlobalScope } = useAuth();
   // Query-string identity (`?id=`) — path params are gone with the static export;
   // legacy /sessions/{id} URLs are rewritten here by LegacyPathRedirect.
   // The raw value is attacker-deliverable (deep link) and useSearchParams returns it
@@ -176,6 +176,13 @@ function SessionDetailContent() {
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
   // Report Session is an Admin/Operator route (Global Admins too); Viewers get no button that ends in a 403.
   const canReportSession = (user?.isTenantAdmin ?? false) || user?.role === "Operator" || (user?.isGlobalAdmin ?? false);
+  // The Vulnerability Report's way to the fleet view: the own tenant, or a platform admin's jump into the
+  // session's tenant. None for a delegated view — the Software hub takes no tenant from a link for them.
+  const vulnFleetHref = !isCrossTenantView
+    ? appsHubUrl({ tab: "vulnerabilities" })
+    : hasGlobalScope
+      ? appsHubUrl({ tab: "vulnerabilities", tenantId: viewedTenantId })
+      : undefined;
 
   // Browser-tab title: lead with the device identifier so multiple session tabs stay distinguishable when
   // compared side by side (tabs truncate to the first chars). Pipe separator matches the root layout
@@ -749,6 +756,7 @@ function SessionDetailContent() {
                 expanded={vulnerabilityReportExpanded}
                 setExpanded={setVulnerabilityReportExpanded}
                 onRescan={isReadOnlyView ? undefined : () => fetchVulnerabilityReport(true)}
+                fleetHref={vulnFleetHref}
               />
             </div>
           )}

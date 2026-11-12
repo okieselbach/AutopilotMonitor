@@ -1,6 +1,6 @@
 "use client";
 
-import { sessionUrl } from "@/lib/routes";
+import { appsHubUrl, sessionUrl } from "@/lib/routes";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +10,7 @@ import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
-import { StatsCard } from "./components/StatsCards";
+import { StatsCard, statsGridClassName } from "./components/StatsCards";
 import { FirstEnrollmentCard, NoSessionsNote, SetupChecklistCard } from "./components/SetupChecklistCard";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { AppHomingBanner } from "./components/AppHomingBanner";
@@ -35,10 +35,16 @@ import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/formatting";
-import { hasTenantReadScope } from "@/lib/tenantScope";
+import { canChangeOwnTenantSettings, hasTenantReadScope } from "@/lib/tenantScope";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { GetRuleHitSessionsResponse } from "@/lib/generated/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
+import { trackEvent } from "@/lib/appInsights";
+import type { TenantScopeSelection } from "@/lib/scopedApi";
+import { vulnerabilityCardState } from "@/lib/vulnerabilityHeadline";
+import { useVulnerabilityHeadline } from "@/hooks/useVulnerabilityHeadline";
+import { ANALYZER_SETTING_PATH, onAnalyzerEnableClick } from "@/components/vulnerability/AnalyzerOffNotice";
+import { APPS_DEFAULT_WINDOW_DAYS } from "../apps/components/types";
 
 export default function Home() {
   // useSearchParams() in HomeContent requires a Suspense boundary for static prerender.
@@ -251,6 +257,32 @@ function HomeContent() {
     signalR,
     disabled: isRegularUser,
   });
+
+  // Vulnerability card: one tenant in view — the own tenant, or the drill-in of a Global Admin / Global
+  // Reader in global mode. Aggregates and delegated views keep five cards: the Software hub seeds its
+  // scope from a link only for platform admins, so a delegated click would land on another tenant.
+  const drillInTenantId = submittedTenantIdFilter.trim();
+  const vulnTenantId = !user || isRegularUser
+    ? null
+    : !crossTenant
+      ? tenantId || null
+      : globalAdminMode && hasGlobalScope && isGuid(drillInTenantId)
+        ? drillInTenantId
+        : null;
+  const vulnSelection: TenantScopeSelection | null = !vulnTenantId
+    ? null
+    : crossTenant
+      ? { routeGlobal: true, selectedTenantId: vulnTenantId, effectiveTenantId: vulnTenantId }
+      : { routeGlobal: false, selectedTenantId: "", effectiveTenantId: vulnTenantId };
+  const vulnHeadline = useVulnerabilityHeadline(vulnSelection, vulnTenantId, APPS_DEFAULT_WINDOW_DAYS);
+  const vulnCard = vulnerabilityCardState(vulnHeadline, {
+    canEnable: canChangeOwnTenantSettings(user, vulnTenantId, tenantId),
+    days: APPS_DEFAULT_WINDOW_DAYS,
+  });
+  const vulnCardKind = vulnCard?.kind;
+  useEffect(() => {
+    if (vulnCardKind && vulnCardKind !== "loading") trackEvent("vuln_card_shown", { state: vulnCardKind });
+  }, [vulnCardKind]);
 
   // Redirect users without own-tenant/platform/delegated scope away from the session list to /progress. A
   // delegated ("MSP") admin now STAYS on the dashboard (cross-tenant bounded session browser); their /fleet
@@ -485,50 +517,76 @@ function HomeContent() {
               `dashboardStats === null` covers both initial load and post-scope-change
               reset; show a non-zero placeholder so a fetch error doesn't masquerade
               as legitimate zeros. */}
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5 mb-2">
-            <StatsCard
-              title="Active Sessions"
-              value={dashboardStats ? dashboardStats.activeCount.toString() : "..."}
-              description="Currently enrolling"
-              icon="activity"
-            />
-            <StatsCard
-              title="Success Rate"
-              value={dashboardStats ? `${dashboardStats.successRatePct}%` : "..."}
-              description="Last 7 days"
-              icon="success"
-            />
-            {/* Median, not mean — a few overnight/WhiteGlove outliers dominate the average
-                of the right-skewed duration distribution; P90 keeps the tail visible. */}
-            <StatsCard
-              title="Median Duration"
-              value={
-                dashboardStats
-                  ? dashboardStats.medianDurationMinutes > 0
-                    ? `${dashboardStats.medianDurationMinutes} min`
-                    : "—"
-                  : "..."
-              }
-              description={
-                dashboardStats && dashboardStats.p90DurationMinutes > 0
-                  ? `P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)} · last 7 days`
-                  : "Last 7 days"
-              }
-              icon="duration"
-            />
-            <StatsCard
-              title="Total Today"
-              value={dashboardStats ? dashboardStats.totalToday.toString() : "..."}
-              description="Started today"
-              icon="today"
-            />
-            <StatsCard
-              title="Failed Today"
-              value={dashboardStats ? dashboardStats.failedToday.toString() : "..."}
-              description={dashboardStats && dashboardStats.failedToday === 0 ? "No failures" : "Needs attention"}
-              icon="failed"
-              alert={!!dashboardStats && dashboardStats.failedToday > 0}
-            />
+          {/* The wrapper is the size container the six-card columns follow (statsGridClassName). */}
+          <div className="stats-row mb-2">
+            <div className={statsGridClassName(vulnCard ? 6 : 5)}>
+              <StatsCard
+                title="Active Sessions"
+                value={dashboardStats ? dashboardStats.activeCount.toString() : "..."}
+                description="Currently enrolling"
+                icon="activity"
+              />
+              <StatsCard
+                title="Success Rate"
+                value={dashboardStats ? `${dashboardStats.successRatePct}%` : "..."}
+                description="Last 7 days"
+                icon="success"
+              />
+              {/* Median, not mean — a few overnight/WhiteGlove outliers dominate the average
+                  of the right-skewed duration distribution; P90 keeps the tail visible. */}
+              <StatsCard
+                title="Median Duration"
+                value={
+                  dashboardStats
+                    ? dashboardStats.medianDurationMinutes > 0
+                      ? `${dashboardStats.medianDurationMinutes} min`
+                      : "—"
+                    : "..."
+                }
+                description={
+                  dashboardStats && dashboardStats.p90DurationMinutes > 0
+                    ? [`P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)}`, "last 7 days"]
+                    : "Last 7 days"
+                }
+                icon="duration"
+              />
+              <StatsCard
+                title="Total Today"
+                value={dashboardStats ? dashboardStats.totalToday.toString() : "..."}
+                description="Started today"
+                icon="today"
+              />
+              <StatsCard
+                title="Failed Today"
+                value={dashboardStats ? dashboardStats.failedToday.toString() : "..."}
+                description={dashboardStats && dashboardStats.failedToday === 0 ? "No failures" : "Needs attention"}
+                icon="failed"
+                alert={!!dashboardStats && dashboardStats.failedToday > 0}
+              />
+              {vulnCard && (
+                <StatsCard
+                  title="Vulnerabilities"
+                  value={vulnCard.value}
+                  description={vulnCard.parts}
+                  icon={vulnCard.alert ? "shieldAlert" : "shield"}
+                  alert={vulnCard.alert}
+                  muted={vulnCard.muted}
+                  href={
+                    vulnCard.link === "tab"
+                      ? appsHubUrl({ tab: "vulnerabilities", tenantId: crossTenant ? vulnTenantId ?? undefined : undefined })
+                      : vulnCard.link === "settings"
+                        ? ANALYZER_SETTING_PATH
+                        : undefined
+                  }
+                  linkOn={vulnCard.link === "settings" ? "description" : "title"}
+                  onClick={() =>
+                    vulnCard.link === "settings"
+                      ? onAnalyzerEnableClick("dashboard_card")
+                      : trackEvent("vuln_link_clicked", { from: "dashboard_card", state: vulnCard.kind })
+                  }
+                />
+              )}
+            </div>
           </div>
 
           <TipOfTheDay />

@@ -12,6 +12,8 @@ export interface TenantScopeUser {
   isDelegated?: boolean;
   role?: string | null;
   canManageBootstrapTokens?: boolean;
+  /** Set while a Global Admin views a tenant as its member (lib/viewAs.ts); every write is refused there. */
+  viewAs?: object | null;
 }
 
 /** The three assignable tenant roles (mirrors Constants.TenantRoles in the backend). */
@@ -77,6 +79,21 @@ export function canAdministerTenant(
   if (user.isGlobalAdmin) return true;
   if (!canUseAdminMode(user) || !sessionTenantId || !ownTenantId) return false;
   return sessionTenantId.toLowerCase() === ownTenantId.toLowerCase();
+}
+
+/**
+ * True when the user may change an agent setting of `viewedTenantId` from the portal: the Settings pages
+ * always edit the caller's own tenant and save through TenantAdminOrGA, and the Global Admin tenant
+ * editor has no agent-analyzer fields. So: the own tenant, Admin Mode roles, and never a view-as tab
+ * (it shows an Admin role, but the backend refuses every write there).
+ */
+export function canChangeOwnTenantSettings(
+  user: TenantScopeUser | null | undefined,
+  viewedTenantId: string | null | undefined,
+  ownTenantId: string | null | undefined
+): boolean {
+  if (!user || user.viewAs || !viewedTenantId || !ownTenantId) return false;
+  return canUseAdminMode(user) && viewedTenantId.toLowerCase() === ownTenantId.toLowerCase();
 }
 
 /**

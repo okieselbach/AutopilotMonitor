@@ -1027,3 +1027,27 @@ html.auth-pending .landing-v2::after {
 .dark .setup-tour-spot {
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72);
 }
+
+/* Dashboard stat row with six cards (app/dashboard/components/StatsCards.tsx, statsGridClassName).
+   The columns follow the width the row itself gets, so the sidebar state and the full-width layout
+   count: six from 1126px (a 1440px window with the full sidebar), three from 553px, two from 362px,
+   below those a card title would be cut off. Plain CSS because the ascending order is the cascade:
+   Tailwind sorts arbitrary @container variants as text (1126 before 362), and the three-column rule
+   then won at every width. StatsCards.test.ts holds the order. */
+.stats-row {
+  container-type: inline-size;
+}
+.stats-grid-6 {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+@container (min-width: 362px) {
+  .stats-grid-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (min-width: 553px) {
+  .stats-grid-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (min-width: 1126px) {
+  .stats-grid-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}

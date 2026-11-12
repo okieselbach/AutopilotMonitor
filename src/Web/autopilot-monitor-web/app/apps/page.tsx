@@ -15,6 +15,11 @@ import InventoryTab from "./components/InventoryTab";
 import VulnerabilitiesTab from "./components/VulnerabilitiesTab";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
+import { trackEvent } from "@/lib/appInsights";
+import { canChangeOwnTenantSettings } from "@/lib/tenantScope";
+import { useVulnerabilityHeadline } from "@/hooks/useVulnerabilityHeadline";
 
 const TABS = [
   { id: "installs", label: "Installs" },
@@ -26,14 +31,29 @@ type TabId = (typeof TABS)[number]["id"];
 function SoftwareHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const scope = useAggregatedAdminScope();
+  const { user } = useAuth();
+  const { tenantId: ownTenantId } = useTenant();
+  // ?tenantId= (dashboard card, session report) points a Global Admin at that tenant on first load.
+  const scope = useAggregatedAdminScope({ urlTenantId: searchParams.get("tenantId") ?? "" });
   // The window lives in the URL (?days=) and survives tab switches (selectTab keeps every parameter).
   const { days, ready: windowReady, setDays } = useWindowDays({ defaultDays: APPS_DEFAULT_WINDOW_DAYS, tenantId: scope.effectiveTenantId });
+
+  // Analyzer switch and known-exploited count of the tenant in view: the count goes on the
+  // Vulnerabilities tab label, the switch decides both tabs' empty state. Only the active tab is
+  // mounted, so the page reads them itself. The aggregated Global Admin view (the slow cross-tenant
+  // scan) reads nothing.
+  const singleTenant = scope.scopeInitialized && windowReady && !scope.isAggregatedGlobalView && !!scope.effectiveTenantId;
+  const headline = useVulnerabilityHeadline(singleTenant ? scope : null, singleTenant ? scope.effectiveTenantId : null, days);
+  const kev = headline.status === "ready" ? headline.kev : 0;
+  // undefined = no single tenant or not readable; null = still loading.
+  const analyzerOn = headline.status === "ready" ? headline.analyzerOn : headline.status === "loading" ? null : undefined;
+  const canEnable = canChangeOwnTenantSettings(user, scope.effectiveTenantId, ownTenantId);
 
   const rawTab = searchParams.get("tab");
   const activeTab: TabId = TABS.some((t) => t.id === rawTab) ? (rawTab as TabId) : "installs";
 
   function selectTab(id: TabId) {
+    trackEvent("software_tab_selected", { tab: id, badge: kev > 0, kev });
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", id);
     router.replace(`/apps?${params.toString()}`);
@@ -75,6 +95,12 @@ function SoftwareHub() {
                 }`}
               >
                 {t.label}
+                {t.id === "vulnerabilities" && kev > 0 && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                    <span aria-hidden="true">{kev.toLocaleString()}</span>
+                    <span className="sr-only">{`${kev.toLocaleString()} known exploited`}</span>
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -83,8 +109,10 @@ function SoftwareHub() {
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {activeTab === "installs" && <InstallsTab scope={scope} days={days} windowReady={windowReady} />}
-        {activeTab === "inventory" && <InventoryTab scope={scope} />}
-        {activeTab === "vulnerabilities" && <VulnerabilitiesTab scope={scope} days={days} windowReady={windowReady} />}
+        {activeTab === "inventory" && <InventoryTab scope={scope} analyzerOn={analyzerOn} canEnable={canEnable} />}
+        {activeTab === "vulnerabilities" && (
+          <VulnerabilitiesTab scope={scope} days={days} windowReady={windowReady} analyzerOn={analyzerOn} canEnable={canEnable} />
+        )}
       </main>
     </div>
   );
