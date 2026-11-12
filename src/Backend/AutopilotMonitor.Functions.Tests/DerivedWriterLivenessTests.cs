@@ -67,6 +67,7 @@ public class DerivedWriterLivenessTests
             Mock.Of<ISessionRepository>(),
             inventoryLoader.Object,
             Mock.Of<IAnalyzeOnEnrollmentEndProducer>(),
+            Mock.Of<IVulnerabilityCorrelateProducer>(),
             signalRNotification: null!,
             GuardFor(row),
             NullLogger<VulnerabilityCorrelateHandler>.Instance);

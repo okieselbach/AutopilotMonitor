@@ -24,6 +24,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly AnalyzeRuleService _analyzeRuleService;
         private readonly IVulnerabilityRepository _vulnRepo;
         private readonly IRuleRepository _ruleRepo;
+        private readonly CpeMappingStore _mappingStore;
 
         public ReseedFromGitHubFunction(
             ILogger<ReseedFromGitHubFunction> logger,
@@ -31,7 +32,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             GatherRuleService gatherRuleService,
             AnalyzeRuleService analyzeRuleService,
             IVulnerabilityRepository vulnRepo,
-            IRuleRepository ruleRepo)
+            IRuleRepository ruleRepo,
+            CpeMappingStore mappingStore)
         {
             _logger = logger;
             _gitHubRepo = gitHubRepo;
@@ -39,6 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             _analyzeRuleService = analyzeRuleService;
             _vulnRepo = vulnRepo;
             _ruleRepo = ruleRepo;
+            _mappingStore = mappingStore;
         }
 
         [Function("ReseedFromGitHub")]
@@ -315,7 +318,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             var written = await _vulnRepo.ImportCpeCommunityMappingsFromJsonAsync(json);
 
             // Reset the static seed-loaded flag so the next correlation picks up fresh data
-            VulnerabilityCorrelationService.ResetMappingsCache();
+            _mappingStore.Invalidate();
 
             _logger.LogInformation("GitHub reseed community CPE mappings: {Deleted} deleted, {Written} written", deleted, written);
             return (deleted, written);
@@ -332,7 +335,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             var written = await _vulnRepo.ImportCpeMappingSeedFromJsonAsync(json);
 
             // Reset the static seed-loaded flag so the next correlation picks up fresh data
-            VulnerabilityCorrelationService.ResetMappingsCache();
+            _mappingStore.Invalidate();
 
             _logger.LogInformation("GitHub reseed CPE seed mappings: {Deleted} deleted, {Written} written", deleted, written);
             return (deleted, written);

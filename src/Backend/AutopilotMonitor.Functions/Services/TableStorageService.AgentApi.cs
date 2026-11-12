@@ -293,7 +293,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Collapses report findings to one entity per CVE. Merge rule: the occurrence with the
         /// highest CVSS score supplies score/severity/software name/product (ties keep report
         /// order), IsKev is OR-ed, OverallRisk is the highest risk level seen across occurrences.
-        /// Product is the finding's CPE "vendor:product" (<see cref="Vulnerability.CpeMatchScorer.ProductKey"/>).
+        /// Product is the finding's CPE "vendor:product" (<see cref="Vulnerability.CpeName.ProductKeyOf"/>).
         /// </summary>
         internal static List<TableEntity> BuildCveIndexEntities(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
         {
@@ -303,7 +303,7 @@ namespace AutopilotMonitor.Functions.Services
             foreach (var finding in findings)
             {
                 var softwareName = finding.TryGetValue("softwareName", out var sn) ? sn?.ToString() ?? "" : "";
-                var product = Vulnerability.CpeMatchScorer.ProductKey(finding.TryGetValue("cpeUri", out var cu) ? cu?.ToString() : null);
+                var product = Vulnerability.CpeName.ProductKeyOf(finding.TryGetValue("cpeUri", out var cu) ? cu?.ToString() : null);
                 var overallRisk = finding.TryGetValue("riskLevel", out var rl) ? rl?.ToString() ?? "" : "";
 
                 if (!finding.TryGetValue("vulnerabilities", out var vulnsObj) || vulnsObj == null) continue;
