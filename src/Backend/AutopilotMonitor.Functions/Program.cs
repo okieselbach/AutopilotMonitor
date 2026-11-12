@@ -454,9 +454,32 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.MsrcCorrelationService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCacheRefreshService>();
-builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CpeMappingStore>();
+// The store does not know the ops events; a failed load reaches them through this hook.
+builder.Services.AddSingleton(sp =>
+{
+    var store = new AutopilotMonitor.Functions.Services.Vulnerability.CpeMappingStore(
+        sp.GetRequiredService<AutopilotMonitor.Shared.DataAccess.IVulnerabilityRepository>(),
+        sp.GetRequiredService<ILogger<AutopilotMonitor.Functions.Services.Vulnerability.CpeMappingStore>>());
+    var opsEvents = sp.GetRequiredService<OpsEventService>();
+    store.LoadFailed = (error, servingEarlierCopy) =>
+        opsEvents.RecordCpeMappingUnavailableAsync($"{error.GetType().Name}: {error.Message}", servingEarlierCopy);
+    return store;
+});
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CveCacheFiller>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityReportWriter>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CpeProductFlagsService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.SoftwareInventoryCpeReconciler>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CpeMappingImporter>();
+// The dictionary keeps its loaded copy as instance state, but AddHttpClient<T> registers T as
+// transient: the named client goes into one singleton, like KevDataService above.
+builder.Services.AddHttpClient(nameof(AutopilotMonitor.Functions.Services.Vulnerability.CpeDictionaryService))
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi)
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+builder.Services.AddSingleton(sp => new AutopilotMonitor.Functions.Services.Vulnerability.CpeDictionaryService(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AutopilotMonitor.Functions.Services.Vulnerability.CpeDictionaryService)),
+    sp.GetRequiredService<BlobStorageService>(),
+    sp.GetRequiredService<ILogger<AutopilotMonitor.Functions.Services.Vulnerability.CpeDictionaryService>>()));
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CpeDictionaryResolver>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelationService>();
 // Hydrate MSRC + KEV in-memory caches from blob snapshots at app startup (fire-and-forget;
 // keeps cold-start fast for re-deploys, see VulnerabilityCacheWarmer for the contract).

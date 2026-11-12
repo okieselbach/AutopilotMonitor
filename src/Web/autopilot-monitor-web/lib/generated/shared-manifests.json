@@ -649,6 +649,9 @@
     "BackupRowRestored",
     "VerdictCalibrationDrift",
     "SoftwareInventoryCounterWriteFailed",
+    "VulnerabilityDataSyncDegraded",
+    "CpeMappingUnavailable",
+    "CpeAutoMappingsCreated",
     "DeviceBlocked",
     "VersionBlocked",
     "SessionTenantConflict",
@@ -4991,7 +4994,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "empty_name | empty_keyword | nvd_throttled | nvd_unavailable | no_match | no_results | nvd_api_error."
+          "doc": "empty_name | already_mapped | ignored | no_exact_product | no_cves | unversioned_cves | store_package | nvd_unavailable | no_dictionary."
         }
       ]
     },
@@ -5019,7 +5022,7 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Match score of the selected CPE candidate, rounded to two decimals."
+          "doc": "Always 1: a name is mapped automatically only when it is exactly an NVD product name. Kept so the shape stays what clients read."
         }
       ]
     },
@@ -6417,7 +6420,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "seed | custom | community, derived from the partition (falls back to the row's Source column)."
+          "doc": "seed | custom | community | auto. \"auto\" is a mapping taken over from the NVD product dictionary without a human looking at it."
         },
         {
           "name": "createdAt",
@@ -6426,6 +6429,30 @@
             "name": "string"
           },
           "doc": "Preformatted ISO-8601 creation/import timestamp; empty when the row carries neither."
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Table row key of the mapping; what a delete names."
+        },
+        {
+          "name": "selfUpdating",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the mapped product counts as self-updating. The flag belongs to the product, so every mapping that points to it carries the same value."
+        },
+        {
+          "name": "selfUpdatingDefault",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "The value the seed list ships for the product; differs from SelfUpdating while an operator's own value is in place."
         }
       ]
     },
@@ -7045,6 +7072,30 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        {
+          "name": "selfUpdatingIncluded",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "False (the default): software that updates itself is left out of every number and list above. True when the request asked for it (includeSelfUpdating=true), and when the product flags could not be read, because then everything is counted."
+        },
+        {
+          "name": "selfUpdatingSoftware",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Self-updating products with a CVE in the window, whether or not they are included above."
+        },
+        {
+          "name": "selfUpdatingAffectedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Distinct sessions that carry a CVE in a self-updating product."
         }
       ]
     },
@@ -7557,6 +7608,26 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The mapping's row key as the listing gives it; when set, vendor and product are not needed."
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "custom (default) or auto. Seed and community mappings are not deleted here."
         }
       ]
     },
@@ -13717,6 +13788,15 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "normalizedVendor",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The vendor the unmatched entry is filed under; the publisher is used when it is missing."
         }
       ]
     },
@@ -17435,6 +17515,14 @@
           "doc": "Stale entries left untouched because NVD opened its throttle cooldown mid-run."
         },
         {
+          "name": "skippedUnavailable",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Stale entries left untouched because NVD stopped answering or the walk ran out of time."
+        },
+        {
           "name": "error",
           "type": {
             "kind": "primitive",
@@ -19716,6 +19804,27 @@
             "kind": "ref",
             "name": "ReseedTableCountsNode"
           }
+        },
+        {
+          "name": "cpeInventory",
+          "type": {
+            "kind": "ref",
+            "name": "ReseedInventoryNode"
+          },
+          "optional": true,
+          "doc": "What the reseed changed on the software inventory rows; null (key omitted) when no CPE list was part of it."
+        },
+        {
+          "name": "cpeProblems",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Why a CPE mapping list was refused; null (key omitted) when both were imported. A refused list leaves the mappings in service untouched, and Success is false."
         }
       ]
     },
@@ -19750,6 +19859,50 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "ReseedInventoryNode": {
+      "kind": "object",
+      "doc": "Software inventory rows brought in line with the mappings after a reseed.",
+      "fields": [
+        {
+          "name": "rows",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "set",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows that got a CPE or a different one."
+        },
+        {
+          "name": "cleared",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows whose CPE was taken away because no mapping names them any more."
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "productsNoted",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Products in use without CVE data yet, noted for the next refresh."
         }
       ]
     },
@@ -21906,6 +22059,15 @@
             "name": "string"
           },
           "doc": "Sanitized Table Storage row key the mapping was stored under."
+        },
+        {
+          "name": "inventoryRowsChanged",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Inventory rows whose CPE changed through this mapping; null (key omitted) when the rows could not be brought in line right away and follow with the nightly run."
         }
       ]
     },
@@ -24096,6 +24258,65 @@
             "name": "boolean"
           },
           "doc": "Whether this caller can watch at all: an enabled Push channel in one of the caller's own scopes (home tenant; the platform for a Global Admin) where the caller holds an Admin or Operator role. False hides the portal's button instead of letting a click fail."
+        }
+      ]
+    },
+    "SetCpeProductFlagsRequest": {
+      "kind": "object",
+      "doc": "Body of POST vulnerability/cpe-product-flags.",
+      "fields": [
+        {
+          "name": "product",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The product as vendor:product, e.g. google:chrome."
+        },
+        {
+          "name": "selfUpdating",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "SetCpeProductFlagsResponse": {
+      "kind": "object",
+      "doc": "Response of POST vulnerability/cpe-product-flags: the product's flag after the change.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "product",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The product as vendor:product."
+        },
+        {
+          "name": "selfUpdating",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "selfUpdatingDefault",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "The value the seed list ships for the product."
         }
       ]
     },
@@ -28717,6 +28938,15 @@
             }
           },
           "doc": "The product's most urgent CVEs (priority, then EPSS, then CVSS), at most 3; CveCount is the full count."
+        },
+        {
+          "name": "selfUpdating",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "True for a product that counts as self-updating; null (key omitted) otherwise."
         }
       ]
     },
@@ -29192,6 +29422,15 @@
             "name": "string"
           },
           "optional": true
+        },
+        {
+          "name": "canonicalName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The name without version, architecture and language: with the vendor it is what the entry stands for, and what a mapping or an ignore decision for it is filed under."
         }
       ]
     },

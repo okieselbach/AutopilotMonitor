@@ -78,6 +78,28 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// up to five sample keys, never one per key and never in the tenant audit trail.
         /// </summary>
         public const string SoftwareInventoryCounterWriteFailed         = "SoftwareInventoryCounterWriteFailed";
+        /// <summary>
+        /// The nightly vulnerability data sync finished, but a part of it did not: a source was not
+        /// refreshed, the CVE cache walk was cut off because NVD stopped answering or has not reached
+        /// its end for two days, products have waited for their first CVE data for more than a day,
+        /// the product dictionary is older than a week, or inventory rows did not take their CPE.
+        /// Warning; at most one event per run, naming the parts.
+        /// </summary>
+        public const string VulnerabilityDataSyncDegraded               = "VulnerabilityDataSyncDegraded";
+        /// <summary>
+        /// The software-to-CPE mappings are not what they should be: they could not be read (Error
+        /// when the instance holds no earlier copy, because scans are postponed then; Warning while
+        /// an earlier copy keeps serving), or an import fetched a list the check refused (Error; the
+        /// mappings in service were kept). Today's events are read before one is written: one event
+        /// per UTC day, cause and severity, unless two instances record at the same moment.
+        /// </summary>
+        public const string CpeMappingUnavailable                       = "CpeMappingUnavailable";
+        /// <summary>
+        /// The nightly run gave programs an automatic CPE mapping because their name is exactly an
+        /// NVD product name. Info; one event per run that created any, naming program and product,
+        /// so each new one can be looked over. An operator's own Auto-Map raises none.
+        /// </summary>
+        public const string CpeAutoMappingsCreated                      = "CpeAutoMappingsCreated";
 
         // ── Security ── Blocks, ownership conflicts, certificate expiry, capacity + poison-queue alarms.
         public const string DeviceBlocked                      = "DeviceBlocked";
@@ -236,7 +258,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         public static readonly IReadOnlyList<string> All = new[]
         {
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles, GraphAccessRejected, GraphAccessRecovered, GraphAppCredentialRejected, AddOnPermissionMissing, AddOnPermissionResolved,
-            MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed,
+            MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, OrphanSweepCompleted, OrphanSweepFailed, OrphanSweepSkippedLocked, OrphanReconcileCompleted, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift, SoftwareInventoryCounterWriteFailed, VulnerabilityDataSyncDegraded, CpeMappingUnavailable, CpeAutoMappingsCreated,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen, ReportUploadLimitReached, RuleEvaluationLimitReached,
             OffboardingFeedbackReceived, FeedbackReceived, FeedbackRatingReceived, TenantSignup, SessionReportSubmitted, DiagFilesReportSubmitted, RuleSubmissionReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled, RuleEvaluationStopped, McpQuotaExceeded,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,

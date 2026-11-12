@@ -154,6 +154,12 @@ public class EpssAndNvdThrottleTests
         var failed = NvdFetchResult<NvdCveResponse>.Failed();
         Assert.False(failed.Succeeded);
         Assert.False(failed.Throttled);
+        Assert.False(failed.Unanswered);
+
+        var unanswered = NvdFetchResult<NvdCveResponse>.UnansweredResult();
+        Assert.False(unanswered.Succeeded);
+        Assert.False(unanswered.Throttled);
+        Assert.True(unanswered.Unanswered);
 
         var ok = NvdFetchResult<NvdCveResponse>.Ok(new NvdCveResponse { TotalResults = 1 });
         Assert.True(ok.Succeeded);

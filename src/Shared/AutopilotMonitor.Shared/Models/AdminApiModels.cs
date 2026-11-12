@@ -468,6 +468,33 @@ namespace AutopilotMonitor.Shared.Models
         public ReseedTableCountsNode Ime { get; set; } = default!;
         public ReseedTableCountsNode CpeCommunityMappings { get; set; } = default!;
         public ReseedTableCountsNode CpeSeedMappings { get; set; } = default!;
+
+        /// <summary>What the reseed changed on the software inventory rows; null (key omitted) when no CPE list was part of it.</summary>
+        public ReseedInventoryNode? CpeInventory { get; set; }
+
+        /// <summary>
+        /// Why a CPE mapping list was refused; null (key omitted) when both were imported. A refused
+        /// list leaves the mappings in service untouched, and <see cref="Success"/> is false.
+        /// </summary>
+        public IReadOnlyList<string>? CpeProblems { get; set; }
+    }
+
+    /// <summary>Software inventory rows brought in line with the mappings after a reseed.</summary>
+    // Declaration order == wire order.
+    public class ReseedInventoryNode
+    {
+        public int Rows { get; set; }
+
+        /// <summary>Rows that got a CPE or a different one.</summary>
+        public int Set { get; set; }
+
+        /// <summary>Rows whose CPE was taken away because no mapping names them any more.</summary>
+        public int Cleared { get; set; }
+
+        public int Failed { get; set; }
+
+        /// <summary>Products in use without CVE data yet, noted for the next refresh.</summary>
+        public int ProductsNoted { get; set; }
     }
 
     /// <summary>Response of POST tenants/{tenantId}/admins: the created tenant member.</summary>

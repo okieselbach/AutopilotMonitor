@@ -50,7 +50,6 @@ public class TypedRequestGuardTests
         // Not request bodies at all: telemetry item payloads (agent wire, D-200) and stored table columns.
         ["Functions/Ingest/TelemetryPayloadParser.cs"] = "telemetry item PayloadJson (agent wire, D-200)",
         ["Functions/Config/ListTenantConfigBackupsFunction.cs"] = "stored backup diff column",
-        ["Functions/Vulnerability/GetCpeMappingsFunction.cs"] = "stored pattern-list columns",
     };
 
     /// <summary>

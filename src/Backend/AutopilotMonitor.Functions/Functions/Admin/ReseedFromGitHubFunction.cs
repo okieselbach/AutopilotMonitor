@@ -22,26 +22,26 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly GitHubRuleRepository _gitHubRepo;
         private readonly GatherRuleService _gatherRuleService;
         private readonly AnalyzeRuleService _analyzeRuleService;
-        private readonly IVulnerabilityRepository _vulnRepo;
         private readonly IRuleRepository _ruleRepo;
-        private readonly CpeMappingStore _mappingStore;
+        private readonly CpeMappingImporter _cpeImporter;
+        private readonly SoftwareInventoryCpeReconciler _reconciler;
 
         public ReseedFromGitHubFunction(
             ILogger<ReseedFromGitHubFunction> logger,
             GitHubRuleRepository gitHubRepo,
             GatherRuleService gatherRuleService,
             AnalyzeRuleService analyzeRuleService,
-            IVulnerabilityRepository vulnRepo,
             IRuleRepository ruleRepo,
-            CpeMappingStore mappingStore)
+            CpeMappingImporter cpeImporter,
+            SoftwareInventoryCpeReconciler reconciler)
         {
             _logger = logger;
             _gitHubRepo = gitHubRepo;
             _gatherRuleService = gatherRuleService;
             _analyzeRuleService = analyzeRuleService;
-            _vulnRepo = vulnRepo;
             _ruleRepo = ruleRepo;
-            _mappingStore = mappingStore;
+            _cpeImporter = cpeImporter;
+            _reconciler = reconciler;
         }
 
         [Function("ReseedFromGitHub")]
@@ -91,29 +91,60 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
 
                 var cpeMappingsResult = new ReseedTableCountsNode { Deleted = 0, Written = 0 };
-                if (typeParam == "all" || typeParam == "cpe")
-                {
-                    var (d, w) = await ReseedCpeCommunityMappingsAsync();
-                    cpeMappingsResult = new ReseedTableCountsNode { Deleted = d, Written = w };
-                }
-
                 var cpeSeedResult = new ReseedTableCountsNode { Deleted = 0, Written = 0 };
+                ReseedInventoryNode? cpeInventory = null;
+                List<string>? cpeProblems = null;
                 if (typeParam == "all" || typeParam == "cpe")
                 {
-                    var (d, w) = await ReseedCpeSeedMappingsAsync();
-                    cpeSeedResult = new ReseedTableCountsNode { Deleted = d, Written = w };
+                    // Each list is fetched and checked before anything is written; a list that is
+                    // refused leaves the mappings in service as they were.
+                    var community = await _cpeImporter.ImportCommunityAsync();
+                    var seed = await _cpeImporter.ImportSeedAsync();
+                    cpeMappingsResult = new ReseedTableCountsNode { Deleted = community.Removed, Written = community.Written };
+                    cpeSeedResult = new ReseedTableCountsNode { Deleted = seed.Removed, Written = seed.Written };
+
+                    var problems = community.Problems.Select(p => "community list: " + p)
+                        .Concat(seed.Problems.Select(p => "seed list: " + p))
+                        .ToList();
+
+                    try
+                    {
+                        var reconciled = await _reconciler.ReconcileAsync("reseed");
+                        cpeInventory = new ReseedInventoryNode
+                        {
+                            Rows = reconciled.Rows,
+                            Set = reconciled.Set,
+                            Cleared = reconciled.Cleared,
+                            Failed = reconciled.Failed,
+                            ProductsNoted = reconciled.ProductsNoted,
+                        };
+                    }
+                    catch (CpeMappingUnavailableException)
+                    {
+                        // After a refused first list no mapping is in service: there is nothing to
+                        // bring the rows in line with, and the answer still has to say why the list
+                        // was refused. After an import the same exception means the table could
+                        // not be read back, and that is said.
+                        if (seed.Written + community.Written > 0)
+                            problems.Add("inventory rows not brought in line yet: the mappings could not be read back; the nightly run does it");
+                    }
+                    if (problems.Count > 0) cpeProblems = problems;
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new ReseedFromGitHubResponse
                 {
-                    Success = true,
-                    Message = "Reseed from GitHub complete",
+                    Success = cpeProblems == null,
+                    Message = cpeProblems == null
+                        ? "Reseed from GitHub complete"
+                        : "Reseed from GitHub complete, except for the CPE mappings",
                     Gather = gatherResult,
                     Analyze = analyzeResult,
                     Ime = imeResult,
                     CpeCommunityMappings = cpeMappingsResult,
-                    CpeSeedMappings = cpeSeedResult
+                    CpeSeedMappings = cpeSeedResult,
+                    CpeInventory = cpeInventory,
+                    CpeProblems = cpeProblems
                 });
                 return response;
             }
@@ -306,39 +337,6 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             await _ruleRepo.SetRuleCatalogStampAsync(AutopilotMonitor.Functions.Services.RuleCatalogSeedGate.Stamp(
                 AutopilotMonitor.Shared.Models.RuleCatalogStamp.KindIme, AutopilotMonitor.Shared.Models.RuleCatalogStamp.SourceGitHub, patterns.Count));
             return (deleted, patterns.Count);
-        }
-
-        private async Task<(int deleted, int written)> ReseedCpeCommunityMappingsAsync()
-        {
-            // Delete existing community CPE mapping entries
-            var deleted = await _vulnRepo.DeleteCpeMappingsByPartitionAsync("cpe_map_community");
-
-            // Fetch community CPE mappings from GitHub and import
-            var json = await _gitHubRepo.FetchCpeCommunityMappingsAsync();
-            var written = await _vulnRepo.ImportCpeCommunityMappingsFromJsonAsync(json);
-
-            // Reset the static seed-loaded flag so the next correlation picks up fresh data
-            _mappingStore.Invalidate();
-
-            _logger.LogInformation("GitHub reseed community CPE mappings: {Deleted} deleted, {Written} written", deleted, written);
-            return (deleted, written);
-        }
-
-        private async Task<(int deleted, int written)> ReseedCpeSeedMappingsAsync()
-        {
-            // Count existing seed entries before deletion (for reporting)
-            var existingEntries = await _vulnRepo.GetCpeMappingsByPartitionAsync("cpe_map_seed");
-            var deleted = existingEntries.Count;
-
-            // Fetch CPE seed mappings from GitHub and import (deletes + writes in one call)
-            var json = await _gitHubRepo.FetchCpeSeedMappingsAsync();
-            var written = await _vulnRepo.ImportCpeMappingSeedFromJsonAsync(json);
-
-            // Reset the static seed-loaded flag so the next correlation picks up fresh data
-            _mappingStore.Invalidate();
-
-            _logger.LogInformation("GitHub reseed CPE seed mappings: {Deleted} deleted, {Written} written", deleted, written);
-            return (deleted, written);
         }
     }
 }

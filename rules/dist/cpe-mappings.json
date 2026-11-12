@@ -1,0 +1,6147 @@
+{
+  "version": "2.0.0",
+  "lastUpdated": "2026-11-12",
+  "selfUpdatingProducts": [
+    "google:chrome",
+    "microsoft:edge_chromium",
+    "mozilla:firefox",
+    "brave:brave",
+    "opera:opera_browser",
+    "microsoft:edge_update"
+  ],
+  "mappings": [
+    {
+      "normalizedVendor": "google",
+      "normalizedProduct": "google chrome",
+      "displayNamePatterns": [
+        "google chrome",
+        "chrome"
+      ],
+      "publisherPatterns": [
+        "google",
+        "google llc",
+        "google inc"
+      ],
+      "excludePatterns": [
+        "remote desktop"
+      ],
+      "cpeUri": "cpe:2.3:a:google:chrome",
+      "category": "browser"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft edge",
+      "displayNamePatterns": [
+        "microsoft edge",
+        "webview2 runtime"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "edge update"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:edge_chromium",
+      "category": "browser",
+      "excludeEditions": [
+        "extended_stable"
+      ]
+    },
+    {
+      "normalizedVendor": "mozilla",
+      "normalizedProduct": "mozilla firefox",
+      "displayNamePatterns": [
+        "mozilla firefox",
+        "firefox"
+      ],
+      "publisherPatterns": [
+        "mozilla",
+        "mozilla corporation"
+      ],
+      "excludePatterns": [
+        "esr"
+      ],
+      "cpeUri": "cpe:2.3:a:mozilla:firefox",
+      "category": "browser",
+      "excludeEditions": [
+        "esr"
+      ]
+    },
+    {
+      "normalizedVendor": "brave",
+      "normalizedProduct": "brave browser",
+      "displayNamePatterns": [
+        "brave",
+        "brave browser"
+      ],
+      "publisherPatterns": [
+        "brave software",
+        "brave software inc"
+      ],
+      "cpeUri": "cpe:2.3:a:brave:brave",
+      "category": "browser"
+    },
+    {
+      "normalizedVendor": "opera",
+      "normalizedProduct": "opera",
+      "displayNamePatterns": [
+        "opera stable",
+        "opera browser",
+        "opera"
+      ],
+      "publisherPatterns": [
+        "opera",
+        "opera software",
+        "opera norway"
+      ],
+      "excludePatterns": [
+        "gx"
+      ],
+      "cpeUri": "cpe:2.3:a:opera:opera_browser",
+      "category": "browser"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe acrobat reader dc",
+      "displayNamePatterns": [
+        "adobe acrobat reader"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:acrobat_reader_dc",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe acrobat dc",
+      "displayNamePatterns": [
+        "adobe acrobat"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "excludePatterns": [
+        "customization wizard",
+        "sign",
+        "connect"
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:acrobat_dc",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "foxit",
+      "normalizedProduct": "foxit reader",
+      "displayNamePatterns": [
+        "foxit reader",
+        "foxit pdf reader"
+      ],
+      "publisherPatterns": [
+        "foxit",
+        "foxit software",
+        "foxit software inc."
+      ],
+      "cpeUri": "cpe:2.3:a:foxit:pdf_reader",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "foxit",
+      "normalizedProduct": "foxit pdf editor",
+      "displayNamePatterns": [
+        "foxit pdf editor",
+        "foxit phantompdf"
+      ],
+      "publisherPatterns": [
+        "foxit",
+        "foxit software",
+        "foxit software inc."
+      ],
+      "cpeUri": "cpe:2.3:a:foxit:pdf_editor",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "the document foundation",
+      "normalizedProduct": "libreoffice",
+      "displayNamePatterns": [
+        "libreoffice"
+      ],
+      "publisherPatterns": [
+        "the document foundation"
+      ],
+      "excludePatterns": [
+        "help pack",
+        "sdk"
+      ],
+      "cpeUri": "cpe:2.3:a:libreoffice:libreoffice",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "java runtime environment",
+      "displayNamePatterns": [
+        "java 8 update",
+        "java 7 update",
+        "java 6 update",
+        "java se runtime",
+        "java runtime environment"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:jre",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "java development kit",
+      "displayNamePatterns": [
+        "java se development kit",
+        "jdk"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:jdk",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "eclipse",
+      "normalizedProduct": "eclipse temurin",
+      "displayNamePatterns": [
+        "eclipse temurin",
+        "adoptopenjdk",
+        "openjdk"
+      ],
+      "publisherPatterns": [
+        "eclipse adoptium",
+        "eclipse foundation",
+        "adoptopenjdk"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:openjdk",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": ".net desktop runtime",
+      "displayNamePatterns": [
+        "microsoft .net runtime",
+        "microsoft .net desktop runtime",
+        "microsoft windows desktop runtime",
+        "microsoft dotnet desktop runtime"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "sdk"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:.net",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "nodejs",
+      "normalizedProduct": "node.js",
+      "displayNamePatterns": [
+        "node.js",
+        "nodejs"
+      ],
+      "publisherPatterns": [
+        "node.js foundation",
+        "openjs foundation"
+      ],
+      "excludePatterns": [
+        "tools"
+      ],
+      "cpeUri": "cpe:2.3:a:nodejs:node.js",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "python",
+      "normalizedProduct": "python",
+      "displayNamePatterns": [
+        "python"
+      ],
+      "publisherPatterns": [
+        "python software foundation"
+      ],
+      "excludePatterns": [
+        "launcher",
+        "install manager"
+      ],
+      "cpeUri": "cpe:2.3:a:python:python",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "visual c++ redistributable",
+      "displayNamePatterns": [
+        "microsoft visual c++",
+        "visual c++ redistributable"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_c\\+\\+",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "powershell",
+      "displayNamePatterns": [
+        "powershell 7",
+        "powershell 6"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:powershell",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft teams",
+      "displayNamePatterns": [
+        "microsoft teams",
+        "msteams"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation",
+        "msteams"
+      ],
+      "excludePatterns": [
+        "add-in",
+        "addin",
+        "plugin",
+        "plug-in",
+        "installer",
+        "rooms"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:teams",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "zoom",
+      "normalizedProduct": "zoom",
+      "displayNamePatterns": [
+        "zoom",
+        "zoom client"
+      ],
+      "publisherPatterns": [
+        "zoom",
+        "zoom video communications",
+        "zoom video communications, inc.",
+        "zoom communications"
+      ],
+      "excludePatterns": [
+        "plugin",
+        "plug-in",
+        "add-in",
+        "vdi",
+        "rooms",
+        "outlook"
+      ],
+      "cpeUri": "cpe:2.3:a:zoom:zoom",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco webex meetings",
+      "displayNamePatterns": [
+        "cisco webex meetings",
+        "webex meetings"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "excludePatterns": [
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:webex_meetings",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "discord",
+      "normalizedProduct": "discord",
+      "displayNamePatterns": [
+        "discord"
+      ],
+      "publisherPatterns": [
+        "discord inc.",
+        "discord"
+      ],
+      "cpeUri": "cpe:2.3:a:discord:discord",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "signal",
+      "normalizedProduct": "signal",
+      "displayNamePatterns": [
+        "signal",
+        "signal desktop"
+      ],
+      "publisherPatterns": [
+        "signal messenger, llc",
+        "signal foundation",
+        "signal"
+      ],
+      "cpeUri": "cpe:2.3:a:signal:signal-desktop",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "teamviewer",
+      "normalizedProduct": "teamviewer",
+      "displayNamePatterns": [
+        "teamviewer",
+        "teamviewer quicksupport",
+        "teamviewer host"
+      ],
+      "publisherPatterns": [
+        "teamviewer",
+        "teamviewer gmbh",
+        "teamviewer germany gmbh"
+      ],
+      "excludePatterns": [
+        "meeting",
+        "management",
+        "monitoring",
+        "endpoint protection",
+        "backup",
+        "add-in"
+      ],
+      "cpeUri": "cpe:2.3:a:teamviewer:teamviewer",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "anydesk",
+      "normalizedProduct": "anydesk",
+      "displayNamePatterns": [
+        "anydesk"
+      ],
+      "publisherPatterns": [
+        "anydesk software gmbh",
+        "anydesk"
+      ],
+      "cpeUri": "cpe:2.3:a:anydesk:anydesk",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "devolutions",
+      "normalizedProduct": "remote desktop manager",
+      "displayNamePatterns": [
+        "remote desktop manager"
+      ],
+      "publisherPatterns": [
+        "devolutions",
+        "devolutions inc."
+      ],
+      "cpeUri": "cpe:2.3:a:devolutions:remote_desktop_manager",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "rustdesk",
+      "normalizedProduct": "rustdesk",
+      "displayNamePatterns": [
+        "rustdesk"
+      ],
+      "publisherPatterns": [
+        "rustdesk",
+        "purslane ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:rustdesk:rustdesk",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "realvnc",
+      "normalizedProduct": "realvnc server",
+      "displayNamePatterns": [
+        "vnc server",
+        "realvnc server",
+        "realvnc connect"
+      ],
+      "publisherPatterns": [
+        "realvnc",
+        "realvnc ltd"
+      ],
+      "excludePatterns": [
+        "viewer"
+      ],
+      "cpeUri": "cpe:2.3:a:realvnc:vnc_server",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "crowdstrike",
+      "normalizedProduct": "crowdstrike falcon sensor",
+      "displayNamePatterns": [
+        "crowdstrike falcon sensor",
+        "crowdstrike windows sensor",
+        "falcon sensor"
+      ],
+      "publisherPatterns": [
+        "crowdstrike",
+        "crowdstrike, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:crowdstrike:falcon",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "sophos",
+      "normalizedProduct": "sophos endpoint",
+      "displayNamePatterns": [
+        "sophos endpoint agent",
+        "sophos intercept x",
+        "sophos endpoint"
+      ],
+      "publisherPatterns": [
+        "sophos",
+        "sophos limited",
+        "sophos ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:sophos:endpoint_protection",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "eset",
+      "normalizedProduct": "eset endpoint security",
+      "displayNamePatterns": [
+        "eset endpoint security"
+      ],
+      "publisherPatterns": [
+        "eset",
+        "eset, spol. s r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:eset:endpoint_security",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "malwarebytes",
+      "normalizedProduct": "malwarebytes",
+      "displayNamePatterns": [
+        "malwarebytes"
+      ],
+      "publisherPatterns": [
+        "malwarebytes",
+        "malwarebytes corporation"
+      ],
+      "excludePatterns": [
+        "adwcleaner",
+        "windows firewall control",
+        "anti-exploit",
+        "anti-ransomware",
+        "vpn"
+      ],
+      "cpeUri": "cpe:2.3:a:malwarebytes:malwarebytes",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "kaspersky",
+      "normalizedProduct": "kaspersky endpoint security",
+      "displayNamePatterns": [
+        "kaspersky endpoint security"
+      ],
+      "publisherPatterns": [
+        "kaspersky",
+        "kaspersky lab",
+        "ao kaspersky lab"
+      ],
+      "cpeUri": "cpe:2.3:a:kaspersky:endpoint_security",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco anyconnect",
+      "displayNamePatterns": [
+        "cisco anyconnect"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:anyconnect_secure_mobility_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "paloaltonetworks",
+      "normalizedProduct": "globalprotect",
+      "displayNamePatterns": [
+        "globalprotect",
+        "palo alto globalprotect"
+      ],
+      "publisherPatterns": [
+        "palo alto networks",
+        "paloaltonetworks"
+      ],
+      "cpeUri": "cpe:2.3:a:paloaltonetworks:globalprotect",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "fortinet",
+      "normalizedProduct": "forticlient",
+      "displayNamePatterns": [
+        "forticlient"
+      ],
+      "publisherPatterns": [
+        "fortinet",
+        "fortinet inc",
+        "fortinet technologies"
+      ],
+      "excludePatterns": [
+        "ems",
+        "enterprise management server",
+        "endpoint management server"
+      ],
+      "cpeUri": "cpe:2.3:a:fortinet:forticlient",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "zscaler",
+      "normalizedProduct": "zscaler client connector",
+      "displayNamePatterns": [
+        "zscaler client connector",
+        "zscaler"
+      ],
+      "publisherPatterns": [
+        "zscaler",
+        "zscaler, inc."
+      ],
+      "excludePatterns": [
+        "network adapter"
+      ],
+      "cpeUri": "cpe:2.3:a:zscaler:client_connector",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "pulsesecure",
+      "normalizedProduct": "pulse secure",
+      "displayNamePatterns": [
+        "pulse secure"
+      ],
+      "publisherPatterns": [
+        "pulse secure",
+        "pulse secure, llc"
+      ],
+      "excludePatterns": [
+        "setup client",
+        "installer",
+        "activex",
+        "launcher"
+      ],
+      "cpeUri": "cpe:2.3:a:pulsesecure:pulse_secure_desktop_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "openvpn",
+      "normalizedProduct": "openvpn",
+      "displayNamePatterns": [
+        "openvpn"
+      ],
+      "publisherPatterns": [
+        "openvpn",
+        "openvpn inc.",
+        "openvpn technologies"
+      ],
+      "excludePatterns": [
+        "connect",
+        "access server"
+      ],
+      "cpeUri": "cpe:2.3:a:openvpn:openvpn",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "citrix",
+      "normalizedProduct": "citrix workspace",
+      "displayNamePatterns": [
+        "citrix workspace"
+      ],
+      "publisherPatterns": [
+        "citrix",
+        "citrix systems",
+        "citrix systems, inc."
+      ],
+      "excludePatterns": [
+        "environment management"
+      ],
+      "cpeUri": "cpe:2.3:a:citrix:workspace",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "7-zip",
+      "normalizedProduct": "7-zip",
+      "displayNamePatterns": [
+        "7-zip",
+        "7zip"
+      ],
+      "publisherPatterns": [
+        "igor pavlov"
+      ],
+      "cpeUri": "cpe:2.3:a:7-zip:7-zip",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "rarlab",
+      "normalizedProduct": "winrar",
+      "displayNamePatterns": [
+        "winrar"
+      ],
+      "publisherPatterns": [
+        "alexander l. roshal",
+        "win.rar gmbh",
+        "rarlab"
+      ],
+      "cpeUri": "cpe:2.3:a:rarlab:winrar",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "notepad++",
+      "normalizedProduct": "notepad++",
+      "displayNamePatterns": [
+        "notepad++",
+        "notepad++ team notepad++"
+      ],
+      "publisherPatterns": [
+        "notepad++ team",
+        "don ho"
+      ],
+      "cpeUri": "cpe:2.3:a:notepad-plus-plus:notepad\\+\\+",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "winscp",
+      "normalizedProduct": "winscp",
+      "displayNamePatterns": [
+        "winscp"
+      ],
+      "publisherPatterns": [
+        "martin prikryl"
+      ],
+      "cpeUri": "cpe:2.3:a:winscp:winscp",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "putty",
+      "normalizedProduct": "putty",
+      "displayNamePatterns": [
+        "putty"
+      ],
+      "publisherPatterns": [
+        "simon tatham"
+      ],
+      "cpeUri": "cpe:2.3:a:putty:putty",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "filezilla",
+      "normalizedProduct": "filezilla",
+      "displayNamePatterns": [
+        "filezilla client",
+        "filezilla"
+      ],
+      "publisherPatterns": [
+        "tim kosse",
+        "filezilla project"
+      ],
+      "excludePatterns": [
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:filezilla-project:filezilla_client",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "keepass",
+      "normalizedProduct": "keepass",
+      "displayNamePatterns": [
+        "keepass",
+        "keepass password safe"
+      ],
+      "publisherPatterns": [
+        "dominik reichl"
+      ],
+      "cpeUri": "cpe:2.3:a:keepass:keepass",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "voidtools",
+      "normalizedProduct": "everything",
+      "displayNamePatterns": [
+        "everything"
+      ],
+      "publisherPatterns": [
+        "voidtools"
+      ],
+      "cpeUri": "cpe:2.3:a:voidtools:everything",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "greenshot",
+      "normalizedProduct": "greenshot",
+      "displayNamePatterns": [
+        "greenshot"
+      ],
+      "publisherPatterns": [
+        "greenshot"
+      ],
+      "cpeUri": "cpe:2.3:a:getgreenshot:greenshot",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dotpdn",
+      "normalizedProduct": "paint.net",
+      "displayNamePatterns": [
+        "paint.net"
+      ],
+      "publisherPatterns": [
+        "dotpdn llc",
+        "rick brewster"
+      ],
+      "cpeUri": "cpe:2.3:a:dotpdn:paint.net",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "videolan",
+      "normalizedProduct": "vlc media player",
+      "displayNamePatterns": [
+        "vlc media player",
+        "vlc"
+      ],
+      "publisherPatterns": [
+        "videolan",
+        "videolan project"
+      ],
+      "cpeUri": "cpe:2.3:a:videolan:vlc_media_player",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "audacity",
+      "normalizedProduct": "audacity",
+      "displayNamePatterns": [
+        "audacity"
+      ],
+      "publisherPatterns": [
+        "audacity team",
+        "muse group"
+      ],
+      "cpeUri": "cpe:2.3:a:audacityteam:audacity",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "git",
+      "normalizedProduct": "git",
+      "displayNamePatterns": [
+        "git",
+        "git for windows",
+        "git version"
+      ],
+      "publisherPatterns": [
+        "the git development community",
+        "johannes schindelin"
+      ],
+      "excludePatterns": [
+        "extensions",
+        "lfs",
+        "credential manager"
+      ],
+      "cpeUri": "cpe:2.3:a:git-scm:git",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft visual studio code",
+      "displayNamePatterns": [
+        "microsoft visual studio code"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio_code",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "intellij idea",
+      "displayNamePatterns": [
+        "intellij idea",
+        "jetbrains intellij"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:intellij_idea",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "pycharm",
+      "displayNamePatterns": [
+        "pycharm",
+        "jetbrains pycharm"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:pycharm",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "rider",
+      "displayNamePatterns": [
+        "jetbrains rider",
+        "rider"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:rider",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "postman",
+      "normalizedProduct": "postman",
+      "displayNamePatterns": [
+        "postman"
+      ],
+      "publisherPatterns": [
+        "postman",
+        "postman, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:postman:postman",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "docker",
+      "normalizedProduct": "docker desktop",
+      "displayNamePatterns": [
+        "docker desktop"
+      ],
+      "publisherPatterns": [
+        "docker",
+        "docker inc.",
+        "docker inc"
+      ],
+      "cpeUri": "cpe:2.3:a:docker:desktop",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "mysql workbench",
+      "displayNamePatterns": [
+        "mysql workbench"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation",
+        "mysql ab"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:mysql_workbench",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "postgresql",
+      "normalizedProduct": "pgadmin",
+      "displayNamePatterns": [
+        "pgadmin 4",
+        "pgadmin"
+      ],
+      "publisherPatterns": [
+        "the pgadmin development team",
+        "postgresql"
+      ],
+      "cpeUri": "cpe:2.3:a:pgadmin:pgadmin_4",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "dbeaver",
+      "normalizedProduct": "dbeaver",
+      "displayNamePatterns": [
+        "dbeaver",
+        "dbeaver community",
+        "dbeaver enterprise"
+      ],
+      "publisherPatterns": [
+        "dbeaver corp",
+        "dbeaver"
+      ],
+      "cpeUri": "cpe:2.3:a:dbeaver:dbeaver",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "azure data studio",
+      "displayNamePatterns": [
+        "azure data studio"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:azure_data_studio",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "wireshark",
+      "normalizedProduct": "wireshark",
+      "displayNamePatterns": [
+        "wireshark"
+      ],
+      "publisherPatterns": [
+        "the wireshark developer community",
+        "wireshark foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:wireshark:wireshark",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "nmap",
+      "normalizedProduct": "nmap",
+      "displayNamePatterns": [
+        "nmap",
+        "zenmap"
+      ],
+      "publisherPatterns": [
+        "nmap project",
+        "insecure.org"
+      ],
+      "cpeUri": "cpe:2.3:a:nmap:nmap",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "telerik",
+      "normalizedProduct": "fiddler",
+      "displayNamePatterns": [
+        "telerik fiddler",
+        "fiddler classic",
+        "fiddler"
+      ],
+      "publisherPatterns": [
+        "progress software",
+        "telerik",
+        "progress"
+      ],
+      "excludePatterns": [
+        "everywhere"
+      ],
+      "cpeUri": "cpe:2.3:a:telerik:fiddler",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft 365 apps",
+      "displayNamePatterns": [
+        "microsoft 365",
+        "microsoft office 365"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "copilot",
+        "microsoft 365 office",
+        "companion",
+        "companions"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:365_apps",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft visio",
+      "displayNamePatterns": [
+        "microsoft visio",
+        "microsoft office visio"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "viewer"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visio",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft project",
+      "displayNamePatterns": [
+        "microsoft project",
+        "microsoft office project"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:project",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "citrix",
+      "normalizedProduct": "citrix receiver",
+      "displayNamePatterns": [
+        "citrix receiver",
+        "citrix ica client"
+      ],
+      "publisherPatterns": [
+        "citrix",
+        "citrix systems",
+        "citrix systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:citrix:receiver",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "vmware",
+      "normalizedProduct": "vmware horizon client",
+      "displayNamePatterns": [
+        "vmware horizon client",
+        "horizon client"
+      ],
+      "publisherPatterns": [
+        "vmware",
+        "vmware, inc.",
+        "omnissa"
+      ],
+      "cpeUri": "cpe:2.3:a:vmware:horizon_client",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "veeam",
+      "normalizedProduct": "veeam agent for microsoft windows",
+      "displayNamePatterns": [
+        "veeam agent for microsoft windows",
+        "veeam agent for windows"
+      ],
+      "publisherPatterns": [
+        "veeam",
+        "veeam software"
+      ],
+      "cpeUri": "cpe:2.3:a:veeam:veeam_agent_for_windows",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "acronis",
+      "normalizedProduct": "acronis cyber protect",
+      "displayNamePatterns": [
+        "acronis cyber protect"
+      ],
+      "publisherPatterns": [
+        "acronis",
+        "acronis international gmbh"
+      ],
+      "excludePatterns": [
+        "home office",
+        "cloud"
+      ],
+      "cpeUri": "cpe:2.3:a:acronis:cyber_protect",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "corel",
+      "normalizedProduct": "winzip",
+      "displayNamePatterns": [
+        "winzip"
+      ],
+      "publisherPatterns": [
+        "corel corporation",
+        "winzip computing"
+      ],
+      "cpeUri": "cpe:2.3:a:winzip:winzip",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "sap",
+      "normalizedProduct": "sap gui",
+      "displayNamePatterns": [
+        "sap gui for windows",
+        "sap gui",
+        "sapgui"
+      ],
+      "publisherPatterns": [
+        "sap",
+        "sap se",
+        "sap ag"
+      ],
+      "cpeUri": "cpe:2.3:a:sap:gui_for_windows",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "ivanti",
+      "normalizedProduct": "ivanti endpoint manager",
+      "displayNamePatterns": [
+        "ivanti endpoint manager",
+        "landesk management suite"
+      ],
+      "publisherPatterns": [
+        "ivanti",
+        "ivanti, inc.",
+        "landesk software"
+      ],
+      "cpeUri": "cpe:2.3:a:ivanti:endpoint_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "configuration manager client",
+      "displayNamePatterns": [
+        "configuration manager client",
+        "microsoft endpoint configuration manager"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:endpoint_configuration_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft intune management extension",
+      "displayNamePatterns": [
+        "microsoft intune management extension",
+        "intune management extension"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:intune_management_extension",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft odbc driver for sql server",
+      "displayNamePatterns": [
+        "microsoft odbc driver",
+        "odbc driver 17 for sql server",
+        "odbc driver 18 for sql server"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:odbc_driver_for_sql_server",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft ole db driver for sql server",
+      "displayNamePatterns": [
+        "microsoft ole db driver",
+        "microsoft ole db treiber",
+        "msoledbsql"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:ole_db_driver_for_sql_server",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "remote desktop",
+      "displayNamePatterns": [
+        "microsoft remote desktop",
+        "msrdc"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "services",
+        "agent",
+        "connection manager",
+        "manager"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:remote_desktop",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "azure cli",
+      "displayNamePatterns": [
+        "microsoft azure cli",
+        "azure cli"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:azure_command-line_interface",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "hcl",
+      "normalizedProduct": "bigfix",
+      "displayNamePatterns": [
+        "bigfix client",
+        "bigfix agent"
+      ],
+      "publisherPatterns": [
+        "hcl technologies",
+        "hcl",
+        "ibm"
+      ],
+      "cpeUri": "cpe:2.3:a:hcltech:bigfix_platform",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "beyondtrust",
+      "normalizedProduct": "privilege management for windows",
+      "displayNamePatterns": [
+        "privilege management for windows",
+        "beyondtrust privilege management",
+        "beyondtrust endpoint privilege management",
+        "avecto defendpoint"
+      ],
+      "publisherPatterns": [
+        "beyondtrust",
+        "beyondtrust corporation",
+        "avecto"
+      ],
+      "excludePatterns": [
+        "adapter",
+        "package manager",
+        "console",
+        "mac"
+      ],
+      "cpeUri": "cpe:2.3:a:beyondtrust:privilege_management_for_windows",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hashicorp",
+      "normalizedProduct": "hashicorp vault",
+      "displayNamePatterns": [
+        "vault",
+        "hashicorp vault"
+      ],
+      "publisherPatterns": [
+        "hashicorp",
+        "hashicorp, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:hashicorp:vault",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hashicorp",
+      "normalizedProduct": "terraform",
+      "displayNamePatterns": [
+        "terraform",
+        "hashicorp terraform"
+      ],
+      "publisherPatterns": [
+        "hashicorp",
+        "hashicorp, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:hashicorp:terraform",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "redhat",
+      "normalizedProduct": "ansible",
+      "displayNamePatterns": [
+        "ansible",
+        "red hat ansible"
+      ],
+      "publisherPatterns": [
+        "red hat",
+        "red hat, inc.",
+        "ansible"
+      ],
+      "cpeUri": "cpe:2.3:a:redhat:ansible",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe flash player",
+      "displayNamePatterns": [
+        "adobe flash player"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:flash_player",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe air",
+      "displayNamePatterns": [
+        "adobe air"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:air",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft silverlight",
+      "displayNamePatterns": [
+        "microsoft silverlight",
+        "silverlight"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:silverlight",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "apple",
+      "normalizedProduct": "itunes",
+      "displayNamePatterns": [
+        "itunes",
+        "apple itunes"
+      ],
+      "publisherPatterns": [
+        "apple",
+        "apple inc.",
+        "apple inc"
+      ],
+      "cpeUri": "cpe:2.3:a:apple:itunes",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "apple",
+      "normalizedProduct": "icloud",
+      "displayNamePatterns": [
+        "icloud",
+        "apple icloud"
+      ],
+      "publisherPatterns": [
+        "apple",
+        "apple inc.",
+        "apple inc"
+      ],
+      "cpeUri": "cpe:2.3:a:apple:icloud",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft onedrive",
+      "displayNamePatterns": [
+        "microsoft onedrive",
+        "onedrive"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "for business"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:onedrive",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dropbox",
+      "normalizedProduct": "dropbox",
+      "displayNamePatterns": [
+        "dropbox"
+      ],
+      "publisherPatterns": [
+        "dropbox",
+        "dropbox, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:dropbox:dropbox",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "gpg4win",
+      "normalizedProduct": "gpg4win",
+      "displayNamePatterns": [
+        "gpg4win"
+      ],
+      "publisherPatterns": [
+        "the gpg4win project"
+      ],
+      "cpeUri": "cpe:2.3:a:gpg4win:gpg4win",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "bitwarden",
+      "normalizedProduct": "bitwarden",
+      "displayNamePatterns": [
+        "bitwarden",
+        "bitwarden desktop"
+      ],
+      "publisherPatterns": [
+        "bitwarden inc.",
+        "bitwarden"
+      ],
+      "cpeUri": "cpe:2.3:a:bitwarden:bitwarden",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "1password",
+      "normalizedProduct": "1password",
+      "displayNamePatterns": [
+        "1password"
+      ],
+      "publisherPatterns": [
+        "agilebits",
+        "agilebits inc.",
+        "1password"
+      ],
+      "cpeUri": "cpe:2.3:a:1password:1password",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "lastpass",
+      "normalizedProduct": "lastpass",
+      "displayNamePatterns": [
+        "lastpass",
+        "lastpass installer"
+      ],
+      "publisherPatterns": [
+        "logmein",
+        "logmein, inc.",
+        "lastpass"
+      ],
+      "cpeUri": "cpe:2.3:a:logmein:lastpass",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "splashtop",
+      "normalizedProduct": "splashtop business",
+      "displayNamePatterns": [
+        "splashtop business",
+        "splashtop personal"
+      ],
+      "publisherPatterns": [
+        "splashtop",
+        "splashtop inc."
+      ],
+      "excludePatterns": [
+        "streamer"
+      ],
+      "cpeUri": "cpe:2.3:a:splashtop:splashtop",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "vmware",
+      "normalizedProduct": "vmware workstation",
+      "displayNamePatterns": [
+        "vmware workstation"
+      ],
+      "publisherPatterns": [
+        "vmware",
+        "vmware, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:vmware:workstation",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "virtualbox",
+      "displayNamePatterns": [
+        "oracle vm virtualbox",
+        "virtualbox"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:vm_virtualbox",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "gimp",
+      "normalizedProduct": "gimp",
+      "displayNamePatterns": [
+        "gimp"
+      ],
+      "publisherPatterns": [
+        "the gimp team"
+      ],
+      "cpeUri": "cpe:2.3:a:gimp:gimp",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "inkscape",
+      "normalizedProduct": "inkscape",
+      "displayNamePatterns": [
+        "inkscape"
+      ],
+      "publisherPatterns": [
+        "inkscape project",
+        "inkscape"
+      ],
+      "cpeUri": "cpe:2.3:a:inkscape:inkscape",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "irfanview",
+      "normalizedProduct": "irfanview",
+      "displayNamePatterns": [
+        "irfanview"
+      ],
+      "publisherPatterns": [
+        "irfan skiljan"
+      ],
+      "cpeUri": "cpe:2.3:a:irfanview:irfanview",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "curl",
+      "normalizedProduct": "curl",
+      "displayNamePatterns": [
+        "curl"
+      ],
+      "publisherPatterns": [
+        "daniel stenberg",
+        "curl"
+      ],
+      "cpeUri": "cpe:2.3:a:haxx:curl",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "openssl",
+      "normalizedProduct": "openssl",
+      "displayNamePatterns": [
+        "openssl",
+        "openssl light"
+      ],
+      "publisherPatterns": [
+        "openssl project",
+        "openssl software foundation",
+        "shining light productions"
+      ],
+      "cpeUri": "cpe:2.3:a:openssl:openssl",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "nmap",
+      "normalizedProduct": "npcap",
+      "displayNamePatterns": [
+        "npcap"
+      ],
+      "publisherPatterns": [
+        "nmap project",
+        "insecure.com"
+      ],
+      "cpeUri": "cpe:2.3:a:nmap:npcap",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "tortoisesvn",
+      "normalizedProduct": "tortoisesvn",
+      "displayNamePatterns": [
+        "tortoisesvn"
+      ],
+      "publisherPatterns": [
+        "the tortoisesvn team"
+      ],
+      "cpeUri": "cpe:2.3:a:tortoisesvn:tortoisesvn",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "tortoisegit",
+      "normalizedProduct": "tortoisegit",
+      "displayNamePatterns": [
+        "tortoisegit"
+      ],
+      "publisherPatterns": [
+        "tortoisegit"
+      ],
+      "cpeUri": "cpe:2.3:a:tortoisegit:tortoisegit",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "sublimehq",
+      "normalizedProduct": "sublime text 3",
+      "displayNamePatterns": [
+        "sublime text 3"
+      ],
+      "publisherPatterns": [
+        "sublime hq",
+        "sublimehq"
+      ],
+      "cpeUri": "cpe:2.3:a:sublimetext:sublime_text_3",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft sql server management studio",
+      "displayNamePatterns": [
+        "sql server management studio",
+        "ssms"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:sql_server_management_studio",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "grafana",
+      "normalizedProduct": "grafana",
+      "displayNamePatterns": [
+        "grafana"
+      ],
+      "publisherPatterns": [
+        "grafana labs"
+      ],
+      "cpeUri": "cpe:2.3:a:grafana:grafana",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "elastic",
+      "normalizedProduct": "kibana",
+      "displayNamePatterns": [
+        "kibana"
+      ],
+      "publisherPatterns": [
+        "elastic",
+        "elasticsearch"
+      ],
+      "cpeUri": "cpe:2.3:a:elastic:kibana",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "splunk",
+      "normalizedProduct": "splunk universal forwarder",
+      "displayNamePatterns": [
+        "splunk universal forwarder",
+        "splunkforwarder",
+        "universalforwarder"
+      ],
+      "publisherPatterns": [
+        "splunk",
+        "splunk inc.",
+        "splunk, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:splunk:universal_forwarder",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "snagit",
+      "normalizedProduct": "snagit",
+      "displayNamePatterns": [
+        "snagit",
+        "techsmith snagit"
+      ],
+      "publisherPatterns": [
+        "techsmith",
+        "techsmith corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:techsmith:snagit",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "techsmith",
+      "normalizedProduct": "camtasia studio",
+      "displayNamePatterns": [
+        "camtasia studio"
+      ],
+      "publisherPatterns": [
+        "techsmith",
+        "techsmith corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:techsmith:camtasia_studio",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco jabber",
+      "displayNamePatterns": [
+        "cisco jabber",
+        "jabber"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:jabber",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "skype for business",
+      "displayNamePatterns": [
+        "skype for business",
+        "lync"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:skype_for_business",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "trendmicro",
+      "normalizedProduct": "trend micro apex one",
+      "displayNamePatterns": [
+        "trend micro apex one",
+        "apex one"
+      ],
+      "publisherPatterns": [
+        "trend micro",
+        "trend micro inc."
+      ],
+      "cpeUri": "cpe:2.3:a:trendmicro:apex_one",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "symantec",
+      "normalizedProduct": "symantec endpoint protection",
+      "displayNamePatterns": [
+        "symantec endpoint protection"
+      ],
+      "publisherPatterns": [
+        "symantec",
+        "symantec corporation",
+        "broadcom"
+      ],
+      "cpeUri": "cpe:2.3:a:symantec:endpoint_protection",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "mcafee",
+      "normalizedProduct": "mcafee endpoint security",
+      "displayNamePatterns": [
+        "mcafee endpoint security",
+        "trellix endpoint security"
+      ],
+      "publisherPatterns": [
+        "mcafee",
+        "mcafee, inc.",
+        "mcafee, llc",
+        "trellix"
+      ],
+      "cpeUri": "cpe:2.3:a:mcafee:endpoint_security",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "netskope",
+      "normalizedProduct": "netskope client",
+      "displayNamePatterns": [
+        "netskope client",
+        "netskope"
+      ],
+      "publisherPatterns": [
+        "netskope",
+        "netskope, inc."
+      ],
+      "excludePatterns": [
+        "sd-wan"
+      ],
+      "cpeUri": "cpe:2.3:a:netskope:netskope",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "wireguard",
+      "normalizedProduct": "wireguard",
+      "displayNamePatterns": [
+        "wireguard"
+      ],
+      "publisherPatterns": [
+        "wireguard",
+        "jason a. donenfeld"
+      ],
+      "cpeUri": "cpe:2.3:a:wireguard:wireguard",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "proton",
+      "normalizedProduct": "protonvpn",
+      "displayNamePatterns": [
+        "protonvpn",
+        "proton vpn"
+      ],
+      "publisherPatterns": [
+        "proton ag",
+        "proton technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:proton:protonvpn",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "tailscale",
+      "normalizedProduct": "tailscale",
+      "displayNamePatterns": [
+        "tailscale"
+      ],
+      "publisherPatterns": [
+        "tailscale",
+        "tailscale inc."
+      ],
+      "cpeUri": "cpe:2.3:a:tailscale:tailscale",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft .net framework",
+      "displayNamePatterns": [
+        "microsoft .net framework"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "sdk",
+        "targeting pack",
+        "developer pack",
+        "language pack"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:.net_framework",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "windows terminal",
+      "displayNamePatterns": [
+        "windows terminal"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "services",
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:terminal",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "webstorm",
+      "displayNamePatterns": [
+        "webstorm",
+        "jetbrains webstorm"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:webstorm",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "goland",
+      "displayNamePatterns": [
+        "goland",
+        "jetbrains goland"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:goland",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "datagrip",
+      "displayNamePatterns": [
+        "datagrip",
+        "jetbrains datagrip"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:datagrip",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "github",
+      "normalizedProduct": "git lfs",
+      "displayNamePatterns": [
+        "git lfs",
+        "git large file storage"
+      ],
+      "publisherPatterns": [
+        "github",
+        "github, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:git_large_file_storage_project:git_large_file_storage",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "sap",
+      "normalizedProduct": "sap business client",
+      "displayNamePatterns": [
+        "sap business client"
+      ],
+      "publisherPatterns": [
+        "sap",
+        "sap se",
+        "sap ag"
+      ],
+      "cpeUri": "cpe:2.3:a:sap:business_client",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "qualys",
+      "normalizedProduct": "qualys cloud agent",
+      "displayNamePatterns": [
+        "qualys cloud agent",
+        "qualys cloud security agent",
+        "qualys agent"
+      ],
+      "publisherPatterns": [
+        "qualys",
+        "qualys, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:qualys:cloud_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "rapid7",
+      "normalizedProduct": "rapid7 insight agent",
+      "displayNamePatterns": [
+        "rapid7 insight agent",
+        "insight agent"
+      ],
+      "publisherPatterns": [
+        "rapid7",
+        "rapid7, inc.",
+        "rapid7 llc"
+      ],
+      "cpeUri": "cpe:2.3:a:rapid7:insight_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "tanium",
+      "normalizedProduct": "tanium client",
+      "displayNamePatterns": [
+        "tanium client"
+      ],
+      "publisherPatterns": [
+        "tanium",
+        "tanium inc."
+      ],
+      "cpeUri": "cpe:2.3:a:tanium:tanium",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "flexera",
+      "normalizedProduct": "flexera agent",
+      "displayNamePatterns": [
+        "flexnet inventory agent",
+        "flexera agent",
+        "managesoft"
+      ],
+      "publisherPatterns": [
+        "flexera",
+        "flexera software"
+      ],
+      "cpeUri": "cpe:2.3:a:flexera:flexnet_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "jamf",
+      "normalizedProduct": "jamf pro",
+      "displayNamePatterns": [
+        "jamf pro"
+      ],
+      "publisherPatterns": [
+        "jamf"
+      ],
+      "cpeUri": "cpe:2.3:a:jamf:jamf",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft sql server",
+      "displayNamePatterns": [
+        "microsoft sql server"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "native client",
+        "management studio",
+        "management objects",
+        "setup",
+        "language service",
+        "t-sql",
+        "transact-sql",
+        "compact",
+        "data tools",
+        "data-tier",
+        "report builder",
+        "reporting services",
+        "analysis services",
+        "integration services",
+        "migration assistant",
+        "policies",
+        "command line utilities",
+        "backward compatibility",
+        "browser",
+        "vss writer",
+        "clr types",
+        "odbc",
+        "ole db",
+        "driver",
+        "books online",
+        "best practices analyzer",
+        "upgrade advisor"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:sql_server",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "postgresql",
+      "normalizedProduct": "postgresql",
+      "displayNamePatterns": [
+        "postgresql"
+      ],
+      "publisherPatterns": [
+        "postgresql global development group"
+      ],
+      "cpeUri": "cpe:2.3:a:postgresql:postgresql",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "mariadb",
+      "normalizedProduct": "mariadb",
+      "displayNamePatterns": [
+        "mariadb"
+      ],
+      "publisherPatterns": [
+        "mariadb",
+        "mariadb corporation",
+        "mariadb foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:mariadb:mariadb",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "mongodb",
+      "normalizedProduct": "mongodb",
+      "displayNamePatterns": [
+        "mongodb"
+      ],
+      "publisherPatterns": [
+        "mongodb",
+        "mongodb, inc."
+      ],
+      "excludePatterns": [
+        "compass",
+        "shell",
+        "tools",
+        "atlas"
+      ],
+      "cpeUri": "cpe:2.3:a:mongodb:mongodb",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "redis",
+      "normalizedProduct": "redis",
+      "displayNamePatterns": [
+        "redis"
+      ],
+      "publisherPatterns": [
+        "redis",
+        "redis ltd"
+      ],
+      "excludePatterns": [
+        "client",
+        "insight",
+        "desktop manager"
+      ],
+      "cpeUri": "cpe:2.3:a:redis:redis",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "apache",
+      "normalizedProduct": "apache tomcat",
+      "displayNamePatterns": [
+        "apache tomcat"
+      ],
+      "publisherPatterns": [
+        "apache",
+        "the apache software foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:apache:tomcat",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "nginx",
+      "normalizedProduct": "nginx",
+      "displayNamePatterns": [
+        "nginx"
+      ],
+      "publisherPatterns": [
+        "nginx",
+        "f5",
+        "f5 networks"
+      ],
+      "cpeUri": "cpe:2.3:a:f5:nginx",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "perforce",
+      "normalizedProduct": "helix core server",
+      "displayNamePatterns": [
+        "helix core server",
+        "perforce server"
+      ],
+      "publisherPatterns": [
+        "perforce",
+        "perforce software"
+      ],
+      "cpeUri": "cpe:2.3:a:perforce:helix_core",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "atlassian",
+      "normalizedProduct": "sourcetree",
+      "displayNamePatterns": [
+        "sourcetree"
+      ],
+      "publisherPatterns": [
+        "atlassian"
+      ],
+      "cpeUri": "cpe:2.3:a:atlassian:sourcetree",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft visual studio",
+      "displayNamePatterns": [
+        "visual studio professional 2015",
+        "visual studio enterprise 2015",
+        "visual studio community 2015",
+        "visual studio professional 2013",
+        "visual studio ultimate 2013",
+        "visual studio premium 2013",
+        "visual studio professional 2012",
+        "visual studio ultimate 2012",
+        "visual studio premium 2012"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "github",
+      "normalizedProduct": "github cli",
+      "displayNamePatterns": [
+        "github cli"
+      ],
+      "publisherPatterns": [
+        "github",
+        "github, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:github:cli",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "helm",
+      "normalizedProduct": "helm",
+      "displayNamePatterns": [
+        "helm"
+      ],
+      "publisherPatterns": [
+        "helm",
+        "cloud native computing foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:helm:helm",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "dynatrace",
+      "normalizedProduct": "dynatrace oneagent",
+      "displayNamePatterns": [
+        "dynatrace oneagent",
+        "oneagent"
+      ],
+      "publisherPatterns": [
+        "dynatrace",
+        "dynatrace llc"
+      ],
+      "cpeUri": "cpe:2.3:a:dynatrace:oneagent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "puppet",
+      "normalizedProduct": "puppet agent",
+      "displayNamePatterns": [
+        "puppet agent"
+      ],
+      "publisherPatterns": [
+        "puppet",
+        "puppet, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:puppet:puppet_agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "chef",
+      "normalizedProduct": "chef infra client",
+      "displayNamePatterns": [
+        "chef infra client",
+        "chef client"
+      ],
+      "publisherPatterns": [
+        "chef",
+        "chef software",
+        "progress"
+      ],
+      "cpeUri": "cpe:2.3:a:chef:chef",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "saltstack",
+      "normalizedProduct": "salt minion",
+      "displayNamePatterns": [
+        "salt minion",
+        "salt"
+      ],
+      "publisherPatterns": [
+        "saltstack",
+        "vmware"
+      ],
+      "cpeUri": "cpe:2.3:a:saltstack:salt",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "zabbix",
+      "normalizedProduct": "zabbix agent",
+      "displayNamePatterns": [
+        "zabbix agent"
+      ],
+      "publisherPatterns": [
+        "zabbix",
+        "zabbix sla"
+      ],
+      "excludePatterns": [
+        "zabbix agent 2"
+      ],
+      "cpeUri": "cpe:2.3:a:zabbix:zabbix-agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "nsclient",
+      "normalizedProduct": "nsclient++",
+      "displayNamePatterns": [
+        "nsclient++",
+        "nscp"
+      ],
+      "publisherPatterns": [
+        "nsclient",
+        "mysolutions nordic"
+      ],
+      "cpeUri": "cpe:2.3:a:nsclient:nsclient\\+\\+",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "telerik",
+      "normalizedProduct": "telerik test studio",
+      "displayNamePatterns": [
+        "telerik test studio"
+      ],
+      "publisherPatterns": [
+        "progress software",
+        "telerik",
+        "progress"
+      ],
+      "cpeUri": "cpe:2.3:a:progress:telerik_test_studio",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "blackberry",
+      "normalizedProduct": "cylance protect",
+      "displayNamePatterns": [
+        "cylanceprotect",
+        "cylance protect",
+        "blackberry protect"
+      ],
+      "publisherPatterns": [
+        "blackberry",
+        "cylance"
+      ],
+      "cpeUri": "cpe:2.3:a:blackberry:protect",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft defender for endpoint",
+      "displayNamePatterns": [
+        "microsoft defender for endpoint",
+        "windows defender advanced threat protection"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "plug-in",
+        "plugin"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:defender_for_endpoint",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "paloaltonetworks",
+      "normalizedProduct": "cortex xdr agent",
+      "displayNamePatterns": [
+        "cortex xdr",
+        "palo alto cortex"
+      ],
+      "publisherPatterns": [
+        "palo alto networks",
+        "paloaltonetworks"
+      ],
+      "cpeUri": "cpe:2.3:a:paloaltonetworks:cortex_xdr_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco amp for endpoints",
+      "displayNamePatterns": [
+        "cisco amp for endpoints",
+        "cisco secure endpoint",
+        "amp for endpoints"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:secure_endpoint",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "f-secure",
+      "normalizedProduct": "f-secure elements",
+      "displayNamePatterns": [
+        "f-secure elements",
+        "withsecure elements"
+      ],
+      "publisherPatterns": [
+        "f-secure",
+        "f-secure corporation",
+        "withsecure"
+      ],
+      "cpeUri": "cpe:2.3:a:withsecure:elements_endpoint_protection",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "bitdefender",
+      "normalizedProduct": "bitdefender endpoint security",
+      "displayNamePatterns": [
+        "bitdefender endpoint security tools",
+        "bitdefender endpoint security"
+      ],
+      "publisherPatterns": [
+        "bitdefender",
+        "bitdefender srl"
+      ],
+      "cpeUri": "cpe:2.3:a:bitdefender:endpoint_security_tools",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "avast",
+      "normalizedProduct": "avast business antivirus",
+      "displayNamePatterns": [
+        "avast business antivirus",
+        "avast business security"
+      ],
+      "publisherPatterns": [
+        "avast software",
+        "avast",
+        "gen digital"
+      ],
+      "cpeUri": "cpe:2.3:a:avast:antivirus",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "avg",
+      "normalizedProduct": "avg business antivirus",
+      "displayNamePatterns": [
+        "avg business",
+        "avg antivirus business"
+      ],
+      "publisherPatterns": [
+        "avg technologies",
+        "avg",
+        "gen digital"
+      ],
+      "cpeUri": "cpe:2.3:a:avg:anti-virus",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "veritas",
+      "normalizedProduct": "veritas backup exec",
+      "displayNamePatterns": [
+        "veritas backup exec",
+        "backup exec"
+      ],
+      "publisherPatterns": [
+        "veritas",
+        "veritas technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:veritas:backup_exec",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "commvault",
+      "normalizedProduct": "commvault",
+      "displayNamePatterns": [
+        "commvault",
+        "commvault simpana"
+      ],
+      "publisherPatterns": [
+        "commvault",
+        "commvault systems"
+      ],
+      "cpeUri": "cpe:2.3:a:commvault:commcell",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "sonatype",
+      "normalizedProduct": "nexus repository manager",
+      "displayNamePatterns": [
+        "nexus repository manager"
+      ],
+      "publisherPatterns": [
+        "sonatype",
+        "sonatype, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:sonatype:nexus_repository_manager",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jfrog",
+      "normalizedProduct": "jfrog artifactory",
+      "displayNamePatterns": [
+        "jfrog artifactory",
+        "artifactory"
+      ],
+      "publisherPatterns": [
+        "jfrog",
+        "jfrog ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:jfrog:artifactory",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "rustlang",
+      "normalizedProduct": "rust",
+      "displayNamePatterns": [
+        "rust"
+      ],
+      "publisherPatterns": [
+        "rust",
+        "the rust project"
+      ],
+      "excludePatterns": [
+        "rustup",
+        "toolchain installer"
+      ],
+      "cpeUri": "cpe:2.3:a:rust-lang:rust",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "golang",
+      "normalizedProduct": "go",
+      "displayNamePatterns": [
+        "go programming language",
+        "golang"
+      ],
+      "publisherPatterns": [
+        "the go authors",
+        "go.dev",
+        "google"
+      ],
+      "cpeUri": "cpe:2.3:a:golang:go",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "ruby",
+      "normalizedProduct": "ruby",
+      "displayNamePatterns": [
+        "ruby",
+        "rubyinstaller"
+      ],
+      "publisherPatterns": [
+        "ruby",
+        "ruby community",
+        "rubyinstaller team"
+      ],
+      "cpeUri": "cpe:2.3:a:ruby-lang:ruby",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "php",
+      "normalizedProduct": "php",
+      "displayNamePatterns": [
+        "php"
+      ],
+      "publisherPatterns": [
+        "php group",
+        "the php group"
+      ],
+      "cpeUri": "cpe:2.3:a:php:php",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "perl",
+      "normalizedProduct": "perl",
+      "displayNamePatterns": [
+        "strawberry perl",
+        "activeperl",
+        "perl"
+      ],
+      "publisherPatterns": [
+        "perl",
+        "activestate"
+      ],
+      "cpeUri": "cpe:2.3:a:perl:perl",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "anaconda",
+      "normalizedProduct": "anaconda3",
+      "displayNamePatterns": [
+        "anaconda3",
+        "anaconda"
+      ],
+      "publisherPatterns": [
+        "anaconda",
+        "anaconda, inc.",
+        "continuum analytics"
+      ],
+      "excludePatterns": [
+        "miniconda",
+        "miniconda3",
+        "navigator"
+      ],
+      "cpeUri": "cpe:2.3:a:anaconda:anaconda3",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "tableau",
+      "normalizedProduct": "tableau desktop",
+      "displayNamePatterns": [
+        "tableau desktop",
+        "tableau"
+      ],
+      "publisherPatterns": [
+        "tableau software",
+        "salesforce",
+        "tableau"
+      ],
+      "excludePatterns": [
+        "reader",
+        "prep",
+        "bridge",
+        "public",
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:tableau:tableau_desktop",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "duo authentication for windows logon",
+      "displayNamePatterns": [
+        "duo authentication for windows logon"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "duo security",
+        "cisco systems"
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:duo_authentication_for_windows_logon_and_rdp",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "okta",
+      "normalizedProduct": "okta verify",
+      "displayNamePatterns": [
+        "okta verify"
+      ],
+      "publisherPatterns": [
+        "okta",
+        "okta, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:okta:verify",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "citrix",
+      "normalizedProduct": "citrix virtual apps and desktops",
+      "displayNamePatterns": [
+        "citrix virtual apps",
+        "xenapp",
+        "xendesktop",
+        "citrix virtual apps and desktops"
+      ],
+      "publisherPatterns": [
+        "citrix",
+        "citrix systems",
+        "citrix systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:citrix:virtual_apps_and_desktops",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell command update",
+      "displayNamePatterns": [
+        "dell command update"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:command_update",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "lenovo",
+      "normalizedProduct": "lenovo system update",
+      "displayNamePatterns": [
+        "lenovo system update"
+      ],
+      "publisherPatterns": [
+        "lenovo",
+        "lenovo group"
+      ],
+      "cpeUri": "cpe:2.3:a:lenovo:system_update",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "logitech",
+      "normalizedProduct": "logitech options",
+      "displayNamePatterns": [
+        "logitech options"
+      ],
+      "publisherPatterns": [
+        "logitech",
+        "logitec"
+      ],
+      "cpeUri": "cpe:2.3:a:logitech:options",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "displaylink",
+      "normalizedProduct": "displaylink",
+      "displayNamePatterns": [
+        "displaylink graphics",
+        "displaylink"
+      ],
+      "publisherPatterns": [
+        "displaylink",
+        "synaptics"
+      ],
+      "cpeUri": "cpe:2.3:a:synaptics:displaylink",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft access database engine",
+      "displayNamePatterns": [
+        "microsoft access database engine",
+        "access database engine"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:access",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "schneider-electric",
+      "normalizedProduct": "ecostruxure operator terminal expert",
+      "displayNamePatterns": [
+        "ecostruxure operator terminal expert",
+        "vijeo xd"
+      ],
+      "publisherPatterns": [
+        "schneider electric",
+        "schneider-electric"
+      ],
+      "cpeUri": "cpe:2.3:a:schneider-electric:ecostruxure_operator_terminal_expert",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "siemens sinec nms",
+      "displayNamePatterns": [
+        "sinec nms"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:sinec_nms",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe creative cloud",
+      "displayNamePatterns": [
+        "adobe creative cloud",
+        "creative cloud"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:creative_cloud",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe photoshop",
+      "displayNamePatterns": [
+        "adobe photoshop",
+        "photoshop"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "excludePatterns": [
+        "elements",
+        "lightroom",
+        "camera raw",
+        "express"
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:photoshop",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe illustrator",
+      "displayNamePatterns": [
+        "adobe illustrator",
+        "illustrator"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:illustrator",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe indesign",
+      "displayNamePatterns": [
+        "adobe indesign",
+        "indesign"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:indesign",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe premiere pro",
+      "displayNamePatterns": [
+        "adobe premiere pro",
+        "premiere pro"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:premiere_pro",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe after effects",
+      "displayNamePatterns": [
+        "adobe after effects",
+        "after effects"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:after_effects",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe animate",
+      "displayNamePatterns": [
+        "adobe animate"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:animate",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe bridge",
+      "displayNamePatterns": [
+        "adobe bridge"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:bridge",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell supportassist",
+      "displayNamePatterns": [
+        "dell supportassist",
+        "dell support assist",
+        "supportassist for home pcs"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "excludePatterns": [
+        "remediation",
+        "recovery",
+        "plugin",
+        "business"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:supportassist_for_home_pcs",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hp",
+      "normalizedProduct": "hp support assistant",
+      "displayNamePatterns": [
+        "hp support assistant"
+      ],
+      "publisherPatterns": [
+        "hp",
+        "hp inc.",
+        "hewlett-packard"
+      ],
+      "cpeUri": "cpe:2.3:a:hp:support_assistant",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel driver and support assistant",
+      "displayNamePatterns": [
+        "intel driver & support assistant",
+        "intel dsa"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:driver_\\&_support_assistant",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "nvidia",
+      "normalizedProduct": "nvidia gpu display driver",
+      "displayNamePatterns": [
+        "nvidia graphics driver",
+        "nvidia display driver",
+        "nvidia gpu display driver",
+        "nvidia grafiktreiber",
+        "nvidia grafisch stuurprogramma",
+        "nvidia controlador de gráficos",
+        "nvidia pilote graphique",
+        "nvidia grafikdriver"
+      ],
+      "publisherPatterns": [
+        "nvidia",
+        "nvidia corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:nvidia:gpu_display_driver",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "sonicwall",
+      "normalizedProduct": "sonicwall netextender",
+      "displayNamePatterns": [
+        "sonicwall netextender",
+        "netextender"
+      ],
+      "publisherPatterns": [
+        "sonicwall",
+        "sonicwall, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:sonicwall:netextender",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "checkpoint",
+      "normalizedProduct": "check point endpoint security",
+      "displayNamePatterns": [
+        "check point endpoint security",
+        "checkpoint endpoint",
+        "check point vpn"
+      ],
+      "publisherPatterns": [
+        "check point",
+        "check point software technologies",
+        "check point software technologies ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:checkpoint:endpoint_security",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "tenable",
+      "normalizedProduct": "tenable nessus agent",
+      "displayNamePatterns": [
+        "nessus agent",
+        "tenable nessus agent"
+      ],
+      "publisherPatterns": [
+        "tenable",
+        "tenable, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:tenable:nessus_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "tenable",
+      "normalizedProduct": "tenable nessus",
+      "displayNamePatterns": [
+        "tenable nessus",
+        "nessus"
+      ],
+      "publisherPatterns": [
+        "tenable",
+        "tenable, inc."
+      ],
+      "excludePatterns": [
+        "agent"
+      ],
+      "cpeUri": "cpe:2.3:a:tenable:nessus",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco secure client",
+      "displayNamePatterns": [
+        "cisco secure client"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "excludePatterns": [
+        "cloud management"
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:secure_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "ivanti",
+      "normalizedProduct": "ivanti secure access client",
+      "displayNamePatterns": [
+        "ivanti secure access client",
+        "ivanti secure access"
+      ],
+      "publisherPatterns": [
+        "ivanti",
+        "ivanti, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:ivanti:secure_access_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "progress",
+      "normalizedProduct": "whatsup gold",
+      "displayNamePatterns": [
+        "whatsup gold"
+      ],
+      "publisherPatterns": [
+        "progress",
+        "progress software",
+        "ipswitch"
+      ],
+      "cpeUri": "cpe:2.3:a:progress:whatsup_gold",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "solarwinds",
+      "normalizedProduct": "solarwinds orion",
+      "displayNamePatterns": [
+        "solarwinds orion"
+      ],
+      "publisherPatterns": [
+        "solarwinds",
+        "solarwinds worldwide"
+      ],
+      "cpeUri": "cpe:2.3:a:solarwinds:orion_platform",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "manageengine",
+      "normalizedProduct": "manageengine endpoint central agent",
+      "displayNamePatterns": [
+        "manageengine uems agent",
+        "manageengine endpoint central agent",
+        "manageengine desktop central agent",
+        "endpoint central agent",
+        "desktop central agent"
+      ],
+      "publisherPatterns": [
+        "zoho",
+        "zoho corporation",
+        "manageengine"
+      ],
+      "cpeUri": "cpe:2.3:a:zohocorp:manageengine_endpoint_central",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "mitel",
+      "normalizedProduct": "mitel micollab",
+      "displayNamePatterns": [
+        "micollab",
+        "mitel micollab"
+      ],
+      "publisherPatterns": [
+        "mitel",
+        "mitel networks"
+      ],
+      "cpeUri": "cpe:2.3:a:mitel:micollab",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "trellix",
+      "normalizedProduct": "trellix agent",
+      "displayNamePatterns": [
+        "trellix agent"
+      ],
+      "publisherPatterns": [
+        "trellix",
+        "musarubra"
+      ],
+      "cpeUri": "cpe:2.3:a:trellix:agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "jetbrains clion",
+      "displayNamePatterns": [
+        "clion",
+        "jetbrains clion"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:clion",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "jetbrains phpstorm",
+      "displayNamePatterns": [
+        "phpstorm",
+        "jetbrains phpstorm"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:phpstorm",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "jetbrains rubymine",
+      "displayNamePatterns": [
+        "rubymine",
+        "jetbrains rubymine"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:rubymine",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "jetbrains",
+      "normalizedProduct": "jetbrains toolbox",
+      "displayNamePatterns": [
+        "jetbrains toolbox"
+      ],
+      "publisherPatterns": [
+        "jetbrains",
+        "jetbrains s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:jetbrains:toolbox",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "elastic",
+      "normalizedProduct": "elastic agent",
+      "displayNamePatterns": [
+        "elastic agent"
+      ],
+      "publisherPatterns": [
+        "elastic",
+        "elasticsearch"
+      ],
+      "cpeUri": "cpe:2.3:a:elastic:elastic_agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "snyk",
+      "normalizedProduct": "snyk cli",
+      "displayNamePatterns": [
+        "snyk",
+        "snyk cli"
+      ],
+      "publisherPatterns": [
+        "snyk",
+        "snyk ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:snyk:cli",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "wazuh",
+      "normalizedProduct": "wazuh agent",
+      "displayNamePatterns": [
+        "wazuh agent"
+      ],
+      "publisherPatterns": [
+        "wazuh",
+        "wazuh, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:wazuh:wazuh",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "beyond compare",
+      "normalizedProduct": "beyond compare",
+      "displayNamePatterns": [
+        "beyond compare"
+      ],
+      "publisherPatterns": [
+        "scooter software",
+        "scooter software, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:scootersoftware:beyond_compare",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "hp",
+      "normalizedProduct": "hp universal print driver",
+      "displayNamePatterns": [
+        "hp universal print driver",
+        "hp universal printing"
+      ],
+      "publisherPatterns": [
+        "hp",
+        "hp inc.",
+        "hewlett-packard"
+      ],
+      "cpeUri": "cpe:2.3:a:hp:universal_print_driver",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "lexmark",
+      "normalizedProduct": "lexmark universal print driver",
+      "displayNamePatterns": [
+        "lexmark universal print driver"
+      ],
+      "publisherPatterns": [
+        "lexmark",
+        "lexmark international"
+      ],
+      "cpeUri": "cpe:2.3:a:lexmark:universal_print_driver",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "webex",
+      "displayNamePatterns": [
+        "webex",
+        "webex app",
+        "webex teams",
+        "cisco webex teams"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "excludePatterns": [
+        "meetings",
+        "plugin",
+        "plug-in",
+        "vdi",
+        "installer",
+        "player",
+        "recorder",
+        "productivity tools"
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:webex_teams",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel graphics driver",
+      "displayNamePatterns": [
+        "intel graphics driver",
+        "intel uhd graphics",
+        "intel hd graphics",
+        "intel iris"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:graphics_driver",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "amd",
+      "normalizedProduct": "amd radeon software",
+      "displayNamePatterns": [
+        "amd radeon software",
+        "amd software",
+        "radeon software adrenalin"
+      ],
+      "publisherPatterns": [
+        "amd",
+        "advanced micro devices",
+        "advanced micro devices, inc."
+      ],
+      "excludePatterns": [
+        "chipset"
+      ],
+      "cpeUri": "cpe:2.3:a:amd:radeon_software",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "nvidia",
+      "normalizedProduct": "nvidia geforce experience",
+      "displayNamePatterns": [
+        "nvidia geforce experience",
+        "geforce experience"
+      ],
+      "publisherPatterns": [
+        "nvidia",
+        "nvidia corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:nvidia:geforce_experience",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "lenovo",
+      "normalizedProduct": "lenovo vantage",
+      "displayNamePatterns": [
+        "lenovo vantage"
+      ],
+      "publisherPatterns": [
+        "lenovo",
+        "lenovo group"
+      ],
+      "excludePatterns": [
+        "service"
+      ],
+      "cpeUri": "cpe:2.3:a:lenovo:vantage",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe media encoder",
+      "displayNamePatterns": [
+        "adobe media encoder"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:media_encoder",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "autodesk",
+      "normalizedProduct": "autodesk autocad",
+      "displayNamePatterns": [
+        "autodesk autocad",
+        "autocad"
+      ],
+      "publisherPatterns": [
+        "autodesk",
+        "autodesk, inc."
+      ],
+      "excludePatterns": [
+        "open in desktop",
+        "lt",
+        "mechanical",
+        "electrical",
+        "architecture",
+        "mep",
+        "map 3d",
+        "plant 3d",
+        "civil 3d",
+        "raster design",
+        "trueview",
+        "viewer",
+        "plug-in",
+        "plugin",
+        "add-in",
+        "language pack"
+      ],
+      "cpeUri": "cpe:2.3:a:autodesk:autocad",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "autodesk",
+      "normalizedProduct": "autodesk revit",
+      "displayNamePatterns": [
+        "autodesk revit",
+        "revit"
+      ],
+      "publisherPatterns": [
+        "autodesk",
+        "autodesk, inc."
+      ],
+      "excludePatterns": [
+        "viewer",
+        "add-in",
+        "plug-in",
+        "content",
+        "language pack",
+        "unit schemas",
+        "interoperability"
+      ],
+      "cpeUri": "cpe:2.3:a:autodesk:revit",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel chipset device software",
+      "displayNamePatterns": [
+        "intel chipset device software",
+        "intel chipset inf utility"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:chipset_device_software",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "mozilla",
+      "normalizedProduct": "mozilla firefox esr",
+      "displayNamePatterns": [
+        "mozilla firefox esr",
+        "firefox esr"
+      ],
+      "publisherPatterns": [
+        "mozilla",
+        "mozilla corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:mozilla:firefox",
+      "category": "browser",
+      "edition": "esr"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft edge update",
+      "displayNamePatterns": [
+        "microsoft edge update"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:edge_update",
+      "category": "browser"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft onenote",
+      "displayNamePatterns": [
+        "microsoft onenote"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:onenote",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "azul systems",
+      "normalizedProduct": "azul zulu",
+      "displayNamePatterns": [
+        "azul zulu",
+        "zulu"
+      ],
+      "publisherPatterns": [
+        "azul systems",
+        "azul"
+      ],
+      "cpeUri": "cpe:2.3:a:azul:zulu",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "keepassxc team",
+      "normalizedProduct": "keepassxc",
+      "displayNamePatterns": [
+        "keepassxc"
+      ],
+      "publisherPatterns": [
+        "keepassxc team",
+        "keepassxc"
+      ],
+      "cpeUri": "cpe:2.3:a:keepassxc:keepassxc",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft office",
+      "displayNamePatterns": [
+        "microsoft office"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "hub",
+        "database engine",
+        "viewer",
+        "compatibility pack",
+        "file validation",
+        "proofing",
+        "live meeting",
+        "web components",
+        "interop",
+        "click-to-run",
+        "mui",
+        "language pack",
+        "sdk",
+        "communicator",
+        "add-in",
+        "addin",
+        "connector",
+        "runtime"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:office",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft office ltsc 2024",
+      "displayNamePatterns": [
+        "microsoft office ltsc professional plus 2024",
+        "microsoft office ltsc standard 2024",
+        "microsoft office ltsc 2024"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:office_2024",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft access",
+      "displayNamePatterns": [
+        "microsoft access"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "database engine",
+        "runtime"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:access",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "remote help",
+      "displayNamePatterns": [
+        "microsoft remote help"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:remote_help",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "visual studio 2026",
+      "displayNamePatterns": [
+        "visual studio community 2026",
+        "visual studio professional 2026",
+        "visual studio enterprise 2026",
+        "visual studio build tools 2026"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio_2026",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "visual studio 2022",
+      "displayNamePatterns": [
+        "visual studio community 2022",
+        "visual studio professional 2022",
+        "visual studio enterprise 2022",
+        "visual studio build tools 2022"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio_2022",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "visual studio 2019",
+      "displayNamePatterns": [
+        "visual studio community 2019",
+        "visual studio professional 2019",
+        "visual studio enterprise 2019",
+        "visual studio build tools 2019"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio_2019",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "visual studio 2017",
+      "displayNamePatterns": [
+        "visual studio community 2017",
+        "visual studio professional 2017",
+        "visual studio enterprise 2017",
+        "visual studio build tools 2017"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:visual_studio_2017",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "windows subsystem for linux",
+      "displayNamePatterns": [
+        "windows subsystem for linux"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation",
+        "microsoftcorporationii"
+      ],
+      "excludePatterns": [
+        "update"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:windows_subsystem_for_linux",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "powertoys",
+      "displayNamePatterns": [
+        "powertoys"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:powertoys",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft azure storage explorer",
+      "displayNamePatterns": [
+        "microsoft azure storage explorer",
+        "azure storage explorer"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:azure_storage_explorer",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft web deploy 4.0",
+      "displayNamePatterns": [
+        "microsoft web deploy 4.0"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:web_deploy_4.0",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "zoom",
+      "normalizedProduct": "zoom workplace",
+      "displayNamePatterns": [
+        "zoom workplace"
+      ],
+      "publisherPatterns": [
+        "zoom",
+        "zoom video communications",
+        "zoom video communications, inc.",
+        "zoom communications"
+      ],
+      "excludePatterns": [
+        "vdi",
+        "plugin",
+        "plug-in"
+      ],
+      "cpeUri": "cpe:2.3:a:zoom:workplace_desktop",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "realvnc",
+      "normalizedProduct": "realvnc viewer",
+      "displayNamePatterns": [
+        "vnc viewer",
+        "realvnc viewer"
+      ],
+      "publisherPatterns": [
+        "realvnc",
+        "realvnc ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:realvnc:vnc_viewer",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "eset",
+      "normalizedProduct": "eset endpoint antivirus",
+      "displayNamePatterns": [
+        "eset endpoint antivirus"
+      ],
+      "publisherPatterns": [
+        "eset",
+        "eset, spol. s r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:eset:endpoint_antivirus",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "openvpn",
+      "normalizedProduct": "openvpn connect",
+      "displayNamePatterns": [
+        "openvpn connect"
+      ],
+      "publisherPatterns": [
+        "openvpn",
+        "openvpn inc.",
+        "openvpn technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:openvpn:connect",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "splashtop",
+      "normalizedProduct": "splashtop streamer",
+      "displayNamePatterns": [
+        "splashtop streamer"
+      ],
+      "publisherPatterns": [
+        "splashtop",
+        "splashtop inc."
+      ],
+      "cpeUri": "cpe:2.3:a:splashtop:streamer",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "trendmicro",
+      "normalizedProduct": "trend micro officescan",
+      "displayNamePatterns": [
+        "trend micro officescan"
+      ],
+      "publisherPatterns": [
+        "trend micro",
+        "trend micro inc."
+      ],
+      "cpeUri": "cpe:2.3:a:trendmicro:officescan",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "mcafee",
+      "normalizedProduct": "mcafee agent",
+      "displayNamePatterns": [
+        "mcafee agent"
+      ],
+      "publisherPatterns": [
+        "mcafee",
+        "mcafee, inc.",
+        "mcafee, llc"
+      ],
+      "cpeUri": "cpe:2.3:a:mcafee:agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "f-secure",
+      "normalizedProduct": "f-secure client security",
+      "displayNamePatterns": [
+        "f-secure client security"
+      ],
+      "publisherPatterns": [
+        "f-secure",
+        "f-secure corporation",
+        "withsecure"
+      ],
+      "cpeUri": "cpe:2.3:a:f-secure:client_security",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "mongodb",
+      "normalizedProduct": "mongodb compass",
+      "displayNamePatterns": [
+        "mongodb compass"
+      ],
+      "publisherPatterns": [
+        "mongodb",
+        "mongodb, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:mongodb:compass",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "zabbix",
+      "normalizedProduct": "zabbix agent 2",
+      "displayNamePatterns": [
+        "zabbix agent 2"
+      ],
+      "publisherPatterns": [
+        "zabbix",
+        "zabbix sla"
+      ],
+      "cpeUri": "cpe:2.3:a:zabbix:zabbix-agent2",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell supportassist for business pcs",
+      "displayNamePatterns": [
+        "supportassist for business pcs"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:supportassist_for_business_pcs",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell supportassist os recovery",
+      "displayNamePatterns": [
+        "dell supportassist os recovery",
+        "supportassist os recovery"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:supportassist_os_recovery",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell command configure",
+      "displayNamePatterns": [
+        "dell command configure"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "excludePatterns": [
+        "sce"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:command\\|configure",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell power manager",
+      "displayNamePatterns": [
+        "dell power manager"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:power_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell display manager",
+      "displayNamePatterns": [
+        "dell display manager"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:display_manager",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell peripheral manager",
+      "displayNamePatterns": [
+        "dell peripheral manager"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:peripheral_manager",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell display and peripheral manager",
+      "displayNamePatterns": [
+        "dell display and peripheral manager"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:display_and_peripheral_manager",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell pair",
+      "displayNamePatterns": [
+        "dell pair"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:pair",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell trusted device",
+      "displayNamePatterns": [
+        "dell trusted device"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:trusted_device_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell digital delivery",
+      "displayNamePatterns": [
+        "dell digital delivery"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:digital_delivery",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell optimizer",
+      "displayNamePatterns": [
+        "dell optimizer"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "excludePatterns": [
+        "core",
+        "service"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:optimizer",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "lenovo",
+      "normalizedProduct": "lenovo dock manager",
+      "displayNamePatterns": [
+        "lenovo dock manager"
+      ],
+      "publisherPatterns": [
+        "lenovo",
+        "lenovo group"
+      ],
+      "cpeUri": "cpe:2.3:a:lenovo:dock_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hp",
+      "normalizedProduct": "hp client management script library",
+      "displayNamePatterns": [
+        "hp client management script library"
+      ],
+      "publisherPatterns": [
+        "hp",
+        "hp inc.",
+        "hp development company"
+      ],
+      "cpeUri": "cpe:2.3:a:hp:client_management_script_library",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel computing improvement program",
+      "displayNamePatterns": [
+        "intel computing improvement program"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:computing_improvement_program",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel connectivity performance suite",
+      "displayNamePatterns": [
+        "intel connectivity performance suite"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:connectivity_performance_suite",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel rapid storage technology",
+      "displayNamePatterns": [
+        "intel rapid storage technology"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:rapid_storage_technology",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel wireless bluetooth",
+      "displayNamePatterns": [
+        "intel wireless bluetooth"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:wireless_bluetooth_drivers",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "asus",
+      "normalizedProduct": "armoury crate service",
+      "displayNamePatterns": [
+        "armoury crate service"
+      ],
+      "publisherPatterns": [
+        "asus",
+        "asustek computer inc."
+      ],
+      "cpeUri": "cpe:2.3:a:asus:armoury_crate_service",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "alpsalpine",
+      "normalizedProduct": "alpsalpine touchpad driver",
+      "displayNamePatterns": [
+        "alpsalpine touchpad driver"
+      ],
+      "publisherPatterns": [
+        "alpsalpine"
+      ],
+      "cpeUri": "cpe:2.3:a:alpsalpine:touchpad_driver",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "razer",
+      "normalizedProduct": "razer synapse",
+      "displayNamePatterns": [
+        "razer synapse"
+      ],
+      "publisherPatterns": [
+        "razer",
+        "razer inc."
+      ],
+      "cpeUri": "cpe:2.3:a:razer:synapse",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "plantronics",
+      "normalizedProduct": "plantronics hub",
+      "displayNamePatterns": [
+        "plantronics hub"
+      ],
+      "publisherPatterns": [
+        "plantronics",
+        "plantronics, inc.",
+        "poly"
+      ],
+      "excludePatterns": [
+        "sdk"
+      ],
+      "cpeUri": "cpe:2.3:a:plantronics:plantronics_hub",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "check point software technologies",
+      "normalizedProduct": "check point identity agent",
+      "displayNamePatterns": [
+        "check point identity agent"
+      ],
+      "publisherPatterns": [
+        "check point",
+        "check point software technologies",
+        "check point software technologies ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:checkpoint:identity_agent",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "cyberark",
+      "normalizedProduct": "cyberark endpoint privilege manager",
+      "displayNamePatterns": [
+        "cyberark endpoint privilege manager"
+      ],
+      "publisherPatterns": [
+        "cyberark",
+        "cyberark software ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:cyberark:endpoint_privilege_manager",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "fasttrack software",
+      "normalizedProduct": "admin by request",
+      "displayNamePatterns": [
+        "admin by request"
+      ],
+      "publisherPatterns": [
+        "fasttrack software"
+      ],
+      "cpeUri": "cpe:2.3:a:fasttracksoftware:admin_by_request",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "heimdal security",
+      "normalizedProduct": "heimdal thor agent",
+      "displayNamePatterns": [
+        "heimdal thor agent",
+        "heimdal thor"
+      ],
+      "publisherPatterns": [
+        "heimdal security"
+      ],
+      "cpeUri": "cpe:2.3:a:heimdalsecurity:thor",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "infoblox",
+      "normalizedProduct": "bloxone endpoint",
+      "displayNamePatterns": [
+        "bloxone endpoint"
+      ],
+      "publisherPatterns": [
+        "infoblox"
+      ],
+      "cpeUri": "cpe:2.3:a:infoblox:bloxone_endpoint",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "forescout",
+      "normalizedProduct": "secureconnector",
+      "displayNamePatterns": [
+        "secureconnector"
+      ],
+      "publisherPatterns": [
+        "forescout",
+        "forescout technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:forescout:secureconnector",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "forcepoint",
+      "normalizedProduct": "forcepoint one endpoint",
+      "displayNamePatterns": [
+        "forcepoint one endpoint"
+      ],
+      "publisherPatterns": [
+        "forcepoint",
+        "forcepoint llc"
+      ],
+      "cpeUri": "cpe:2.3:a:forcepoint:one_endpoint",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "thales",
+      "normalizedProduct": "safenet authentication client",
+      "displayNamePatterns": [
+        "safenet authentication client"
+      ],
+      "publisherPatterns": [
+        "thales",
+        "safenet",
+        "gemalto"
+      ],
+      "cpeUri": "cpe:2.3:a:thalesgroup:safenet_authentication_client",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "keeper security",
+      "normalizedProduct": "keeper password manager",
+      "displayNamePatterns": [
+        "keeper password manager"
+      ],
+      "publisherPatterns": [
+        "keeper security",
+        "keeper security, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:keepersecurity:keeper",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "barracuda",
+      "normalizedProduct": "barracuda network access client",
+      "displayNamePatterns": [
+        "barracuda network access client"
+      ],
+      "publisherPatterns": [
+        "barracuda",
+        "barracuda networks"
+      ],
+      "cpeUri": "cpe:2.3:a:barracuda:network_access_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "f5",
+      "normalizedProduct": "big-ip edge client",
+      "displayNamePatterns": [
+        "big-ip edge client"
+      ],
+      "publisherPatterns": [
+        "f5",
+        "f5 networks",
+        "f5, inc."
+      ],
+      "excludePatterns": [
+        "components"
+      ],
+      "cpeUri": "cpe:2.3:a:f5:big-ip_access_policy_manager_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "cato networks",
+      "normalizedProduct": "cato client",
+      "displayNamePatterns": [
+        "cato client"
+      ],
+      "publisherPatterns": [
+        "cato networks"
+      ],
+      "cpeUri": "cpe:2.3:a:catonetworks:cato_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "versa networks",
+      "normalizedProduct": "versa sase client",
+      "displayNamePatterns": [
+        "versa sase client"
+      ],
+      "publisherPatterns": [
+        "versa networks"
+      ],
+      "cpeUri": "cpe:2.3:a:versa-networks:sase_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "ninjarmm",
+      "normalizedProduct": "ninjarmmagent",
+      "displayNamePatterns": [
+        "ninjarmmagent",
+        "ninjarmm agent"
+      ],
+      "publisherPatterns": [
+        "ninjarmm",
+        "ninjarmm llc",
+        "ninjaone"
+      ],
+      "cpeUri": "cpe:2.3:a:ninjarmm:ninjarmm",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "printerlogic",
+      "normalizedProduct": "printer installer client",
+      "displayNamePatterns": [
+        "printer installer client"
+      ],
+      "publisherPatterns": [
+        "printerlogic",
+        "vasion"
+      ],
+      "cpeUri": "cpe:2.3:a:printerlogic:windows_client",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "tungsten automation",
+      "normalizedProduct": "printix client",
+      "displayNamePatterns": [
+        "printix client"
+      ],
+      "publisherPatterns": [
+        "tungsten automation",
+        "printix",
+        "kofax"
+      ],
+      "cpeUri": "cpe:2.3:a:kofax:printix",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "1e",
+      "normalizedProduct": "1e client",
+      "displayNamePatterns": [
+        "1e client"
+      ],
+      "publisherPatterns": [
+        "1e"
+      ],
+      "cpeUri": "cpe:2.3:a:1e:client",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "action1",
+      "normalizedProduct": "action1 agent",
+      "displayNamePatterns": [
+        "action1 agent"
+      ],
+      "publisherPatterns": [
+        "action1",
+        "action1 corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:action1:agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "atera networks",
+      "normalizedProduct": "ateraagent",
+      "displayNamePatterns": [
+        "ateraagent",
+        "atera agent"
+      ],
+      "publisherPatterns": [
+        "atera networks",
+        "atera"
+      ],
+      "cpeUri": "cpe:2.3:a:atera:atera",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "snow software",
+      "normalizedProduct": "snow inventory agent",
+      "displayNamePatterns": [
+        "snow inventory agent"
+      ],
+      "publisherPatterns": [
+        "snow software"
+      ],
+      "cpeUri": "cpe:2.3:a:snowsoftware:snow_inventory_agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "teclib",
+      "normalizedProduct": "glpi agent",
+      "displayNamePatterns": [
+        "glpi agent"
+      ],
+      "publisherPatterns": [
+        "teclib",
+        "teclib'"
+      ],
+      "cpeUri": "cpe:2.3:a:glpi-project:glpi_agent",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "connectwise",
+      "normalizedProduct": "screenconnect client",
+      "displayNamePatterns": [
+        "screenconnect client"
+      ],
+      "publisherPatterns": [
+        "screenconnect software",
+        "connectwise",
+        "connectwise, llc"
+      ],
+      "cpeUri": "cpe:2.3:a:connectwise:screenconnect",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "vmware",
+      "normalizedProduct": "vmware tools",
+      "displayNamePatterns": [
+        "vmware tools"
+      ],
+      "publisherPatterns": [
+        "vmware",
+        "vmware, inc.",
+        "broadcom"
+      ],
+      "cpeUri": "cpe:2.3:a:vmware:tools",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "wibu-systems",
+      "normalizedProduct": "codemeter runtime kit",
+      "displayNamePatterns": [
+        "codemeter runtime kit",
+        "codemeter runtime"
+      ],
+      "publisherPatterns": [
+        "wibu-systems",
+        "wibu-systems ag"
+      ],
+      "cpeUri": "cpe:2.3:a:wibu:codemeter_runtime",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "cordaware",
+      "normalizedProduct": "cordaware bestinformed",
+      "displayNamePatterns": [
+        "cordaware bestinformed"
+      ],
+      "publisherPatterns": [
+        "cordaware"
+      ],
+      "cpeUri": "cpe:2.3:a:cordaware:bestinformed",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "next generation software",
+      "normalizedProduct": "mremoteng",
+      "displayNamePatterns": [
+        "mremoteng"
+      ],
+      "publisherPatterns": [
+        "next generation software",
+        "mremoteng"
+      ],
+      "cpeUri": "cpe:2.3:a:mremoteng:mremoteng",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "ibm",
+      "normalizedProduct": "ibm personal communications",
+      "displayNamePatterns": [
+        "ibm personal communications"
+      ],
+      "publisherPatterns": [
+        "ibm"
+      ],
+      "cpeUri": "cpe:2.3:a:ibm:personal_communications",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hcl",
+      "normalizedProduct": "hcl notes",
+      "displayNamePatterns": [
+        "hcl notes"
+      ],
+      "publisherPatterns": [
+        "hcl",
+        "hcl technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:hcltech:notes",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "mitel",
+      "normalizedProduct": "mitel inattend",
+      "displayNamePatterns": [
+        "mitel inattend"
+      ],
+      "publisherPatterns": [
+        "mitel",
+        "mitel networks"
+      ],
+      "cpeUri": "cpe:2.3:a:mitel:inattend",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "icedtea-web",
+      "normalizedProduct": "icedtea-web",
+      "displayNamePatterns": [
+        "icedtea-web"
+      ],
+      "publisherPatterns": [
+        "icedtea-web open-source project",
+        "red hat"
+      ],
+      "cpeUri": "cpe:2.3:a:redhat:icedtea-web",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "mysql server",
+      "displayNamePatterns": [
+        "mysql server"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation",
+        "mysql ab"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:mysql_server",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "mysql connector/net",
+      "displayNamePatterns": [
+        "mysql connector/net"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:mysql_connector\\/net",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "oracle smart view for office",
+      "displayNamePatterns": [
+        "oracle smart view"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:smart_view_for_office",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "anysphere",
+      "normalizedProduct": "cursor",
+      "displayNamePatterns": [
+        "cursor"
+      ],
+      "publisherPatterns": [
+        "anysphere"
+      ],
+      "cpeUri": "cpe:2.3:a:anysphere:cursor",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "cisco",
+      "normalizedProduct": "cisco packet tracer",
+      "displayNamePatterns": [
+        "cisco packet tracer"
+      ],
+      "publisherPatterns": [
+        "cisco",
+        "cisco systems",
+        "cisco systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:cisco:packet_tracer",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "opc foundation",
+      "normalizedProduct": "opc ua local discovery server",
+      "displayNamePatterns": [
+        "opc ua local discovery server"
+      ],
+      "publisherPatterns": [
+        "opc foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:opcfoundation:local_discovery_server",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "siemens automation license manager",
+      "displayNamePatterns": [
+        "siemens automation license manager"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:automation_license_manager",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "siemens totally integrated automation portal",
+      "displayNamePatterns": [
+        "totally integrated automation portal"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:totally_integrated_automation_portal",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "simatic wincc runtime advanced",
+      "displayNamePatterns": [
+        "simatic wincc runtime advanced"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:simatic_wincc_runtime_advanced",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "simatic prosave",
+      "displayNamePatterns": [
+        "simatic prosave"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:simatic_prosave",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "tia administrator",
+      "displayNamePatterns": [
+        "tia administrator"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:tia_administrator",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "siemens",
+      "normalizedProduct": "tia portal project server",
+      "displayNamePatterns": [
+        "tia portal project server",
+        "tia project server"
+      ],
+      "publisherPatterns": [
+        "siemens",
+        "siemens ag"
+      ],
+      "cpeUri": "cpe:2.3:a:siemens:tia_project-server",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "pdf-xchange",
+      "normalizedProduct": "pdf-xchange editor",
+      "displayNamePatterns": [
+        "pdf-xchange editor"
+      ],
+      "publisherPatterns": [
+        "pdf-xchange co",
+        "tracker software"
+      ],
+      "cpeUri": "cpe:2.3:a:pdf-xchange:pdf-xchange_editor",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "pdf-xchange",
+      "normalizedProduct": "pdf-xchange pro",
+      "displayNamePatterns": [
+        "pdf-xchange pro"
+      ],
+      "publisherPatterns": [
+        "pdf-xchange co",
+        "tracker software"
+      ],
+      "cpeUri": "cpe:2.3:a:pdf-xchange:pdf-xchange_pro",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "geek software",
+      "normalizedProduct": "pdf24 creator",
+      "displayNamePatterns": [
+        "pdf24 creator"
+      ],
+      "publisherPatterns": [
+        "geek software"
+      ],
+      "cpeUri": "cpe:2.3:a:pdf24:pdf24_creator",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "kofax",
+      "normalizedProduct": "kofax power pdf",
+      "displayNamePatterns": [
+        "kofax power pdf",
+        "tungsten power pdf",
+        "nuance power pdf"
+      ],
+      "publisherPatterns": [
+        "kofax",
+        "tungsten automation",
+        "nuance"
+      ],
+      "cpeUri": "cpe:2.3:a:tungstenautomation:power_pdf",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "nitro",
+      "normalizedProduct": "nitro pdf pro",
+      "displayNamePatterns": [
+        "nitro pdf pro"
+      ],
+      "publisherPatterns": [
+        "nitro",
+        "nitro software"
+      ],
+      "cpeUri": "cpe:2.3:a:gonitro:nitro_pdf_pro",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe digital editions",
+      "displayNamePatterns": [
+        "adobe digital editions"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:digital_editions",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "apache",
+      "normalizedProduct": "openoffice",
+      "displayNamePatterns": [
+        "openoffice"
+      ],
+      "publisherPatterns": [
+        "apache software foundation",
+        "the apache software foundation",
+        "apache openoffice"
+      ],
+      "cpeUri": "cpe:2.3:a:apache:openoffice",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "jgraph",
+      "normalizedProduct": "draw.io",
+      "displayNamePatterns": [
+        "draw.io"
+      ],
+      "publisherPatterns": [
+        "jgraph"
+      ],
+      "cpeUri": "cpe:2.3:a:diagrams:drawio",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "faststone",
+      "normalizedProduct": "faststone image viewer",
+      "displayNamePatterns": [
+        "faststone image viewer"
+      ],
+      "publisherPatterns": [
+        "faststone",
+        "faststone corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:faststone:image_viewer",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "mattermost",
+      "normalizedProduct": "mattermost",
+      "displayNamePatterns": [
+        "mattermost"
+      ],
+      "publisherPatterns": [
+        "mattermost",
+        "mattermost, inc."
+      ],
+      "excludePatterns": [
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:mattermost:mattermost_desktop",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "spotify",
+      "normalizedProduct": "spotify",
+      "displayNamePatterns": [
+        "spotify"
+      ],
+      "publisherPatterns": [
+        "spotify",
+        "spotify ab"
+      ],
+      "cpeUri": "cpe:2.3:a:spotify:spotify",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "bitnami",
+      "normalizedProduct": "xampp",
+      "displayNamePatterns": [
+        "xampp"
+      ],
+      "publisherPatterns": [
+        "bitnami",
+        "apache friends"
+      ],
+      "cpeUri": "cpe:2.3:a:apachefriends:xampp",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "blender foundation",
+      "normalizedProduct": "blender",
+      "displayNamePatterns": [
+        "blender"
+      ],
+      "publisherPatterns": [
+        "blender foundation"
+      ],
+      "cpeUri": "cpe:2.3:a:blender:blender",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "google",
+      "normalizedProduct": "google earth pro",
+      "displayNamePatterns": [
+        "google earth"
+      ],
+      "publisherPatterns": [
+        "google",
+        "google llc",
+        "google inc"
+      ],
+      "cpeUri": "cpe:2.3:a:google:earth",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "klcp",
+      "normalizedProduct": "k-lite codec pack",
+      "displayNamePatterns": [
+        "k-lite codec pack"
+      ],
+      "publisherPatterns": [
+        "klcp",
+        "codec guide"
+      ],
+      "cpeUri": "cpe:2.3:a:codecguide:k-lite_codec_pack",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "apple",
+      "normalizedProduct": "bonjour",
+      "displayNamePatterns": [
+        "bonjour"
+      ],
+      "publisherPatterns": [
+        "apple",
+        "apple inc.",
+        "apple inc"
+      ],
+      "excludePatterns": [
+        "print services"
+      ],
+      "cpeUri": "cpe:2.3:a:apple:bonjour",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "iterate",
+      "normalizedProduct": "cyberduck",
+      "displayNamePatterns": [
+        "cyberduck"
+      ],
+      "publisherPatterns": [
+        "iterate",
+        "iterate gmbh"
+      ],
+      "cpeUri": "cpe:2.3:a:cyberduck:cyberduck",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "obsidian",
+      "normalizedProduct": "obsidian",
+      "displayNamePatterns": [
+        "obsidian"
+      ],
+      "publisherPatterns": [
+        "obsidian",
+        "dynalist"
+      ],
+      "cpeUri": "cpe:2.3:a:obsidian:obsidian",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "xmind",
+      "normalizedProduct": "xmind",
+      "displayNamePatterns": [
+        "xmind"
+      ],
+      "publisherPatterns": [
+        "xmind",
+        "xmind ltd."
+      ],
+      "cpeUri": "cpe:2.3:a:xmind:xmind",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "netsetman",
+      "normalizedProduct": "netsetman",
+      "displayNamePatterns": [
+        "netsetman"
+      ],
+      "publisherPatterns": [
+        "netsetman",
+        "netsetman gmbh"
+      ],
+      "cpeUri": "cpe:2.3:a:netsetman:netsetman",
+      "category": "networking"
+    },
+    {
+      "normalizedVendor": "prusa research",
+      "normalizedProduct": "prusaslicer",
+      "displayNamePatterns": [
+        "prusaslicer"
+      ],
+      "publisherPatterns": [
+        "prusa research"
+      ],
+      "cpeUri": "cpe:2.3:a:prusa3d:prusaslicer",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "eth zürich",
+      "normalizedProduct": "safe exam browser",
+      "displayNamePatterns": [
+        "safe exam browser"
+      ],
+      "publisherPatterns": [
+        "eth zürich",
+        "eth zurich"
+      ],
+      "cpeUri": "cpe:2.3:a:ethz:safe_exam_browser",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "mozilla",
+      "normalizedProduct": "mozilla thunderbird",
+      "displayNamePatterns": [
+        "mozilla thunderbird",
+        "thunderbird"
+      ],
+      "publisherPatterns": [
+        "mozilla",
+        "mozilla corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:mozilla:thunderbird",
+      "category": "communication",
+      "excludeEditions": [
+        "-"
+      ]
+    },
+    {
+      "normalizedVendor": "em client",
+      "normalizedProduct": "em client",
+      "displayNamePatterns": [
+        "em client"
+      ],
+      "publisherPatterns": [
+        "em client",
+        "em client inc.",
+        "em client s.r.o."
+      ],
+      "cpeUri": "cpe:2.3:a:emclient:em_client",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "kingsoft",
+      "normalizedProduct": "wps office",
+      "displayNamePatterns": [
+        "wps office"
+      ],
+      "publisherPatterns": [
+        "kingsoft",
+        "kingsoft corp.",
+        "kingsoft office software",
+        "zhuhai kingsoft office software co., ltd"
+      ],
+      "cpeUri": "cpe:2.3:a:kingsoft:wps_office",
+      "category": "office"
+    },
+    {
+      "normalizedVendor": "krzysztof kowalczyk",
+      "normalizedProduct": "sumatrapdf",
+      "displayNamePatterns": [
+        "sumatrapdf",
+        "sumatra pdf"
+      ],
+      "publisherPatterns": [
+        "krzysztof kowalczyk"
+      ],
+      "cpeUri": "cpe:2.3:a:sumatrapdfreader:sumatrapdf",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "artifex software",
+      "normalizedProduct": "gpl ghostscript",
+      "displayNamePatterns": [
+        "gpl ghostscript",
+        "ghostscript"
+      ],
+      "publisherPatterns": [
+        "artifex software",
+        "artifex software inc.",
+        "artifex"
+      ],
+      "excludePatterns": [
+        "fonts"
+      ],
+      "cpeUri": "cpe:2.3:a:artifex:ghostscript",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "kovid goyal",
+      "normalizedProduct": "calibre",
+      "displayNamePatterns": [
+        "calibre"
+      ],
+      "publisherPatterns": [
+        "kovid goyal"
+      ],
+      "cpeUri": "cpe:2.3:a:calibre-ebook:calibre",
+      "category": "pdf_documents"
+    },
+    {
+      "normalizedVendor": "bandisoft",
+      "normalizedProduct": "bandizip",
+      "displayNamePatterns": [
+        "bandizip"
+      ],
+      "publisherPatterns": [
+        "bandisoft",
+        "bandisoft.com",
+        "bandisoft international inc."
+      ],
+      "cpeUri": "cpe:2.3:a:bandisoft:bandizip",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "giorgio tani",
+      "normalizedProduct": "peazip",
+      "displayNamePatterns": [
+        "peazip"
+      ],
+      "publisherPatterns": [
+        "giorgio tani",
+        "peazip"
+      ],
+      "cpeUri": "cpe:2.3:a:peazip:peazip",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "gougelet pierre-e",
+      "normalizedProduct": "xnview",
+      "displayNamePatterns": [
+        "xnview"
+      ],
+      "publisherPatterns": [
+        "gougelet pierre-e",
+        "xnsoft",
+        "pierre-e gougelet"
+      ],
+      "excludePatterns": [
+        "mp",
+        "shell extension"
+      ],
+      "cpeUri": "cpe:2.3:a:xnview:xnview",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "gougelet pierre-e",
+      "normalizedProduct": "xnviewmp",
+      "displayNamePatterns": [
+        "xnviewmp",
+        "xnview mp"
+      ],
+      "publisherPatterns": [
+        "gougelet pierre-e",
+        "xnsoft",
+        "pierre-e gougelet"
+      ],
+      "cpeUri": "cpe:2.3:a:xnview:xnview_mp",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "imagemagick studio",
+      "normalizedProduct": "imagemagick",
+      "displayNamePatterns": [
+        "imagemagick"
+      ],
+      "publisherPatterns": [
+        "imagemagick studio",
+        "imagemagick studio llc"
+      ],
+      "cpeUri": "cpe:2.3:a:imagemagick:imagemagick",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "mpc-hc team",
+      "normalizedProduct": "mpc-hc",
+      "displayNamePatterns": [
+        "mpc-hc"
+      ],
+      "publisherPatterns": [
+        "mpc-hc team"
+      ],
+      "cpeUri": "cpe:2.3:a:mpc-hc:mpc-hc",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "xbmc foundation",
+      "normalizedProduct": "kodi",
+      "displayNamePatterns": [
+        "kodi"
+      ],
+      "publisherPatterns": [
+        "xbmc foundation",
+        "team kodi"
+      ],
+      "cpeUri": "cpe:2.3:a:kodi:kodi",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe lightroom classic",
+      "displayNamePatterns": [
+        "adobe lightroom classic",
+        "lightroom classic"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:lightroom",
+      "category": "utility",
+      "edition": "classic"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe lightroom",
+      "displayNamePatterns": [
+        "adobe lightroom"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "excludePatterns": [
+        "classic"
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:lightroom",
+      "category": "utility",
+      "excludeEditions": [
+        "classic"
+      ]
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe dimension",
+      "displayNamePatterns": [
+        "adobe dimension"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:dimension",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe audition",
+      "displayNamePatterns": [
+        "adobe audition"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:audition",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "adobe",
+      "normalizedProduct": "adobe incopy",
+      "displayNamePatterns": [
+        "adobe incopy"
+      ],
+      "publisherPatterns": [
+        "adobe",
+        "adobe systems",
+        "adobe systems incorporated",
+        "adobe inc."
+      ],
+      "cpeUri": "cpe:2.3:a:adobe:incopy",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "microsoft asp.net core shared framework",
+      "displayNamePatterns": [
+        "microsoft asp.net core"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "excludePatterns": [
+        "module",
+        "targeting pack",
+        "templates",
+        "sdk"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:asp.net_core",
+      "category": "runtime"
+    },
+    {
+      "normalizedVendor": "bram moolenaar et al",
+      "normalizedProduct": "vim",
+      "displayNamePatterns": [
+        "vim",
+        "gvim"
+      ],
+      "publisherPatterns": [
+        "bram moolenaar et al.",
+        "bram moolenaar",
+        "the vim project",
+        "vim"
+      ],
+      "cpeUri": "cpe:2.3:a:vim:vim",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "amazon web services",
+      "normalizedProduct": "aws command line interface",
+      "displayNamePatterns": [
+        "aws command line interface"
+      ],
+      "publisherPatterns": [
+        "amazon web services",
+        "amazon web services, inc.",
+        "amazon"
+      ],
+      "cpeUri": "cpe:2.3:a:amazon:aws_command_line_interface",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "hashicorp",
+      "normalizedProduct": "vagrant",
+      "displayNamePatterns": [
+        "vagrant"
+      ],
+      "publisherPatterns": [
+        "hashicorp",
+        "hashicorp, inc."
+      ],
+      "excludePatterns": [
+        "vmware utility",
+        "manager"
+      ],
+      "cpeUri": "cpe:2.3:a:hashicorp:vagrant",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "smartbear software",
+      "normalizedProduct": "soapui",
+      "displayNamePatterns": [
+        "soapui"
+      ],
+      "publisherPatterns": [
+        "smartbear software",
+        "smartbear"
+      ],
+      "excludePatterns": [
+        "pro",
+        "ng"
+      ],
+      "cpeUri": "cpe:2.3:a:smartbear:soapui",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "axosoft",
+      "normalizedProduct": "gitkraken",
+      "displayNamePatterns": [
+        "gitkraken"
+      ],
+      "publisherPatterns": [
+        "axosoft",
+        "axosoft, llc",
+        "gitkraken"
+      ],
+      "cpeUri": "cpe:2.3:a:axosoft:gitkraken_desktop",
+      "category": "development"
+    },
+    {
+      "normalizedVendor": "oracle",
+      "normalizedProduct": "mysql connector/odbc",
+      "displayNamePatterns": [
+        "mysql connector/odbc"
+      ],
+      "publisherPatterns": [
+        "oracle",
+        "oracle corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:oracle:mysql_connector\\/odbc",
+      "category": "database"
+    },
+    {
+      "normalizedVendor": "vmware",
+      "normalizedProduct": "vmware player",
+      "displayNamePatterns": [
+        "vmware player"
+      ],
+      "publisherPatterns": [
+        "vmware",
+        "vmware, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:vmware:workstation_player",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "glavsoft",
+      "normalizedProduct": "tightvnc",
+      "displayNamePatterns": [
+        "tightvnc"
+      ],
+      "publisherPatterns": [
+        "glavsoft",
+        "glavsoft llc.",
+        "tightvnc group"
+      ],
+      "cpeUri": "cpe:2.3:a:tightvnc:tightvnc",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "uvnc bvba",
+      "normalizedProduct": "ultravnc",
+      "displayNamePatterns": [
+        "ultravnc"
+      ],
+      "publisherPatterns": [
+        "uvnc bvba",
+        "uvnc"
+      ],
+      "cpeUri": "cpe:2.3:a:uvnc:ultravnc",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "solarwinds",
+      "normalizedProduct": "dameware mini remote control",
+      "displayNamePatterns": [
+        "dameware mini remote control"
+      ],
+      "publisherPatterns": [
+        "solarwinds",
+        "solarwinds worldwide, llc",
+        "dameware development",
+        "dameware"
+      ],
+      "cpeUri": "cpe:2.3:a:solarwinds:dameware_mini_remote_control",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "mobatek",
+      "normalizedProduct": "mobaxterm",
+      "displayNamePatterns": [
+        "mobaxterm"
+      ],
+      "publisherPatterns": [
+        "mobatek"
+      ],
+      "cpeUri": "cpe:2.3:a:mobatek:mobaxterm",
+      "category": "remote_access"
+    },
+    {
+      "normalizedVendor": "nord security",
+      "normalizedProduct": "nordvpn",
+      "displayNamePatterns": [
+        "nordvpn"
+      ],
+      "publisherPatterns": [
+        "nord security",
+        "nordvpn",
+        "nordvpn s.a.",
+        "tefincom",
+        "tefincom s.a."
+      ],
+      "excludePatterns": [
+        "network tap",
+        "network tun",
+        "tap",
+        "tun"
+      ],
+      "cpeUri": "cpe:2.3:a:nordvpn:nordvpn",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "citrix",
+      "normalizedProduct": "citrix secure access",
+      "displayNamePatterns": [
+        "citrix secure access"
+      ],
+      "publisherPatterns": [
+        "citrix",
+        "citrix systems",
+        "citrix systems, inc."
+      ],
+      "excludePatterns": [
+        "endpoint analysis"
+      ],
+      "cpeUri": "cpe:2.3:a:citrix:secure_access_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "citrix",
+      "normalizedProduct": "citrix gateway plug-in",
+      "displayNamePatterns": [
+        "citrix gateway plug-in",
+        "citrix gateway plugin"
+      ],
+      "publisherPatterns": [
+        "citrix",
+        "citrix systems",
+        "citrix systems, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:citrix:gateway_plug-in",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "sonicwall",
+      "normalizedProduct": "global vpn client",
+      "displayNamePatterns": [
+        "sonicwall global vpn client",
+        "global vpn client"
+      ],
+      "publisherPatterns": [
+        "sonicwall",
+        "sonicwall inc.",
+        "sonicwall, inc.",
+        "dell sonicwall"
+      ],
+      "cpeUri": "cpe:2.3:a:sonicwall:global_vpn_client",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "watchguard",
+      "normalizedProduct": "watchguard mobile vpn with ssl client",
+      "displayNamePatterns": [
+        "watchguard mobile vpn with ssl",
+        "mobile vpn with ssl"
+      ],
+      "publisherPatterns": [
+        "watchguard",
+        "watchguard technologies",
+        "watchguard technologies, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:watchguard:mobile_vpn_with_ssl",
+      "category": "vpn"
+    },
+    {
+      "normalizedVendor": "avast software",
+      "normalizedProduct": "avast free antivirus",
+      "displayNamePatterns": [
+        "avast free antivirus"
+      ],
+      "publisherPatterns": [
+        "avast software",
+        "avast",
+        "gen digital"
+      ],
+      "cpeUri": "cpe:2.3:a:avast:free_antivirus",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "webroot",
+      "normalizedProduct": "webroot secureanywhere",
+      "displayNamePatterns": [
+        "webroot secureanywhere"
+      ],
+      "publisherPatterns": [
+        "webroot",
+        "webroot inc.",
+        "opentext"
+      ],
+      "cpeUri": "cpe:2.3:a:webroot:secureanywhere",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "mcafee",
+      "normalizedProduct": "mcafee dlp endpoint",
+      "displayNamePatterns": [
+        "mcafee dlp endpoint",
+        "mcafee data loss prevention endpoint"
+      ],
+      "publisherPatterns": [
+        "mcafee",
+        "mcafee, inc.",
+        "mcafee, llc"
+      ],
+      "cpeUri": "cpe:2.3:a:mcafee:data_loss_prevention_endpoint",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "idrix",
+      "normalizedProduct": "veracrypt",
+      "displayNamePatterns": [
+        "veracrypt"
+      ],
+      "publisherPatterns": [
+        "idrix",
+        "amcrypto"
+      ],
+      "cpeUri": "cpe:2.3:a:idrix:veracrypt",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "the gnupg project",
+      "normalizedProduct": "gnu privacy guard",
+      "displayNamePatterns": [
+        "gnu privacy guard",
+        "gnupg"
+      ],
+      "publisherPatterns": [
+        "the gnupg project",
+        "gnupg",
+        "g10 code gmbh"
+      ],
+      "excludePatterns": [
+        "vs-desktop",
+        "desktop"
+      ],
+      "cpeUri": "cpe:2.3:a:gnupg:gnupg",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "opensc project",
+      "normalizedProduct": "opensc smartcard framework",
+      "displayNamePatterns": [
+        "opensc smartcard framework",
+        "opensc"
+      ],
+      "publisherPatterns": [
+        "opensc project",
+        "opensc"
+      ],
+      "cpeUri": "cpe:2.3:a:opensc_project:opensc",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "entrust",
+      "normalizedProduct": "entrust entelligence security provider",
+      "displayNamePatterns": [
+        "entrust entelligence security provider",
+        "entelligence security provider"
+      ],
+      "publisherPatterns": [
+        "entrust",
+        "entrust datacard",
+        "entrust, inc.",
+        "entrust corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:entrustdatacard:entelligence_security_provider",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell encryption",
+      "displayNamePatterns": [
+        "dell encryption"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "excludePatterns": [
+        "key manager"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:encryption",
+      "category": "security"
+    },
+    {
+      "normalizedVendor": "telegram fz-llc",
+      "normalizedProduct": "telegram desktop",
+      "displayNamePatterns": [
+        "telegram desktop"
+      ],
+      "publisherPatterns": [
+        "telegram fz-llc",
+        "telegram messenger llp"
+      ],
+      "cpeUri": "cpe:2.3:a:telegram:telegram_desktop",
+      "category": "communication"
+    },
+    {
+      "normalizedVendor": "nextcloud",
+      "normalizedProduct": "nextcloud",
+      "displayNamePatterns": [
+        "nextcloud"
+      ],
+      "publisherPatterns": [
+        "nextcloud gmbh",
+        "nextcloud"
+      ],
+      "excludePatterns": [
+        "talk",
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:nextcloud:desktop",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "owncloud",
+      "normalizedProduct": "owncloud",
+      "displayNamePatterns": [
+        "owncloud"
+      ],
+      "publisherPatterns": [
+        "owncloud gmbh",
+        "owncloud",
+        "owncloud, inc."
+      ],
+      "excludePatterns": [
+        "server"
+      ],
+      "cpeUri": "cpe:2.3:a:owncloud:owncloud_desktop_client",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "synology",
+      "normalizedProduct": "synology drive client",
+      "displayNamePatterns": [
+        "synology drive client"
+      ],
+      "publisherPatterns": [
+        "synology",
+        "synology inc.",
+        "synology, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:synology:drive_client",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "ibm",
+      "normalizedProduct": "ibm aspera connect",
+      "displayNamePatterns": [
+        "ibm aspera connect",
+        "aspera connect"
+      ],
+      "publisherPatterns": [
+        "ibm",
+        "ibm corp.",
+        "aspera",
+        "aspera, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:ibm:aspera_connect",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "paramount software (uk)",
+      "normalizedProduct": "macrium reflect",
+      "displayNamePatterns": [
+        "macrium reflect"
+      ],
+      "publisherPatterns": [
+        "paramount software (uk) ltd.",
+        "paramount software",
+        "macrium software"
+      ],
+      "cpeUri": "cpe:2.3:a:macrium:reflect",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "druva technologies pte",
+      "normalizedProduct": "druva insync",
+      "displayNamePatterns": [
+        "druva insync"
+      ],
+      "publisherPatterns": [
+        "druva",
+        "druva inc.",
+        "druva technologies pte. ltd."
+      ],
+      "cpeUri": "cpe:2.3:a:druva:insync_client",
+      "category": "archive_backup"
+    },
+    {
+      "normalizedVendor": "lexikos",
+      "normalizedProduct": "autohotkey",
+      "displayNamePatterns": [
+        "autohotkey"
+      ],
+      "publisherPatterns": [
+        "lexikos",
+        "autohotkey foundation",
+        "autohotkey foundation llc",
+        "autohotkey"
+      ],
+      "cpeUri": "cpe:2.3:a:autohotkey:autohotkey",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "akeo consulting",
+      "normalizedProduct": "rufus",
+      "displayNamePatterns": [
+        "rufus"
+      ],
+      "publisherPatterns": [
+        "akeo consulting",
+        "akeo"
+      ],
+      "cpeUri": "cpe:2.3:a:akeo:rufus",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "cpuid",
+      "normalizedProduct": "cpuid cpu-z",
+      "displayNamePatterns": [
+        "cpu-z"
+      ],
+      "publisherPatterns": [
+        "cpuid",
+        "cpuid, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:cpuid:cpu-z",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "code sector",
+      "normalizedProduct": "teracopy",
+      "displayNamePatterns": [
+        "teracopy"
+      ],
+      "publisherPatterns": [
+        "code sector",
+        "code sector inc."
+      ],
+      "cpeUri": "cpe:2.3:a:codesector:teracopy",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "samsung electronics",
+      "normalizedProduct": "samsung magician",
+      "displayNamePatterns": [
+        "samsung magician"
+      ],
+      "publisherPatterns": [
+        "samsung electronics",
+        "samsung electronics co., ltd.",
+        "samsung"
+      ],
+      "cpeUri": "cpe:2.3:a:samsung:magician",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "western digital",
+      "normalizedProduct": "western digital ssd dashboard",
+      "displayNamePatterns": [
+        "western digital ssd dashboard",
+        "wd ssd dashboard"
+      ],
+      "publisherPatterns": [
+        "western digital",
+        "western digital corporation",
+        "western digital technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:westerndigital:ssd_dashboard",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "western digital technologies",
+      "normalizedProduct": "dashboard",
+      "displayNamePatterns": [
+        "western digital dashboard"
+      ],
+      "publisherPatterns": [
+        "western digital",
+        "western digital corporation",
+        "western digital technologies",
+        "western digital technologies, inc."
+      ],
+      "cpeUri": "cpe:2.3:a:westerndigital:dashboard",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell command monitor",
+      "displayNamePatterns": [
+        "dell command monitor"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:command_\\|_monitor",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "dell",
+      "normalizedProduct": "dell update",
+      "displayNamePatterns": [
+        "dell update"
+      ],
+      "publisherPatterns": [
+        "dell",
+        "dell inc.",
+        "dell technologies"
+      ],
+      "excludePatterns": [
+        "plugin",
+        "supportassist",
+        "package"
+      ],
+      "cpeUri": "cpe:2.3:a:dell:update",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "hp",
+      "normalizedProduct": "hp system event utility",
+      "displayNamePatterns": [
+        "hp system event utility"
+      ],
+      "publisherPatterns": [
+        "hp",
+        "hp inc.",
+        "hewlett-packard"
+      ],
+      "cpeUri": "cpe:2.3:a:hp:system_event_utility",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "hp",
+      "normalizedProduct": "hp pc hardware diagnostics windows",
+      "displayNamePatterns": [
+        "hp pc hardware diagnostics windows"
+      ],
+      "publisherPatterns": [
+        "hp",
+        "hp inc.",
+        "hewlett-packard"
+      ],
+      "cpeUri": "cpe:2.3:a:hp:pc_hardware_diagnostics",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "lenovo",
+      "normalizedProduct": "lenovo commercial vantage",
+      "displayNamePatterns": [
+        "lenovo commercial vantage",
+        "commercial vantage"
+      ],
+      "publisherPatterns": [
+        "lenovo",
+        "lenovo group"
+      ],
+      "excludePatterns": [
+        "service"
+      ],
+      "cpeUri": "cpe:2.3:a:lenovo:commercial_vantage",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "lenovo",
+      "normalizedProduct": "lenovo service bridge",
+      "displayNamePatterns": [
+        "lenovo service bridge"
+      ],
+      "publisherPatterns": [
+        "lenovo",
+        "lenovo group"
+      ],
+      "cpeUri": "cpe:2.3:a:lenovo:service_bridge",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "asus",
+      "normalizedProduct": "asus live update",
+      "displayNamePatterns": [
+        "asus live update"
+      ],
+      "publisherPatterns": [
+        "asus",
+        "asustek computer inc.",
+        "asustek"
+      ],
+      "cpeUri": "cpe:2.3:a:asus:live_update",
+      "category": "utility"
+    },
+    {
+      "normalizedVendor": "microsoft",
+      "normalizedProduct": "power automate for desktop",
+      "displayNamePatterns": [
+        "power automate for desktop",
+        "power automate desktop"
+      ],
+      "publisherPatterns": [
+        "microsoft",
+        "microsoft corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:microsoft:power_automate_for_desktop",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "ivanti",
+      "normalizedProduct": "ivanti workspace control",
+      "displayNamePatterns": [
+        "ivanti workspace control"
+      ],
+      "publisherPatterns": [
+        "ivanti",
+        "ivanti, inc.",
+        "res software"
+      ],
+      "cpeUri": "cpe:2.3:a:ivanti:workspace_control",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "bentley systems",
+      "normalizedProduct": "microstation",
+      "displayNamePatterns": [
+        "microstation"
+      ],
+      "publisherPatterns": [
+        "bentley systems",
+        "bentley systems, incorporated",
+        "bentley"
+      ],
+      "excludePatterns": [
+        "powerdraft",
+        "language pack"
+      ],
+      "cpeUri": "cpe:2.3:a:bentley:microstation",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "ibm",
+      "normalizedProduct": "ibm spss statistics",
+      "displayNamePatterns": [
+        "ibm spss statistics",
+        "spss statistics"
+      ],
+      "publisherPatterns": [
+        "ibm",
+        "ibm corp.",
+        "ibm corporation",
+        "spss inc."
+      ],
+      "excludePatterns": [
+        "essentials",
+        "license manager",
+        "server",
+        "data access pack",
+        "sdk"
+      ],
+      "cpeUri": "cpe:2.3:a:ibm:spss_statistics",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "qliktech international ab",
+      "normalizedProduct": "qlikview",
+      "displayNamePatterns": [
+        "qlikview"
+      ],
+      "publisherPatterns": [
+        "qliktech international ab",
+        "qliktech",
+        "qlik"
+      ],
+      "excludePatterns": [
+        "server",
+        "plugin",
+        "plug-in",
+        "workbench",
+        "publisher",
+        "webparts",
+        "connector"
+      ],
+      "cpeUri": "cpe:2.3:a:qlik:qlikview",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "blue prism",
+      "normalizedProduct": "blue prism",
+      "displayNamePatterns": [
+        "blue prism"
+      ],
+      "publisherPatterns": [
+        "blue prism",
+        "blue prism limited",
+        "ss&c blue prism"
+      ],
+      "excludePatterns": [
+        "capture",
+        "interact",
+        "hub",
+        "decipher",
+        "api"
+      ],
+      "cpeUri": "cpe:2.3:a:blueprism:robotic_process_automation",
+      "category": "enterprise"
+    },
+    {
+      "normalizedVendor": "intel",
+      "normalizedProduct": "intel proset/wireless software",
+      "displayNamePatterns": [
+        "intel proset/wireless software",
+        "intel proset/wireless wifi software"
+      ],
+      "publisherPatterns": [
+        "intel",
+        "intel corporation",
+        "intel(r) corporation"
+      ],
+      "cpeUri": "cpe:2.3:a:intel:proset\\/wireless_wifi",
+      "category": "utility"
+    }
+  ]
+}

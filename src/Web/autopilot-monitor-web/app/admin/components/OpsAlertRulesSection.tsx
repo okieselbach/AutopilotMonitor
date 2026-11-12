@@ -50,6 +50,16 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // per-session side-row). Warning, one per run with counts — replaced the per-key tenant audit
     // entry inventory_counter_write_failed.
     "SoftwareInventoryCounterWriteFailed",
+    // Nightly vulnerability data sync finished with a part that fell short (source not refreshed,
+    // CVE cache walk cut off, products without CVE data for more than a day). Warning, one per run.
+    "VulnerabilityDataSyncDegraded",
+    // The software-to-CPE mappings could not be read (Error without an earlier copy, because scans
+    // wait; Warning while one keeps serving) or an import fetched a list the check refused (Error).
+    // One per day, cause and severity.
+    "CpeMappingUnavailable",
+    // The nightly run created automatic CPE mappings (program name is exactly an NVD product
+    // name). Info, one per run with the names, so each new mapping can be looked over.
+    "CpeAutoMappingsCreated",
     "MaintenanceCompleted",
     "MaintenanceFailed",
     // Soft watchdog (Warning): a maintenance run completed but exceeded the 10min threshold and is

@@ -75,8 +75,8 @@
     <EmbeddedResource Include="..\..\..\rules\dist\ime-log-patterns.json" LogicalName="AutopilotMonitor.Functions.Rules.ime-log-patterns.json" />
     <!-- The OOBE go-script embeds the installer's payload-verification block verbatim (D-354). -->
     <EmbeddedResource Include="..\..\..\scripts\Bootstrap\Install-AutopilotMonitor.ps1" LogicalName="AutopilotMonitor.Functions.Bootstrap.Install-AutopilotMonitor.ps1" />
-    <!-- CPE mapping seed + community files are loaded from GitHub via reseed, not embedded -->
-    <!-- Files at rules/dist/cpe-mapping-seed.json and rules/dist/cpe-community-mappings.json -->
+    <!-- The CPE mapping lists are loaded from GitHub via reseed, not embedded: -->
+    <!-- rules/dist/cpe-mappings.json and rules/dist/cpe-community-mappings.json -->
   </ItemGroup>
 
 </Project>

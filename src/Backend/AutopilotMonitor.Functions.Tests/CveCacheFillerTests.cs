@@ -233,16 +233,18 @@ public sealed class CveCacheFillerTests : IDisposable
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests, true)]
-    [InlineData(HttpStatusCode.InternalServerError, false)]
-    public async Task Fill_AnswerNvdDidNotGive_WritesNothing(HttpStatusCode status, bool throttled)
+    [InlineData(HttpStatusCode.TooManyRequests, "Throttled")]
+    [InlineData(HttpStatusCode.InternalServerError, "Unanswered")]
+    [InlineData(HttpStatusCode.NotFound, "Failed")]
+    public async Task Fill_AnswerNvdDidNotGive_WritesNothing(HttpStatusCode status, string expected)
     {
         var repo = new Mock<IVulnerabilityRepository>(MockBehavior.Strict);
         var filler = Filler(repo, _ => NvdFixture.Status(status));
 
         var result = await filler.FillAsync(WidgetCpe, CancellationToken.None);
 
-        Assert.Equal(throttled ? CveCacheFillOutcome.Throttled : CveCacheFillOutcome.Failed, result.Outcome);
+        // A server error says NVD is not serving; a client error says only that this request is wrong.
+        Assert.Equal(expected, result.Outcome.ToString());
         Assert.Null(result.Entry);
         repo.VerifyNoOtherCalls();
     }
