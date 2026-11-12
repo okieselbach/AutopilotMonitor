@@ -8,11 +8,13 @@ import { IgnoredSoftwareTab } from "./IgnoredSoftwareTab";
 interface SoftwareMappingSectionProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
+  setSuccessMessage: (message: string | null) => void;
 }
 
 export function SoftwareMappingSection({
   getAccessToken,
   setError,
+  setSuccessMessage,
 }: SoftwareMappingSectionProps) {
   const [activeTab, setActiveTab] = useState<"unmapped" | "mapped" | "ignored">("unmapped");
 
@@ -104,6 +106,7 @@ export function SoftwareMappingSection({
           <UnmappedSoftwareTab
             getAccessToken={getAccessToken}
             setError={setError}
+            setSuccessMessage={setSuccessMessage}
             onMappingChanged={handleMappingChanged}
             onIgnored={handleIgnored}
             onCountChanged={setUnmappedCount}
@@ -115,6 +118,7 @@ export function SoftwareMappingSection({
           <MappedSoftwareTab
             getAccessToken={getAccessToken}
             setError={setError}
+            setSuccessMessage={setSuccessMessage}
             refreshTrigger={mappedRefresh}
             onCountChanged={setMappedCount}
           />
@@ -126,7 +130,6 @@ export function SoftwareMappingSection({
             setError={setError}
             refreshTrigger={ignoredRefresh}
             onRestored={handleRestored}
-            onMappingChanged={handleMappingChanged}
             onCountChanged={setIgnoredCount}
           />
         )}

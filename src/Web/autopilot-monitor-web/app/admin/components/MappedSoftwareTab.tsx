@@ -4,13 +4,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
-import { CpeMappingEntry } from "./SoftwareMappingTypes";
+import { cpeProductKey, customMappingEntries, withProductFlags } from "./softwareMapping";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { DeleteCustomCpeMappingRequest, GetCpeMappingsResponse, SaveCustomCpeMappingRequest } from "@/lib/generated/wire-types.generated";
+import { SelfUpdatingPill } from "@/components/vulnerability/VulnerabilityChips";
+import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import type {
+  CpeMappingItem,
+  DeleteCustomCpeMappingRequest,
+  GetCpeMappingsResponse,
+  SaveCustomCpeMappingRequest,
+  SetCpeProductFlagsRequest,
+  SetCpeProductFlagsResponse,
+  SuccessMessageResponse,
+} from "@/lib/generated/wire-types.generated";
 
 interface MappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
+  setSuccessMessage: (message: string | null) => void;
   refreshTrigger: number;
   onCountChanged: (count: number) => void;
 }
@@ -20,10 +31,14 @@ const pageSize = 20;
 export function MappedSoftwareTab({
   getAccessToken,
   setError,
+  setSuccessMessage,
   refreshTrigger,
   onCountChanged,
 }: MappedSoftwareTabProps) {
-  const [mappedEntries, setMappedEntries] = useState<CpeMappingEntry[]>([]);
+  // Editing, deleting and flagging a product are Global Admin writes: a Global Reader gets the
+  // list, the search and the export, and the self-updating state as a pill on the row.
+  const canMutate = useCanMutatePlatform();
+  const [mappedEntries, setMappedEntries] = useState<CpeMappingItem[]>([]);
   // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
   const [mappedLoading, setMappedLoading] = useState(true);
   const [mappedLoaded, setMappedLoaded] = useState(false);
@@ -34,15 +49,15 @@ export function MappedSoftwareTab({
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
     cpeUri: string;
-    cpeVendor: string;
-    cpeProduct: string;
     category: string;
     displayNamePatterns: string;
     publisherPatterns: string;
     excludePatterns: string;
-  }>({ cpeUri: "", cpeVendor: "", cpeProduct: "", category: "", displayNamePatterns: "", publisherPatterns: "", excludePatterns: "" });
+  }>({ cpeUri: "", category: "", displayNamePatterns: "", publisherPatterns: "", excludePatterns: "" });
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingRow, setDeletingRow] = useState<string | null>(null);
+  /** The product ("vendor:product") whose self-updating flag is being saved. */
+  const [savingFlag, setSavingFlag] = useState<string | null>(null);
 
   // Track previous refreshTrigger to detect changes
   const prevRefreshTrigger = useRef(refreshTrigger);
@@ -92,7 +107,7 @@ export function MappedSoftwareTab({
 
   // --- Helpers ---
 
-  const getMappedRowKey = (entry: CpeMappingEntry): string =>
+  const getMappedRowKey = (entry: CpeMappingItem): string =>
     `${entry.source}::${entry.normalizedVendor}::${entry.normalizedProduct}`;
 
   // Jump back to page 0 when the search changes (adjust-during-render pattern,
@@ -131,18 +146,18 @@ export function MappedSoftwareTab({
         return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300";
       case "community":
         return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300";
+      case "auto":
+        return "border border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300";
       default:
         return "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300";
     }
   };
 
-  const startEditing = (entry: CpeMappingEntry) => {
+  const startEditing = (entry: CpeMappingItem) => {
     const key = getMappedRowKey(entry);
     setEditingRow(key);
     setEditForm({
       cpeUri: entry.cpeUri,
-      cpeVendor: entry.cpeVendor,
-      cpeProduct: entry.cpeProduct,
       category: entry.category,
       displayNamePatterns: entry.displayNamePatterns.join(", "),
       publisherPatterns: entry.publisherPatterns.join(", "),
@@ -150,7 +165,7 @@ export function MappedSoftwareTab({
     });
   };
 
-  const handleSaveEdit = async (entry: CpeMappingEntry) => {
+  const handleSaveEdit = async (entry: CpeMappingItem) => {
     const cpeUri = editForm.cpeUri.trim();
     if (!cpeUri) return;
 
@@ -180,8 +195,6 @@ export function MappedSoftwareTab({
             normalizedProduct: entry.normalizedProduct,
             normalizedVendor: entry.normalizedVendor,
             cpeUri: cpeUri,
-            cpeVendor: editForm.cpeVendor.trim(),
-            cpeProduct: editForm.cpeProduct.trim(),
             category: editForm.category.trim() || "custom",
             displayNamePatterns: displayNamePatterns.length > 0 ? displayNamePatterns : entry.displayNamePatterns,
             publisherPatterns: publisherPatterns.length > 0 ? publisherPatterns : entry.publisherPatterns,
@@ -201,22 +214,22 @@ export function MappedSoftwareTab({
     }
   };
 
-  const handleDeleteMapping = async (entry: CpeMappingEntry) => {
-    if (!confirm(`Delete mapping for "${entry.normalizedProduct}"? This cannot be undone.`)) return;
-
+  const handleDeleteMapping = async (entry: CpeMappingItem) => {
     const key = getMappedRowKey(entry);
     try {
       setDeletingRow(key);
       setError(null);
 
-      await fetchOk(
+      const result = await fetchJson<SuccessMessageResponse>(
         api.vulnerability.cpeMapping(),
         getAccessToken,
         {
           method: "DELETE",
           body: jsonBody<DeleteCustomCpeMappingRequest>({
+            // The row key names the mapping; the product goes along because the request type requires it.
             normalizedProduct: entry.normalizedProduct,
-            normalizedVendor: entry.normalizedVendor,
+            rowKey: entry.rowKey,
+            source: entry.source,
           }),
         }
       );
@@ -226,6 +239,9 @@ export function MappedSoftwareTab({
         onCountChanged(updated.length);
         return updated;
       });
+      // The backend's own words: removing an automatic mapping also puts the program on the ignore list.
+      setSuccessMessage(result.message || "CPE mapping deleted");
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
       console.error("Error deleting CPE mapping:", err);
       setError(apiErrorText(err, "Failed to delete CPE mapping"));
@@ -234,30 +250,39 @@ export function MappedSoftwareTab({
     }
   };
 
+  const handleSetSelfUpdating = async (product: string, selfUpdating: boolean) => {
+    try {
+      setSavingFlag(product);
+      setError(null);
+
+      const flags = await fetchJson<SetCpeProductFlagsResponse>(
+        api.vulnerability.cpeProductFlags(),
+        getAccessToken,
+        {
+          method: "POST",
+          body: jsonBody<SetCpeProductFlagsRequest>({ product, selfUpdating }),
+        }
+      );
+
+      setMappedEntries((prev) => withProductFlags(prev, product, flags));
+    } catch (err) {
+      console.error("Error saving the self-updating flag:", err);
+      setError(apiErrorText(err, "Failed to save the self-updating flag"));
+    } finally {
+      setSavingFlag(null);
+    }
+  };
+
   // --- JSON Export ---
 
-  const handleExportJson = () => {
-    const dataToExport = filteredMappedEntries;
-    const exportData = {
-      version: "1.0.0",
-      lastUpdated: new Date().toISOString().split("T")[0],
-      mappings: dataToExport.map((m) => ({
-        normalizedVendor: m.normalizedVendor,
-        normalizedProduct: m.normalizedProduct,
-        displayNamePatterns: m.displayNamePatterns,
-        publisherPatterns: m.publisherPatterns,
-        excludePatterns: m.excludePatterns || [],
-        cpeVendor: m.cpeVendor,
-        cpeProduct: m.cpeProduct,
-        cpeUri: m.cpeUri,
-        category: m.category,
-      })),
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+  const hasCustomMappings = mappedEntries.some((m) => m.source === "custom");
+
+  const handleExportCustom = () => {
+    const blob = new Blob([JSON.stringify(customMappingEntries(mappedEntries), null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `cpe-mapping-export-${exportData.lastUpdated}.json`;
+    a.download = `cpe-custom-mappings-${new Date().toISOString().split("T")[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     trackEvent("software_mapping_exported");
@@ -301,16 +326,17 @@ export function MappedSoftwareTab({
           {searchQuery ? ` of ${mappedEntries.length}` : ""} mappings
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={handleExportJson}
-            disabled={filteredMappedEntries.length === 0}
-            className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            Export JSON
-          </button>
+          {hasCustomMappings && (
+            <button
+              onClick={handleExportCustom}
+              className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Export custom mappings
+            </button>
+          )}
           <button
             onClick={fetchCpeMappings}
             className="text-sm text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 flex items-center gap-1.5"
@@ -342,7 +368,7 @@ export function MappedSoftwareTab({
                 <col style={{ width: "30%" }} />
                 <col className="w-24" />
                 <col className="w-20" />
-                <col className="w-24" />
+                {canMutate && <col className="w-24" />}
               </colgroup>
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
@@ -351,21 +377,25 @@ export function MappedSoftwareTab({
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">CPE URI</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  {canMutate && (
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {paginatedMappedEntries.map((entry) => {
                   const key = getMappedRowKey(entry);
                   const isEditing = editingRow === key;
+                  const productKey = cpeProductKey(entry);
 
                   return (
                     <tr key={key} className="group">
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={canMutate ? 6 : 5} className="p-0">
                         <div className={`hover:bg-amber-50/50 dark:hover:bg-amber-900/5 transition-colors ${isEditing ? "bg-amber-50/50 dark:bg-amber-900/5" : ""}`}>
                           <div className="flex">
-                            <div className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-0 truncate" title={entry.normalizedProduct}>
-                              {entry.normalizedProduct}
+                            <div className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-0 flex items-center gap-2">
+                              <span className="truncate" title={entry.normalizedProduct}>{entry.normalizedProduct}</span>
+                              {entry.selfUpdating && <SelfUpdatingPill className="flex-shrink-0" />}
                             </div>
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "14%", flexShrink: 0 }} title={entry.normalizedVendor}>
                               {entry.normalizedVendor || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
@@ -381,32 +411,53 @@ export function MappedSoftwareTab({
                                 {entry.source}
                               </span>
                             </div>
-                            <div className="px-3 py-3 text-sm flex-shrink-0 w-24 flex items-center gap-2">
-                              <button
-                                onClick={() => isEditing ? setEditingRow(null) : startEditing(entry)}
-                                className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
-                                  isEditing
-                                    ? "bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200"
-                                    : "bg-gray-100 text-gray-600 hover:bg-amber-100 hover:text-amber-700 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-amber-900/50 dark:hover:text-amber-400"
-                                }`}
-                              >
-                                {isEditing ? "Close" : "Edit"}
-                              </button>
-                              {entry.source === "custom" && (
+                            {canMutate && (
+                              <div className="px-3 py-3 text-sm flex-shrink-0 w-24 flex items-center gap-2">
                                 <button
-                                  onClick={() => handleDeleteMapping(entry)}
-                                  disabled={deletingRow === key}
-                                  className="text-xs px-2.5 py-1 rounded-md font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  onClick={() => isEditing ? setEditingRow(null) : startEditing(entry)}
+                                  className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
+                                    isEditing
+                                      ? "bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200"
+                                      : "bg-gray-100 text-gray-600 hover:bg-amber-100 hover:text-amber-700 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-amber-900/50 dark:hover:text-amber-400"
+                                  }`}
                                 >
-                                  {deletingRow === key ? "..." : "Delete"}
+                                  {isEditing ? "Close" : "Edit"}
                                 </button>
-                              )}
-                            </div>
+                                {(entry.source === "custom" || entry.source === "auto") && (
+                                  <button
+                                    onClick={() => handleDeleteMapping(entry)}
+                                    disabled={deletingRow === key}
+                                    className="text-xs px-2.5 py-1 rounded-md font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  >
+                                    {deletingRow === key ? "..." : "Delete"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {/* Inline edit form */}
-                          {isEditing && (
+                          {canMutate && isEditing && (
                             <div className="px-4 pb-3 pt-2 border-t border-amber-100 dark:border-amber-900/30 bg-amber-50/80 dark:bg-amber-900/10">
+                              {productKey && (
+                                <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                                  <span className="font-medium text-gray-700 dark:text-gray-300" title={productKey}>Self-updating</span>
+                                  <label className="relative inline-flex flex-shrink-0 items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      role="switch"
+                                      aria-label="Self-updating"
+                                      checked={entry.selfUpdating}
+                                      onChange={() => handleSetSelfUpdating(productKey, !entry.selfUpdating)}
+                                      disabled={savingFlag === productKey}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-amber-500 dark:peer-checked:bg-amber-500 peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-500 peer-focus-visible:ring-offset-1 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                                  </label>
+                                  <span>Applies to every mapping of this product.</span>
+                                  {entry.selfUpdating !== entry.selfUpdatingDefault && <span>Differs from the default.</span>}
+                                </div>
+                              )}
                               <div className="grid grid-cols-2 gap-3 mb-3">
                                 <div>
                                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">CPE URI</label>
@@ -424,26 +475,6 @@ export function MappedSoftwareTab({
                                     type="text"
                                     value={editForm.category}
                                     onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
-                                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
-                                    disabled={savingEdit}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">CPE Vendor</label>
-                                  <input
-                                    type="text"
-                                    value={editForm.cpeVendor}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, cpeVendor: e.target.value }))}
-                                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
-                                    disabled={savingEdit}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">CPE Product</label>
-                                  <input
-                                    type="text"
-                                    value={editForm.cpeProduct}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, cpeProduct: e.target.value }))}
                                     className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
                                     disabled={savingEdit}
                                   />
@@ -502,9 +533,9 @@ export function MappedSoftwareTab({
                                 >
                                   Cancel
                                 </button>
-                                {entry.source === "seed" && (
+                                {entry.source !== "custom" && (
                                   <span className="text-xs text-gray-400 dark:text-gray-500 italic ml-auto">
-                                    Editing a seed entry will create a custom override
+                                    {`Saving creates a custom mapping that takes precedence over this ${entry.source} entry.`}
                                   </span>
                                 )}
                               </div>

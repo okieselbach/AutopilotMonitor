@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { reseedNotice } from "./reseedResult";
 import type { ReseedFromGitHubResponse } from "@/lib/generated/wire-types.generated";
 
 interface ConfigReseedSectionProps {
@@ -22,6 +23,17 @@ export function ConfigReseedSection({
   const [reseedingImePatterns, setReseedingImePatterns] = useState(false);
   const [fetchingFromGitHub, setFetchingFromGitHub] = useState(false);
 
+  // The request can succeed while the answer says the reseed did not (a refused mapping list).
+  const showResult = (result: ReseedFromGitHubResponse, successText: string, clearAfterMs: number) => {
+    const notice = reseedNotice(result, successText);
+    if (notice.ok) {
+      setSuccessMessage(notice.text);
+      setTimeout(() => setSuccessMessage(null), clearAfterMs);
+    } else {
+      setError(notice.text);
+    }
+  };
+
   const handleReseedAnalyzeRules = async () => {
     try {
       setReseedingRules(true);
@@ -31,8 +43,7 @@ export function ConfigReseedSection({
       const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("analyze"), getAccessToken, {
         method: "POST",
       });
-      setSuccessMessage(`Analyze rules reseeded from GitHub: ${result.analyze?.deleted ?? 0} deleted, ${result.analyze?.written ?? 0} written`);
-      setTimeout(() => setSuccessMessage(null), 5000);
+      showResult(result, `Analyze rules reseeded from GitHub: ${result.analyze?.deleted ?? 0} deleted, ${result.analyze?.written ?? 0} written`, 5000);
     } catch (err) {
       console.error("Error reseeding analyze rules:", err);
       setError(apiErrorText(err, "Failed to reseed analyze rules"));
@@ -50,8 +61,7 @@ export function ConfigReseedSection({
       const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("gather"), getAccessToken, {
         method: "POST",
       });
-      setSuccessMessage(`Gather rules reseeded from GitHub: ${result.gather?.deleted ?? 0} deleted, ${result.gather?.written ?? 0} written`);
-      setTimeout(() => setSuccessMessage(null), 5000);
+      showResult(result, `Gather rules reseeded from GitHub: ${result.gather?.deleted ?? 0} deleted, ${result.gather?.written ?? 0} written`, 5000);
     } catch (err) {
       console.error("Error reseeding gather rules:", err);
       setError(apiErrorText(err, "Failed to reseed gather rules"));
@@ -69,8 +79,7 @@ export function ConfigReseedSection({
       const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("ime"), getAccessToken, {
         method: "POST",
       });
-      setSuccessMessage(`IME log patterns reseeded from GitHub: ${result.ime?.deleted ?? 0} deleted, ${result.ime?.written ?? 0} written`);
-      setTimeout(() => setSuccessMessage(null), 5000);
+      showResult(result, `IME log patterns reseeded from GitHub: ${result.ime?.deleted ?? 0} deleted, ${result.ime?.written ?? 0} written`, 5000);
     } catch (err) {
       console.error("Error reseeding IME log patterns:", err);
       setError(apiErrorText(err, "Failed to reseed IME log patterns"));
@@ -88,12 +97,13 @@ export function ConfigReseedSection({
       const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("all"), getAccessToken, {
         method: "POST",
       });
-      setSuccessMessage(
+      showResult(
+        result,
         `GitHub Reseed complete: Gather (${result.gather?.deleted ?? 0} deleted, ${result.gather?.written ?? 0} written), ` +
         `Analyze (${result.analyze?.deleted ?? 0} deleted, ${result.analyze?.written ?? 0} written), ` +
-        `IME (${result.ime?.deleted ?? 0} deleted, ${result.ime?.written ?? 0} written)`
+        `IME (${result.ime?.deleted ?? 0} deleted, ${result.ime?.written ?? 0} written)`,
+        8000
       );
-      setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
       console.error("Error reseeding from GitHub:", err);
       setError(apiErrorText(err, "Failed to reseed from GitHub"));

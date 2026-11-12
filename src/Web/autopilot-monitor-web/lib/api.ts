@@ -377,10 +377,12 @@ export const api = {
       `${API_BASE_URL}/api/global/metrics/rule-stats${qs({ startDate, endDate, ruleType, tenantId })}`,
     // perBand: per severity/priority band, its top entries outside the lists (bandCves/bandSoftware),
     // so the panel's band filters never come up empty while the band has entries.
-    vulnerability: (days?: number, topN?: number, perBand?: number) =>
-      `${API_BASE_URL}/api/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), perBand: perBand?.toString() })}`,
-    globalVulnerability: (days?: number, topN?: number, tenantId?: string, perBand?: number) =>
-      `${API_BASE_URL}/api/global/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), tenantId, perBand: perBand?.toString() })}`,
+    // includeSelfUpdating: counts and lists self-updating software too; left out, the backend's
+    // default applies and that software stays out of every number and list.
+    vulnerability: (days?: number, topN?: number, perBand?: number, includeSelfUpdating?: boolean) =>
+      `${API_BASE_URL}/api/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), perBand: perBand?.toString(), includeSelfUpdating: includeSelfUpdating ? "true" : undefined })}`,
+    globalVulnerability: (days?: number, topN?: number, tenantId?: string, perBand?: number, includeSelfUpdating?: boolean) =>
+      `${API_BASE_URL}/api/global/metrics/vulnerability${qs({ days: days?.toString(), topN: topN?.toString(), tenantId, perBand: perBand?.toString(), includeSelfUpdating: includeSelfUpdating ? "true" : undefined })}`,
     // Tenant-scoped installed-software inventory (JWT-scoped; MemberRead).
     softwareInventory: () =>
       `${API_BASE_URL}/api/metrics/software-inventory`,
@@ -735,6 +737,8 @@ export const api = {
     cpeMappings: () => `${API_BASE_URL}/api/vulnerability/cpe-mappings`,
     cpeMapping: () => `${API_BASE_URL}/api/vulnerability/cpe-mapping`,
     cpeAutoResolve: () => `${API_BASE_URL}/api/vulnerability/cpe-mapping/auto-resolve`,
+    /** POST — per-product flags (self-updating), Global Admin only. */
+    cpeProductFlags: () => `${API_BASE_URL}/api/vulnerability/cpe-product-flags`,
     unmatchedSoftware: (skip?: number, take?: number) =>
       `${API_BASE_URL}/api/vulnerability/unmatched-software${qs({
         skip: skip !== undefined ? String(skip) : undefined,

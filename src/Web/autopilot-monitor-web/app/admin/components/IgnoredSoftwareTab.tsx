@@ -4,17 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { trackEvent } from "@/lib/appInsights";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
-import type { AutoResolveCpeMappingRequest, GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest } from "@/lib/generated/wire-types.generated";
+import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import type { GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest, IgnoredSoftwareItem } from "@/lib/generated/wire-types.generated";
 
 interface IgnoredSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
   refreshTrigger: number;
   onRestored: () => void;
-  onMappingChanged: () => void;
   onCountChanged: (count: number) => void;
 }
 
@@ -25,10 +23,11 @@ export function IgnoredSoftwareTab({
   setError,
   refreshTrigger,
   onRestored,
-  onMappingChanged,
   onCountChanged,
 }: IgnoredSoftwareTabProps) {
-  const [ignoredEntries, setIgnoredEntries] = useState<IgnoredSoftwareEntry[]>([]);
+  // Taking a program off the ignore list is a Global Admin write; a Global Reader gets the list.
+  const canMutate = useCanMutatePlatform();
+  const [ignoredEntries, setIgnoredEntries] = useState<IgnoredSoftwareItem[]>([]);
   // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
   const [ignoredLoading, setIgnoredLoading] = useState(true);
   const [ignoredLoaded, setIgnoredLoaded] = useState(false);
@@ -42,7 +41,7 @@ export function IgnoredSoftwareTab({
       setIgnoredLoading(true);
       setError(null);
       const data = await fetchJson<GetIgnoredSoftwareResponse>(api.vulnerability.ignoredSoftware(), getAccessToken);
-      const items: IgnoredSoftwareEntry[] = data.items || [];
+      const items: IgnoredSoftwareItem[] = data.items || [];
       setIgnoredEntries(items);
       setIgnoredLoaded(true);
       setIgnoredPage(0);
@@ -66,7 +65,7 @@ export function IgnoredSoftwareTab({
 
   // --- Handlers ---
 
-  const handleRestoreSoftware = async (entry: IgnoredSoftwareEntry) => {
+  const handleRestoreSoftware = async (entry: IgnoredSoftwareItem) => {
     const key = `${entry.softwareName}::${entry.publisher}`;
     try {
       setRestoringRow(key);
@@ -84,44 +83,6 @@ export function IgnoredSoftwareTab({
     } catch (err) {
       console.error("Error restoring software:", err);
       setError(apiErrorText(err, "Failed to restore software"));
-    } finally {
-      setRestoringRow(null);
-    }
-  };
-
-  const handleCheckNvdFromIgnored = async (entry: IgnoredSoftwareEntry) => {
-    const key = `${entry.softwareName}::${entry.publisher}`;
-    try {
-      setRestoringRow(key);
-      setError(null);
-      // First, call auto-resolve for this single item
-      const data = await fetchJson<AutoResolveResult>(api.vulnerability.cpeAutoResolve(), getAccessToken, {
-        method: "POST",
-        body: jsonBody<AutoResolveCpeMappingRequest>({
-          items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", normalizedVendor: entry.publisher || "" }],
-        }),
-      });
-
-      if (data.totalResolved > 0) {
-        // Resolved! Remove from ignore list and refresh
-        await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
-          method: "DELETE",
-          body: jsonBody<IgnoreSoftwareDeleteRequest>({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
-        });
-        setIgnoredEntries((prev) => {
-          const next = prev.filter((e) => `${e.softwareName}::${e.publisher}` !== key);
-          onCountChanged(next.length);
-          return next;
-        });
-        onMappingChanged();
-        setError(null);
-        trackEvent("ignored_nvd_check_resolved", { softwareName: entry.softwareName, cpeUri: data.resolved[0]?.cpeUri });
-      } else {
-        setError(`No CPE match found for "${entry.softwareName}" (${data.failed[0]?.reason || "no match"})`);
-      }
-    } catch (err) {
-      console.error("Error checking NVD:", err);
-      setError(apiErrorText(err, "NVD check failed"));
     } finally {
       setRestoringRow(null);
     }
@@ -183,12 +144,12 @@ export function IgnoredSoftwareTab({
                 <col />
                 <col style={{ width: "20%" }} />
                 <col className="w-24" />
-                <col style={{ width: "210px" }} />
+                <col style={{ width: "130px" }} />
               </colgroup>
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Software Name</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Publisher</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Program</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vendor</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ignored At</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -211,20 +172,15 @@ export function IgnoredSoftwareTab({
                       </td>
                       <td className="px-3 py-3 text-sm">
                         <div className="flex items-center gap-2 whitespace-nowrap">
-                          <button
-                            onClick={() => handleRestoreSoftware(entry)}
-                            disabled={isRestoring}
-                            className="text-xs px-2.5 py-1 rounded-md font-medium bg-gray-100 text-gray-600 hover:bg-amber-100 hover:text-amber-700 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-amber-900/50 dark:hover:text-amber-400 disabled:opacity-40 transition-colors"
-                          >
-                            {isRestoring ? "..." : "Restore"}
-                          </button>
-                          <button
-                            onClick={() => handleCheckNvdFromIgnored(entry)}
-                            disabled={isRestoring}
-                            className="text-xs px-2.5 py-1 rounded-md font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 disabled:opacity-40 transition-colors"
-                          >
-                            {isRestoring ? "..." : "Check NVD"}
-                          </button>
+                          {canMutate && (
+                            <button
+                              onClick={() => handleRestoreSoftware(entry)}
+                              disabled={isRestoring}
+                              className="text-xs px-2.5 py-1 rounded-md font-medium bg-gray-100 text-gray-600 hover:bg-amber-100 hover:text-amber-700 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-amber-900/50 dark:hover:text-amber-400 disabled:opacity-40 transition-colors"
+                            >
+                              {isRestoring ? "..." : "Restore"}
+                            </button>
+                          )}
                           <a
                             href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName)}`}
                             target="_blank"

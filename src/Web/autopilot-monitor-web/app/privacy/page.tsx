@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "9 November 2026";
+const LAST_UPDATED = "12 November 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -159,8 +159,9 @@ export default function PrivacyPage() {
             delivers the welcome email when a tenant is activated and the farewell email after offboarding — it receives
             an administrator&apos;s email address and the tenant domain, never enrollment telemetry; open and click
             tracking is disabled. Vulnerability reference data is read inbound from NVD, the CISA KEV
-            catalog, MSRC, and the FIRST EPSS service; nothing about your environment is sent to them — the EPSS
-            lookup carries only public CVE identifiers from the shared reference cache.
+            catalog, MSRC, and the FIRST EPSS service; nothing about your environment is sent to them — the NVD
+            and EPSS lookups carry only public identifiers from the shared reference cache: a product identifier
+            or a CVE number.
           </p>
           <p className="text-gray-700">
             Further connections exist only because you configure them: your own Azure storage account for diagnostics,
