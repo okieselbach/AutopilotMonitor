@@ -15,6 +15,7 @@ import { UserAvatar } from './UserAvatar';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
 import { useEditionInfo } from '@/hooks/useEditionInfo';
+import { canUseAdminMode } from '@/lib/tenantScope';
 import GlobalSearch from './GlobalSearch';
 import { DOCS_URL } from "@/lib/config";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -137,10 +138,12 @@ export default function Navbar() {
   const isOperator = user?.role === 'Operator';
   const isViewer = user?.role === 'Viewer';
   const isAdminOrOperator = isTenantAdmin || isOperator;
+  // The Admin Mode toggle shows for exactly the users in whose hands it takes effect (useAdminMode).
+  const canToggleAdminMode = canUseAdminMode(user);
   // Everything the settings menu can hold. With no toggle applicable — an Operator/Viewer, or a
-  // Global Admin presenting in demo mode without an own tenant-admin role — the menu would open
-  // onto an empty panel, so the gear (and the mobile "Administration" block) stays hidden.
-  const showAdminToggles = isTenantAdmin || (hasGlobalScope && !demoMode);
+  // Global Reader presenting in demo mode — the menu would open onto an empty panel, so the gear
+  // (and the mobile "Administration" block) stays hidden.
+  const showAdminToggles = canToggleAdminMode || (hasGlobalScope && !demoMode);
   // Tenant notification dismiss is currently tenant-shared (clearing for one user clears for
   // all). Only Admins / Global Admins are permitted to dismiss; Operators and Viewers see the
   // bell as read-only. See TenantNotificationContext + EndpointAccessPolicyCatalog.
@@ -442,7 +445,7 @@ export default function Navbar() {
                 <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-[32rem] overflow-y-auto">
                   <div className="p-3">
                     {/* MODE TOGGLES */}
-                    {isTenantAdmin && (
+                    {canToggleAdminMode && (
                       <>
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Administration</p>
 
@@ -695,7 +698,7 @@ export default function Navbar() {
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Administration</p>
 
                         {/* Admin Mode Toggle */}
-                        {isTenantAdmin && (
+                        {canToggleAdminMode && (
                           <div className="flex items-center justify-between py-2 px-2.5 rounded-md bg-gray-50 dark:bg-gray-700 mb-1">
                             <div className="flex items-center gap-1.5">
                               <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAdministerTenant,
   canManageBootstrapSessions,
+  canUseAdminMode,
   hasOwnTenantOrPlatformRole,
   hasTenantReadScope,
   type TenantScopeUser,
@@ -80,6 +82,63 @@ describe("hasTenantReadScope", () => {
     expect(
       hasTenantReadScope(user({ isGlobalAdmin: true, isTenantAdmin: true, role: "Admin" }))
     ).toBe(true);
+  });
+});
+
+describe("canUseAdminMode (mirror of TenantAdminOrGA)", () => {
+  it("is false without a user (auth still loading) and for a roleless member", () => {
+    expect(canUseAdminMode(null)).toBe(false);
+    expect(canUseAdminMode(undefined)).toBe(false);
+    expect(canUseAdminMode(user())).toBe(false);
+  });
+
+  it("is true for the tenant Admin and a Global Admin without a tenant role", () => {
+    expect(canUseAdminMode(user({ isTenantAdmin: true, role: "Admin" }))).toBe(true);
+    expect(canUseAdminMode(user({ role: "Admin" }))).toBe(true);
+    expect(canUseAdminMode(user({ isGlobalAdmin: true }))).toBe(true);
+  });
+
+  it("is false for Operator, Viewer, Global Reader and a delegated admin", () => {
+    expect(canUseAdminMode(user({ role: "Operator" }))).toBe(false);
+    expect(canUseAdminMode(user({ role: "Operator", canManageBootstrapTokens: true }))).toBe(false);
+    expect(canUseAdminMode(user({ role: "Viewer" }))).toBe(false);
+    expect(canUseAdminMode(user({ isGlobalReader: true }))).toBe(false);
+    expect(canUseAdminMode(user({ isDelegated: true }))).toBe(false);
+  });
+
+  it("follows the emulated role in a view-as tab (no platform role there)", () => {
+    expect(canUseAdminMode(user({ isTenantAdmin: true, role: "Admin" }))).toBe(true);
+    expect(canUseAdminMode(user({ role: "Operator" }))).toBe(false);
+    expect(canUseAdminMode(user({ role: "Viewer" }))).toBe(false);
+  });
+});
+
+describe("canAdministerTenant (TenantAdminOrGA with the session's tenant)", () => {
+  const own = "11111111-1111-1111-1111-111111111111";
+  const other = "22222222-2222-2222-2222-222222222222";
+
+  it("lets a Global Admin act on any tenant", () => {
+    expect(canAdministerTenant(user({ isGlobalAdmin: true }), other, own)).toBe(true);
+    expect(canAdministerTenant(user({ isGlobalAdmin: true }), own, own)).toBe(true);
+  });
+
+  it("lets the tenant Admin act on the own tenant only, case-insensitively", () => {
+    const admin = user({ isTenantAdmin: true, role: "Admin" });
+    expect(canAdministerTenant(admin, own.toUpperCase(), own)).toBe(true);
+    expect(canAdministerTenant(admin, other, own)).toBe(false);
+  });
+
+  it("refuses a delegated admin or Global Reader on a foreign tenant even with an own Admin role", () => {
+    expect(canAdministerTenant(user({ isDelegated: true, isTenantAdmin: true, role: "Admin" }), other, own)).toBe(false);
+    expect(canAdministerTenant(user({ isGlobalReader: true, isTenantAdmin: true, role: "Admin" }), other, own)).toBe(false);
+  });
+
+  it("refuses Operator, Viewer, a missing user and unknown tenants", () => {
+    expect(canAdministerTenant(user({ role: "Operator" }), own, own)).toBe(false);
+    expect(canAdministerTenant(user({ role: "Viewer" }), own, own)).toBe(false);
+    expect(canAdministerTenant(null, own, own)).toBe(false);
+    expect(canAdministerTenant(user({ isTenantAdmin: true }), "", own)).toBe(false);
+    expect(canAdministerTenant(user({ isTenantAdmin: true }), own, null)).toBe(false);
   });
 });
 

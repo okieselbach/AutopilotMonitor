@@ -167,9 +167,10 @@ function SessionDetailContent() {
 
   // Cross-tenant read-only view: a delegated ("MSP") admin viewing a MANAGED tenant's session. The backend
   // permits the reads (MemberRead + ?tenantId=, rescued by the delegated scope) but rejects the mutations
-  // (mark-failed/succeeded/report are TenantAdminOrGA). A Global Admin keeps write rights cross-tenant, and
-  // own-tenant viewers are unaffected. `tenantIdOverride` seeds this before the session object has loaded so
-  // the write controls never flash in.
+  // (mark-failed/succeeded are TenantAdminOrGA, report and actions TenantAdminOrOperator). A Global Admin keeps
+  // write rights cross-tenant, and own-tenant viewers are unaffected. `tenantIdOverride` seeds this before the
+  // session object has loaded so the write controls never flash in. Succeed/Fail additionally need Admin Mode,
+  // which takes effect only for a tenant Admin or Global Admin (useAdminMode).
   const viewedTenantId = (session?.tenantId ?? sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
   const isCrossTenantView = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
@@ -285,27 +286,24 @@ function SessionDetailContent() {
   const cancelMarkFailed = () => setShowMarkFailedConfirm(false);
   const cancelMarkSucceeded = () => setShowMarkSucceededConfirm(false);
 
-  const confirmMarkFailed = async () => {
+  const markSession = async (outcome: 'Failed' | 'Succeeded') => {
     const effectiveTenantId = sessionTenantId || tenantId;
+    const url = outcome === 'Failed'
+      ? api.sessions.markFailed(sessionId, effectiveTenantId)
+      : api.sessions.markSucceeded(sessionId, effectiveTenantId);
     try {
-      await fetchOk(api.sessions.markFailed(sessionId, effectiveTenantId), getAccessToken, { method: 'POST' });
-      setShowMarkFailedConfirm(false);
-      if (session) setSession({ ...session, status: 'Failed' });
+      await fetchOk(url, getAccessToken, { method: 'POST' });
+      if (session) setSession({ ...session, status: outcome });
     } catch (error) {
-      console.error('Error marking session as failed:', error);
+      const verb = outcome.toLowerCase();
+      notifyError(`Mark as ${verb}`, error, 'mark-session-error', `The session could not be marked as ${verb}.`);
+    } finally {
+      if (outcome === 'Failed') setShowMarkFailedConfirm(false);
+      else setShowMarkSucceededConfirm(false);
     }
   };
-
-  const confirmMarkSucceeded = async () => {
-    const effectiveTenantId = sessionTenantId || tenantId;
-    try {
-      await fetchOk(api.sessions.markSucceeded(sessionId, effectiveTenantId), getAccessToken, { method: 'POST' });
-      setShowMarkSucceededConfirm(false);
-      if (session) setSession({ ...session, status: 'Succeeded' });
-    } catch (error) {
-      console.error('Error marking session as succeeded:', error);
-    }
-  };
+  const confirmMarkFailed = () => markSession('Failed');
+  const confirmMarkSucceeded = () => markSession('Succeeded');
 
   const handleSubmitReport = async (submission: ReportSubmission) => {
     const effectiveTenantId = sessionTenantId || tenantId;

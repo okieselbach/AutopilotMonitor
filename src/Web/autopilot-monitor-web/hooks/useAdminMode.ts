@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   DEMO_MODE_STORAGE_KEY,
   effectiveGlobalAdminMode,
   readDemoParam,
   stripDemoParam,
 } from "@/lib/demoMode";
+import { canUseAdminMode } from "@/lib/tenantScope";
 import { readViewAs } from "@/lib/viewAs";
 
 interface UseAdminModeReturn {
@@ -144,9 +146,15 @@ export function useAdminMode(): UseAdminModeReturn {
   // write would otherwise reach every other tab through the storage event. Fixed for the page's life.
   const forcedOff = demoMode || readViewAs() !== null;
 
+  // The stored flag is shared by every account in this browser. It takes effect only for a role whose
+  // backend tier admits the Admin Mode actions; the stored value stays, so the admin account that set it
+  // finds it unchanged.
+  const { user } = useAuth();
+  const adminModeAllowed = canUseAdminMode(user);
+
   return {
-    adminMode,
-    setAdminMode: setAdminModeState,
+    adminMode: adminMode && adminModeAllowed,
+    setAdminMode: adminModeAllowed ? setAdminModeState : () => {},
     globalAdminMode: effectiveGlobalAdminMode(globalAdminMode, forcedOff),
     // No-op while presenting or viewing as a tenant. The toggle is hidden then anyway; this keeps any
     // other caller from re-arming the global view behind the operator's back.

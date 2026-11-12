@@ -144,7 +144,7 @@ function HomeContent() {
   const {
     showBlockConfirm, blockTargets, blockingDevice, blockedDevicesSet, setBlockedDevicesSet,
     blockDevices, confirmBlock, cancelBlock,
-  } = useBlockDevice(getAccessToken, addNotification, adminMode, crossTenant);
+  } = useBlockDevice(getAccessToken, addNotification, adminMode, joinGlobalAdmins);
 
   const {
     sessions, loading, hasMore, loadingMore, loadingAll,
@@ -627,6 +627,7 @@ function HomeContent() {
               blockedDevicesSet={blockedDevicesSet}
               isActivationPending={isActivationPending}
               user={user}
+              ownTenantId={tenantId}
               columnFilters={columnFilters}
               onColumnFiltersChange={setColumnFilters}
               onDeleteSessions={deleteSessions}

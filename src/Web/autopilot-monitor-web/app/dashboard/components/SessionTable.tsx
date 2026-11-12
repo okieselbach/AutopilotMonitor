@@ -22,6 +22,7 @@ import { TenantFilterBar } from "./TenantFilterBar";
 import type { DeleteTarget } from "../hooks/useDeleteSession";
 import type { BlockTarget } from "../hooks/useBlockDevice";
 import { BULK_MAX_TARGETS, addSelections } from "../hooks/bulkActions";
+import { canAdministerTenant, type TenantScopeUser } from "@/lib/tenantScope";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -105,7 +106,9 @@ interface SessionTableProps {
   tenantDomainById: Map<string, string>;
   blockedDevicesSet: Set<string>;
   isActivationPending: boolean;
-  user: { isGlobalAdmin?: boolean } | null;
+  user: TenantScopeUser | null;
+  /** The caller's own tenant: a tenant Admin may delete only its sessions (canAdministerTenant). */
+  ownTenantId: string;
   columnFilters: Record<string, Set<string>>;
   onColumnFiltersChange: (filters: Record<string, Set<string>>) => void;
   /** Opens the delete confirm for one session (row icon) or many (Select mode). */
@@ -161,6 +164,7 @@ export function SessionTable({
   blockedDevicesSet,
   isActivationPending,
   user,
+  ownTenantId,
   columnFilters,
   onColumnFiltersChange,
   onDeleteSessions,
@@ -334,7 +338,10 @@ export function SessionTable({
   const canBlock = globalAdminMode && !!user?.isGlobalAdmin;
   const colSpan = activeColumns.length + (selecting ? 1 : 0);
 
-  const isSelectable = (s: Session) => !pendingDeletions.has(s.sessionId);
+  // A delegated admin or Global Reader with an own Admin role sees foreign tenants' rows too; the
+  // backend refuses every write there, so those rows get no delete icon and no checkbox.
+  const canAdminister = (s: Session) => canAdministerTenant(user, s.tenantId, ownTenantId);
+  const isSelectable = (s: Session) => !pendingDeletions.has(s.sessionId) && canAdminister(s);
 
   // Effective selection = selected ∩ currently visible (filtered) ∩ not already queued for
   // deletion, cut to BULK_MAX_TARGETS. Derived at read time so rows that vanish (deleted,
@@ -942,11 +949,11 @@ export function SessionTable({
                     columnKey={col.key}
                     session={session}
                     href={selecting ? null : linkFor(session)}
-                    adminMode={adminMode}
                     globalAdminMode={globalAdminMode}
                     blockedDevicesSet={blockedDevicesSet}
                     user={user}
                     selectMode={selecting}
+                    canDelete={canAdminister(session)}
                     onDeleteSessions={onDeleteSessions}
                     isDeletionPending={pendingDeletions.has(session.sessionId)}
                     onBlockDevices={onBlockDevices}
@@ -1052,6 +1059,7 @@ function SessionCell({
   blockedDevicesSet,
   user,
   selectMode,
+  canDelete,
   onDeleteSessions,
   isDeletionPending,
   onBlockDevices,
@@ -1061,12 +1069,13 @@ function SessionCell({
   session: Session;
   /** Null while selecting — cells then render no navigation overlay. */
   href: Route | null;
-  adminMode: boolean;
   globalAdminMode: boolean;
   blockedDevicesSet: Set<string>;
   user: { isGlobalAdmin?: boolean } | null;
   /** Row-level action icons are hidden while selecting; the bulk bar owns the actions then. */
   selectMode: boolean;
+  /** The caller may delete this session (canAdministerTenant); otherwise the row shows no delete icon. */
+  canDelete: boolean;
   onDeleteSessions: (targets: DeleteTarget[]) => void;
   /** True when the V2 cascade has been queued for this session and we're awaiting `sessionDeleted`. */
   isDeletionPending: boolean;
@@ -1338,7 +1347,7 @@ function SessionCell({
                   <path d="M4 12a8 8 0 018-8" strokeWidth="3" className="opacity-75" />
                 </svg>
               </span>
-            ) : selectMode ? null : (
+            ) : selectMode || !canDelete ? null : (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

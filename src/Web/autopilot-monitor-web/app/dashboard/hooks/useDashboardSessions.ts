@@ -143,6 +143,7 @@ export function useDashboardSessions({
   // Refs for fetch closures (refetch is called from various effects/handlers and should
   // always see current filter values without forcing dependency-driven recreation)
   const adminModeRef = useLatest(adminMode);
+  const joinGlobalAdminsRef = useLatest(joinGlobalAdmins);
   const continuationRef = useLatest(continuation);
 
   // Synchronous lock: set true BEFORE the first await so two triggers in the same
@@ -185,15 +186,15 @@ export function useDashboardSessions({
   const hasJoinedGroup = useRef(false);
 
   const fetchBlockedDevices = useCallback(async (currentSessions: Session[]) => {
-    if (!adminModeRef.current || !globalAdminModeRef.current) {
+    // The block list is a platform read (GlobalReadOrAdmin): a delegated admin's cross-tenant view
+    // would only collect 403s.
+    if (!adminModeRef.current || !joinGlobalAdminsRef.current) {
       setBlockedDevicesSet(new Set());
       return;
     }
 
     try {
-      const tenantIds = globalAdminModeRef.current
-        ? [...new Set(currentSessions.map((s) => s.tenantId))]
-        : tenantIdRef.current ? [tenantIdRef.current] : [];
+      const tenantIds = [...new Set(currentSessions.map((s) => s.tenantId))];
 
       if (tenantIds.length === 0) {
         setBlockedDevicesSet(new Set());
@@ -219,7 +220,7 @@ export function useDashboardSessions({
     } catch (error) {
       console.error("Failed to fetch blocked devices:", error);
     }
-  }, [getAccessToken, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
+  }, [getAccessToken, setBlockedDevicesSet, adminModeRef, joinGlobalAdminsRef]);
 
   // Internal batch fetcher — returns data without touching state so callers can
   // decide how to apply it (single append vs. progressive loop). First-page calls use

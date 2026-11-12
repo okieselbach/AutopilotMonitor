@@ -53,6 +53,33 @@ export function hasTenantReadScope(
 }
 
 /**
+ * True when Admin Mode may take effect for the user: the tenant Admin or a Global Admin, the roles
+ * the backend's TenantAdminOrGA tier admits for the actions behind it (delete, mark succeeded or
+ * failed). The toggle shows for exactly these users, and a stored "on" from another account in the
+ * same browser stays inert for everyone else.
+ */
+export function canUseAdminMode(user: TenantScopeUser | null | undefined): boolean {
+  if (!user) return false;
+  return !!(user.isGlobalAdmin || user.isTenantAdmin || user.role === "Admin");
+}
+
+/**
+ * True when the user may run Admin Mode actions on a session of `sessionTenantId`: a Global Admin
+ * on any tenant, the tenant Admin only on their own (`ownTenantId`). A delegated or Global Reader
+ * view of a foreign tenant gets no write control, because the backend refuses it there.
+ */
+export function canAdministerTenant(
+  user: TenantScopeUser | null | undefined,
+  sessionTenantId: string | null | undefined,
+  ownTenantId: string | null | undefined
+): boolean {
+  if (!user) return false;
+  if (user.isGlobalAdmin) return true;
+  if (!canUseAdminMode(user) || !sessionTenantId || !ownTenantId) return false;
+  return sessionTenantId.toLowerCase() === ownTenantId.toLowerCase();
+}
+
+/**
  * True when the user may list and manage their OWN tenant's bootstrap sessions — the client
  * mirror of the backend's BootstrapManagerOrGA tier: Global Admin, the tenant Admin, or an
  * Operator granted "manage bootstrap tokens". It is a write tier, so neither the read-only
