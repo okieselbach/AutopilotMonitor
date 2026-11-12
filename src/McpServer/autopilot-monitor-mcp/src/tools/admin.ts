@@ -336,6 +336,16 @@ export function platformWindowEcho(
 }
 
 /**
+ * Cursor after one page of the backend-paged unmatched list. The backend serves at most its own
+ * page cap however many rows were asked for, so the next offset counts the rows that arrived;
+ * counting the rows asked for skips the difference.
+ */
+export function nextUnmatchedLink(skip: number, returned: number, total: number): string | null {
+  const nextOffset = skip + returned;
+  return returned > 0 && nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
+}
+
+/**
  * Page client-side over a software-inventory payload. The inventory endpoints
  * ({@code /api/metrics/software-inventory}, {@code /api/vulnerability/software-inventory})
  * return the full per-tenant inventory in one shot (no server-side cursor): a busy
@@ -2267,9 +2277,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           const m = continuation ? /^unmatched-offset:(\d+)$/.exec(continuation) : null;
           const skip = m ? parseInt(m[1], 10) : 0;
           const data = await apiFetch<GetUnmatchedSoftwareResponse>(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`);
-          const total = data?.total ?? 0;
-          const nextOffset = skip + pageSize;
-          const nextLink = nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
+          const nextLink = nextUnmatchedLink(skip, data?.software?.length ?? 0, data?.total ?? 0);
           return toolResultText({ ...data, offset: skip, nextLink }, MAX_RESULT_SIZE_CHARS.adminStream);
         }
         // Per-tenant inventory. GA → /api/vulnerability/software-inventory (needs tenantId);

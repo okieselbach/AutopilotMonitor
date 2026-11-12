@@ -7,7 +7,7 @@
  *    sessions; the cap and a truncated flag are now surfaced.
  */
 import { describe, it, expect } from 'vitest';
-import { inferGeoGroupBy, buildGeoLocationParams, platformWindowEcho, paginateInventory } from '../tools/admin.js';
+import { inferGeoGroupBy, buildGeoLocationParams, platformWindowEcho, paginateInventory, nextUnmatchedLink } from '../tools/admin.js';
 
 describe('inferGeoGroupBy', () => {
   it('treats a single-segment key as country', () => {
@@ -127,5 +127,22 @@ describe('paginateInventory', () => {
 
   it('handles a null/non-object payload defensively', () => {
     expect(paginateInventory(null, 200)).toEqual({ inventory: [], total: 0, count: 0, offset: 0, nextLink: null });
+  });
+});
+
+describe('nextUnmatchedLink', () => {
+  it('advances by the rows that arrived when the backend serves fewer than asked for', () => {
+    // 500 asked, the backend's page cap is 200: the next page starts at 200, not at 500.
+    expect(nextUnmatchedLink(0, 200, 716)).toBe('unmatched-offset:200');
+    expect(nextUnmatchedLink(200, 200, 716)).toBe('unmatched-offset:400');
+  });
+
+  it('ends at the total', () => {
+    expect(nextUnmatchedLink(600, 116, 716)).toBeNull();
+    expect(nextUnmatchedLink(0, 50, 50)).toBeNull();
+  });
+
+  it('ends on an empty page instead of repeating the same cursor', () => {
+    expect(nextUnmatchedLink(200, 0, 716)).toBeNull();
   });
 });
