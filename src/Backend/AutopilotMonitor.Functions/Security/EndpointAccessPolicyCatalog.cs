@@ -691,6 +691,7 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "vulnerability/cpe-mapping/auto-resolve", EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "vulnerability/cpe-mapping",       EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/cpe-mappings",      EndpointPolicy.GlobalReadOrAdmin),
+        new("POST",   "vulnerability/cpe-product-flags", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/ignored-software", EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "vulnerability/ignored-software", EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "vulnerability/ignored-software", EndpointPolicy.GlobalAdminOnly),

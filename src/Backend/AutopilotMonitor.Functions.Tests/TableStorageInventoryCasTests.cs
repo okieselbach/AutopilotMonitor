@@ -140,6 +140,48 @@ public class TableStorageInventoryCasTests
         harness.SoftwareInventory.Verify(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// The CPE on an existing row follows the matching: a computed value replaces it, the empty
+    /// "no mapping" clears it, and null (matching did not run) leaves it alone.
+    /// </summary>
+    [Theory]
+    [InlineData("cpe:2.3:a:contoso:widget_pro", "cpe:2.3:a:contoso:widget_pro")]
+    [InlineData("", "")]
+    [InlineData(null, "cpe:2.3:a:contoso:widget")]
+    public async Task Increment_writes_the_computed_cpe_onto_an_existing_row(string? computedCpe, string expectedOnRow)
+    {
+        var existing = new TableEntity(TenantId, "contoso:widget:1.0")
+        {
+            ["NormalizedName"] = "widget",
+            ["SessionCount"]  = 3,
+            ["CpeUri"]        = "cpe:2.3:a:contoso:widget",
+        };
+        existing.ETag = new ETag("0xABC");
+
+        var harness = new Harness();
+        harness.SoftwareInventory.Setup(t =>
+            t.GetEntityAsync<TableEntity>(TenantId, It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(existing, new Mock<Response>().Object));
+
+        TableEntity? written = null;
+        harness.SoftwareInventory.Setup(t => t.UpdateEntityAsync(
+                It.IsAny<TableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+            .Returns<TableEntity, ETag, TableUpdateMode, CancellationToken>((e, _, _, _) =>
+            {
+                written = e;
+                return Task.FromResult(new Mock<Response>().Object);
+            });
+
+        var item = new SoftwareInventoryItem
+        {
+            NormalizedVendor = "contoso", NormalizedName = "widget", NormalizedVersion = "1.0", CpeUri = computedCpe,
+        };
+        await harness.Sut.IncrementSoftwareInventoryEntryAsync(TenantId, item, SessionId);
+
+        Assert.Equal(expectedOnRow, written!.GetString("CpeUri"));
+        Assert.Equal(4, written.GetInt32("SessionCount"));
+    }
+
     [Fact]
     public async Task Increment_retries_on_412_etag_conflict_and_succeeds_on_second_attempt()
     {

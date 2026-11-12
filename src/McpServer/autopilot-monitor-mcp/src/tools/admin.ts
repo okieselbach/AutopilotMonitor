@@ -336,6 +336,16 @@ export function platformWindowEcho(
 }
 
 /**
+ * Cursor after one page of the backend-paged unmatched list. The backend serves at most its own
+ * page cap however many rows were asked for, so the next offset counts the rows that arrived;
+ * counting the rows asked for skips the difference.
+ */
+export function nextUnmatchedLink(skip: number, returned: number, total: number): string | null {
+  const nextOffset = skip + returned;
+  return returned > 0 && nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
+}
+
+/**
  * Page client-side over a software-inventory payload. The inventory endpoints
  * ({@code /api/metrics/software-inventory}, {@code /api/vulnerability/software-inventory})
  * return the full per-tenant inventory in one shot (no server-side cursor): a busy
@@ -2022,35 +2032,38 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Vulnerability Summary',
       description:
-        'Get a fleet-wide vulnerability exposure summary aggregated from detected CVEs: total affected devices, ' +
-        'distinct CVE and product counts, KEV (CISA Known-Exploited) count and the devices carrying one, a severity breakdown, ' +
-        'a priority breakdown (act/attend/track counts over every CVE in the window), the top CVEs ranked by how ' +
-        'many devices they affect (every KEV CVE is added even below topN), and topSoftware: the most exposed products ' +
-        '(grouped by CPE vendor:product, KEV products always added) with devices, CVE and KEV counts, worst severity and ' +
-        'priority, and their most urgent CVEs. Each CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS ' +
-        'probability of exploitation within 30 days, 0-1, null when unscored) and priority ("act" = in CISA KEV, ' +
-        '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = everything else) — rank remediation by priority, then EPSS, ' +
+        'Fleet CVE exposure: affected devices, distinct CVE and product counts, ' +
+        'KEV (CISA Known-Exploited) count and devices, severity and priority breakdowns (act/attend/track), the top CVEs ' +
+        'by affected devices (every KEV CVE added even below topN) and topSoftware: the most exposed products ' +
+        '(by CPE vendor:product, KEV products always added) with device, CVE and KEV counts, worst severity and ' +
+        'priority and their most urgent CVEs. Each CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS: ' +
+        'probability of exploitation within 30 days, 0-1, null = unscored) and priority ("act" = in CISA KEV, ' +
+        '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = the rest): rank remediation by priority, then EPSS, ' +
         'not by CVSS alone. ' +
         (ga ? 'The cross-tenant overview also returns the affected tenant count. ' : '') +
-        'Use this to answer "how exposed is the fleet / this ' +
-        'tenant?", "which CVEs affect the most devices?" and "which software to update first?" — for the device list of a single CVE use search_sessions_by_cve. ' +
-        'If "truncated" is true, the underlying index scan hit its cap and counts are a lower bound (narrow with tenantId). ' +
-        'Requires vulnerability scanning to be enabled (an empty summary means no findings, not necessarily "not affected").',
+        'Self-updating software (e.g. browsers) counts only with includeSelfUpdating=true; selfUpdatingSoftware / ' +
+        'selfUpdatingAffectedSessions say how much is left out. The index holds per product and device every KEV CVE ' +
+        'and the five most urgent others, which is what distinctCves counts. Devices of one CVE: ' +
+        'search_sessions_by_cve. "truncated": the index scan hit its cap, counts are a lower bound (narrow with tenantId). ' +
+        'Empty = no findings (scanning may be off), not "not affected".',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe(daysDescription(30, 365, 'Filters CVEs by detection time.')),
         topN: z.coerce.number().int().min(1).max(100).optional().default(20)
           .describe('How many top CVEs to return, ranked by affected device count (1-100, default 20); also sizes topSoftware (at most 20).'),
+        includeSelfUpdating: z.boolean().optional().default(false)
+          .describe('Count self-updating software too.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_vulnerability_summary', args, async () => {
       try {
-        const { tenantId: rawTenantId, days, topN } = args;
+        const { tenantId: rawTenantId, days, topN, includeSelfUpdating } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability', tenantId);
-        const data = await apiFetch<CveExposureSummary>(`${prefix}${buildQuery({ tenantId, days, topN })}`);
+        const data = await apiFetch<CveExposureSummary>(
+          `${prefix}${buildQuery({ tenantId, days, topN, includeSelfUpdating: includeSelfUpdating || undefined })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_vulnerability_summary', args, error);
@@ -2267,9 +2280,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           const m = continuation ? /^unmatched-offset:(\d+)$/.exec(continuation) : null;
           const skip = m ? parseInt(m[1], 10) : 0;
           const data = await apiFetch<GetUnmatchedSoftwareResponse>(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`);
-          const total = data?.total ?? 0;
-          const nextOffset = skip + pageSize;
-          const nextLink = nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
+          const nextLink = nextUnmatchedLink(skip, data?.software?.length ?? 0, data?.total ?? 0);
           return toolResultText({ ...data, offset: skip, nextLink }, MAX_RESULT_SIZE_CHARS.adminStream);
         }
         // Per-tenant inventory. GA → /api/vulnerability/software-inventory (needs tenantId);

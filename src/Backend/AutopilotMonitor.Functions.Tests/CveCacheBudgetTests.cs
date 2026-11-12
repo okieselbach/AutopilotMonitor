@@ -203,4 +203,72 @@ public class CveCacheBudgetTests
         Assert.Equal(0, r.TotalIn);
         Assert.Empty(r.Cves);
     }
+
+    // -----------------------------------------------------------------------
+    // Known-exploited CVEs and the cap
+    // -----------------------------------------------------------------------
+
+    private static CachedCve Exploited(string id, double score, DateTime publishedUtc)
+    {
+        var cve = Cve(id, score, publishedUtc);
+        cve.KevAdded = "2026-03-01";
+        return cve;
+    }
+
+    [Fact]
+    public void Apply_KnownExploitedCves_SurviveTheCapAheadOfHigherScores()
+    {
+        // More critical CVEs in the window than a row holds: by score alone the three exploited
+        // ones would be the first to go.
+        var cves = Enumerable.Range(1, 105)
+            .Select(i => Cve($"CVE-Critical-{i:000}", 9.8, Now.AddMonths(-2)))
+            .Concat(new[]
+            {
+                Exploited("CVE-Kev-1", 5.0, Now.AddMonths(-3)),
+                Exploited("CVE-Kev-2", 5.0, Now.AddMonths(-10)),
+                Exploited("CVE-Kev-3", 5.0, Now.AddMonths(-20)),
+            })
+            .ToList();
+
+        var r = CveCacheBudget.Apply(cves, Now);
+
+        Assert.Equal(108, r.KeptAfterDateFilter);
+        Assert.Equal(CveCacheBudget.MaxCachedCves, r.Cves.Count);
+        Assert.Equal(new[] { "CVE-Kev-1", "CVE-Kev-2", "CVE-Kev-3" }, r.Cves.Take(3).Select(c => c.CveId));
+        Assert.All(r.Cves.Skip(3), c => Assert.Equal(9.8, c.CvssScore));
+    }
+
+    [Fact]
+    public void Apply_KnownExploitedCveOutsideTheDateWindow_IsStillDropped()
+    {
+        var cves = new[]
+        {
+            Exploited("CVE-Kev-OldMedium", 5.0, Now.AddMonths(-30)),   // below HIGH: 24 months
+            Exploited("CVE-Kev-OldCritical", 9.8, Now.AddMonths(-61)), // HIGH and above: 60 months
+            Exploited("CVE-Kev-OldHigh", 7.5, Now.AddMonths(-40)),
+        };
+
+        var r = CveCacheBudget.Apply(cves, Now);
+
+        Assert.Equal("CVE-Kev-OldHigh", Assert.Single(r.Cves).CveId);
+    }
+
+    [Fact]
+    public void Apply_OrderAmongTheOtherCves_StaysScoreThenDate()
+    {
+        var cves = new[]
+        {
+            Cve("CVE-Medium", 5.0, Now.AddMonths(-1)),
+            Cve("CVE-High-Older", 8.0, Now.AddMonths(-12)),
+            Exploited("CVE-Kev-Low", 3.1, Now.AddMonths(-6)),
+            Cve("CVE-Critical", 9.8, Now.AddMonths(-20)),
+            Cve("CVE-High-Newer", 8.0, Now.AddMonths(-1)),
+        };
+
+        var r = CveCacheBudget.Apply(cves, Now);
+
+        Assert.Equal(
+            new[] { "CVE-Kev-Low", "CVE-Critical", "CVE-High-Newer", "CVE-High-Older", "CVE-Medium" },
+            r.Cves.Select(c => c.CveId));
+    }
 }

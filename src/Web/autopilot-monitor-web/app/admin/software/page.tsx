@@ -5,7 +5,7 @@ import { SoftwareMappingSection } from "../components/SoftwareMappingSection";
 import { AdminNotifications } from "../AdminNotifications";
 
 export default function SoftwareMappingPage() {
-  const { getAccessToken, setError } = useAdminConfig();
+  const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -20,6 +20,7 @@ export default function SoftwareMappingPage() {
         <SoftwareMappingSection
           getAccessToken={getAccessToken}
           setError={setError}
+          setSuccessMessage={setSuccessMessage}
         />
       </main>
     </div>

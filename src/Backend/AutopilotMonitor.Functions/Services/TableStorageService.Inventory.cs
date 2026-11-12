@@ -272,9 +272,10 @@ namespace AutopilotMonitor.Functions.Services
                     existing["SessionCount"]  = (existing.GetInt32("SessionCount") ?? 0) + 1;
                     existing["LastSeenAt"]    = nowIso;
                     existing["LastSessionId"] = sessionId;
-                    // Stamp a CpeUri if we just got one and the row didn't have one yet — preserves
-                    // existing behaviour from UpsertSoftwareInventoryAsync.
-                    if (!string.IsNullOrEmpty(item.CpeUri) && string.IsNullOrEmpty(existing.GetString("CpeUri")))
+                    // A computed CPE, including the empty "no mapping", replaces what the row holds, so
+                    // a corrected or withdrawn mapping reaches rows written before it. Null means the
+                    // caller did not run the matching.
+                    if (item.CpeUri != null)
                     {
                         existing["CpeUri"] = item.CpeUri;
                     }

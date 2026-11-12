@@ -767,6 +767,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       description:
         "Find enrollment sessions whose software inventory reported a given CVE (requires vulnerability scanning to be " +
         "enabled): which devices are affected by CVE-YYYY-NNNN, narrowed by minCvssScore / overallRisk. " +
+        "Indexed per product and device: every KEV CVE plus the five most urgent others. " +
         "The per-session vulnerability report (get_session_summary / vulnerability_report event) lists each CVE with " +
         "cvssScore, cvssVector, isKev, epssScore (FIRST EPSS, 0-1), epssPercentile and priority (act/attend/track).",
       inputSchema: {

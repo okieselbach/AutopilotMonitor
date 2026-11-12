@@ -22,7 +22,16 @@ public sealed class ResiliencePolicies
     ];
 
     /// <summary>
-    /// Policy for external data APIs (GitHub, NVD, CISA, MSRC):
+    /// Policy for the NVD API: one retry for a server error or a broken connection, behind its
+    /// own circuit breaker. A 429 is not retried, because the client paces its requests and opens
+    /// its own cooldown; a timeout is not retried, because a page of several megabytes that timed
+    /// out once is not fetched again inside a run with a time budget. The breaker is separate so
+    /// an NVD outage does not cut off the other sources.
+    /// </summary>
+    public IAsyncPolicy<HttpResponseMessage> NvdApi { get; }
+
+    /// <summary>
+    /// Policy for external data APIs (GitHub, CISA, MSRC, FIRST):
     /// Retry 3× with exponential backoff + jitter, wrapped in an advanced circuit breaker
     /// (≥50% failures in 30s → 60s open).
     /// </summary>
@@ -39,6 +48,7 @@ public sealed class ResiliencePolicies
     {
         var logger = loggerFactory.CreateLogger(nameof(ResiliencePolicies));
         ExternalDataApi = BuildExternalDataApi(logger);
+        NvdApi = BuildNvdApi(logger);
         Notification = BuildNotification(logger);
     }
 
@@ -84,6 +94,40 @@ public sealed class ResiliencePolicies
         // Retry (outer) wraps circuit breaker (inner):
         // When the CB is open it throws BrokenCircuitException, which the retry policy
         // does not handle, so retries stop immediately without exhausting the retry budget.
+        return Policy.WrapAsync(retry, circuitBreaker);
+    }
+
+    private static IAsyncPolicy<HttpResponseMessage> BuildNvdApi(ILogger logger)
+    {
+        var retry = Policy<HttpResponseMessage>
+            .HandleResult(r => (int)r.StatusCode >= 500)
+            .Or<HttpRequestException>()
+            .WaitAndRetryAsync(
+                retryCount: 1,
+                sleepDurationProvider: _ => TimeSpan.FromSeconds(2),
+                onRetry: (outcome, _, _, _) =>
+                    logger.LogWarning(outcome.Exception,
+                        "NVD request failed ({Reason}), retrying once",
+                        outcome.Exception?.GetType().Name ?? outcome.Result?.StatusCode.ToString()));
+
+        var circuitBreaker = Policy<HttpResponseMessage>
+            .HandleResult(r => (int)r.StatusCode >= 500)
+            .Or<HttpRequestException>()
+            .AdvancedCircuitBreakerAsync(
+                failureThreshold: 0.5,
+                samplingDuration: TimeSpan.FromSeconds(30),
+                minimumThroughput: 5,
+                durationOfBreak: TimeSpan.FromSeconds(60),
+                onBreak: (outcome, duration) =>
+                    logger.LogWarning(
+                        "NVD circuit breaker opened for {DurationSec}s — {Reason}",
+                        (int)duration.TotalSeconds,
+                        outcome.Exception?.Message ?? outcome.Result?.StatusCode.ToString()),
+                onReset: () => logger.LogInformation("NVD circuit breaker reset"),
+                onHalfOpen: () => logger.LogInformation("NVD circuit breaker half-open"));
+
+        // Retry outside, breaker inside: an open breaker throws BrokenCircuitException, which
+        // the retry does not handle.
         return Policy.WrapAsync(retry, circuitBreaker);
     }
 

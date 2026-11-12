@@ -4259,10 +4259,10 @@
     {
       "ruleId": "ANALYZE-ID-003",
       "title": "Critical Vulnerability Detected",
-      "description": "Fires when the vulnerability correlation finds critical-severity CVEs or CISA KEV entries in installed software. This indicates the device has software with known, actively exploited vulnerabilities.",
+      "description": "Fires when the vulnerability correlation finds critical-severity CVEs in installed software that has to be updated by hand. Software that updates itself, such as browsers, is listed in the vulnerability report but does not trigger this rule.",
       "severity": "critical",
       "category": "security",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "author": "Autopilot Monitor",
       "enabled": true,
       "evaluateOn": [
@@ -4276,7 +4276,7 @@
           "signal": "critical_vulnerabilities",
           "source": "event_type",
           "eventType": "vulnerability_report",
-          "dataField": "scan_summary.critical_cves",
+          "dataField": "scan_summary.actionable_critical_cves",
           "operator": "gte",
           "value": "1",
           "required": true
@@ -4285,7 +4285,16 @@
           "signal": "kev_matches",
           "source": "event_type",
           "eventType": "vulnerability_report",
-          "dataField": "scan_summary.kev_matches",
+          "dataField": "scan_summary.actionable_kev_matches",
+          "operator": "gte",
+          "value": "1",
+          "required": false
+        },
+        {
+          "signal": "self_updating_findings",
+          "source": "event_type",
+          "eventType": "vulnerability_report",
+          "dataField": "scan_summary.self_updating_cves",
           "operator": "gte",
           "value": "1",
           "required": false
@@ -4299,7 +4308,7 @@
         }
       ],
       "confidenceThreshold": 80,
-      "explanation": "The device has installed software with critical vulnerabilities. Software with CVEs rated CRITICAL (CVSS >= 9.0) or listed in the CISA Known Exploited Vulnerabilities catalog was detected. These vulnerabilities are actively targeted by attackers and should be remediated immediately.",
+      "explanation": "The device has installed software with critical vulnerabilities that an update of the software has to close. CVEs rated CRITICAL (CVSS >= 9.0) were found in software that is updated through your deployment. Findings listed in the CISA Known Exploited Vulnerabilities catalog are known to be used in attacks and should be remediated first. Software that updates itself, such as browsers, is not counted here, because it is expected to bring itself up to date after enrollment. Its findings are still listed in the vulnerability report.",
       "remediation": [
         {
           "title": "Review vulnerability findings",
@@ -4331,7 +4340,7 @@
       ],
       "presentation": {
         "role": "advisory",
-        "summary": "Installed software has {{critical_vulnerabilities.value}} critical vulnerabilities",
+        "summary": "Critical CVEs in software that needs a manual update: {{critical_vulnerabilities.value}}",
         "subject": {
           "kind": "device",
           "key": "vulnerabilities",
@@ -4346,6 +4355,11 @@
           {
             "label": "Known exploited",
             "value": "{{kev_matches.value}}",
+            "format": "number"
+          },
+          {
+            "label": "CVEs in self-updating software",
+            "value": "{{self_updating_findings.value}}",
             "format": "number"
           }
         ]

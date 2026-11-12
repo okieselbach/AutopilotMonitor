@@ -312,6 +312,90 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System.VulnerabilityCorrelation",
                 new { sessionId, failedIncrements, failedDecrements, sideRowFailed, error, sampleKeys });
 
+        /// <summary>
+        /// The nightly vulnerability data sync finished with parts that fell short. One event per
+        /// run; <paramref name="parts"/> names them in plain words, <paramref name="details"/>
+        /// carries the counts and error texts of the run.
+        /// </summary>
+        public virtual Task RecordVulnerabilityDataSyncDegradedAsync(IReadOnlyList<string> parts, object details)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.VulnerabilityDataSyncDegraded, OpsEventSeverity.Warning,
+                $"Vulnerability data sync degraded: {string.Join("; ", parts)}",
+                null, "System.VulnerabilityDataSync", details);
+
+        private const string CpeMappingsUnreadable = "CPE mappings could not be";
+        private const string CpeMappingListRefused = "CPE mapping list refused";
+
+        /// <summary>
+        /// The software-to-CPE mappings could not be read. Without an earlier copy every scan on
+        /// this instance waits, which is the Error; with one the scans go on over older mappings.
+        /// Every instance runs into the same outage and there are dozens of them, so today's
+        /// events are read first: one per UTC day and severity, unless two instances read at the
+        /// same moment. The mapping store adds its own hourly pause per instance.
+        /// </summary>
+        public virtual async Task RecordCpeMappingUnavailableAsync(string error, bool servingEarlierCopy)
+        {
+            var severity = servingEarlierCopy ? OpsEventSeverity.Warning : OpsEventSeverity.Error;
+            if (await RecordedTodayAsync(OpsEventTypes.CpeMappingUnavailable, severity, CpeMappingsUnreadable).ConfigureAwait(false))
+                return;
+
+            await WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CpeMappingUnavailable, severity,
+                servingEarlierCopy
+                    ? $"{CpeMappingsUnreadable} reloaded; an earlier copy keeps serving"
+                    : $"{CpeMappingsUnreadable} loaded; vulnerability scans are postponed",
+                null, "System.VulnerabilityCorrelation", new { error, servingEarlierCopy }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// An import fetched a mapping list the check refused; the mappings in service were kept.
+        /// It shares its type with an unreadable mapping table, because either way the mappings are
+        /// not what the rules repository says they should be. Error, once per UTC day and list.
+        /// </summary>
+        public virtual async Task RecordCpeMappingListRefusedAsync(string list, IReadOnlyList<string> problems)
+        {
+            if (problems.Count == 0) return;
+            var refused = $"{CpeMappingListRefused} ({list})";
+            if (await RecordedTodayAsync(OpsEventTypes.CpeMappingUnavailable, OpsEventSeverity.Error, refused).ConfigureAwait(false))
+                return;
+
+            await WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CpeMappingUnavailable, OpsEventSeverity.Error,
+                $"{refused}, the mappings in service were kept: {problems[0]}",
+                null, "System.VulnerabilityCorrelation", new { list, problems = problems.Take(20).ToList() }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// True when a Maintenance event of this type, at least this severity and this message
+        /// start was recorded today (UTC). A failed read counts as "not recorded": one event too
+        /// many is the smaller harm.
+        /// </summary>
+        private async Task<bool> RecordedTodayAsync(string eventType, string severity, string messageStart)
+        {
+            try
+            {
+                var today = DateTime.UtcNow.Date;
+                var events = await _repository.GetOpsEventsAsync(OpsEventCategory.Maintenance, today, today.AddDays(1)).ConfigureAwait(false);
+                return events.Any(e =>
+                    string.Equals(e.EventType, eventType, StringComparison.Ordinal)
+                    && OpsEventSeverity.Rank(e.Severity) >= OpsEventSeverity.Rank(severity)
+                    && (e.Message ?? string.Empty).StartsWith(messageStart, StringComparison.Ordinal));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Today's {EventType} events could not be read", eventType);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The nightly run created automatic CPE mappings. One event per run; the message names up
+        /// to ten as "program -> vendor:product", the details all of them. A program gets such a
+        /// mapping only when its name is an NVD product name, so the names are public ones.
+        /// </summary>
+        public virtual Task RecordCpeAutoMappingsCreatedAsync(IReadOnlyList<string> created)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CpeAutoMappingsCreated, OpsEventSeverity.Info,
+                $"{created.Count} automatic CPE mapping(s) created: {string.Join("; ", created.Take(10))}"
+                    + (created.Count > 10 ? "; ..." : string.Empty),
+                null, "System.VulnerabilityDataSync", new { created });
+
         // ── Cascade-Delete Maintenance (Plan §5 PR6 / §16 R14) ─────────────────
         // Event types dispatched by SessionDeletionMaintenanceFunction: Started, LongRunning,
         // LongRunningSevere, BudgetExceeded, SkippedLocked, Failed, Completed, FanoutSkipped

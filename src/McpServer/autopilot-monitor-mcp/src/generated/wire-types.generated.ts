@@ -825,7 +825,7 @@ export interface AutoResolveCpeMappingResponse {
 /** One software title the bulk auto-resolver could not map, with a reason code. */
 export interface AutoResolveFailedItem {
   softwareName: string;
-  /** empty_name | empty_keyword | nvd_throttled | nvd_unavailable | no_match | no_results | nvd_api_error. */
+  /** empty_name | already_mapped | ignored | no_exact_product | no_cves | unversioned_cves | store_package | nvd_unavailable | no_dictionary. */
   reason: string;
 }
 
@@ -833,7 +833,7 @@ export interface AutoResolveFailedItem {
 export interface AutoResolveResultItem {
   softwareName: string;
   cpeUri: string;
-  /** Match score of the selected CPE candidate, rounded to two decimals. */
+  /** Always 1: a name is mapped automatically only when it is exactly an NVD product name. Kept so the shape stays what clients read. */
   confidence: number;
 }
 
@@ -1164,10 +1164,16 @@ export interface CpeMappingItem {
   displayNamePatterns: string[];
   publisherPatterns: string[];
   excludePatterns: string[];
-  /** seed | custom | community, derived from the partition (falls back to the row's Source column). */
+  /** seed | custom | community | auto. "auto" is a mapping taken over from the NVD product dictionary without a human looking at it. */
   source: string;
   /** Preformatted ISO-8601 creation/import timestamp; empty when the row carries neither. */
   createdAt: string;
+  /** Table row key of the mapping; what a delete names. */
+  rowKey: string;
+  /** True when the mapped product counts as self-updating. The flag belongs to the product, so every mapping that points to it carries the same value. */
+  selfUpdating: boolean;
+  /** The value the seed list ships for the product; differs from SelfUpdating while an operator's own value is in place. */
+  selfUpdatingDefault: boolean;
 }
 
 export interface CrashExceptionSummary {
@@ -1322,6 +1328,12 @@ export interface CveExposureSummary {
   /** The same for products, banded by their most severe CVE and their highest priority, minus the entries of TopSoftware. Only on request; null (key omitted) otherwise. */
   bandSoftware?: TopSoftware[];
   truncated: boolean;
+  /** False (the default): software that updates itself is left out of every number and list above. True when the request asked for it (includeSelfUpdating=true), and when the product flags could not be read, because then everything is counted. */
+  selfUpdatingIncluded: boolean;
+  /** Self-updating products with a CVE in the window, whether or not they are included above. */
+  selfUpdatingSoftware: number;
+  /** Distinct sessions that carry a CVE in a self-updating product. */
+  selfUpdatingAffectedSessions: number;
 }
 
 /** One delegated-admin assignment: UPN X may access tenant Y at role Role. The "scoped global" tier (subset of tenants) between a single-tenant member and a platform GlobalAdmin. Surfaced as "MSP mode". */
@@ -1451,6 +1463,10 @@ export interface DeleteCustomCpeMappingRequest {
   /** Defaults to "unknown". */
   normalizedVendor?: string | null;
   normalizedProduct: string;
+  /** The mapping's row key as the listing gives it; when set, vendor and product are not needed. */
+  rowKey?: string | null;
+  /** custom (default) or auto. Seed and community mappings are not deleted here. */
+  source?: string | null;
 }
 
 /** One sampled table row key (delete preview / stored manifest summary). */
@@ -2899,6 +2915,8 @@ export interface IgnoreSoftwareItem {
   softwareName: string;
   publisher?: string;
   reason?: string;
+  /** The vendor the unmatched entry is filed under; the publisher is used when it is missing. */
+  normalizedVendor?: string;
 }
 
 /** Body of POST vulnerability/ignored-software. */
@@ -3701,6 +3719,8 @@ export interface NvdRefreshRunWire {
   failed: number;
   /** Stale entries left untouched because NVD opened its throttle cooldown mid-run. */
   skippedThrottled: number;
+  /** Stale entries left untouched because NVD stopped answering or the walk ran out of time. */
+  skippedUnavailable: number;
   error?: string;
   /** Preformatted ISO-8601 start timestamp. */
   startedUtc: string;
@@ -4242,6 +4262,10 @@ export interface ReseedFromGitHubResponse {
   ime: ReseedTableCountsNode;
   cpeCommunityMappings: ReseedTableCountsNode;
   cpeSeedMappings: ReseedTableCountsNode;
+  /** What the reseed changed on the software inventory rows; null (key omitted) when no CPE list was part of it. */
+  cpeInventory?: ReseedInventoryNode;
+  /** Why a CPE mapping list was refused; null (key omitted) when both were imported. A refused list leaves the mappings in service untouched, and Success is false. */
+  cpeProblems?: string[];
 }
 
 /** Response of POST rules/ime-log-patterns/reseed (Global Admin only). */
@@ -4250,6 +4274,18 @@ export interface ReseedImeLogPatternsResponse {
   message: string;
   deleted: number;
   written: number;
+}
+
+/** Software inventory rows brought in line with the mappings after a reseed. */
+export interface ReseedInventoryNode {
+  rows: number;
+  /** Rows that got a CPE or a different one. */
+  set: number;
+  /** Rows whose CPE was taken away because no mapping names them any more. */
+  cleared: number;
+  failed: number;
+  /** Products in use without CVE data yet, noted for the next refresh. */
+  productsNoted: number;
 }
 
 /** Reseed counters for a rule table with sunset handling (gather / analyze). */
@@ -4747,6 +4783,8 @@ export interface SaveCustomCpeMappingResponse {
   message: string;
   /** Sanitized Table Storage row key the mapping was stored under. */
   rowKey: string;
+  /** Inventory rows whose CPE changed through this mapping; null (key omitted) when the rows could not be brought in line right away and follow with the nightly run. */
+  inventoryRowsChanged?: number;
 }
 
 /** Body of PUT preview/notification-email and POST preview/send-welcome-email/{tenantId}. */
@@ -5221,6 +5259,23 @@ export interface SessionWatchResponse {
   expiresUtc?: string;
   /** Whether this caller can watch at all: an enabled Push channel in one of the caller's own scopes (home tenant; the platform for a Global Admin) where the caller holds an Admin or Operator role. False hides the portal's button instead of letting a click fail. */
   available: boolean;
+}
+
+/** Body of POST vulnerability/cpe-product-flags. */
+export interface SetCpeProductFlagsRequest {
+  /** The product as vendor:product, e.g. google:chrome. */
+  product: string;
+  selfUpdating?: boolean | null;
+}
+
+/** Response of POST vulnerability/cpe-product-flags: the product's flag after the change. */
+export interface SetCpeProductFlagsResponse {
+  success: boolean;
+  /** The product as vendor:product. */
+  product: string;
+  selfUpdating: boolean;
+  /** The value the seed list ships for the product. */
+  selfUpdatingDefault: boolean;
 }
 
 /** Response of PATCH global/mcp-users/{upn}/usage-plan: the UPN and the plan now in effect ("(inherit)" when cleared to the tenant default). */
@@ -6295,6 +6350,8 @@ export interface TopSoftware {
   titles: string[];
   /** The product's most urgent CVEs (priority, then EPSS, then CVSS), at most 3; CveCount is the full count. */
   cves: SoftwareCve[];
+  /** True for a product that counts as self-updating; null (key omitted) otherwise. */
+  selfUpdating?: boolean;
 }
 
 /** One serial-number bucket in the GetTpmPssUnsupported aggregation. All values are self-reported by devices through the unauthenticated distress channel — UNVERIFIED. */
@@ -6399,6 +6456,8 @@ export interface UnmatchedSoftwareItem {
   exampleSessionId?: string;
   normalizedVendor?: string;
   normalizedVersion?: string;
+  /** The name without version, architecture and language: with the vendor it is what the entry stands for, and what a mapping or an ignore decision for it is filed under. */
+  canonicalName?: string;
 }
 
 /** Response of PATCH global/config: acknowledgement plus the stored admin configuration. */

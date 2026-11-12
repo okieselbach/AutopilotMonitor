@@ -110,4 +110,22 @@ public class VersionComparerTests
         // No constraints = all versions affected
         Assert.True(VersionComparer.IsVersionAffected("99.99.99", null, null, null, null));
     }
+
+    // -----------------------------------------------------------------------
+    // AreComparable
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("26.198", "2022.30050", false)] // releases against years: the order says nothing
+    [InlineData("2022.30050", "26.198", false)]
+    [InlineData("2024.1", "2023.3", true)]
+    [InlineData("24.08", "25.0", true)]
+    [InlineData("", "2022.30050", true)]
+    [InlineData("26.198", "", true)]
+    [InlineData(null, "2022.30050", true)]
+    [InlineData("26.198", null, true)]
+    public void AreComparable_IsFalseOnlyForAYearSchemeAgainstAReleaseScheme(string? installed, string? rangeBoundary, bool expected)
+    {
+        Assert.Equal(expected, VersionComparer.AreComparable(installed, rangeBoundary));
+    }
 }

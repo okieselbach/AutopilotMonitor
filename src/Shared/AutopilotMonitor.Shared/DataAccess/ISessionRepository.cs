@@ -390,11 +390,18 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// was hit, so callers can surface partial-result truncation honestly.
         /// </summary>
         Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
-            string? tenantId, int maxRows, CancellationToken ct = default);
+            string? tenantId, int maxRows, DateTime? detectedSinceUtc = null, CancellationToken ct = default);
 
         // --- Agent Indexes ---
         Task UpsertEventTypeIndexBatchAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events);
         Task UpsertDeviceSnapshotAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events);
-        Task UpsertCveIndexEntriesAsync(string tenantId, string sessionId, List<Dictionary<string, object>> findings);
+        /// <summary>
+        /// Brings a session's CveIndex rows in line with its report's findings; the findings of the
+        /// report it replaces tell which rows exist. Never throws.
+        /// </summary>
+        Task ReplaceCveIndexEntriesAsync(
+            string tenantId, string sessionId,
+            List<Dictionary<string, object>>? findings,
+            List<Dictionary<string, object>>? previousFindings);
     }
 }

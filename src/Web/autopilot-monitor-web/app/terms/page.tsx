@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/lib/config";
 
-const LAST_UPDATED = "11 September 2026";
+const LAST_UPDATED = "12 November 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
 const DOCS_PLANS = `${DOCS_URL}/plans`;
@@ -184,7 +184,7 @@ export default function TermsPage() {
                 This product uses the NVD API but is not endorsed or certified by the NVD.
               </p>
               <p className="text-sm text-gray-500">
-                The NVD is maintained by the National Institute of Standards and Technology (NIST). CVE and CPE data is sourced from the NVD API 2.0. For more information, visit{" "}
+                The NVD is maintained by the National Institute of Standards and Technology (NIST). CVE data is sourced from the NVD API 2.0, the CPE product dictionary from the NVD data feeds. A lookup sends only a public product identifier — never tenant or device data. For more information, visit{" "}
                 <a href="https://nvd.nist.gov/" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">nvd.nist.gov</a>.
               </p>
             </div>

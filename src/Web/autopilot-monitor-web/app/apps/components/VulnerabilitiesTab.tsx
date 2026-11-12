@@ -19,7 +19,7 @@ const TOP_N = 20;
 /** Per severity/priority band, its top entries outside the lists, so every band filter shows something. */
 const PER_BAND = 10;
 
-/** Counts a filter, lens, sort or expand step; never a CVE id or a product name. */
+/** Counts a filter, lens, sort, expand or self-updating step; never a CVE id or a product name. */
 function trackExposureAction({ action, value, active }: ExposureAction) {
   trackEvent("vuln_exposure_action", {
     action,
@@ -57,6 +57,9 @@ export default function VulnerabilitiesTab({
   const [loaded, setLoaded] = useState<LoadedExposure | null>(null);
   const [loading, setLoading] = useState(true);
   const summary = loaded?.summary ?? null;
+  // The panel's Show / Hide of self-updating software. A new object per click, so that the same
+  // choice loads again after a load that failed and left the earlier numbers on screen.
+  const [selfUpdating, setSelfUpdating] = useState({ include: false });
 
   // GA without a specific tenant selected sees the cross-tenant aggregate (incl. affected tenants).
   const showTenantCount = isGlobalAdmin && !selectedTenantId;
@@ -76,7 +79,7 @@ export default function VulnerabilitiesTab({
       try {
         setLoading(true);
         progressBegin();
-        const url = scopedApi.vulnerability(scope, days, TOP_N, PER_BAND);
+        const url = scopedApi.vulnerability(scope, days, TOP_N, PER_BAND, selfUpdating.include);
         const summary = await fetchJson<CveExposureSummary>(url, getAccessToken);
         if (cancelled) return;
         setLoaded({ summary, days, crossTenant: showTenantCount });
@@ -101,7 +104,7 @@ export default function VulnerabilitiesTab({
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, windowReady, scopeKey, days]);
+  }, [scopeInitialized, windowReady, scopeKey, days, selfUpdating]);
 
   const hasFindings = !!summary && summary.distinctCves > 0;
   const analyzerOff = analyzerOn === false;
@@ -120,6 +123,7 @@ export default function VulnerabilitiesTab({
       cves: loaded.summary.distinctCves,
       kev: loaded.summary.kevCves,
       highRisk: loaded.summary.priorityBreakdown.attend,
+      selfUpdating: loaded.summary.selfUpdatingIncluded ? "included" : "excluded",
     });
   }, [viewState, loaded]);
 
@@ -137,6 +141,7 @@ export default function VulnerabilitiesTab({
         progress={{ elapsedMs: progress.elapsedMs, estimateMs: progress.estimateMs }}
         emptyState={analyzerOff ? <AnalyzerOffNotice subject="vulnerabilities" canEnable={canEnable} /> : undefined}
         onAction={trackExposureAction}
+        onIncludeSelfUpdatingChange={(include) => setSelfUpdating({ include })}
       />
     </div>
   );

@@ -72,7 +72,7 @@ namespace AutopilotMonitor.Functions.Services
 
         public async Task<string> FetchCpeSeedMappingsAsync()
         {
-            var url = $"{_baseUrl}/dist/cpe-mapping-seed.json";
+            var url = $"{_baseUrl}/dist/cpe-mappings.json";
             _logger.LogInformation("Fetching CPE seed mappings from {Url}", url);
             var json = await FetchAsync(url);
             _logger.LogInformation("Fetched CPE seed mappings JSON from GitHub ({Length} bytes)", json.Length);

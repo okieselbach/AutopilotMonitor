@@ -284,8 +284,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             => _storage.SearchSessionsByCvePageAsync(tenantId, cveId, minCvssScore, overallRisk, pageSize, continuation);
 
         public Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
-            string? tenantId, int maxRows, CancellationToken ct = default)
-            => _storage.ScanCveIndexAsync(tenantId, maxRows, ct);
+            string? tenantId, int maxRows, DateTime? detectedSinceUtc = null, CancellationToken ct = default)
+            => _storage.ScanCveIndexAsync(tenantId, maxRows, detectedSinceUtc, ct);
 
         public Task UpsertEventTypeIndexBatchAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events)
             => _storage.UpsertEventTypeIndexBatchAsync(tenantId, sessionId, events);
@@ -293,7 +293,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task UpsertDeviceSnapshotAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events)
             => _storage.UpsertDeviceSnapshotAsync(tenantId, sessionId, events);
 
-        public Task UpsertCveIndexEntriesAsync(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
-            => _storage.UpsertCveIndexEntriesAsync(tenantId, sessionId, findings);
+        public Task ReplaceCveIndexEntriesAsync(
+            string tenantId, string sessionId,
+            List<Dictionary<string, object>>? findings,
+            List<Dictionary<string, object>>? previousFindings)
+            => _storage.ReplaceCveIndexEntriesAsync(tenantId, sessionId, findings, previousFindings);
     }
 }

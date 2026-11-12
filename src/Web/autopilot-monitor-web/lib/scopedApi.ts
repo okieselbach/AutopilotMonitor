@@ -59,10 +59,11 @@ export const scopedApi = {
       ? api.metrics.globalGeographic(days, groupBy, globalTenantParam(sel))
       : api.metrics.geographic(sel.effectiveTenantId, days, groupBy),
 
-  vulnerability: (sel: TenantScopeSelection, days: number, topN: number, perBand?: number) =>
+  /** includeSelfUpdating: only the exposure panel's own Show sets it; the card and the tab badge read the default. */
+  vulnerability: (sel: TenantScopeSelection, days: number, topN: number, perBand?: number, includeSelfUpdating?: boolean) =>
     sel.routeGlobal
-      ? api.metrics.globalVulnerability(days, topN, globalTenantParam(sel), perBand)
-      : api.metrics.vulnerability(days, topN, perBand),
+      ? api.metrics.globalVulnerability(days, topN, globalTenantParam(sel), perBand, includeSelfUpdating)
+      : api.metrics.vulnerability(days, topN, perBand, includeSelfUpdating),
 
   appsList: (sel: TenantScopeSelection, days: number) =>
     sel.routeGlobal ? api.apps.globalList(days, globalTenantParam(sel)) : api.apps.list(sel.effectiveTenantId, days),

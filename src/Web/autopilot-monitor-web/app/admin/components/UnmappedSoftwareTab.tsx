@@ -7,12 +7,22 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
-import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
-import type { AutoResolveCpeMappingRequest, GetUnmatchedSoftwareResponse, IgnoreSoftwareRequest, SaveCustomCpeMappingRequest } from "@/lib/generated/wire-types.generated";
+import { failedByReasonLines, mappingSavedNotice } from "./softwareMapping";
+import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import type {
+  AutoResolveCpeMappingRequest,
+  AutoResolveCpeMappingResponse,
+  GetUnmatchedSoftwareResponse,
+  IgnoreSoftwareRequest,
+  SaveCustomCpeMappingRequest,
+  SaveCustomCpeMappingResponse,
+  UnmatchedSoftwareItem,
+} from "@/lib/generated/wire-types.generated";
 
 interface UnmappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
+  setSuccessMessage: (message: string | null) => void;
   onMappingChanged: () => void;
   onIgnored: () => void;
   onCountChanged: (count: number) => void;
@@ -22,17 +32,21 @@ interface UnmappedSoftwareTabProps {
 export function UnmappedSoftwareTab({
   getAccessToken,
   setError,
+  setSuccessMessage,
   onMappingChanged,
   onIgnored,
   onCountChanged,
   refreshTrigger,
 }: UnmappedSoftwareTabProps) {
+  // Mapping, ignoring and auto-mapping are Global Admin writes: a Global Reader gets the list
+  // without those controls and without the selection that only serves them.
+  const canMutate = useCanMutatePlatform();
   // Unmapped state — server-side pagination
   const pageSize = 20;
   // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
   const [loading, setLoading] = useState(true);
   const [initialLoaded, setInitialLoaded] = useState(false);
-  const [entries, setEntries] = useState<UnmatchedSoftwareEntry[]>([]);
+  const [entries, setEntries] = useState<UnmatchedSoftwareItem[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
 
@@ -43,7 +57,7 @@ export function UnmappedSoftwareTab({
   const [savedMappings, setSavedMappings] = useState<Set<string>>(new Set());
 
   // Bulk auto-resolve state — selection persists across pages, keyed by softwareName::publisher
-  const [selectedEntries, setSelectedEntries] = useState<Map<string, UnmatchedSoftwareEntry>>(new Map());
+  const [selectedEntries, setSelectedEntries] = useState<Map<string, UnmatchedSoftwareItem>>(new Map());
   const [autoResolving, setAutoResolving] = useState(false);
   const [autoResolveProgress, setAutoResolveProgress] = useState<{
     batchIndex: number;
@@ -51,7 +65,7 @@ export function UnmappedSoftwareTab({
     resolvedSoFar: number;
     failedSoFar: number;
   } | null>(null);
-  const [autoResolveResults, setAutoResolveResults] = useState<AutoResolveResult | null>(null);
+  const [autoResolveResults, setAutoResolveResults] = useState<AutoResolveCpeMappingResponse | null>(null);
 
   // Ignore state
   const [ignoringRow, setIgnoringRow] = useState<string | null>(null);
@@ -74,7 +88,7 @@ export function UnmappedSoftwareTab({
           api.vulnerability.unmatchedSoftware(page * pageSize, pageSize),
           getAccessToken
         );
-        const items: UnmatchedSoftwareEntry[] = data.software || [];
+        const items: UnmatchedSoftwareItem[] = data.software || [];
         const serverTotal: number = data.total ?? items.length;
         setEntries(items);
         setTotal(serverTotal);
@@ -149,12 +163,12 @@ export function UnmappedSoftwareTab({
   };
 
   const shortSessionId = (id?: string) => (id && id.length > 8 ? `${id.slice(0, 8)}...` : id ?? "");
-  const getRowKey = (entry: UnmatchedSoftwareEntry): string =>
+  const getRowKey = (entry: UnmatchedSoftwareItem): string =>
     `${entry.softwareName}::${entry.publisher}`;
 
   // --- Mapping ---
 
-  const toggleMappingRow = (entry: UnmatchedSoftwareEntry) => {
+  const toggleMappingRow = (entry: UnmatchedSoftwareItem) => {
     const key = getRowKey(entry);
     if (expandedMappingRow === key) {
       setExpandedMappingRow(null);
@@ -167,10 +181,10 @@ export function UnmappedSoftwareTab({
   };
 
   /** The backend keys mappings and ignores by software name; a nameless entry has nothing to send. */
-  const hasSoftwareName = (e: UnmatchedSoftwareEntry): e is UnmatchedSoftwareEntry & { softwareName: string } =>
+  const hasSoftwareName = (e: UnmatchedSoftwareItem): e is UnmatchedSoftwareItem & { softwareName: string } =>
     typeof e.softwareName === "string" && e.softwareName.length > 0;
 
-  const handleSaveMapping = async (entry: UnmatchedSoftwareEntry) => {
+  const handleSaveMapping = async (entry: UnmatchedSoftwareItem) => {
     if (!hasSoftwareName(entry)) return;
     const key = getRowKey(entry);
     const cpeUri = (cpeInputs[key] || "").trim();
@@ -180,17 +194,15 @@ export function UnmappedSoftwareTab({
       setSavingMapping(key);
       setError(null);
 
-      await fetchOk(
+      const saved = await fetchJson<SaveCustomCpeMappingResponse>(
         api.vulnerability.cpeMapping(),
         getAccessToken,
         {
           method: "POST",
           body: jsonBody<SaveCustomCpeMappingRequest>({
+            normalizedVendor: entry.normalizedVendor ?? "",
             normalizedProduct: entry.softwareName,
-            normalizedVendor: entry.publisher || "",
             cpeUri: cpeUri,
-            displayNamePatterns: [entry.softwareName],
-            publisherPatterns: entry.publisher ? [entry.publisher] : [],
           }),
         }
       );
@@ -198,6 +210,8 @@ export function UnmappedSoftwareTab({
       setSavedMappings((prev) => new Set(prev).add(key));
       setExpandedMappingRow(null);
       onMappingChanged();
+      setSuccessMessage(mappingSavedNotice(saved.inventoryRowsChanged));
+      setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
       console.error("Error saving CPE mapping:", err);
       setError(apiErrorText(err, "Failed to save CPE mapping"));
@@ -210,7 +224,7 @@ export function UnmappedSoftwareTab({
   // Selection is keyed by row-key but stores the full entry, so bulk actions can run
   // across pages without needing to re-fetch entries that have scrolled out of view.
 
-  const toggleRowSelection = (entry: UnmatchedSoftwareEntry) => {
+  const toggleRowSelection = (entry: UnmatchedSoftwareItem) => {
     const key = getRowKey(entry);
     setSelectedEntries((prev) => {
       const next = new Map(prev);
@@ -248,13 +262,13 @@ export function UnmappedSoftwareTab({
     setAutoResolveProgress(null);
 
     const BATCH_SIZE = 25;
-    const batches: UnmatchedSoftwareEntry[][] = [];
+    const batches: UnmatchedSoftwareItem[][] = [];
     for (let i = 0; i < selectedList.length; i += BATCH_SIZE) {
       batches.push(selectedList.slice(i, i + BATCH_SIZE));
     }
 
-    const cumulativeResolved: AutoResolveResult["resolved"] = [];
-    const cumulativeFailed: AutoResolveResult["failed"] = [];
+    const cumulativeResolved: AutoResolveCpeMappingResponse["resolved"] = [];
+    const cumulativeFailed: AutoResolveCpeMappingResponse["failed"] = [];
 
     try {
       for (let i = 0; i < batches.length; i++) {
@@ -265,7 +279,7 @@ export function UnmappedSoftwareTab({
           failedSoFar: cumulativeFailed.length,
         });
 
-        const data = await fetchJson<AutoResolveResult>(
+        const data = await fetchJson<AutoResolveCpeMappingResponse>(
           api.vulnerability.cpeAutoResolve(),
           getAccessToken,
           {
@@ -274,7 +288,7 @@ export function UnmappedSoftwareTab({
               items: batches[i].filter(hasSoftwareName).map((e) => ({
                 softwareName: e.softwareName,
                 publisher: e.publisher,
-                normalizedVendor: e.normalizedVendor || e.publisher || "",
+                normalizedVendor: e.normalizedVendor ?? "",
               })),
             }),
           }
@@ -314,7 +328,7 @@ export function UnmappedSoftwareTab({
 
   // --- Ignore ---
 
-  const handleIgnoreSoftware = async (entry: UnmatchedSoftwareEntry) => {
+  const handleIgnoreSoftware = async (entry: UnmatchedSoftwareItem) => {
     if (!hasSoftwareName(entry)) return;
     const key = getRowKey(entry);
     try {
@@ -323,7 +337,7 @@ export function UnmappedSoftwareTab({
       await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
         body: jsonBody<IgnoreSoftwareRequest>({
-          items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", reason: "manual" }],
+          items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", reason: "manual", normalizedVendor: entry.normalizedVendor ?? "" }],
         }),
       });
       setSelectedEntries((prev) => { const n = new Map(prev); n.delete(key); return n; });
@@ -347,7 +361,7 @@ export function UnmappedSoftwareTab({
       await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
         body: jsonBody<IgnoreSoftwareRequest>({
-          items: selectedList.filter(hasSoftwareName).map((e) => ({ softwareName: e.softwareName, publisher: e.publisher || "", reason: "manual" })),
+          items: selectedList.filter(hasSoftwareName).map((e) => ({ softwareName: e.softwareName, publisher: e.publisher || "", reason: "manual", normalizedVendor: e.normalizedVendor ?? "" })),
         }),
       });
       setSelectedEntries(new Map());
@@ -401,7 +415,7 @@ export function UnmappedSoftwareTab({
           </div>
 
           {/* Selection toolbar */}
-          {(selectedEntries.size > 0 || autoResolving) && (
+          {canMutate && (selectedEntries.size > 0 || autoResolving) && (
             <div className="flex flex-wrap items-center gap-3 pb-3 text-sm">
               <span className="text-gray-600 dark:text-gray-300 font-medium">
                 {selectedEntries.size} selected
@@ -487,10 +501,11 @@ export function UnmappedSoftwareTab({
                 </button>
               </div>
               {autoResolveResults.failed.length > 0 && (
-                <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">Failed items:</span>{" "}
-                  {autoResolveResults.failed.map((f) => `${f.softwareName} (${f.reason})`).join(", ")}
-                </div>
+                <ul className="mt-2 space-y-0.5 text-xs text-gray-600 dark:text-gray-400">
+                  {failedByReasonLines(autoResolveResults.failed).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
               )}
             </div>
           )}
@@ -499,7 +514,7 @@ export function UnmappedSoftwareTab({
           <div className="overflow-x-auto">
             <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
               <colgroup>
-                <col className="w-10" />
+                {canMutate && <col className="w-10" />}
                 <col />
                 <col style={{ width: "18%" }} />
                 <col className="w-24" />
@@ -509,15 +524,17 @@ export function UnmappedSoftwareTab({
               </colgroup>
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-2 py-3">
-                    <input
-                      type="checkbox"
-                      checked={allOnPageSelected && entries.length > 0}
-                      onChange={allOnPageSelected ? deselectAll : selectAllOnPage}
-                      disabled={autoResolving}
-                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
-                    />
-                  </th>
+                  {canMutate && (
+                    <th className="px-2 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allOnPageSelected && entries.length > 0}
+                        onChange={allOnPageSelected ? deselectAll : selectAllOnPage}
+                        disabled={autoResolving}
+                        className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
+                      />
+                    </th>
+                  )}
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Software Name</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Publisher</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Frequency</th>
@@ -535,19 +552,21 @@ export function UnmappedSoftwareTab({
 
                   return (
                     <tr key={key} className={`group hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors ${isMappingExpanded ? "bg-amber-50/50 dark:bg-amber-900/5" : ""}`}>
-                      <td colSpan={7} className="p-0">
+                      <td colSpan={canMutate ? 7 : 6} className="p-0">
                         <div className="flex items-center">
-                            <div className="w-10 px-2 py-3 flex items-center justify-center flex-shrink-0">
-                              {!isMapped && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedEntries.has(key)}
-                                  onChange={() => toggleRowSelection(entry)}
-                                  disabled={autoResolving}
-                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
-                                />
-                              )}
-                            </div>
+                            {canMutate && (
+                              <div className="w-10 px-2 py-3 flex items-center justify-center flex-shrink-0">
+                                {!isMapped && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedEntries.has(key)}
+                                    onChange={() => toggleRowSelection(entry)}
+                                    disabled={autoResolving}
+                                    className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
+                                  />
+                                )}
+                              </div>
+                            )}
                             <TruncatedLabel text={entry.softwareName ?? ""} className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1" />
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "18%", flexShrink: 0 }}>
                               {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
@@ -579,16 +598,18 @@ export function UnmappedSoftwareTab({
                                 </span>
                               ) : (
                                 <>
-                                  <button
-                                    onClick={() => toggleMappingRow(entry)}
-                                    className={`text-xs px-3 py-1 rounded-md font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
-                                      isMappingExpanded
-                                        ? "bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200"
-                                        : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-400 dark:hover:bg-amber-800/50"
-                                    }`}
-                                  >
-                                    Map
-                                  </button>
+                                  {canMutate && (
+                                    <button
+                                      onClick={() => toggleMappingRow(entry)}
+                                      className={`text-xs px-3 py-1 rounded-md font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
+                                        isMappingExpanded
+                                          ? "bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200"
+                                          : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-400 dark:hover:bg-amber-800/50"
+                                      }`}
+                                    >
+                                      Map
+                                    </button>
+                                  )}
                                   <a
                                     href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName ?? "")}`}
                                     target="_blank"
@@ -601,20 +622,22 @@ export function UnmappedSoftwareTab({
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                                     </svg>
                                   </a>
-                                  <button
-                                    onClick={() => handleIgnoreSoftware(entry)}
-                                    disabled={ignoringRow === key}
-                                    className="text-xs text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors"
-                                    title="Ignore — never auto-resolve"
-                                  >
-                                    {ignoringRow === key ? (
-                                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-gray-400" />
-                                    ) : (
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                      </svg>
-                                    )}
-                                  </button>
+                                  {canMutate && (
+                                    <button
+                                      onClick={() => handleIgnoreSoftware(entry)}
+                                      disabled={ignoringRow === key}
+                                      className="text-xs text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors"
+                                      title="Ignore — never auto-resolve"
+                                    >
+                                      {ignoringRow === key ? (
+                                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-gray-400" />
+                                      ) : (
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                        </svg>
+                                      )}
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -680,6 +703,11 @@ export function UnmappedSoftwareTab({
                                   </svg>
                                 </a>
                               </div>
+                              {entry.canonicalName && (
+                                <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                  {`Applies to every version of “${entry.canonicalName}”.`}
+                                </p>
+                              )}
                             </div>
                           )}
                       </td>

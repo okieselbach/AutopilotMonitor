@@ -810,6 +810,36 @@ public class AdminWireParityTests
             });
     }
 
+    [Fact]
+    public void ReseedFromGitHubResponse_carries_the_inventory_counts_and_the_problems_of_a_refused_list()
+    {
+        AssertParity(
+            new
+            {
+                success = false,
+                message = "Reseed from GitHub complete, except for the CPE mappings",
+                gather = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 },
+                analyze = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 },
+                ime = new { deleted = 0, written = 0 },
+                cpeCommunityMappings = new { deleted = 0, written = 0 },
+                cpeSeedMappings = new { deleted = 0, written = 0 },
+                cpeInventory = new { rows = 9864, set = 0, cleared = 0, failed = 0, productsNoted = 0 },
+                cpeProblems = new[] { "seed list: the list holds no mapping" }
+            },
+            new ReseedFromGitHubResponse
+            {
+                Success = false,
+                Message = "Reseed from GitHub complete, except for the CPE mappings",
+                Gather = new ReseedRuleCountsNode { Deleted = 0, Written = 0, OrphanStatesGcd = 0, SunsetSkipped = 0 },
+                Analyze = new ReseedRuleCountsNode { Deleted = 0, Written = 0, OrphanStatesGcd = 0, SunsetSkipped = 0 },
+                Ime = new ReseedTableCountsNode { Deleted = 0, Written = 0 },
+                CpeCommunityMappings = new ReseedTableCountsNode { Deleted = 0, Written = 0 },
+                CpeSeedMappings = new ReseedTableCountsNode { Deleted = 0, Written = 0 },
+                CpeInventory = new ReseedInventoryNode { Rows = 9864, Set = 0, Cleared = 0, Failed = 0, ProductsNoted = 0 },
+                CpeProblems = new List<string> { "seed list: the list holds no mapping" }
+            });
+    }
+
     // ---- SubmitOffboardingFeedback -------------------------------------------------------
 
     [Fact]

@@ -54,6 +54,18 @@ describe("scopedApi routing", () => {
     }
   });
 
+  it("vulnerability leaves self-updating software out unless asked, on both variants", () => {
+    for (const sel of [tenantMode, override, aggregated]) {
+      expect(scopedApi.vulnerability(sel, 30, 20, 10)).not.toContain("includeSelfUpdating");
+      expect(scopedApi.vulnerability(sel, 30, 20, 10, false)).not.toContain("includeSelfUpdating");
+      const included = new URL(scopedApi.vulnerability(sel, 30, 20, 10, true));
+      expect(included.searchParams.get("includeSelfUpdating")).toBe("true");
+      expect(included.searchParams.get("perBand")).toBe("10");
+      expect(included.searchParams.get("topN")).toBe("20");
+    }
+    expect(scopedApi.vulnerability(override, 30, 20, 10, true)).toContain(`tenantId=${OTHER}`);
+  });
+
   it("the delegated-home member path is whatever routeGlobal says — no local re-derivation", () => {
     // The carve-out lives in the scope hooks; the builder must follow routeGlobal blindly.
     const delegatedHome: TenantScopeSelection = { routeGlobal: false, selectedTenantId: OWN, effectiveTenantId: OWN };
