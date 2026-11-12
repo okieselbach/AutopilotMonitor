@@ -368,7 +368,7 @@ export function MappedSoftwareTab({
                 <col style={{ width: "30%" }} />
                 <col className="w-24" />
                 <col className="w-20" />
-                {canMutate && <col className="w-24" />}
+                {canMutate && <col className="w-40" />}
               </colgroup>
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
@@ -412,7 +412,7 @@ export function MappedSoftwareTab({
                               </span>
                             </div>
                             {canMutate && (
-                              <div className="px-3 py-3 text-sm flex-shrink-0 w-24 flex items-center gap-2">
+                              <div className="px-3 py-3 text-sm flex-shrink-0 w-40 flex items-center gap-2">
                                 <button
                                   onClick={() => isEditing ? setEditingRow(null) : startEditing(entry)}
                                   className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
