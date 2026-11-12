@@ -12630,6 +12630,24 @@
           },
           "optional": true,
           "doc": "Last run on THIS instance (in-memory; null / key omitted after a cold start)."
+        },
+        {
+          "name": "cpeDictionaryProducts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Products in the stored NVD product dictionary, which program names are matched against; null (key omitted) while none was ever stored. Not the CVE cache: NvdCacheEntries counts the products CVE data is held for."
+        },
+        {
+          "name": "cpeDictionaryLastRefreshUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the stored dictionary was last replaced (ISO-8601); null (key omitted) while none was ever stored."
         }
       ]
     },
@@ -29078,6 +29096,66 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "TriggerCpeDictionarySyncResponse": {
+      "kind": "object",
+      "doc": "Response of POST vulnerability/sync-dictionary (dual-purpose: success reflects whether the NVD product dictionary was downloaded or found current).",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "changed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when a new copy of the feed was downloaded and stored; false when the stored copy is current."
+        },
+        {
+          "name": "products",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Products in the stored dictionary after this call; 0 when there is none."
+        },
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Error text of a failed download; null (key omitted) on success."
+        },
+        {
+          "name": "durationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "syncedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Preformatted ISO-8601 timestamp of this response."
         }
       ]
     },

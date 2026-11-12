@@ -6,7 +6,10 @@ using System.Reflection;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using AutopilotMonitor.Functions.Functions.Vulnerability;
 using AutopilotMonitor.Functions.Services.Vulnerability;
+using AutopilotMonitor.Shared;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -822,4 +825,200 @@ public class CpeDictionaryServiceTests
 
         Assert.Same(held, served);
     }
+
+    // -----------------------------------------------------------------------
+    // One refresh at a time
+    // -----------------------------------------------------------------------
+
+    /// <summary>A feed whose archive is held back until the test lets it through.</summary>
+    private sealed class HeldDownload : IDisposable
+    {
+        private readonly ManualResetEventSlim _asked = new(false);
+        private readonly ManualResetEventSlim _released = new(false);
+
+        public HeldDownload()
+        {
+            Feed = new FeedStub
+            {
+                Archive = () =>
+                {
+                    _asked.Set();
+                    Assert.True(_released.Wait(TimeSpan.FromSeconds(30)), "The test never released the download.");
+                    return Bytes(FullSizeArchive.Value);
+                },
+            };
+            Service = CpeDictionaryFixture.Service(Feed, Blob);
+            // The stub answers on the caller's thread, so the held refresh needs one of its own.
+            Running = Task.Run(() => Service.RefreshAsync());
+            Assert.True(_asked.Wait(TimeSpan.FromSeconds(30)), "The refresh never asked for the archive.");
+        }
+
+        public FeedStub Feed { get; }
+        public StoredBlob Blob { get; } = new();
+        public CpeDictionaryService Service { get; }
+        public Task<CpeDictionaryRefreshResult> Running { get; }
+
+        public Task<CpeDictionaryRefreshResult> ReleaseAsync()
+        {
+            _released.Set();
+            return Running;
+        }
+
+        public void Dispose() => _released.Set();
+    }
+
+    [Fact]
+    public async Task Refresh_WhileOneRuns_AndNotWaiting_DoesNothingAndSaysSo()
+    {
+        using var held = new HeldDownload();
+
+        var second = await held.Service.RefreshAsync(CancellationToken.None, waitForRunningRefresh: false);
+
+        Assert.True(second.AlreadyRunning);
+        Assert.False(second.Changed);
+        Assert.Null(second.Error);
+        // The second call asked NVD for nothing: neither the version nor the archive.
+        Assert.Equal(new[] { CpeDictionaryService.MetaUrl, CpeDictionaryService.FeedUrl }, held.Feed.Requests);
+
+        var first = await held.ReleaseAsync();
+        Assert.True(first.Changed);
+        Assert.False(first.AlreadyRunning);
+        Assert.Equal(1, held.Blob.Uploads);
+
+        // The lock is free again.
+        var third = await held.Service.RefreshAsync(CancellationToken.None, waitForRunningRefresh: false);
+        Assert.False(third.AlreadyRunning);
+        Assert.False(third.Changed);
+        Assert.Equal(FullSize, third.Products);
+    }
+
+    [Fact]
+    public async Task Refresh_WhileOneRuns_AndWaiting_FindsTheStoredCopyCurrentInsteadOfDownloadingAgain()
+    {
+        using var held = new HeldDownload();
+
+        // The nightly run: it must not skip the dictionary because the button was a moment faster.
+        var waiting = held.Service.RefreshAsync();
+        await Task.Delay(150);
+        Assert.False(waiting.IsCompleted);
+
+        var first = await held.ReleaseAsync();
+        var second = await waiting;
+
+        Assert.True(first.Changed);
+        Assert.False(second.AlreadyRunning);
+        Assert.False(second.Changed);
+        Assert.Null(second.Error);
+        Assert.Equal(FullSize, second.Products);
+        Assert.Equal(
+            new[] { CpeDictionaryService.MetaUrl, CpeDictionaryService.FeedUrl, CpeDictionaryService.MetaUrl }, held.Feed.Requests);
+        Assert.Equal(1, held.Blob.Uploads);
+    }
+
+    // -----------------------------------------------------------------------
+    // The operator's button (POST vulnerability/sync-dictionary)
+    // -----------------------------------------------------------------------
+
+    private static TriggerCpeDictionarySyncFunction Button(CpeDictionaryService service) =>
+        new(service, telemetryClient: null, NullLogger<TriggerCpeDictionarySyncFunction>.Instance);
+
+    private static async Task<JsonElement> PressAsync(CpeDictionaryService service)
+    {
+        var response = await Button(service).Run(OperatorCall.Request());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return OperatorCall.BodyOf(response);
+    }
+
+    [Fact]
+    public async Task Button_NoDictionaryYet_DownloadsIt_AndSaysHowManyProductsItHolds()
+    {
+        var blob = new StoredBlob();
+        var service = CpeDictionaryFixture.Service(new FeedStub { Archive = () => Bytes(FullSizeArchive.Value) }, blob);
+
+        var body = await PressAsync(service);
+
+        Assert.True(body.GetProperty("success").GetBoolean());
+        Assert.True(body.GetProperty("changed").GetBoolean());
+        Assert.Equal(FullSize, body.GetProperty("products").GetInt32());
+        Assert.Equal("NVD product dictionary loaded (10,005 products)", body.GetProperty("message").GetString());
+        Assert.False(body.TryGetProperty("error", out _));
+        Assert.True(DateTime.TryParse(body.GetProperty("syncedAt").GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _));
+        Assert.Equal(1, blob.Uploads);
+        // The instance that downloaded it serves it at once, which is what Auto-Map needs next.
+        Assert.Equal(FullSize, (await service.GetAsync())!.Count);
+    }
+
+    [Fact]
+    public async Task Button_NvdPublishedNothingNew_SaysTheStoredCopyIsCurrent()
+    {
+        var blob = new StoredBlob(CpeDictionaryFixture.SnapshotJson(Products(CpeDictionaryService.MinProducts), FeedVersion));
+        var feed = new FeedStub { Archive = () => Bytes(FullSizeArchive.Value) };
+
+        var body = await PressAsync(CpeDictionaryFixture.Service(feed, blob));
+
+        Assert.True(body.GetProperty("success").GetBoolean());
+        Assert.False(body.GetProperty("changed").GetBoolean());
+        Assert.Equal(CpeDictionaryService.MinProducts, body.GetProperty("products").GetInt32());
+        Assert.Equal("NVD product dictionary is current (10,000 products)", body.GetProperty("message").GetString());
+        Assert.Equal(new[] { CpeDictionaryService.MetaUrl }, feed.Requests);
+        Assert.Equal(0, blob.Uploads);
+    }
+
+    [Fact]
+    public async Task Button_NvdDoesNotAnswer_SaysWhy_AndThatTheStoredCopyStays()
+    {
+        var blob = new StoredBlob(CpeDictionaryFixture.SnapshotJson(Products(CpeDictionaryService.MinProducts), FeedVersion));
+        var feed = new FeedStub { Meta = () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) };
+
+        var body = await PressAsync(CpeDictionaryFixture.Service(feed, blob));
+
+        // Not a server error: the request did its work, the answer says that NVD did not.
+        Assert.False(body.GetProperty("success").GetBoolean());
+        Assert.False(body.GetProperty("changed").GetBoolean());
+        Assert.Equal(CpeDictionaryService.MinProducts, body.GetProperty("products").GetInt32());
+        var message = body.GetProperty("message").GetString()!;
+        Assert.StartsWith("NVD product dictionary sync failed: ", message);
+        Assert.EndsWith(". The stored copy (10,000 products) stays in service.", message);
+        Assert.DoesNotContain("..", message);
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+        Assert.Equal(0, blob.Uploads);
+    }
+
+    [Fact]
+    public async Task Button_NvdDoesNotAnswer_AndNothingIsStored_NamesNoStoredCopy()
+    {
+        var feed = new FeedStub { Meta = () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) };
+
+        var body = await PressAsync(CpeDictionaryFixture.Service(feed, new StoredBlob()));
+
+        Assert.False(body.GetProperty("success").GetBoolean());
+        Assert.Equal(0, body.GetProperty("products").GetInt32());
+        var message = body.GetProperty("message").GetString()!;
+        Assert.StartsWith("NVD product dictionary sync failed: ", message);
+        Assert.DoesNotContain("stored copy", message);
+    }
+
+    [Fact]
+    public async Task Button_WhileADownloadRuns_IsAConflict_AndStartsNoSecondOne()
+    {
+        using var held = new HeldDownload();
+
+        var response = await Button(held.Service).Run(OperatorCall.Request());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(Constants.ApiErrorCodes.Conflict, EndpointHarness.ErrorCode(response));
+        Assert.Equal(new[] { CpeDictionaryService.MetaUrl, CpeDictionaryService.FeedUrl }, held.Feed.Requests);
+
+        Assert.True((await held.ReleaseAsync()).Changed);
+    }
+
+    [Theory]
+    [InlineData(true, null, 34859, "NVD product dictionary loaded (34,859 products)")]
+    [InlineData(false, null, 34859, "NVD product dictionary is current (34,859 products)")]
+    [InlineData(false, "The reduced dictionary holds only 12 products, too few for a full feed.", 34859,
+        "NVD product dictionary sync failed: The reduced dictionary holds only 12 products, too few for a full feed. The stored copy (34,859 products) stays in service.")]
+    [InlineData(false, "A task was canceled", 0, "NVD product dictionary sync failed: A task was canceled.")]
+    public void Button_Message_SaysWhatHappenedInOneSentenceEach(bool changed, string? error, int products, string expected) =>
+        Assert.Equal(expected, TriggerCpeDictionarySyncFunction.MessageFor(
+            new CpeDictionaryRefreshResult { Changed = changed, Error = error }, products));
 }
