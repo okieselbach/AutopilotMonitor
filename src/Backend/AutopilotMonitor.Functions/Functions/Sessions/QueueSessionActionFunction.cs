@@ -80,9 +80,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             {
                 // Authentication + TenantAdminOrOperator authorization enforced by
                 // PolicyEnforcementMiddleware; per-type re-gating for Operators happens below.
-                var tenantId = TenantHelper.GetTenantId(req);
-                var userIdentifier = TenantHelper.GetUserIdentifier(req);
+                // The session's tenant: a Global Admin reaches a foreign tenant's session, every other
+                // caller stays in the tenant the middleware validated (?tenantId=, TenantScoping.QueryParam).
                 var requestCtx = req.GetRequestContext();
+                var tenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId, requireGlobalAdmin: true);
+                var userIdentifier = TenantHelper.GetUserIdentifier(req);
 
                 var read = await req.ReadAsync<QueueSessionActionRequest>();
                 if (read.Error != null) return read.Error;

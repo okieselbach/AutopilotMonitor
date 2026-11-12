@@ -35,8 +35,10 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
-                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
-                string tenantId = TenantHelper.GetTenantId(req);
+                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware.
+                // The session's tenant: a Global Admin reaches a foreign tenant's session, every other
+                // caller stays in the tenant the middleware validated (?tenantId=, TenantScoping.QueryParam).
+                string tenantId = await req.GetRequestContext().ResolveSessionScopeAsync(_sessionRepo, sessionId, requireGlobalAdmin: true);
                 string userIdentifier = TenantHelper.GetUserIdentifier(req);
 
                 _logger.LogInformation($"Marking session {sessionId} as succeeded for tenant {tenantId} by user {userIdentifier}");

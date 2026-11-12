@@ -404,12 +404,12 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "rules/analyze/{ruleId}/create-from-template", EndpointPolicy.TenantAdminOrGA),
         new("PUT",    "rules/analyze/{ruleId}",    EndpointPolicy.TenantAdminOrGA),
         new("DELETE", "rules/analyze/{ruleId}",    EndpointPolicy.TenantAdminOrGA),
-        new("POST",   "sessions/{sessionId}/mark-failed",     EndpointPolicy.TenantAdminOrGA),
-        new("POST",   "sessions/{sessionId}/mark-succeeded", EndpointPolicy.TenantAdminOrGA),
+        new("POST",   "sessions/{sessionId}/mark-failed",     EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),
+        new("POST",   "sessions/{sessionId}/mark-succeeded", EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),
         // Operator tier so troubleshooting staff can queue request_diagnostics ("Collect Logs" in
         // the portal); the function re-gates the admin-only action types (terminate_session,
         // rotate_config) on RequestContext.IsTenantAdmin || IsGlobalAdmin.
-        new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrOperator),
+        new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
         // Operator tier so troubleshooting staff can write the operator annotation lane; the
         // function re-gates the per-lane matrix (tenantadmin lane → IsTenantAdmin, globaladmin
         // lane → IsGlobalAdmin) via UpsertSessionAnnotationFunction.IsLaneWritableByCaller.
