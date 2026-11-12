@@ -2041,7 +2041,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = the rest): rank remediation by priority, then EPSS, ' +
         'not by CVSS alone. ' +
         (ga ? 'The cross-tenant overview also returns the affected tenant count. ' : '') +
-        'Self-updating software (browsers) counts only with includeSelfUpdating=true; selfUpdatingSoftware / ' +
+        'Self-updating software (e.g. browsers) counts only with includeSelfUpdating=true; selfUpdatingSoftware / ' +
         'selfUpdatingAffectedSessions say how much is left out. The index holds per product and device every KEV CVE ' +
         'and the five most urgent others, which is what distinctCves counts. Devices of one CVE: ' +
         'search_sessions_by_cve. "truncated": the index scan hit its cap, counts are a lower bound (narrow with tenantId). ' +
