@@ -436,7 +436,7 @@ builder.Services.AddSingleton<ISignalRNotificationService>(sp => sp.GetRequiredS
 
 // Vulnerability correlation services
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.NvdApiClient>()
-    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().NvdApi);
 // KevDataService keeps the hydrated catalog as instance state, but AddHttpClient<T> registers T
 // transient: the cache warmer hydrated one instance while the correlation service and the sync
 // functions each held a cold one (audit 2026-09-05 F12). The typed-client registration stays for
@@ -455,6 +455,8 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.MsrcCorrelationService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCacheRefreshService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CpeMappingStore>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.CveCacheFiller>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityReportWriter>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelationService>();
 // Hydrate MSRC + KEV in-memory caches from blob snapshots at app startup (fire-and-forget;
 // keeps cold-start fast for re-deploys, see VulnerabilityCacheWarmer for the contract).

@@ -242,23 +242,39 @@ namespace AutopilotMonitor.Functions.Services
 
         // ===== CVE INDEX =====
 
+        /// <summary>CVEs a software entry contributes to the index next to every known-exploited one.</summary>
+        internal const int MaxIndexedCvesPerFinding = 5;
+
         /// <summary>
-        /// Upserts CVE index entries so sessions can be searched by CVE identifier.
-        /// PartitionKey = {tenantId}_{cveId}, RowKey = sessionId
-        /// One CVE commonly appears under several findings of the same report (e.g. one
-        /// Remote Desktop CVE across 14 installed RD components), so occurrences are merged
-        /// per CVE first — otherwise concurrent upserts race on the same entity and the
-        /// winner is arbitrary. Writes go out with bounded parallelism (PK differs per CVE,
-        /// so batch transactions are not an option). Per-entity failures are counted, not
-        /// fatal — the index is a search aid, the report itself is stored separately.
+        /// Brings a session's CveIndex rows (PartitionKey = {tenantId}_{cveId}, RowKey = sessionId)
+        /// in line with its report: rows for CVEs the report no longer names are deleted, the others
+        /// written. A row that existed keeps its DetectedAt, so a later evaluation of an old session
+        /// does not move it into today's window.
+        /// <para>
+        /// <paramref name="previousFindings"/> are the findings of the report this one replaces;
+        /// they are what tells which rows exist, because the index cannot be read by session.
+        /// One CVE commonly appears under several findings of the same report (e.g. one Remote
+        /// Desktop CVE across 14 installed RD components), so occurrences are merged per CVE first.
+        /// Writes go out with bounded parallelism (PK differs per CVE, so batch transactions are not
+        /// an option). Per-entity failures are counted, not fatal — the index is a search aid, the
+        /// report itself is stored separately.
+        /// </para>
         /// </summary>
-        public async Task UpsertCveIndexEntriesAsync(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
+        public async Task ReplaceCveIndexEntriesAsync(
+            string tenantId, string sessionId,
+            List<Dictionary<string, object>>? findings,
+            List<Dictionary<string, object>>? previousFindings)
         {
             try
             {
-                var entities = BuildCveIndexEntities(tenantId, sessionId, findings);
-                if (entities.Count == 0) return;
+                var entities = BuildCveIndexEntities(tenantId, sessionId, findings ?? new List<Dictionary<string, object>>());
+                var previousIds = new HashSet<string>(
+                    BuildCveIndexEntities(tenantId, sessionId, previousFindings ?? new List<Dictionary<string, object>>(), mostUrgentOnly: false)
+                        .Select(e => e.GetString("CveId")),
+                    StringComparer.OrdinalIgnoreCase);
+                if (entities.Count == 0 && previousIds.Count == 0) return;
 
+                var currentIds = new HashSet<string>(entities.Select(e => e.GetString("CveId")), StringComparer.OrdinalIgnoreCase);
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.CveIndex);
                 var failed = 0;
 
@@ -269,23 +285,55 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         try
                         {
-                            await tableClient.UpsertEntityAsync(entity, cancellationToken: ct);
+                            if (previousIds.Contains(entity.GetString("CveId")))
+                            {
+                                var detectedAt = entity["DetectedAt"];
+                                entity.Remove("DetectedAt");
+                                try
+                                {
+                                    await tableClient.UpdateEntityAsync(entity, ETag.All, TableUpdateMode.Merge, ct);
+                                    return;
+                                }
+                                catch (RequestFailedException ex) when (ex.Status == 404)
+                                {
+                                    // The earlier write of this row never landed.
+                                    entity["DetectedAt"] = detectedAt;
+                                }
+                            }
+                            await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
                         }
                         catch (Exception ex)
                         {
                             Interlocked.Increment(ref failed);
-                            _logger.LogWarning(ex, "Failed to upsert CveIndex entry {CveId} for session {SessionId}",
+                            _logger.LogWarning(ex, "Failed to write CveIndex entry {CveId} for session {SessionId}",
                                 entity.GetString("CveId"), sessionId);
                         }
                     });
 
+                foreach (var cveId in previousIds.Where(id => !currentIds.Contains(id)))
+                {
+                    try
+                    {
+                        await tableClient.DeleteEntityAsync($"{tenantId}_{cveId}", sessionId);
+                    }
+                    catch (RequestFailedException ex) when (ex.Status == 404)
+                    {
+                        // Already gone.
+                    }
+                    catch (Exception ex)
+                    {
+                        failed++;
+                        _logger.LogWarning(ex, "Failed to delete CveIndex entry {CveId} for session {SessionId}", cveId, sessionId);
+                    }
+                }
+
                 if (failed > 0)
-                    _logger.LogWarning("CveIndex upsert for session {SessionId}: {Failed}/{Total} entries failed",
-                        sessionId, failed, entities.Count);
+                    _logger.LogWarning("CveIndex update for session {SessionId}: {Failed} of {Total} entries failed",
+                        sessionId, failed, entities.Count + previousIds.Count(id => !currentIds.Contains(id)));
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to upsert CveIndex entries for session {SessionId}", sessionId);
+                _logger.LogWarning(ex, "Failed to update CveIndex entries for session {SessionId}", sessionId);
             }
         }
 
@@ -294,8 +342,15 @@ namespace AutopilotMonitor.Functions.Services
         /// highest CVSS score supplies score/severity/software name/product (ties keep report
         /// order), IsKev is OR-ed, OverallRisk is the highest risk level seen across occurrences.
         /// Product is the finding's CPE "vendor:product" (<see cref="Vulnerability.CpeName.ProductKeyOf"/>).
+        /// <para>
+        /// With <paramref name="mostUrgentOnly"/> a finding contributes its first
+        /// <see cref="MaxIndexedCvesPerFinding"/> CVEs (the report lists them most urgent first) and
+        /// every known-exploited one. One row per CVE and session for all of a browser's CVEs would
+        /// outgrow what the fleet summary reads; known-exploited counts stay complete.
+        /// </para>
         /// </summary>
-        internal static List<TableEntity> BuildCveIndexEntities(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
+        internal static List<TableEntity> BuildCveIndexEntities(
+            string tenantId, string sessionId, List<Dictionary<string, object>> findings, bool mostUrgentOnly = true)
         {
             var byCve = new Dictionary<string, TableEntity>(StringComparer.OrdinalIgnoreCase);
             var now = DateTime.UtcNow;
@@ -309,12 +364,16 @@ namespace AutopilotMonitor.Functions.Services
                 if (!finding.TryGetValue("vulnerabilities", out var vulnsObj) || vulnsObj == null) continue;
                 if (vulnsObj is not System.Collections.IEnumerable vulnList) continue;
 
+                var position = 0;
                 foreach (var vulnObj in vulnList)
                 {
                     if (vulnObj is not Dictionary<string, object> vuln) continue;
 
                     var cveId = vuln.TryGetValue("cveId", out var cid) ? cid?.ToString() : null;
                     if (string.IsNullOrEmpty(cveId)) continue;
+
+                    var withinMostUrgent = position++ < MaxIndexedCvesPerFinding;
+                    if (mostUrgentOnly && !withinMostUrgent && !(vuln.TryGetValue("isKev", out var kevFlag) && kevFlag is true)) continue;
 
                     double cvssScore = 0;
                     try { if (vuln.TryGetValue("cvssScore", out var cs) && cs != null) cvssScore = Convert.ToDouble(cs); } catch { }
@@ -1279,11 +1338,12 @@ namespace AutopilotMonitor.Functions.Services
         /// targets only that tenant's CVE partitions; cross-tenant (tenantId null) is
         /// a bounded full-table scan — each row carries TenantId + CveId, so the
         /// aggregate is correct without the loose suffix-range the per-CVE search
-        /// has to use. Reads at most <paramref name="maxRows"/> rows and reports
-        /// whether the cap was hit so the caller can flag partial results.
+        /// has to use. Reads at most <paramref name="maxRows"/> rows detected since
+        /// <paramref name="detectedSinceUtc"/> and reports whether the cap was hit so the caller
+        /// can flag partial results.
         /// </summary>
         public async Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
-            string? tenantId, int maxRows, CancellationToken ct = default)
+            string? tenantId, int maxRows, DateTime? detectedSinceUtc = null, CancellationToken ct = default)
         {
             if (maxRows < 1) maxRows = 1;
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.CveIndex);
@@ -1293,6 +1353,14 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var safe = ODataSanitizer.EscapeValue(tenantId);
                 filter = $"PartitionKey ge '{safe}_' and PartitionKey lt '{safe}_~'";
+            }
+
+            // The window is applied by the table, not after the read: the row cap would otherwise
+            // be spent on rows outside it. Every row has carried DetectedAt since the table exists.
+            if (detectedSinceUtc.HasValue)
+            {
+                var since = $"DetectedAt ge datetime'{detectedSinceUtc.Value.ToUniversalTime():yyyy-MM-ddTHH:mm:ssZ}'";
+                filter = filter == null ? since : $"({filter}) and {since}";
             }
 
             var select = new[]

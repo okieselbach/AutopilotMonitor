@@ -209,27 +209,22 @@ public class EpssAndNvdThrottleTests
             }
         };
 
-        var cves = VulnerabilityCorrelationService.ProjectNvdResponse(response);
+        var cves = CveCacheFiller.Project(response, "cpe:2.3:a:v:p");
 
-        Assert.Equal(2, cves.Count);
-        var first = cves[0];
+        // The second CVE names no range of the product and is not kept.
+        var first = Assert.Single(cves);
         Assert.Equal(9.8, first.CvssScore);
         Assert.Equal("CRITICAL", first.CvssSeverity);
         Assert.Equal("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", first.CvssVector);
         Assert.Single(first.AffectedVersions);
         Assert.Equal("2.0", first.AffectedVersions[0].VersionEndExcluding);
         Assert.Null(first.EpssScore); // never defaulted before enrichment
-
-        var second = cves[1];
-        Assert.Equal(0, second.CvssScore);
-        Assert.Equal("UNKNOWN", second.CvssSeverity);
-        Assert.Null(second.CvssVector);
     }
 
     [Fact]
     public void ProjectNvdResponse_Null_ReturnsEmpty()
     {
-        Assert.Empty(VulnerabilityCorrelationService.ProjectNvdResponse(null));
+        Assert.Empty(CveCacheFiller.Project(null, "cpe:2.3:a:v:p"));
     }
 
     // -----------------------------------------------------------------------
@@ -252,7 +247,7 @@ public class EpssAndNvdThrottleTests
             // CVE-2 absent: FIRST did not score it (or its batch failed) ⇒ stays null
         };
 
-        var changed = VulnerabilityCorrelationService.ApplyEpssScores(cves, scores);
+        var changed = CveCacheFiller.ApplyEpssScores(cves, scores);
 
         Assert.Equal(1, changed);
         Assert.Equal(0.25, cves[0].EpssScore);
@@ -265,7 +260,7 @@ public class EpssAndNvdThrottleTests
     public void ApplyEpssScores_NeverErasesYesterdaysScore_WhenTodayHasNone()
     {
         var cves = new List<CachedCve> { new() { CveId = "CVE-1", EpssScore = 0.3, EpssPercentile = 0.7, EpssDate = "2026-08-27" } };
-        var changed = VulnerabilityCorrelationService.ApplyEpssScores(cves, new Dictionary<string, EpssScore>());
+        var changed = CveCacheFiller.ApplyEpssScores(cves, new Dictionary<string, EpssScore>());
         Assert.Equal(0, changed);
         Assert.Equal(0.3, cves[0].EpssScore);
     }
@@ -274,7 +269,7 @@ public class EpssAndNvdThrottleTests
     public void BuildCveCacheRow_PassesCachedAtThrough_SoEpssRewritesDoNotLookLikeNvdFetches()
     {
         var cachedAt = new DateTime(2026, 8, 20, 3, 0, 0, DateTimeKind.Utc);
-        var row = VulnerabilityCorrelationService.BuildCveCacheRow("cpe:2.3:a:v:p", new List<CachedCve> { new() { CveId = "CVE-1" } }, cachedAt);
+        var row = CveCacheFiller.BuildRow("cpe:2.3:a:v:p", new List<CachedCve> { new() { CveId = "CVE-1" } }, cachedAt, nvdTotal: 7);
 
         Assert.Equal(cachedAt.ToString("o"), row["CachedAt"]);
         Assert.Equal("cpe:2.3:a:v:p", row["CpeUri"]);
@@ -285,13 +280,13 @@ public class EpssAndNvdThrottleTests
     [Fact]
     public void CachedCve_RoundTrips_WithoutWritingNulls_SoLegacyRowsStayReadable()
     {
-        var json = System.Text.Json.JsonSerializer.Serialize(new List<CachedCve> { new() { CveId = "CVE-1", CvssScore = 7 } }, JsonOptions);
+        var json = System.Text.Json.JsonSerializer.Serialize(new List<CachedCve> { new() { CveId = "CVE-1", CvssScore = 7 } }, CveCacheFiller.JsonOptions);
         Assert.DoesNotContain("EpssScore", json);
         Assert.DoesNotContain("CvssVector", json);
 
         // A row written before this change (no EPSS/vector properties at all) still deserialises.
         var legacy = """[{"CveId":"CVE-9","CvssScore":4.3,"CvssSeverity":"MEDIUM","Description":"","PublishedDate":"","AffectedVersions":[]}]""";
-        var cves = System.Text.Json.JsonSerializer.Deserialize<List<CachedCve>>(legacy, JsonOptions)!;
+        var cves = System.Text.Json.JsonSerializer.Deserialize<List<CachedCve>>(legacy, CveCacheFiller.JsonOptions)!;
         Assert.Null(cves[0].EpssScore);
         Assert.Null(cves[0].CvssVector);
     }

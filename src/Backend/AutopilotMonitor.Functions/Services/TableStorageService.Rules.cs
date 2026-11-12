@@ -1012,7 +1012,9 @@ namespace AutopilotMonitor.Functions.Services
             foreach (var chunk in TableStorageChunking.ChunkProperty("ReportJson", reportJson))
                 entity[chunk.Key] = chunk.Value;
 
-            await tableClient.UpsertEntityAsync(entity);
+            // Replace, not merge: a report that shrinks from the split form to one column would
+            // otherwise keep the old parts next to it.
+            await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
             _logger.LogInformation("Stored vulnerability report for session {SessionId} (risk={Risk})", sessionId,
                 scanSummary?.GetValueOrDefault("overall_risk")?.ToString() ?? "none");
         }
