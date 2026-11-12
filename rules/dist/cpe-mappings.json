@@ -7,7 +7,8 @@
     "mozilla:firefox",
     "brave:brave",
     "opera:opera_browser",
-    "microsoft:edge_update"
+    "microsoft:edge_update",
+    "microsoft:visual_studio_code"
   ],
   "mappings": [
     {
