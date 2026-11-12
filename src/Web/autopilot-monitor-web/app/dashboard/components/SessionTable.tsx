@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
 import { fuzzyContains } from "@/lib/fuzzy";
+import { isTypingInField } from "@/lib/keyboardTarget";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
 import {
   SESSION_SEARCH_FIELDS,
@@ -398,9 +399,7 @@ export function SessionTable({
   useEffect(() => {
     if (!selecting) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key !== "Escape" || isTypingInField(e.target)) return;
       setSelectMode(false);
       setSelectedIds(new Set());
       lastToggledIdRef.current = null;

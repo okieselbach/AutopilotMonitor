@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useMemo, useDeferredValue } from "react";
+import { createContext, useContext, useState, useMemo, useDeferredValue, useEffect, useRef } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../lib/eventHelpers";
 import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../lib/eventSearchQuery";
@@ -10,6 +10,7 @@ import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/
 import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 import { SCRIPT_OUTPUT_RECONCILIATION } from "@/lib/scriptExecutions";
+import { isTypingInField } from "@/lib/keyboardTarget";
 
 // runId → outcome of every platform run that IME's saved result corrected later (D-316): the
 // run's own row says so, so its emitted output is never read as the script's.
@@ -19,7 +20,8 @@ const SEARCH_SYNTAX_HINT =
   "Searches event type, message, source and the details JSON (e.g. gather output). " +
   "Several terms are combined with AND; quote a phrase, e.g. \"Installation completed\". " +
   "A leading minus hides matches, e.g. -app_install_progress. " +
-  "Restrict a term to one field with type=, message=, source= or data=, e.g. data=hpia-log-collect.";
+  "Restrict a term to one field with type=, message=, source= or data=, e.g. data=hpia-log-collect. " +
+  "Press / to jump here from anywhere on the page; Esc clears the search.";
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -76,6 +78,26 @@ export default function EventTimeline({
   // The input stays on the immediate value; everything derived from the query (matcher, counter,
   // visible rows) follows the deferred one, so a keystroke never waits for the per-phase filter pass.
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchRowRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // "/" jumps to the search from anywhere on the page, the web's usual key for a page's own search,
+  // the same on Windows and Mac: the controls row scrolls up below the navbar, so the matches fill
+  // the screen, and the previous query is selected for overtyping. Shift stays allowed, layouts
+  // like German type "/" as Shift+7; a "/" typed into a field belongs to that field.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTypingInField(e.target)) return;
+      const input = searchInputRef.current;
+      if (!input) return;
+      e.preventDefault();
+      input.focus({ preventScroll: true });
+      input.select();
+      searchRowRef.current?.scrollIntoView({ block: "start" });
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Terms are AND-ed, a leading minus excludes, key=value restricts — see lib/eventSearchQuery.ts.
   const matchesSearch = useMemo(() => buildEventSearchMatcher(deferredSearchQuery), [deferredSearchQuery]);
@@ -126,20 +148,34 @@ export default function EventTimeline({
   const timeline = (
     <div className="space-y-6">
       {/* Search + Severity filters + Expand/Collapse — shared controls above the timeline(s) */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+      <div ref={searchRowRef} className="flex flex-col sm:flex-row sm:items-center gap-2 scroll-mt-20">
         {/* Search bar — full width on mobile, fixed width on desktop */}
         <div className="relative w-full sm:w-48 flex-shrink-0">
           <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            // Esc clears the query and keeps the cursor in the box for the next term; Esc on an
+            // empty box leaves it. During IME composition Esc cancels the composition instead.
+            onKeyDown={(e) => {
+              if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
+              if (searchQuery) setSearchQuery("");
+              else e.currentTarget.blur();
+            }}
             placeholder="Search or -exclude..."
             title={SEARCH_SYNTAX_HINT}
             className="w-full pl-7 pr-7 py-1 text-xs border border-gray-300 rounded-full focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
           />
+          {/* Shortcut hint while the box is empty; phones have no hardware keyboard, so it stays off there. */}
+          {!searchQuery && (
+            <kbd className="hidden sm:inline absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 rounded border border-gray-200 bg-gray-50 font-sans text-[10px] leading-4 text-gray-400 pointer-events-none">
+              /
+            </kbd>
+          )}
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
