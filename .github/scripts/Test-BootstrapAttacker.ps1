@@ -13,8 +13,8 @@
     The folders come from the installer's own functions, in a scratch copy of ProgramData that
     carries the real ProgramData permissions.
 
-    CI only (bootstrap-script-gates.yml): it needs an elevated runner, and it creates a local
-    account and removes it again.
+    CI only (bootstrap-script-gates.yml), and it refuses to run anywhere else: it needs an
+    elevated runner, and it creates a local account and removes it again.
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +22,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Stops an accident, not an attacker: a manual run from an elevated shell, or the job moved to
+# a self-hosted runner that outlives it.
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+    throw 'CI only: this creates a local account and needs a GitHub-hosted runner, which is discarded after the job.'
+}
 
 # The user's token, for impersonation in this process (a CI helper; customer scripts never
 # compile code).
