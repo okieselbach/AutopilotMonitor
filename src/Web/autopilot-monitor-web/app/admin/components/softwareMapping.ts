@@ -12,7 +12,7 @@ const AUTO_RESOLVE_REASONS = new Map<string, string>([
   ["nvd_unavailable", "NVD did not answer; try again later"],
   ["already_mapped", "Already mapped"],
   ["ignored", "On the ignore list"],
-  ["no_dictionary", "The NVD product dictionary has not been loaded yet (nightly sync)"],
+  ["no_dictionary", "The NVD product dictionary has not been loaded yet (Vulnerability Data > Sync NVD Dictionary loads it)"],
   ["empty_name", "No name"],
 ]);
 
