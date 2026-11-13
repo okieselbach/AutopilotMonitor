@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
-import { cpeProductKey, customMappingEntries, withProductFlags } from "./softwareMapping";
+import { cpeProductKey, customMappingEntries, PHONE_FULL_LINE, PHONE_ROW, withProductFlags } from "./softwareMapping";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { SelfUpdatingPill } from "@/components/vulnerability/VulnerabilityChips";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
@@ -362,7 +362,7 @@ export function MappedSoftwareTab({
           {/* Mapped Table */}
           <div className="overflow-x-auto">
             <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
-              <colgroup>
+              <colgroup className="max-sm:hidden">
                 <col />
                 <col style={{ width: "14%" }} />
                 <col style={{ width: "30%" }} />
@@ -370,7 +370,7 @@ export function MappedSoftwareTab({
                 <col className="w-20" />
                 {canMutate && <col className="w-40" />}
               </colgroup>
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+              <thead className="bg-gray-50 dark:bg-gray-700/50 max-sm:hidden">
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Product</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vendor</th>
@@ -392,15 +392,15 @@ export function MappedSoftwareTab({
                     <tr key={key} className="group">
                       <td colSpan={canMutate ? 6 : 5} className="p-0">
                         <div className={`hover:bg-amber-50/50 dark:hover:bg-amber-900/5 transition-colors ${isEditing ? "bg-amber-50/50 dark:bg-amber-900/5" : ""}`}>
-                          <div className="flex">
-                            <div className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-0 flex items-center gap-2">
-                              <span className="truncate" title={entry.normalizedProduct}>{entry.normalizedProduct}</span>
+                          <div className={`flex ${PHONE_ROW}`}>
+                            <div className={`px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-0 flex items-center gap-2 ${PHONE_FULL_LINE}`}>
+                              <span className="truncate max-sm:whitespace-normal" title={entry.normalizedProduct}>{entry.normalizedProduct}</span>
                               {entry.selfUpdating && <SelfUpdatingPill className="flex-shrink-0" />}
                             </div>
-                            <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "14%", flexShrink: 0 }} title={entry.normalizedVendor}>
+                            <div className={`px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate w-[14%] flex-shrink-0 ${PHONE_FULL_LINE}`} title={entry.normalizedVendor}>
                               {entry.normalizedVendor || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
                             </div>
-                            <div className="px-3 py-3 text-sm text-gray-700 dark:text-gray-300 font-mono text-xs truncate" style={{ width: "30%", flexShrink: 0 }} title={entry.cpeUri}>
+                            <div className={`px-3 py-3 text-sm text-gray-700 dark:text-gray-300 font-mono text-xs truncate w-[30%] flex-shrink-0 ${PHONE_FULL_LINE}`} title={entry.cpeUri}>
                               {entry.cpeUri}
                             </div>
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 flex-shrink-0 w-24 truncate">
@@ -412,7 +412,7 @@ export function MappedSoftwareTab({
                               </span>
                             </div>
                             {canMutate && (
-                              <div className="px-3 py-3 text-sm flex-shrink-0 w-40 flex items-center gap-2">
+                              <div className="px-3 py-3 text-sm flex-shrink-0 w-40 flex items-center gap-2 max-sm:ml-auto">
                                 <button
                                   onClick={() => isEditing ? setEditingRow(null) : startEditing(entry)}
                                   className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
@@ -458,7 +458,7 @@ export function MappedSoftwareTab({
                                   {entry.selfUpdating !== entry.selfUpdatingDefault && <span>Differs from the default.</span>}
                                 </div>
                               )}
-                              <div className="grid grid-cols-2 gap-3 mb-3">
+                              <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3 mb-3">
                                 <div>
                                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">CPE URI</label>
                                   <input
@@ -499,7 +499,7 @@ export function MappedSoftwareTab({
                                     disabled={savingEdit}
                                   />
                                 </div>
-                                <div className="col-span-2">
+                                <div className="col-span-2 max-sm:col-span-1">
                                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Exclude Patterns (comma-separated)</label>
                                   <input
                                     type="text"
@@ -511,7 +511,7 @@ export function MappedSoftwareTab({
                                   />
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 max-sm:flex-wrap">
                                 <button
                                   onClick={() => handleSaveEdit(entry)}
                                   disabled={savingEdit || !editForm.cpeUri.trim()}

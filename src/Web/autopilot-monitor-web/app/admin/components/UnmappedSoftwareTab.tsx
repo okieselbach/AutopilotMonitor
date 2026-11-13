@@ -7,7 +7,7 @@ import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
-import { failedByReasonLines, mappingSavedNotice } from "./softwareMapping";
+import { failedByReasonLines, mappingSavedNotice, PHONE_FULL_LINE, PHONE_ROW } from "./softwareMapping";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import type {
   AutoResolveCpeMappingRequest,
@@ -513,7 +513,7 @@ export function UnmappedSoftwareTab({
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
-              <colgroup>
+              <colgroup className="max-sm:hidden">
                 {canMutate && <col className="w-10" />}
                 <col />
                 <col style={{ width: "18%" }} />
@@ -522,7 +522,7 @@ export function UnmappedSoftwareTab({
                 <col className="w-20" />
                 <col className="w-32" />
               </colgroup>
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+              <thead className="bg-gray-50 dark:bg-gray-700/50 max-sm:hidden">
                 <tr>
                   {canMutate && (
                     <th className="px-2 py-3">
@@ -553,22 +553,24 @@ export function UnmappedSoftwareTab({
                   return (
                     <tr key={key} className={`group hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors ${isMappingExpanded ? "bg-amber-50/50 dark:bg-amber-900/5" : ""}`}>
                       <td colSpan={canMutate ? 7 : 6} className="p-0">
-                        <div className="flex items-center">
-                            {canMutate && (
-                              <div className="w-10 px-2 py-3 flex items-center justify-center flex-shrink-0">
-                                {!isMapped && (
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedEntries.has(key)}
-                                    onChange={() => toggleRowSelection(entry)}
-                                    disabled={autoResolving}
-                                    className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
-                                  />
-                                )}
-                              </div>
-                            )}
-                            <TruncatedLabel text={entry.softwareName ?? ""} className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1" />
-                            <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "18%", flexShrink: 0 }}>
+                        <div className="flex items-center max-sm:items-start">
+                          {canMutate && (
+                            <div className="w-10 px-2 py-3 flex items-center justify-center flex-shrink-0">
+                              {!isMapped && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedEntries.has(key)}
+                                  onChange={() => toggleRowSelection(entry)}
+                                  disabled={autoResolving}
+                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
+                                />
+                              )}
+                            </div>
+                          )}
+                          {/* No box from sm up (the cells stay flex items of the row); on a phone the cells wrap beside the checkbox. */}
+                          <div className={`flex min-w-0 flex-1 sm:contents ${PHONE_ROW}`}>
+                            <TruncatedLabel text={entry.softwareName ?? ""} className={`px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 ${PHONE_FULL_LINE}`} />
+                            <div className={`px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate w-[18%] flex-shrink-0 ${PHONE_FULL_LINE}`}>
                               {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
                             </div>
                             <div className="px-3 py-3 text-sm flex-shrink-0 w-24">
@@ -577,6 +579,7 @@ export function UnmappedSoftwareTab({
                               </span>
                             </div>
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap flex-shrink-0 w-24">
+                              <span className="sm:hidden">{"Last seen "}</span>
                               {entry.lastSeenAt ? formatDate(entry.lastSeenAt) : "—"}
                             </div>
                             <div className="px-3 py-3 text-sm flex-shrink-0 w-20">
@@ -588,7 +591,7 @@ export function UnmappedSoftwareTab({
                                 {shortSessionId(entry.exampleSessionId)}
                               </a>
                             </div>
-                            <div className="px-3 py-3 text-sm flex-shrink-0 w-32 flex flex-nowrap items-center gap-1.5">
+                            <div className="px-3 py-3 text-sm flex-shrink-0 w-32 flex flex-nowrap items-center gap-1.5 max-sm:ml-auto">
                               {isMapped ? (
                                 <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium">
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -642,11 +645,12 @@ export function UnmappedSoftwareTab({
                               )}
                             </div>
                           </div>
+                        </div>
 
                           {/* Inline mapping form */}
                           {isMappingExpanded && (
                             <div className="px-4 pb-3 pt-1 border-t border-amber-100 dark:border-amber-900/30 bg-amber-50/80 dark:bg-amber-900/10">
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 max-sm:flex-wrap">
                                 <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap flex-shrink-0">
                                   CPE URI:
                                 </label>
@@ -665,7 +669,7 @@ export function UnmappedSoftwareTab({
                                       setExpandedMappingRow(null);
                                     }
                                   }}
-                                  className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                                  className="flex-1 max-sm:basis-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
                                   autoFocus
                                   disabled={isSaving}
                                 />

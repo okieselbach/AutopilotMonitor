@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { PHONE_FULL_LINE, PHONE_ROW } from "./softwareMapping";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import type { GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest, IgnoredSoftwareItem } from "@/lib/generated/wire-types.generated";
 
@@ -139,14 +140,15 @@ export function IgnoredSoftwareTab({
 
           {/* Table */}
           <div>
-            <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
-              <colgroup>
+            {/* On a phone the table is a plain list: real cells would share the width in equal columns. */}
+            <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700 max-sm:block">
+              <colgroup className="max-sm:hidden">
                 <col />
                 <col style={{ width: "20%" }} />
                 <col className="w-24" />
                 <col style={{ width: "130px" }} />
               </colgroup>
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+              <thead className="bg-gray-50 dark:bg-gray-700/50 max-sm:hidden">
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Program</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vendor</th>
@@ -154,23 +156,24 @@ export function IgnoredSoftwareTab({
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 max-sm:block">
                 {paginatedIgnoredEntries.map((entry) => {
                   const key = `${entry.softwareName}::${entry.publisher}`;
                   const isRestoring = restoringRow === key;
 
                   return (
-                    <tr key={key} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                      <td className="px-3 py-3">
-                        <TruncatedLabel text={entry.softwareName} className="block text-sm text-gray-900 dark:text-gray-100" />
+                    <tr key={key} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors max-sm:flex ${PHONE_ROW}`}>
+                      <td className={`px-3 py-3 ${PHONE_FULL_LINE}`}>
+                        <TruncatedLabel text={entry.softwareName} className="block text-sm text-gray-900 dark:text-gray-100 max-sm:whitespace-normal" />
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate">
+                      <td className={`px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate ${PHONE_FULL_LINE}`}>
                         {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
                       </td>
                       <td className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        <span className="sm:hidden">{"Ignored "}</span>
                         {formatDate(entry.ignoredAt)}
                       </td>
-                      <td className="px-3 py-3 text-sm">
+                      <td className="px-3 py-3 text-sm max-sm:ml-auto">
                         <div className="flex items-center gap-2 whitespace-nowrap">
                           {canMutate && (
                             <button

@@ -1,8 +1,20 @@
 /**
- * Pure logic of the Software Mapping tabs (texts that depend on a response, the per-product
- * flag, the export), kept out of the components so it is unit tested.
+ * Shared pieces of the Software Mapping tabs: the pure logic (texts that depend on a response,
+ * the per-product flag, the export), kept out of the components so it is unit tested, and the
+ * phone layout of a table row.
  */
 import type { AutoResolveFailedItem, CpeMappingItem } from "@/lib/generated/wire-types.generated";
+
+/**
+ * Below `sm` a mapping table hides its header and column widths (`max-sm:hidden` on thead and
+ * colgroup) and a row lays its cells out with these classes: they wrap, lose their table padding
+ * and fixed widths. Every class carries `max-sm:`, so the desktop table is untouched.
+ */
+export const PHONE_ROW =
+  "max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-1 max-sm:p-3 max-sm:*:p-0 max-sm:*:w-auto";
+
+/** A cell that takes a line of its own on a phone and wraps instead of truncating: the name must stay readable. */
+export const PHONE_FULL_LINE = "max-sm:basis-full max-sm:whitespace-normal max-sm:break-words";
 
 const AUTO_RESOLVE_REASONS = new Map<string, string>([
   ["no_exact_product", "Not an NVD product name"],
