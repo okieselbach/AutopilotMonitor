@@ -686,6 +686,7 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "vulnerability/sync-msrc",         EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/sync-nvd",          EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/sync-epss",         EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "vulnerability/sync-dictionary",   EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/sync-status",       EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "vulnerability/cpe-mapping",       EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/cpe-mapping/auto-resolve", EndpointPolicy.GlobalAdminOnly),

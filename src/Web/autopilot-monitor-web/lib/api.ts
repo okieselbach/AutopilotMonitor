@@ -731,6 +731,7 @@ export const api = {
     syncMsrc: () => `${API_BASE_URL}/api/vulnerability/sync-msrc`,
     syncNvd: () => `${API_BASE_URL}/api/vulnerability/sync-nvd`,
     syncEpss: () => `${API_BASE_URL}/api/vulnerability/sync-epss`,
+    syncDictionary: () => `${API_BASE_URL}/api/vulnerability/sync-dictionary`,
     syncStatus: () => `${API_BASE_URL}/api/vulnerability/sync-status`,
     syncReseed: (type: string) =>
       `${API_BASE_URL}/api/vulnerability/sync${qs({ reseed: type })}`,

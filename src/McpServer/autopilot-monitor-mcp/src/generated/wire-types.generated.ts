@@ -2635,6 +2635,10 @@ export interface GetVulnerabilitySyncStatusResponse {
   epssRefreshRunning: boolean;
   /** Last run on THIS instance (in-memory; null / key omitted after a cold start). */
   epssLastRun?: EpssRefreshRunWire;
+  /** Products in the stored NVD product dictionary, which program names are matched against; null (key omitted) while none was ever stored. Not the CVE cache: NvdCacheEntries counts the products CVE data is held for. */
+  cpeDictionaryProducts?: number;
+  /** When the stored dictionary was last replaced (ISO-8601); null (key omitted) while none was ever stored. */
+  cpeDictionaryLastRefreshUtc?: string;
 }
 
 /** One Global Admin/Reader row on the wire. Deliberately NOT the storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the pre-2026-08-31 wire carried are storage internals and were dropped from the contract (no consumer read them). */
@@ -6381,6 +6385,21 @@ export interface TpmPssUnsupportedResponse {
   /** Count of raw TpmPssUnsupported distress reports before aggregation. */
   totalRawReports: number;
   dataQualityNotice: string;
+}
+
+/** Response of POST vulnerability/sync-dictionary (dual-purpose: success reflects whether the NVD product dictionary was downloaded or found current). */
+export interface TriggerCpeDictionarySyncResponse {
+  success: boolean;
+  message: string;
+  /** True when a new copy of the feed was downloaded and stored; false when the stored copy is current. */
+  changed: boolean;
+  /** Products in the stored dictionary after this call; 0 when there is none. */
+  products: number;
+  /** Error text of a failed download; null (key omitted) on success. */
+  error?: string;
+  durationMs: number;
+  /** Preformatted ISO-8601 timestamp of this response. */
+  syncedAt: string;
 }
 
 /** Response of POST vulnerability/sync-epss (dual-purpose: success reflects whether the synchronous EPSS re-score finished without error). */
