@@ -40,7 +40,9 @@ describe("autoResolveReasonText", () => {
     expect(autoResolveReasonText("nvd_unavailable")).toBe("NVD did not answer; try again later");
     expect(autoResolveReasonText("already_mapped")).toBe("Already mapped");
     expect(autoResolveReasonText("ignored")).toBe("On the ignore list");
-    expect(autoResolveReasonText("no_dictionary")).toBe("The NVD product dictionary has not been loaded yet (nightly sync)");
+    expect(autoResolveReasonText("no_dictionary")).toBe(
+      "The NVD product dictionary has not been loaded yet (Vulnerability Data > Sync NVD Dictionary loads it)",
+    );
     expect(autoResolveReasonText("empty_name")).toBe("No name");
   });
 
