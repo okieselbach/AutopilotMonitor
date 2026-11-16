@@ -3,6 +3,13 @@
 import type { ReactNode } from "react";
 import type { Route } from "next";
 import Link from "next/link";
+import {
+  CompactStatPanel,
+  StatRowSwitch,
+  statValueText,
+  type CompactStat,
+  type StatUnit,
+} from "@/components/CompactStatPanel";
 
 export type StatsCardIcon = "activity" | "success" | "duration" | "today" | "failed" | "shield" | "shieldAlert";
 
@@ -49,13 +56,69 @@ const iconShapes: Record<StatsCardIcon, ReactNode> = {
 };
 
 /**
- * Columns of the stat row; the wrapper around it carries `stats-row` (the size container). Six cards
- * follow the width the row itself gets, set in app/globals.css (`stats-grid-6`: six columns from
- * 1126 px, which a 1440 px window with the full sidebar reaches, three from 553 px, two from 362 px).
- * Five cards (the cross-tenant views) keep the window breakpoints.
+ * Columns of the card row, shown from 553 px of row width (below, the compact panel takes over). Six
+ * cards follow the row's own width (`stats-grid-6` in app/globals.css: three columns, six from 1126 px);
+ * five cards (the cross-tenant views) keep the window breakpoint for five columns.
  */
-export function statsGridClassName(count: number): string {
-  return count >= 6 ? "stats-grid-6" : "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5";
+function statsGridClassName(count: number): string {
+  return count >= 6 ? "stats-grid-6" : "grid grid-cols-2 gap-5 lg:grid-cols-5";
+}
+
+/** One dashboard metric: a card on a wide row, a cell of the compact panel on a phone. */
+export interface StatSpec {
+  title: string;
+  value: string;
+  unit?: StatUnit;
+  description: string | readonly string[];
+  icon: StatsCardIcon;
+  alert?: boolean;
+  muted?: boolean;
+  href?: Route;
+  linkOn?: "title" | "description";
+  onClick?: () => void;
+  /** The phone cell: a short label and at most one note line. */
+  compact: { label: string; note?: string };
+}
+
+function compactStat(stat: StatSpec): CompactStat {
+  return {
+    label: stat.compact.label,
+    value: stat.value,
+    unit: stat.unit,
+    note: stat.compact.note,
+    tone: stat.alert ? "red" : stat.muted ? "muted" : "default",
+    href: stat.href,
+    linkOn: stat.linkOn === "description" ? "note" : "label",
+    onClick: stat.onClick,
+  };
+}
+
+/** The dashboard's stat row: the cards on a wide row, one compact panel on a phone. */
+export function StatsRow({ stats, className }: { stats: readonly StatSpec[]; className?: string }) {
+  return (
+    <StatRowSwitch
+      className={className}
+      wide={
+        <div className={statsGridClassName(stats.length)}>
+          {stats.map((stat) => (
+            <StatsCard
+              key={stat.title}
+              title={stat.title}
+              value={statValueText(stat.value, stat.unit)}
+              description={stat.description}
+              icon={stat.icon}
+              alert={stat.alert}
+              muted={stat.muted}
+              href={stat.href}
+              linkOn={stat.linkOn}
+              onClick={stat.onClick}
+            />
+          ))}
+        </div>
+      }
+      compact={<CompactStatPanel stats={stats.map(compactStat)} />}
+    />
+  );
 }
 
 /** The link stretched over the whole card; the card is its positioning context. */

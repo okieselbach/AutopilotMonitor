@@ -10,7 +10,7 @@ import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
-import { StatsCard, statsGridClassName } from "./components/StatsCards";
+import { StatsRow, type StatSpec } from "./components/StatsCards";
 import { FirstEnrollmentCard, NoSessionsNote, SetupChecklistCard } from "./components/SetupChecklistCard";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { AppHomingBanner } from "./components/AppHomingBanner";
@@ -257,6 +257,9 @@ function HomeContent() {
     signalR,
     disabled: isRegularUser,
   });
+  const p90Text = dashboardStats && dashboardStats.p90DurationMinutes > 0
+    ? `P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)}`
+    : null;
 
   // Vulnerability card: one tenant in view — the own tenant, or the drill-in of a Global Admin / Global
   // Reader in global mode. Aggregates and delegated views keep five cards: the Software hub seeds its
@@ -517,77 +520,80 @@ function HomeContent() {
               `dashboardStats === null` covers both initial load and post-scope-change
               reset; show a non-zero placeholder so a fetch error doesn't masquerade
               as legitimate zeros. */}
-          {/* The wrapper is the size container the six-card columns follow (statsGridClassName). */}
-          <div className="stats-row mb-2">
-            <div className={statsGridClassName(vulnCard ? 6 : 5)}>
-              <StatsCard
-                title="Active Sessions"
-                value={dashboardStats ? dashboardStats.activeCount.toString() : "..."}
-                description="Currently enrolling"
-                icon="activity"
-              />
-              <StatsCard
-                title="Success Rate"
-                value={dashboardStats ? `${dashboardStats.successRatePct}%` : "..."}
-                description="Last 7 days"
-                icon="success"
-              />
-              {/* Median, not mean — a few overnight/WhiteGlove outliers dominate the average
-                  of the right-skewed duration distribution; P90 keeps the tail visible. */}
-              <StatsCard
-                title="Median Duration"
-                value={
-                  dashboardStats
-                    ? dashboardStats.medianDurationMinutes > 0
-                      ? `${dashboardStats.medianDurationMinutes} min`
-                      : "—"
-                    : "..."
-                }
-                description={
-                  dashboardStats && dashboardStats.p90DurationMinutes > 0
-                    ? [`P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)}`, "last 7 days"]
-                    : "Last 7 days"
-                }
-                icon="duration"
-              />
-              <StatsCard
-                title="Total Today"
-                value={dashboardStats ? dashboardStats.totalToday.toString() : "..."}
-                description="Started today"
-                icon="today"
-              />
-              <StatsCard
-                title="Failed Today"
-                value={dashboardStats ? dashboardStats.failedToday.toString() : "..."}
-                description={dashboardStats && dashboardStats.failedToday === 0 ? "No failures" : "Needs attention"}
-                icon="failed"
-                alert={!!dashboardStats && dashboardStats.failedToday > 0}
-              />
-              {vulnCard && (
-                <StatsCard
-                  title="Vulnerabilities"
-                  value={vulnCard.value}
-                  description={vulnCard.parts}
-                  icon={vulnCard.alert ? "shieldAlert" : "shield"}
-                  alert={vulnCard.alert}
-                  muted={vulnCard.muted}
-                  href={
-                    vulnCard.link === "tab"
-                      ? appsHubUrl({ tab: "vulnerabilities", tenantId: crossTenant ? vulnTenantId ?? undefined : undefined })
-                      : vulnCard.link === "settings"
-                        ? ANALYZER_SETTING_PATH
-                        : undefined
-                  }
-                  linkOn={vulnCard.link === "settings" ? "description" : "title"}
-                  onClick={() =>
-                    vulnCard.link === "settings"
-                      ? onAnalyzerEnableClick("dashboard_card")
-                      : trackEvent("vuln_link_clicked", { from: "dashboard_card", state: vulnCard.kind })
-                  }
-                />
-              )}
-            </div>
-          </div>
+          {/* Cards on a wide row, one compact panel on a phone (StatsRow). */}
+          <StatsRow
+            className="mb-2"
+            stats={[
+              {
+                title: "Active Sessions",
+                value: dashboardStats ? dashboardStats.activeCount.toString() : "...",
+                description: "Currently enrolling",
+                icon: "activity",
+                compact: { label: "Active now" },
+              },
+              {
+                title: "Success Rate",
+                value: dashboardStats ? dashboardStats.successRatePct.toString() : "...",
+                unit: dashboardStats ? "%" : undefined,
+                description: "Last 7 days",
+                icon: "success",
+                compact: { label: "Success · 7 d" },
+              },
+              // Median, not mean — a few overnight/WhiteGlove outliers dominate the average
+              // of the right-skewed duration distribution; P90 keeps the tail visible.
+              {
+                title: "Median Duration",
+                value: dashboardStats
+                  ? dashboardStats.medianDurationMinutes > 0
+                    ? dashboardStats.medianDurationMinutes.toString()
+                    : "—"
+                  : "...",
+                unit: dashboardStats && dashboardStats.medianDurationMinutes > 0 ? "min" : undefined,
+                description: p90Text ? [p90Text, "last 7 days"] : "Last 7 days",
+                icon: "duration",
+                compact: { label: "Median · 7 d", note: p90Text ?? undefined },
+              },
+              {
+                title: "Total Today",
+                value: dashboardStats ? dashboardStats.totalToday.toString() : "...",
+                description: "Started today",
+                icon: "today",
+                compact: { label: "Started today" },
+              },
+              {
+                title: "Failed Today",
+                value: dashboardStats ? dashboardStats.failedToday.toString() : "...",
+                description: dashboardStats && dashboardStats.failedToday === 0 ? "No failures" : "Needs attention",
+                icon: "failed",
+                alert: !!dashboardStats && dashboardStats.failedToday > 0,
+                compact: { label: "Failed today" },
+              },
+              ...(vulnCard
+                ? [
+                    {
+                      title: "Vulnerabilities",
+                      value: vulnCard.value,
+                      description: vulnCard.parts,
+                      icon: vulnCard.alert ? "shieldAlert" : "shield",
+                      alert: vulnCard.alert,
+                      muted: vulnCard.muted,
+                      href:
+                        vulnCard.link === "tab"
+                          ? appsHubUrl({ tab: "vulnerabilities", tenantId: crossTenant ? vulnTenantId ?? undefined : undefined })
+                          : vulnCard.link === "settings"
+                            ? ANALYZER_SETTING_PATH
+                            : undefined,
+                      linkOn: vulnCard.link === "settings" ? "description" : "title",
+                      onClick: () =>
+                        vulnCard.link === "settings"
+                          ? onAnalyzerEnableClick("dashboard_card")
+                          : trackEvent("vuln_link_clicked", { from: "dashboard_card", state: vulnCard.kind }),
+                      compact: { label: "Vulnerabilities", note: vulnCard.parts[0] },
+                    } satisfies StatSpec,
+                  ]
+                : []),
+            ]}
+          />
 
           <TipOfTheDay />
 

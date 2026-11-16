@@ -13,7 +13,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import { fetchJson } from "@/lib/apiClient";
-import FleetStatCard from "./components/FleetStatCard";
+import { FleetStatRow, FleetStatRowSkeleton } from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
 import DeviceJourneySection, { DeviceJourneyResponseDto } from "./components/DeviceJourneySection";
 import TruncatedLabel from "../../components/TruncatedLabel";
@@ -29,7 +29,6 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { timelineBars } from "./timelineBars";
-import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { formatDuration } from "@/lib/formatting";
 import { DocsLink } from "@/components/DocsLink";
@@ -196,6 +195,7 @@ function FleetHealthContent() {
   // Success rate is an outcome quota over finished enrollments (succeeded + failed);
   // with none finished there is no rate to show — the card renders "—" instead of 0%.
   const finishedCount = stats.succeeded + stats.failed;
+  const p90Text = stats.p90Duration > 0 ? `P90 ${formatDuration(stats.p90Duration * 60)}` : null;
   const modelHealth = data?.modelHealth ?? [];
   const groupTagHealth = data?.groupTagHealth ?? [];
   const slowestModels = data?.slowestModels ?? [];
@@ -296,11 +296,7 @@ function FleetHealthContent() {
         <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           {pendingInitial ? (
             <div aria-busy="true" aria-label="Loading" className="space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <CardSkeleton key={i} />
-                ))}
-              </div>
+              <FleetStatRowSkeleton count={5} />
               <TableSkeleton wrapped columns={4} rows={8} />
             </div>
           ) : (
@@ -325,58 +321,65 @@ function FleetHealthContent() {
             </div>
           )}
 
-          {/* Top Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
-            <FleetStatCard
-              title="Success Rate"
-              value={finishedCount > 0 ? `${stats.successRate.toFixed(1)}%` : "—"}
-              subtitle={
-                finishedCount > 0
-                  ? `${stats.succeeded} of ${finishedCount} finished enrollments`
-                  : "No finished enrollments yet"
-              }
-              color={
-                finishedCount === 0
-                  ? "slate"
-                  : stats.successRate >= 95
-                  ? "green"
-                  : stats.successRate >= 80
-                  ? "yellow"
-                  : "red"
-              }
-            />
-            {/* Median, not mean: enrollment durations are heavily right-skewed, so a few
-                overnight/WhiteGlove outliers made the old average card read like hours.
-                The P90 subtitle keeps the tail visible — that skew is the diagnostic signal. */}
-            <FleetStatCard
-              title="Median Enrollment Time"
-              value={stats.medianDuration > 0 ? `${stats.medianDuration} min` : "—"}
-              subtitle={
-                stats.p90Duration > 0
-                  ? `P90 ${formatDuration(stats.p90Duration * 60)} · completed enrollments`
-                  : "Completed enrollments"
-              }
-              color="blue"
-            />
-            <FleetStatCard
-              title="Failed"
-              value={stats.failed.toString()}
-              subtitle="Needs attention"
-              color="red"
-            />
-            <FleetStatCard
-              title="Incomplete"
-              value={stats.incomplete.toString()}
-              subtitle="No completion signal — not a failure"
-              color="slate"
-            />
-            <FleetStatCard
-              title="Active Now"
-              value={stats.inProgress.toString()}
-              subtitle="Currently enrolling"
-              color="blue"
-            />
-          </div>
+          {/* Top Stats: cards on a wide row, one compact panel on a phone (FleetStatRow). */}
+          <FleetStatRow
+            className="mb-8"
+            stats={[
+              {
+                title: "Success Rate",
+                value: finishedCount > 0 ? stats.successRate.toFixed(1) : "—",
+                unit: finishedCount > 0 ? "%" : undefined,
+                subtitle:
+                  finishedCount > 0
+                    ? `${stats.succeeded} of ${finishedCount} finished enrollments`
+                    : "No finished enrollments yet",
+                color:
+                  finishedCount === 0
+                    ? "slate"
+                    : stats.successRate >= 95
+                    ? "green"
+                    : stats.successRate >= 80
+                    ? "yellow"
+                    : "red",
+                compact: {
+                  label: "Success rate",
+                  note: finishedCount > 0 ? `${stats.succeeded} of ${finishedCount} finished` : "No finished yet",
+                },
+              },
+              // Median, not mean: enrollment durations are heavily right-skewed, so a few
+              // overnight/WhiteGlove outliers made the old average card read like hours.
+              // The P90 subtitle keeps the tail visible — that skew is the diagnostic signal.
+              {
+                title: "Median Enrollment Time",
+                value: stats.medianDuration > 0 ? stats.medianDuration.toString() : "—",
+                unit: stats.medianDuration > 0 ? "min" : undefined,
+                subtitle: p90Text ? `${p90Text} · completed enrollments` : "Completed enrollments",
+                color: "blue",
+                compact: { label: "Median", note: p90Text ?? undefined },
+              },
+              {
+                title: "Failed",
+                value: stats.failed.toString(),
+                subtitle: "Needs attention",
+                color: "red",
+                compact: { label: "Failed" },
+              },
+              {
+                title: "Incomplete",
+                value: stats.incomplete.toString(),
+                subtitle: "No completion signal — not a failure",
+                color: "slate",
+                compact: { label: "Incomplete", note: "not a failure" },
+              },
+              {
+                title: "Active Now",
+                value: stats.inProgress.toString(),
+                subtitle: "Currently enrolling",
+                color: "blue",
+                compact: { label: "Active now" },
+              },
+            ]}
+          />
 
           {/* Enrollments Timeline */}
           <div className="bg-white shadow rounded-lg p-6 mb-8">

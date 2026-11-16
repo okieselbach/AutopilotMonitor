@@ -38,7 +38,9 @@ export function ActivelyDevelopedBanner() {
   const trackLink = (link: string) => trackEvent("dev_banner_link_clicked", { link });
 
   return (
-    <div className="mb-4 bg-blue-50 border border-blue-300 rounded-lg px-4 py-3 flex items-start gap-3 dark:bg-blue-950/30 dark:border-blue-700/50">
+    // Hidden on a phone: seven lines there push the session list a screen down. Feedback and What's new
+    // stay in the navbar's overflow menu.
+    <div className="mb-4 bg-blue-50 border border-blue-300 rounded-lg px-4 py-3 hidden sm:flex items-start gap-3 dark:bg-blue-950/30 dark:border-blue-700/50">
       <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
       </svg>
