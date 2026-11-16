@@ -44,8 +44,12 @@ const PANEL = "grid grid-cols-6 gap-px overflow-hidden rounded-lg bg-gray-200 sh
 const CELL = "relative min-w-0 bg-white pb-2.5 pl-3 pr-2 pt-2";
 const STRETCHED_LINK = "after:absolute after:inset-0 focus:outline-none";
 
-/** Six tracks, three cells a row; a last row of two splits in halves, a last single cell takes the row. */
+/**
+ * Six tracks, three cells a row; a last row of two splits in halves, a last single cell takes the row.
+ * Four cells are two rows of two, which reads better than three and one.
+ */
 function spanClass(index: number, count: number): string {
+  if (count === 4) return "col-span-3";
   const rest = count % 3;
   if (rest === 0 || index < count - rest) return "col-span-2";
   return rest === 2 ? "col-span-3" : "col-span-6";

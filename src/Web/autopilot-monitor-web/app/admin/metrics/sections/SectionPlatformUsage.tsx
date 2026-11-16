@@ -1,22 +1,25 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
-import { CalculatingCard } from "@/components/CalculatingCard";
+import { CalculatingDialog } from "@/components/CalculatingCard";
 import { useWindowDays } from "@/hooks/useWindowDays";
 import { windowProgressKey } from "@/lib/timeWindow";
-import type { PlatformUsageMetrics } from "@/lib/generated/wire-types.generated";
+import type { PlatformUsageMetrics, PlatformStats } from "@/lib/generated/wire-types.generated";
 import {
   AppScriptsBlock,
   DeploymentTypeBreakdown,
   HardwareBlock,
+  NestedUsageHeadings,
   PerformanceBlock,
-  SessionOutcomeCards,
-  SessionRecencyCards,
+  SessionOutcomeRow,
+  UsageSection,
+  UsageStatRow,
+  UsersBlock,
+  sessionRecencyStats,
 } from "@/components/UsageMetricsBlocks";
 
 // A fresh cross-tenant compute takes tens of seconds server-side; the default 30s fetch timeout
@@ -37,8 +40,6 @@ export function SectionPlatformUsage() {
 }
 
 function PlatformUsageContent() {
-  const router = useRouter();
-
   const { getAccessToken } = useAuth();
   const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,242 +98,199 @@ function PlatformUsageContent() {
     return date.toLocaleString();
   };
 
-  if (loading) {
-    return (
-      <CalculatingCard
-        title="Calculating platform metrics…"
-        subtitle="Aggregating sessions, app installs and user activity across all tenants. A fresh calculation can take a minute — the result is then cached for 15 minutes."
-        elapsedMs={progress.elapsedMs}
-        estimateMs={progress.estimateMs}
-      />
-    );
-  }
+  const windowDays = metrics?.windowDays ?? USAGE_DEFAULT_WINDOW_DAYS;
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
-          <div className="text-center">
-            <svg className="h-12 w-12 text-red-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h2 className="mt-4 text-xl font-semibold text-gray-900">Error Loading Platform Usage Metrics</h2>
-            <p className="mt-2 text-gray-600">{error}</p>
-            <div className="mt-6 space-y-3">
-              <button
-                onClick={() => fetchMetrics()}
-                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                Retry
-              </button>
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Back to Home
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!metrics) {
-    return null;
-  }
-
+  // The metrics layout's header is the page header; a section only adds its title row (like the other sections).
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <div>
-              <div>
-                <h1 className="text-2xl font-normal text-gray-900">Platform Usage Metrics</h1>
-                <p className="text-sm text-gray-600 mt-1">
-                  Cross-tenant metrics • Rolling {metrics.windowDays ?? 90}-day window • Computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
-                  {metrics.fromCache && (
-                    <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
-                      From Cache
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => fetchMetrics(true)}
-              disabled={refreshing}
-              className="self-start sm:self-auto px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-            >
-              <svg className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>{refreshing ? `Refreshing… ${Math.floor(progress.elapsedMs / 1000)}s` : 'Refresh'}</span>
-            </button>
-          </div>
-        </div>
-      </header>
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-
-        {/* Session Statistics */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-1">Sessions (Last {metrics.windowDays ?? 90} Days)</h2>
-          <p className="text-xs text-gray-500 mb-4">
-            Rolling {metrics.windowDays ?? 90}-day window. For all-time totals see Platform Statistics below.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1" title={`Sessions started in the last ${metrics.windowDays ?? 90} days. All-time total is under Platform Statistics.`}>Sessions in Window</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.sessions.total.toLocaleString()}</div>
-            </div>
-            <SessionRecencyCards sessions={metrics.sessions} />
-          </div>
-
-          <SessionOutcomeCards sessions={metrics.sessions} />
-        </div>
-
-        <DeploymentTypeBreakdown deploymentTypes={metrics.deploymentTypes} />
-
-        {metrics.appScripts && <AppScriptsBlock appScripts={metrics.appScripts} />}
-
-        {/* Tenant & User Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Tenants */}
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Tenants</h2>
-            <div className="space-y-4">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Total Tenants</div>
-                <div className="text-3xl font-bold text-gray-900">{metrics.tenants.total.toLocaleString()}</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Active (Last 7 Days)</div>
-                <div className="text-3xl font-bold text-blue-600">{metrics.tenants.active7Days.toLocaleString()}</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Active (Last 30 Days)</div>
-                <div className="text-3xl font-bold text-indigo-600">{metrics.tenants.active30Days.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Users */}
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Users</h2>
-            {metrics.users.total > 0 || metrics.users.dailyLogins > 0 || metrics.users.active7Days > 0 || metrics.users.active30Days > 0 ? (
-              <div className="space-y-4">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Unique Users (90d)</div>
-                  <div className="text-3xl font-bold text-gray-900">{metrics.users.total.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Daily Logins</div>
-                  <div className="text-3xl font-bold text-blue-600">{metrics.users.dailyLogins.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Active (Last 7 Days)</div>
-                  <div className="text-3xl font-bold text-indigo-600">{metrics.users.active7Days.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Active (Last 30 Days)</div>
-                  <div className="text-3xl font-bold text-purple-600">{metrics.users.active30Days.toLocaleString()}</div>
-                </div>
-                {metrics.users.note && (
-                  <p className="text-xs text-gray-500">{metrics.users.note}</p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Platform Usage</h2>
+          <p className="text-sm text-gray-500">
+            {metrics ? (
+              <>
+                Cross-tenant · rolling {windowDays}-day window · computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
+                {metrics.fromCache && (
+                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                    From Cache
+                  </span>
                 )}
-              </div>
+              </>
             ) : (
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="space-y-4 mb-4 opacity-40">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Unique Users (90d)</span>
-                    <span className="text-xl font-bold text-gray-400">--</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Daily Logins</span>
-                    <span className="text-xl font-bold text-gray-400">--</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Active (7 Days)</span>
-                    <span className="text-xl font-bold text-gray-400">--</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Active (30 Days)</span>
-                    <span className="text-xl font-bold text-gray-400">--</span>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-3 pt-3 border-t border-gray-100">
-                  <svg className="h-5 w-5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm text-gray-600">{metrics.users.note || 'User metrics will be available when Entra ID authentication tracking is enabled.'}</p>
-                </div>
-              </div>
+              'Platform usage statistics across all tenants'
             )}
-          </div>
+          </p>
         </div>
-
-        <PerformanceBlock performance={metrics.performance} />
-
-        {/* Platform Statistics (Cumulative Since Release) */}
-        {metrics.platformStats && (
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Platform Statistics (Since Release)</h2>
-            {/* Tenants & Users */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Signed Up Tenants</div>
-                <div className="text-3xl font-bold text-cyan-600">{(metrics.platformStats.totalSignedUpTenants ?? 0).toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">all registered tenants</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Active Tenants</div>
-                <div className="text-3xl font-bold text-teal-600">{metrics.platformStats.totalTenants.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">with at least one session</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Users Seen</div>
-                <div className="text-3xl font-bold text-indigo-600">{metrics.platformStats.totalUsers.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">cumulative unique users</div>
-              </div>
-            </div>
-            {/* Enrollments */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1" title="One enrollment = one session. This is the all-time cumulative count, so it is higher than the windowed Sessions figure above.">Total Enrollments</div>
-                <div className="text-3xl font-bold text-blue-600">{metrics.platformStats.totalEnrollments.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">all sessions ever (cumulative)</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Successful Enrollments</div>
-                <div className="text-3xl font-bold text-green-600">{metrics.platformStats.successfulEnrollments.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">cumulative, all-time</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Issues Detected</div>
-                <div className="text-3xl font-bold text-red-600">{metrics.platformStats.issuesDetected.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">by analyze rules</div>
-              </div>
-            </div>
-            {/* Events & Models */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Total Events Processed</div>
-                <div className="text-3xl font-bold text-purple-600">{metrics.platformStats.totalEventsProcessed.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">all ingested events</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Unique Device Models</div>
-                <div className="text-3xl font-bold text-amber-600">{metrics.platformStats.uniqueDeviceModels.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">distinct manufacturer + model combinations</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <HardwareBlock hardware={metrics.hardware} />
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            // Without figures on screen a retry is a full load with the progress dialog.
+            onClick={() => void fetchMetrics(metrics != null)}
+            disabled={loading || refreshing}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            {refreshing ? `Refreshing… ${Math.floor(progress.elapsedMs / 1000)}s` : 'Refresh'}
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <CalculatingDialog
+            title="Calculating platform metrics…"
+            subtitle="Aggregating sessions, app installs and user activity across all tenants. A fresh calculation can take a minute — the result is then cached for 15 minutes."
+            elapsedMs={progress.elapsedMs}
+            estimateMs={progress.estimateMs}
+          />
+        </div>
+      ) : (
+        metrics && (
+          <NestedUsageHeadings>
+            <div>
+              <UsageSection
+                title={`Sessions (Last ${windowDays} Days)`}
+                description={`Rolling ${windowDays}-day window. For all-time totals see Platform Statistics below.`}
+              >
+                <UsageStatRow
+                  stats={[
+                    {
+                      label: "Sessions in Window",
+                      title: `Sessions started in the last ${windowDays} days. All-time total is under Platform Statistics.`,
+                      value: metrics.sessions.total.toLocaleString(),
+                      valueClass: "text-gray-900",
+                      compact: { label: "In window" },
+                    },
+                    ...sessionRecencyStats(metrics.sessions),
+                  ]}
+                />
+                <SessionOutcomeRow sessions={metrics.sessions} />
+              </UsageSection>
+
+              <DeploymentTypeBreakdown deploymentTypes={metrics.deploymentTypes} />
+
+              {metrics.appScripts && <AppScriptsBlock appScripts={metrics.appScripts} />}
+
+              <UsageSection title="Tenants">
+                <UsageStatRow
+                  stats={[
+                    {
+                      label: "Total Tenants",
+                      value: metrics.tenants.total.toLocaleString(),
+                      valueClass: "text-gray-900",
+                      compact: { label: "Tenants" },
+                    },
+                    {
+                      label: "Active (Last 7 Days)",
+                      value: metrics.tenants.active7Days.toLocaleString(),
+                      valueClass: "text-blue-600",
+                      compact: { label: "Active · 7 d" },
+                    },
+                    {
+                      label: "Active (Last 30 Days)",
+                      value: metrics.tenants.active30Days.toLocaleString(),
+                      valueClass: "text-indigo-600",
+                      compact: { label: "Active · 30 d" },
+                    },
+                  ]}
+                />
+              </UsageSection>
+
+              <UsersBlock users={metrics.users} />
+
+              <PerformanceBlock performance={metrics.performance} />
+
+              {metrics.platformStats && <PlatformStatistics stats={metrics.platformStats} />}
+
+              <HardwareBlock hardware={metrics.hardware} />
+            </div>
+          </NestedUsageHeadings>
+        )
+      )}
     </div>
+  );
+}
+
+/** Cumulative since release: tenants and users, enrollments, events and models. */
+function PlatformStatistics({ stats }: { stats: PlatformStats }) {
+  return (
+    <UsageSection title="Platform Statistics (Since Release)">
+      <UsageStatRow
+        className="mb-4"
+        stats={[
+          {
+            label: "Signed Up Tenants",
+            value: (stats.totalSignedUpTenants ?? 0).toLocaleString(),
+            valueClass: "text-cyan-600",
+            note: "all registered tenants",
+            compact: { label: "Signed-up tenants" },
+          },
+          {
+            label: "Active Tenants",
+            value: stats.totalTenants.toLocaleString(),
+            valueClass: "text-teal-600",
+            note: "with at least one session",
+            compact: { label: "Active tenants", note: "≥ 1 session" },
+          },
+          {
+            label: "Users Seen",
+            value: stats.totalUsers.toLocaleString(),
+            valueClass: "text-indigo-600",
+            note: "cumulative unique users",
+            compact: { label: "Users seen" },
+          },
+        ]}
+      />
+      <UsageStatRow
+        className="mb-4"
+        stats={[
+          {
+            label: "Total Enrollments",
+            title: "One enrollment = one session. This is the all-time cumulative count, so it is higher than the windowed Sessions figure above.",
+            value: stats.totalEnrollments.toLocaleString(),
+            valueClass: "text-blue-600",
+            note: "all sessions ever (cumulative)",
+            compact: { label: "Enrollments" },
+          },
+          {
+            label: "Successful Enrollments",
+            value: stats.successfulEnrollments.toLocaleString(),
+            valueClass: "text-green-600",
+            note: "cumulative, all-time",
+            compact: { label: "Successful", tone: "green" },
+          },
+          {
+            label: "Issues Detected",
+            value: stats.issuesDetected.toLocaleString(),
+            valueClass: "text-red-600",
+            note: "by analyze rules",
+            compact: { label: "Issues detected", tone: "red" },
+          },
+        ]}
+      />
+      <UsageStatRow
+        stats={[
+          {
+            label: "Total Events Processed",
+            value: stats.totalEventsProcessed.toLocaleString(),
+            valueClass: "text-purple-600",
+            note: "all ingested events",
+            compact: { label: "Events processed" },
+          },
+          {
+            label: "Unique Device Models",
+            value: stats.uniqueDeviceModels.toLocaleString(),
+            valueClass: "text-amber-600",
+            note: "distinct manufacturer + model combinations",
+            compact: { label: "Device models" },
+          },
+        ]}
+      />
+    </UsageSection>
   );
 }

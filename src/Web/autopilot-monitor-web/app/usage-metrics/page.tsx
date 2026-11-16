@@ -9,6 +9,7 @@ import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
+import { CompactStatPanelSkeleton, StatRowSwitch } from "@/components/CompactStatPanel";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { PlatformUsageMetrics } from "@/lib/generated/wire-types.generated";
@@ -17,8 +18,12 @@ import {
   DeploymentTypeBreakdown,
   HardwareBlock,
   PerformanceBlock,
-  SessionOutcomeCards,
-  SessionRecencyCards,
+  SessionOutcomeRow,
+  UsageSection,
+  UsageStatRow,
+  UsersBlock,
+  sessionRecencyStats,
+  type UsageStat,
 } from "@/components/UsageMetricsBlocks";
 import { fetchJson } from "@/lib/apiClient";
 import { useWindowDays } from "@/hooks/useWindowDays";
@@ -103,6 +108,7 @@ function UsageMetricsContent() {
   }, [effectiveTenantId, fetchMetrics]);
 
   const selectedTenantName = tenants.find(t => t.tenantId === selectedTenantId)?.domainName;
+  const windowDays = metrics?.windowDays ?? USAGE_DEFAULT_WINDOW_DAYS;
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -157,10 +163,22 @@ function UsageMetricsContent() {
         {/* Skeleton also covers a tenant switch (loading with stale metrics) so
             the previous tenant's numbers never linger under the new scope. */}
         {loading ? (
-          <div aria-busy="true" aria-label="Loading" className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
+          <div aria-busy="true" aria-label="Loading">
+            <StatRowSwitch
+              wide={
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <CardSkeleton key={i} />
+                  ))}
+                </div>
+              }
+              compact={
+                <div className="space-y-4">
+                  <CompactStatPanelSkeleton count={5} />
+                  <CompactStatPanelSkeleton count={5} />
+                </div>
+              }
+            />
           </div>
         ) : !metrics ? (
           <div className="bg-white rounded-lg shadow p-12 text-center">
@@ -175,91 +193,47 @@ function UsageMetricsContent() {
         ) : (
         <>
 
-        {/* Session Statistics */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-1">Sessions</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            All counts cover the last {metrics.windowDays ?? 90} days &mdash; older sessions age out of this window and your plan&apos;s data retention. Only Total Enrollments is cumulative since signup.
-          </p>
-          <div className={`grid grid-cols-1 gap-4 ${metrics.sessions.totalAllTime != null ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
-            {metrics.sessions.totalAllTime != null && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1" title="Cumulative count of all enrollment sessions since this tenant signed up — unaffected by the metrics window or data retention.">Total Enrollments</div>
-                <div className="text-3xl font-bold text-gray-900">{metrics.sessions.totalAllTime.toLocaleString()}</div>
-                <p className="text-xs text-gray-400 mt-1">since signup</p>
-              </div>
-            )}
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1" title={`Sessions started within the ${metrics.windowDays ?? 90}-day metrics window — not a cumulative count since signup.`}>Total Sessions</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.sessions.total.toLocaleString()}</div>
-              <p className="text-xs text-gray-400 mt-1">last {metrics.windowDays ?? 90} days</p>
-            </div>
-            <SessionRecencyCards sessions={metrics.sessions} />
-          </div>
-
-          <SessionOutcomeCards sessions={metrics.sessions} />
-        </div>
+        <UsageSection
+          title="Sessions"
+          description={
+            <>
+              All counts cover the last {windowDays} days &mdash; older sessions age out of this window and your plan&apos;s data retention. Only Total Enrollments is cumulative since signup.
+            </>
+          }
+        >
+          <UsageStatRow
+            stats={[
+              ...(metrics.sessions.totalAllTime != null
+                ? [
+                    {
+                      label: "Total Enrollments",
+                      title: "Cumulative count of all enrollment sessions since this tenant signed up — unaffected by the metrics window or data retention.",
+                      value: metrics.sessions.totalAllTime.toLocaleString(),
+                      valueClass: "text-gray-900",
+                      note: "since signup",
+                      compact: { label: "Enrollments", note: "since signup" },
+                    } satisfies UsageStat,
+                  ]
+                : []),
+              {
+                label: "Total Sessions",
+                title: `Sessions started within the ${windowDays}-day metrics window — not a cumulative count since signup.`,
+                value: metrics.sessions.total.toLocaleString(),
+                valueClass: "text-gray-900",
+                note: `last ${windowDays} days`,
+                compact: { label: "Sessions", note: `last ${windowDays} d` },
+              },
+              ...sessionRecencyStats(metrics.sessions),
+            ]}
+          />
+          <SessionOutcomeRow sessions={metrics.sessions} />
+        </UsageSection>
 
         <DeploymentTypeBreakdown deploymentTypes={metrics.deploymentTypes} />
 
         {metrics.appScripts && <AppScriptsBlock appScripts={metrics.appScripts} />}
 
-        {/* User Statistics */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Users</h2>
-          {metrics.users.total > 0 || metrics.users.dailyLogins > 0 || metrics.users.active7Days > 0 || metrics.users.active30Days > 0 ? (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Unique Users (90d)</div>
-                  <div className="text-3xl font-bold text-gray-900">{metrics.users.total.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Daily Logins</div>
-                  <div className="text-3xl font-bold text-blue-600">{metrics.users.dailyLogins.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Active (Last 7 Days)</div>
-                  <div className="text-3xl font-bold text-indigo-600">{metrics.users.active7Days.toLocaleString()}</div>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <div className="text-sm text-gray-500 mb-1">Active (Last 30 Days)</div>
-                  <div className="text-3xl font-bold text-purple-600">{metrics.users.active30Days.toLocaleString()}</div>
-                </div>
-              </div>
-              {metrics.users.note && (
-                <p className="mt-3 text-xs text-gray-500">{metrics.users.note}</p>
-              )}
-            </>
-          ) : (
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 opacity-40">
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Unique Users (90d)</div>
-                  <div className="text-3xl font-bold text-gray-400">--</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Daily Logins</div>
-                  <div className="text-3xl font-bold text-gray-400">--</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Active (7 Days)</div>
-                  <div className="text-3xl font-bold text-gray-400">--</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Active (30 Days)</div>
-                  <div className="text-3xl font-bold text-gray-400">--</div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3 pt-3 border-t border-gray-100">
-                <svg className="h-5 w-5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-gray-600">{metrics.users.note || 'User metrics will be available when Entra ID authentication tracking is enabled.'}</p>
-              </div>
-            </div>
-          )}
-        </div>
+        <UsersBlock users={metrics.users} />
 
         <PerformanceBlock performance={metrics.performance} />
 

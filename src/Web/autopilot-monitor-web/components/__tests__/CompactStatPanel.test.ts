@@ -23,7 +23,12 @@ describe("CompactStatPanel", () => {
 
   it("splits a last row of two in halves and lets a single last cell take the row", () => {
     expect(spans(render(["a", "b", "c", "d", "e"].map((l) => stat(l))))).toEqual([2, 2, 2, 3, 3]);
-    expect(spans(render(["a", "b", "c", "d"].map((l) => stat(l))))).toEqual([2, 2, 2, 6]);
+    expect(spans(render(["a", "b", "c", "d", "e", "f", "g"].map((l) => stat(l))))).toEqual([2, 2, 2, 2, 2, 2, 6]);
+  });
+
+  it("lays four cells out as two rows of two", () => {
+    expect(spans(render(["a", "b", "c", "d"].map((l) => stat(l))))).toEqual([3, 3, 3, 3]);
+    expect(spans(renderToStaticMarkup(createElement(CompactStatPanelSkeleton, { count: 4 })))).toEqual([3, 3, 3, 3]);
   });
 
   it("colors the value by tone and prints the unit small", () => {
