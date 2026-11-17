@@ -26,6 +26,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
     {
         private static DateTime At => new DateTime(2026, 4, 20, 10, 0, 0, DateTimeKind.Utc);
 
+        // Upper bound for waiting on the worker thread, same budget as the sibling orchestrator
+        // test classes. SpinUntil returns as soon as the condition holds, so a green run never
+        // pays it; 2 s starved on a loaded CI runner late in the agent suite.
+        private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+
 
         // ========================================================================= Ctor
 
@@ -201,7 +206,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 evidence: new Evidence(EvidenceKind.Synthetic, "test", "test"));
 
             // Wait until the worker applied it (StepIndex > 0 at minimum).
-            Assert.True(SpinWait.SpinUntil(() => sut.CurrentState.StepIndex > 0, 2000));
+            Assert.True(SpinWait.SpinUntil(() => sut.CurrentState.StepIndex > 0, Wait));
             var stepIndexBeforeStop = sut.CurrentState.StepIndex;
 
             sut.Stop();
@@ -260,7 +265,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var signalLog = GetSignalLog(sut);
             Assert.True(SpinWait.SpinUntil(
                 () => ContainsDeadlineFired(signalLog),
-                3000));
+                Wait));
 
             sut.Stop();
         }
@@ -285,7 +290,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 firesPayload: new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = "hello_safety" }));
 
             var signalLog = GetSignalLog(sut);
-            Assert.True(SpinWait.SpinUntil(() => ContainsDeadlineFired(signalLog), 3000));
+            Assert.True(SpinWait.SpinUntil(() => ContainsDeadlineFired(signalLog), Wait));
 
             DecisionSignal? fired = null;
             foreach (var sig in signalLog.ReadAll())
