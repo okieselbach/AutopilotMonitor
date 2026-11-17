@@ -5,26 +5,36 @@ import { api } from "@/lib/api";
 import { fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
-import type { EmailTemplateRequest, EmailTemplateTestSendResponse } from "@/lib/generated/wire-types.generated";
+import type {
+  EmailTemplateRequest,
+  EmailTemplateResponse,
+  EmailTemplateTestSendRequest,
+  EmailTemplateTestSendResponse,
+} from "@/lib/generated/wire-types.generated";
 import { ModalPortal } from "@/components/ModalPortal";
 
 type TemplateKind = "welcome" | "farewell";
 
-interface TemplateState {
-  kind: TemplateKind;
-  subject: string;
-  isOverridden: boolean;
-  html: string;
-  builtInHtml: string;
-  updatedBy: string | null;
-  updatedUtc: string | null;
-  placeholder: string;
-  maxLength: number;
+/** The caller's default test recipient as the template GET reports it. */
+interface DefaultRecipient {
+  address: string;
+  source?: string;
+}
+
+/** Labels for EmailTemplateResponse.testRecipientSource. */
+const RECIPIENT_SOURCE_LABELS: Record<string, string> = {
+  notificationEmail: "your tenant's activation notification address",
+  contactEmail: "the Contact email from your tenant settings",
+  userPrincipalName: "your sign-in UPN",
+};
+
+function recipientSourceLabel(source?: string): string | undefined {
+  return source ? (RECIPIENT_SOURCE_LABELS[source] ?? source) : undefined;
 }
 
 const KINDS: { kind: TemplateKind; title: string; description: string }[] = [
   { kind: "welcome", title: "Welcome email", description: "Sent once when a tenant is activated, to the notification address entered on the activation page." },
-  { kind: "farewell", title: "Farewell email", description: "Sent once after a tenant's offboarding completes, to the address captured at offboarding start." },
+  { kind: "farewell", title: "Farewell email", description: "Sent once after a tenant's offboarding completes, to the notification address captured at offboarding start." },
 ];
 
 const SAMPLE_DOMAIN = "contoso.com";
@@ -33,7 +43,7 @@ function renderPreview(html: string, placeholder: string): string {
   return html.split(placeholder).join(SAMPLE_DOMAIN);
 }
 
-function formatUtc(value: string | null): string {
+function formatUtc(value?: string): string {
   if (!value) return "";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? value : d.toISOString().replace("T", " ").substring(0, 16) + " UTC";
@@ -41,6 +51,10 @@ function formatUtc(value: string | null): string {
 
 export function SectionEmailTemplates() {
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
+  const [testRecipient, setTestRecipient] = useState("");
+  // undefined = not loaded yet; null = the tenant has no default, a recipient must be entered.
+  const [defaultRecipient, setDefaultRecipient] = useState<DefaultRecipient | null | undefined>(undefined);
+  const defaultSource = recipientSourceLabel(defaultRecipient?.source);
 
   return (
     <>
@@ -49,17 +63,51 @@ export function SectionEmailTemplates() {
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Email Templates</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Preview the transactional emails, send a test to your tenant&apos;s contact address, or replace the
-            HTML without a code deployment. Changes apply to real sends immediately; subjects are fixed.
+            Preview the transactional emails, send a test, or replace the HTML without a code deployment. Changes
+            apply to real sends immediately; subjects are fixed.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+            <span className="font-medium text-gray-700 dark:text-gray-300">Who receives what:</span> real welcome and
+            farewell mails go only to the tenant&apos;s activation notification address — never to the Contact email. A
+            test goes to the test recipient below; left empty, it goes where your own tenant&apos;s real mail would: the
+            activation notification address, else the Contact email from the tenant settings, else your sign-in UPN.
           </p>
         </div>
         <div className="p-6 space-y-6">
+          <div>
+            <label htmlFor="email-template-test-recipient" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Test recipient
+            </label>
+            <input
+              id="email-template-test-recipient"
+              type="email"
+              value={testRecipient}
+              onChange={(e) => setTestRecipient(e.target.value)}
+              placeholder={defaultRecipient?.address ?? "name@example.com"}
+              autoComplete="off"
+              className="mt-1 w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            />
+            {defaultRecipient !== undefined && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {defaultRecipient ? (
+                  <>
+                    Left empty, tests go to <span className="font-mono text-gray-700 dark:text-gray-300">{defaultRecipient.address}</span>
+                    {defaultSource ? ` (${defaultSource})` : ""}.
+                  </>
+                ) : (
+                  "Your tenant has no default recipient — enter an address to send a test."
+                )}
+              </p>
+            )}
+          </div>
           {KINDS.map((k) => (
             <TemplateCard
               key={k.kind}
               kind={k.kind}
               title={k.title}
               description={k.description}
+              testRecipient={testRecipient}
+              onDefaultRecipient={setDefaultRecipient}
               getAccessToken={getAccessToken}
               setError={setError}
               setSuccessMessage={setSuccessMessage}
@@ -75,13 +123,16 @@ interface TemplateCardProps {
   kind: TemplateKind;
   title: string;
   description: string;
+  /** The section's test-recipient field as typed; blank = the default recipient. */
+  testRecipient: string;
+  onDefaultRecipient: (recipient: DefaultRecipient | null) => void;
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
   setSuccessMessage: (message: string | null) => void;
 }
 
-function TemplateCard({ kind, title, description, getAccessToken, setError, setSuccessMessage }: TemplateCardProps) {
-  const [state, setState] = useState<TemplateState | null>(null);
+function TemplateCard({ kind, title, description, testRecipient, onDefaultRecipient, getAccessToken, setError, setSuccessMessage }: TemplateCardProps) {
+  const [state, setState] = useState<EmailTemplateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -96,15 +147,16 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await fetchJson<TemplateState>(api.emailTemplates.get(kind), getAccessToken);
+      const data = await fetchJson<EmailTemplateResponse>(api.emailTemplates.get(kind), getAccessToken);
       setState(data);
       setDraft(data.html);
+      onDefaultRecipient(data.testRecipient ? { address: data.testRecipient, source: data.testRecipientSource } : null);
     } catch (err) {
       fail(err, `Failed to load ${kind} template`);
     } finally {
       setLoading(false);
     }
-  }, [kind, getAccessToken, fail]);
+  }, [kind, getAccessToken, fail, onDefaultRecipient]);
 
   useEffect(() => {
     const run = async () => { await load(); };
@@ -152,14 +204,15 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
   };
 
   const handleSendTest = async (useDraft: boolean) => {
+    const toEmail = testRecipient.trim();
     try {
       setBusy("test");
       setError(null);
       const body = await fetchJson<EmailTemplateTestSendResponse>(api.emailTemplates.sendTest(kind), getAccessToken, {
         method: "POST",
-        body: jsonBody<EmailTemplateRequest>(useDraft ? { html: draft } : {}),
+        body: jsonBody<EmailTemplateTestSendRequest>({ html: useDraft ? draft : undefined, toEmail: toEmail || undefined }),
       });
-      flash(`Test ${title.toLowerCase()} sent to ${body?.sentTo ?? "your tenant contact address"}${useDraft ? " (unsaved draft)" : ""}.`);
+      flash(`Test ${title.toLowerCase()} sent to ${body?.sentTo ?? (toEmail || "the default test recipient")}${useDraft ? " (unsaved draft)" : ""}.`);
     } catch (err) {
       fail(err, `Failed to send ${kind} test email`);
     } finally {
@@ -210,7 +263,7 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
             onClick={() => handleSendTest(false)}
             className="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
           >
-            {busy === "test" ? "Sending…" : "Send test to me"}
+            {busy === "test" ? "Sending…" : "Send test"}
           </button>
           <button
             type="button"

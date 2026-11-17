@@ -386,6 +386,19 @@ namespace AutopilotMonitor.Shared.Models
         public string Placeholder { get; set; } = default!;
 
         public int MaxLength { get; set; }
+
+        /// <summary>
+        /// Where a test send goes when the request names no recipient: the caller's tenant activation
+        /// notification address, else its ContactEmail, else the caller's UPN. Null when none of them
+        /// is set — the key is omitted when null.
+        /// </summary>
+        public string? TestRecipient { get; set; }
+
+        /// <summary>
+        /// Which field <see cref="TestRecipient"/> came from: "notificationEmail", "contactEmail" or
+        /// "userPrincipalName". Null together with it — the key is omitted when null.
+        /// </summary>
+        public string? TestRecipientSource { get; set; }
     }
 
     /// <summary>Response of PUT global/email-templates/{kind}: override stored.</summary>
@@ -674,10 +687,20 @@ namespace AutopilotMonitor.Shared.Models
         public string? Reason { get; set; }
     }
 
-    /// <summary>Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template).</summary>
+    /// <summary>Body of PUT global/email-templates/{kind}: the override HTML to store.</summary>
     public class EmailTemplateRequest : IApiRequest
     {
         public string? Html { get; set; }
+    }
+
+    /// <summary>Body of POST global/email-templates/{kind}/test (optional; empty = the stored template to the default recipient).</summary>
+    public class EmailTemplateTestSendRequest : IApiRequest
+    {
+        /// <summary>An unsaved draft to send instead of the effective template.</summary>
+        public string? Html { get; set; }
+
+        /// <summary>One plain address to send the test to instead of the caller's default test recipient.</summary>
+        public string? ToEmail { get; set; }
     }
 
     /// <summary>Body of PUT preview/notification-email and POST preview/send-welcome-email/{tenantId}.</summary>

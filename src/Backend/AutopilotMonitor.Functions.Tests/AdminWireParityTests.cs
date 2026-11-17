@@ -676,6 +676,8 @@ public class AdminWireParityTests
                 updatedUtc,
                 placeholder = "{{domainName}}",
                 maxLength = 30_000,
+                testRecipient = "it@contoso.com",
+                testRecipientSource = "notificationEmail",
             },
             new EmailTemplateResponse
             {
@@ -688,14 +690,18 @@ public class AdminWireParityTests
                 UpdatedUtc = updatedUtc,
                 Placeholder = "{{domainName}}",
                 MaxLength = 30_000,
+                TestRecipient = "it@contoso.com",
+                TestRecipientSource = "notificationEmail",
             });
     }
 
     [Fact]
-    public void EmailTemplateResponse_omits_updatedBy_and_updatedUtc_without_an_override()
+    public void EmailTemplateResponse_omits_updatedBy_updatedUtc_and_testRecipient_when_unset()
     {
         string? updatedBy = null;
         DateTime? updatedUtc = null;
+        string? testRecipient = null;
+        string? testRecipientSource = null;
 
         AssertParity(
             new
@@ -709,6 +715,8 @@ public class AdminWireParityTests
                 updatedUtc,
                 placeholder = "{{domainName}}",
                 maxLength = 30_000,
+                testRecipient,
+                testRecipientSource,
             },
             new EmailTemplateResponse
             {
@@ -721,6 +729,8 @@ public class AdminWireParityTests
                 UpdatedUtc = null,
                 Placeholder = "{{domainName}}",
                 MaxLength = 30_000,
+                TestRecipient = null,
+                TestRecipientSource = null,
             });
     }
 

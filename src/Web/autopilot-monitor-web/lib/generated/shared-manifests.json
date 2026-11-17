@@ -9457,7 +9457,7 @@
     },
     "EmailTemplateRequest": {
       "kind": "object",
-      "doc": "Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template).",
+      "doc": "Body of PUT global/email-templates/{kind}: the override HTML to store.",
       "fields": [
         {
           "name": "html",
@@ -9564,6 +9564,24 @@
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "testRecipient",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Where a test send goes when the request names no recipient: the caller's tenant activation notification address, else its ContactEmail, else the caller's UPN. Null when none of them is set — the key is omitted when null."
+        },
+        {
+          "name": "testRecipientSource",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Which field TestRecipient came from: \"notificationEmail\", \"contactEmail\" or \"userPrincipalName\". Null together with it — the key is omitted when null."
         }
       ]
     },
@@ -9599,6 +9617,32 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "EmailTemplateTestSendRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/email-templates/{kind}/test (optional; empty = the stored template to the default recipient).",
+      "fields": [
+        {
+          "name": "html",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "An unsaved draft to send instead of the effective template."
+        },
+        {
+          "name": "toEmail",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "One plain address to send the test to instead of the caller's default test recipient."
         }
       ]
     },

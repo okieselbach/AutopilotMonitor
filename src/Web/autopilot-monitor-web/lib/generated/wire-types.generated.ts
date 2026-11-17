@@ -1892,7 +1892,7 @@ export interface EfficiencyOffender {
   value: number;
 }
 
-/** Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template). */
+/** Body of PUT global/email-templates/{kind}: the override HTML to store. */
 export interface EmailTemplateRequest {
   html?: string | null;
 }
@@ -1920,6 +1920,10 @@ export interface EmailTemplateResponse {
   /** The domain placeholder token used in the raw template. */
   placeholder: string;
   maxLength: number;
+  /** Where a test send goes when the request names no recipient: the caller's tenant activation notification address, else its ContactEmail, else the caller's UPN. Null when none of them is set — the key is omitted when null. */
+  testRecipient?: string;
+  /** Which field TestRecipient came from: "notificationEmail", "contactEmail" or "userPrincipalName". Null together with it — the key is omitted when null. */
+  testRecipientSource?: string;
 }
 
 /** Response of PUT global/email-templates/{kind}: override stored. */
@@ -1929,6 +1933,14 @@ export interface EmailTemplateSaveResponse {
   isOverridden: boolean;
   updatedBy: string;
   updatedUtc: string;
+}
+
+/** Body of POST global/email-templates/{kind}/test (optional; empty = the stored template to the default recipient). */
+export interface EmailTemplateTestSendRequest {
+  /** An unsaved draft to send instead of the effective template. */
+  html?: string | null;
+  /** One plain address to send the test to instead of the caller's default test recipient. */
+  toEmail?: string | null;
 }
 
 /** Response of POST global/email-templates/{kind}/test: the test mail was accepted by the provider. */

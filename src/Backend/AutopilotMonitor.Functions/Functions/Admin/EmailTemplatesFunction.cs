@@ -39,7 +39,7 @@ public class EmailTemplatesFunction
     /// <summary>
     /// GET /api/global/email-templates/{kind}
     /// Effective template: the override when stored, otherwise the built-in (raw, with the
-    /// {{domainName}} placeholder so it can be edited as-is).
+    /// {{domainName}} placeholder so it can be edited as-is), plus the caller's default test recipient.
     /// </summary>
     [Function("GetEmailTemplate")]
     public async Task<HttpResponseData> Get(
@@ -50,6 +50,9 @@ public class EmailTemplatesFunction
             return await BadRequest(req, "Unknown template kind. Use 'welcome' or 'farewell'.");
 
         var overrideEntry = await _templates.GetOverrideAsync(templateKind);
+        var tenantId = TenantHelper.GetTenantId(req);
+        var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
+        var testRecipient = await DefaultTestRecipientAsync(tenantId, TenantHelper.GetUserIdentifier(req), tenantConfig);
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new EmailTemplateResponse
         {
@@ -62,6 +65,8 @@ public class EmailTemplatesFunction
             UpdatedUtc = overrideEntry?.UpdatedUtc,
             Placeholder = EmailTemplateService.DomainPlaceholder,
             MaxLength = EmailTemplateService.MaxHtmlLength,
+            TestRecipient = testRecipient.Address,
+            TestRecipientSource = testRecipient.Source,
         });
         return response;
     }
@@ -107,10 +112,10 @@ public class EmailTemplatesFunction
     }
 
     /// <summary>
-    /// POST /api/global/email-templates/{kind}/test — body { html? } sends the effective template
-    /// (or the unsaved draft) to the caller's tenant contact address: the activation
-    /// notification email, then TenantConfiguration.ContactEmail, then the caller's UPN.
-    /// Domain = the caller's tenant domain.
+    /// POST /api/global/email-templates/{kind}/test — body { html?, toEmail? } sends the effective
+    /// template (or the unsaved draft) to <c>toEmail</c> when given, otherwise to the caller's
+    /// default test recipient (<see cref="ResolveDefaultTestRecipient"/>). Domain = the caller's
+    /// tenant domain.
     /// </summary>
     [Function("SendEmailTemplateTest")]
     public async Task<HttpResponseData> SendTest(
@@ -120,7 +125,7 @@ public class EmailTemplatesFunction
         if (!EmailTemplateService.TryParseKind(kind, out var templateKind))
             return await BadRequest(req, "Unknown template kind. Use 'welcome' or 'farewell'.");
 
-        var read = await req.ReadOptionalAsync<EmailTemplateRequest>();
+        var read = await req.ReadOptionalAsync<EmailTemplateTestSendRequest>();
         if (read.Error != null) return read.Error;
         var draft = string.IsNullOrWhiteSpace(read.Value?.Html) ? null : read.Value!.Html;
         if (draft is not null)
@@ -128,19 +133,24 @@ public class EmailTemplatesFunction
             var error = EmailTemplateService.Validate(draft);
             if (error is not null) return await BadRequest(req, error);
         }
+        var namedRecipient = string.IsNullOrWhiteSpace(read.Value?.ToEmail) ? null : read.Value!.ToEmail!.Trim();
+        if (namedRecipient is not null)
+        {
+            var error = TenantConfigValidation.ValidateEmailAddress(namedRecipient);
+            if (error is not null) return await BadRequest(req, error);
+        }
 
         var tenantId = TenantHelper.GetTenantId(req);
         var upn = TenantHelper.GetUserIdentifier(req);
         var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
 
-        var toEmail = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
-        if (string.IsNullOrWhiteSpace(toEmail)) toEmail = tenantConfig.ContactEmail;
-        if (string.IsNullOrWhiteSpace(toEmail)) toEmail = upn.Contains('@') ? upn : null;
-        if (string.IsNullOrWhiteSpace(toEmail))
-            return await BadRequest(req, "No contact email found for your tenant — set a notification email or ContactEmail first.");
+        var toEmail = namedRecipient ?? (await DefaultTestRecipientAsync(tenantId, upn, tenantConfig)).Address;
+        if (toEmail is null)
+            return await BadRequest(req, "No default test recipient for your tenant — enter a recipient, or set a notification email or ContactEmail first.");
 
         var sent = await _email.SendTestAsync(templateKind, toEmail, tenantConfig.DomainName, draft);
-        _logger.LogInformation("Email template test {Kind} requested by {Upn} → {ToEmail}: {Result}", templateKind, upn, toEmail, sent ? "accepted" : "failed");
+        _logger.LogInformation("Email template test {Kind} requested by {Upn} → {ToEmail} ({Recipient}): {Result}",
+            templateKind, upn, toEmail, namedRecipient is null ? "default" : "named", sent ? "accepted" : "failed");
 
         if (!sent)
         {
@@ -152,6 +162,22 @@ public class EmailTemplatesFunction
         await response.WriteAsJsonAsync(new EmailTemplateTestSendResponse { SentTo = toEmail, DomainName = tenantConfig.DomainName, Draft = draft is not null });
         return response;
     }
+
+    /// <summary>
+    /// The caller's default test recipient: where the tenant's real welcome and farewell mails go
+    /// (the activation notification address), else its ContactEmail, else the caller's UPN when it
+    /// is an address. Source = the wire value of <see cref="EmailTemplateResponse.TestRecipientSource"/>.
+    /// </summary>
+    internal static (string? Address, string? Source) ResolveDefaultTestRecipient(string? notificationEmail, string? contactEmail, string? upn)
+    {
+        if (!string.IsNullOrWhiteSpace(notificationEmail)) return (notificationEmail, "notificationEmail");
+        if (!string.IsNullOrWhiteSpace(contactEmail)) return (contactEmail, "contactEmail");
+        if (!string.IsNullOrWhiteSpace(upn) && upn.Contains('@')) return (upn, "userPrincipalName");
+        return (null, null);
+    }
+
+    private async Task<(string? Address, string? Source)> DefaultTestRecipientAsync(string tenantId, string upn, TenantConfiguration tenantConfig)
+        => ResolveDefaultTestRecipient(await _previewWhitelistService.GetNotificationEmailAsync(tenantId), tenantConfig.ContactEmail, upn);
 
     private static async Task<HttpResponseData> BadRequest(HttpRequestData req, string error)
     {

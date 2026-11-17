@@ -489,12 +489,25 @@ namespace AutopilotMonitor.Functions.Helpers
                 return $"an e-mail channel may name at most {MaxEmailRecipients} recipients.";
             foreach (var address in addresses)
             {
-                if (address.Length > 254
-                    || !System.Net.Mail.MailAddress.TryCreate(address, out var parsed)
-                    || !string.Equals(parsed.Address, address, StringComparison.Ordinal)
-                    || !parsed.Host.Contains('.'))
-                    return $"\"{address}\" is not a valid e-mail address.";
+                var error = ValidateEmailAddress(address);
+                if (error is not null)
+                    return error;
             }
+            return null;
+        }
+
+        /// <summary>
+        /// One plain e-mail address: at most 254 characters, no display name or surrounding text
+        /// (the parsed address must equal the input), and a dotted host. Returns an error message,
+        /// or null when valid. The rule every platform-sent recipient a caller names goes through.
+        /// </summary>
+        internal static string? ValidateEmailAddress(string address)
+        {
+            if (address.Length > 254
+                || !System.Net.Mail.MailAddress.TryCreate(address, out var parsed)
+                || !string.Equals(parsed.Address, address, StringComparison.Ordinal)
+                || !parsed.Host.Contains('.'))
+                return $"\"{address}\" is not a valid e-mail address.";
             return null;
         }
 
