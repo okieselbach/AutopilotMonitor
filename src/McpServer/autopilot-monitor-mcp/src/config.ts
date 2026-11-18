@@ -48,7 +48,7 @@ export const PORTAL_BASE_URL = 'https://monitor.clefsoft.co.uk';
 export const VERSIONS_BASE_URL = 'https://stautopilotmonitorprod.blob.core.windows.net/versions';
 
 /** Agent release line (Front Door alias, route caching disabled): version.json is the current manifest. */
-export const AGENT_DOWNLOAD_BASE_URL = 'https://monitor-dl.clefsoft.co.uk/agent';
+export const AGENT_DOWNLOAD_BASE_URL = 'https://stautopilotmonitorprod.blob.core.windows.net/agent';
 
 /**
  * Pretty-print EVERY tool result (2-space indentation) instead of compact JSON. Off by default:

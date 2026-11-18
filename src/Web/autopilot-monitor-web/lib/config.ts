@@ -70,7 +70,7 @@ export const BLOB_URL_PROD = "https://stautopilotmonitorprod.blob.core.windows.n
  * (Front Door in front of the blob origin). Counterpart of
  * Constants.AgentDownloadBaseUrl on the C# side.
  */
-export const AGENT_DOWNLOAD_URL = "https://monitor-dl.clefsoft.co.uk/agent";
+export const AGENT_DOWNLOAD_URL = "https://stautopilotmonitorprod.blob.core.windows.net/agent";
 
 /** The MCP endpoint every AI client connects to. Counterpart of Constants.McpServerBaseUrl + "/mcp". */
 export const MCP_SERVER_URL = "https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io/mcp";

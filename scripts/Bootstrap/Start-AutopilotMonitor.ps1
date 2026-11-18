@@ -32,7 +32,7 @@
 #>
 
 param(
-    [string]$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1",
+    [string]$BootstrapUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent/Install-AutopilotMonitor.ps1",
 
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$LogFileName = "bootstrap-loader.log"

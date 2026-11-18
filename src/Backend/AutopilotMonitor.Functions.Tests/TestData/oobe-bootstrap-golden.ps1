@@ -12,13 +12,13 @@
 
 $ErrorActionPreference = "Stop"
 
-$AgentDownloadUrl = 'https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip'
+$AgentDownloadUrl = 'https://stautopilotmonitorprod.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip'
 $AgentBasePath    = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath     = "$AgentBasePath\Agent"
 $AgentLogPath     = "$AgentBasePath\Logs"
 $LogFile          = "$AgentLogPath\oobe_bootstrap.log"
 
-$ExpectedPublisher = '*O=glueckkanja AG*'
+$ExpectedPublisher = '*O=Clefsoft Lab*'
 $AgentCatalogName  = 'AutopilotMonitor.Agent.cat'
 
 function Write-Log {
@@ -383,7 +383,7 @@ try {
     }
 
     Write-Log "===== OOBE Bootstrap Complete ====="
-    Write-Log "Agent is now monitoring. View progress at https://portal.autopilotmonitor.com"
+    Write-Log "Agent is now monitoring. View progress at https://monitor.clefsoft.co.uk"
     Write-Log ""
     Write-Log "The agent will:"
     Write-Log "  - Monitor enrollment from the very start"
@@ -392,7 +392,7 @@ try {
 
     Write-Host ""
     Write-Host "Autopilot Monitor agent installed successfully!" -ForegroundColor Green
-    Write-Host "View enrollment progress at https://portal.autopilotmonitor.com" -ForegroundColor Cyan
+    Write-Host "View enrollment progress at https://monitor.clefsoft.co.uk" -ForegroundColor Cyan
     Write-Host ""
 }
 catch {

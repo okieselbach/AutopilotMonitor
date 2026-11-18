@@ -50,7 +50,7 @@ $endpoints = [ordered]@{
     ADMIN_CONFIG_URL           = "$table/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')"
     LEGACY_AGENT_CONTAINER_URL = "https://$legacyStorageAccount.blob.core.windows.net/agent"
     # Front Door in front of the agent container: what customer scripts download from.
-    DOWNLOAD_ALIAS_URL         = 'https://monitor-dl.clefsoft.co.uk/agent'
+    DOWNLOAD_ALIAS_URL         = 'https://stautopilotmonitorprod.blob.core.windows.net/agent'
     API_BASE_URL               = 'https://monitor-api.clefsoft.co.uk'
     MCP_BASE_URL               = 'https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io'
     PORTAL_BASE_URL            = 'https://monitor.clefsoft.co.uk'

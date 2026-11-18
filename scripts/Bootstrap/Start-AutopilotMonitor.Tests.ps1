@@ -442,7 +442,7 @@ Describe 'publish contract' {
     # literal and fails the publish when it is gone. Catching that here means the PR fails
     # instead of the publish.
     It 'carries the dev-render anchor the publisher substitutes' {
-        $anchor = '$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1"'
+        $anchor = '$BootstrapUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent/Install-AutopilotMonitor.ps1"'
         $script:loaderText.Contains($anchor) | Should -BeTrue
     }
 

@@ -248,7 +248,7 @@ namespace AutopilotMonitor.Shared
         /// happen behind this name without touching customers. New bootstrap scripts and all
         /// availability probes use this URL.
         /// </summary>
-        public const string AgentDownloadBaseUrl = "https://monitor-dl.clefsoft.co.uk/agent";
+        public const string AgentDownloadBaseUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent";
 
         /// <summary>
         /// LEGACY base URL for agent binaries: the pre-migration storage account, kept alive

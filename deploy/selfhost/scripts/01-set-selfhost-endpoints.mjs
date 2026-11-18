@@ -27,7 +27,8 @@ const args = process.argv.slice(2);
 const flag = (n) => args.includes(`--${n}`);
 const opt = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
 
-const repo = opt('repo');
+const repoArg = opt('repo');
+const repo = repoArg ? path.resolve(repoArg) : undefined; // absolute: the test-file matchers below look for '/scripts/...' segments
 const cfgPath = opt('config');
 const apply = flag('apply');
 // The Bootstrap Pester tests (and their frozen TestData loaders) assert the vendor's publisher and download URL.
@@ -89,6 +90,7 @@ function isBootstrapTestFile(p) {
   if (!includeBootstrapTests) return false;
   const n = p.replace(/\\/g, '/');
   if (/\/src\/Agent\/[^/]+\/Security\/PayloadCatalogVerifierTests\.cs$/.test(n)) return true; // fake signer subjects of the vendor
+  if (/\/src\/Backend\/[^/]+\/TestData\/oobe-bootstrap-golden\.ps1$/.test(n)) return true;      // stored sample of the generated OOBE script (run by the bootstrap integration tests)
   return /\/scripts\/Bootstrap\/(TestData\/[^/]+\.ps1|[^/]+\.Tests\.ps1)$/.test(n);
 }
 // Lower-case variants exist only in this one test (it checks that -like is case-insensitive).

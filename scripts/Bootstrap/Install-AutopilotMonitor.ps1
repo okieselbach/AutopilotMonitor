@@ -41,7 +41,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$AgentDownloadUrl = "https://monitor-dl.clefsoft.co.uk/agent/AutopilotMonitor-Agent.zip",
+    [string]$AgentDownloadUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip",
 
     [Parameter(Mandatory = $false)]
     [string]$VersionJsonName = "version.json",

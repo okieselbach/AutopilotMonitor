@@ -3,6 +3,5 @@
   "portalUrl": "https://monitor.clefsoft.co.uk",
   "mcpUrl": "https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io",
   "dataStorageAccount": "stautopilotmonitorprod",
-  "publisherOrg": "Clefsoft Lab",
-  "downloadBaseUrl": "https://monitor-dl.clefsoft.co.uk/agent"
+  "publisherOrg": "Clefsoft Lab"
 }

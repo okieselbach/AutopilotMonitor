@@ -29,7 +29,7 @@ try {
     }
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $url  = 'https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1'
+    $url  = 'https://stautopilotmonitorprod.blob.core.windows.net/agent/Install-AutopilotMonitor.ps1'
     $dest = Join-Path $baseDir 'Install-AutopilotMonitor.ps1'
 
     for ($attempt = 1; $attempt -le 3; $attempt++) {

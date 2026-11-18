@@ -64,7 +64,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1",
+    [string]$BootstrapUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent/Install-AutopilotMonitor.ps1",
 
     [Parameter(Mandatory = $false)]
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
