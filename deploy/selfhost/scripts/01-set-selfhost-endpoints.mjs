@@ -88,7 +88,14 @@ const ROOTS = ['src', 'scripts', '.github/scripts', 'tools'];
 function isBootstrapTestFile(p) {
   if (!includeBootstrapTests) return false;
   const n = p.replace(/\\/g, '/');
+  if (/\/src\/Agent\/[^/]+\/Security\/PayloadCatalogVerifierTests\.cs$/.test(n)) return true; // fake signer subjects of the vendor
   return /\/scripts\/Bootstrap\/(TestData\/[^/]+\.ps1|[^/]+\.Tests\.ps1)$/.test(n);
+}
+// Lower-case variants exist only in this one test (it checks that -like is case-insensitive).
+// Doing it globally would damage SoftwareInventoryNormalization.cs, which maps the vendor name on purpose.
+function extraReplacementsFor(p) {
+  return /PayloadCatalogVerifierTests\.cs$/.test(p.replace(/\\/g, '/'))
+    ? [['glueckkanja ag', cfg.publisherOrg.toLowerCase()]] : [];
 }
 
 function* walk(dir) {
@@ -108,6 +115,10 @@ for (const root of ROOTS) {
     const before = text;
     let hits = 0;
     for (const [from, to] of replacements) {
+      const n = text.split(from).length - 1;
+      if (n) { text = text.split(from).join(to); hits += n; }
+    }
+    for (const [from, to] of extraReplacementsFor(file)) {
       const n = text.split(from).length - 1;
       if (n) { text = text.split(from).join(to); hits += n; }
     }

@@ -12,7 +12,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
     /// </summary>
     public sealed class PayloadCatalogVerifierTests
     {
-        private const string OurSubject = "CN=glueckkanja AG, O=glueckkanja AG, L=Offenbach, S=Hessen, C=DE";
+        private const string OurSubject = "CN=Clefsoft Lab, O=Clefsoft Lab, L=Offenbach, S=Hessen, C=DE";
 
         private static Dictionary<string, string> Files(params string[] namesAndHashes)
         {
@@ -102,9 +102,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
 
         [Theory]
         [InlineData(OurSubject, true)]
-        [InlineData("cn=glueckkanja ag, o=glueckkanja ag, c=de", true)]   // -like is case-insensitive
-        [InlineData("CN=x, O=glueckkanja AG Holding, C=DE", true)]        // the pattern is open-ended by design
-        [InlineData("CN=glueckkanja AG, O=Contoso, C=DE", false)]
+        [InlineData("cn=clefsoft lab, o=clefsoft lab, c=de", true)]   // -like is case-insensitive
+        [InlineData("CN=x, O=Clefsoft Lab Holding, C=DE", true)]        // the pattern is open-ended by design
+        [InlineData("CN=Clefsoft Lab, O=Contoso, C=DE", false)]
         [InlineData("", false)]
         [InlineData(null, false)]
         public void Publisher_pattern_behaves_like_powershell_like(string? subject, bool expected)
