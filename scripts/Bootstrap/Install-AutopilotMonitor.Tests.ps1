@@ -953,7 +953,7 @@ Describe 'Get-AgentPayloadRejections' {
     # the branches; one test runs the real cmdlet over a real (unsigned) catalog.
     BeforeEach {
         Mock Write-Log { }
-        $script:ours = 'CN=glueckkanja AG, O=glueckkanja AG, C=DE'
+        $script:ours = 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE'
         $script:dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Agent.cat')
     }
 
@@ -1296,7 +1296,7 @@ Describe 'script text' {
 
 Describe 'publisher pin' {
     It 'pins the expected publisher by subject, not by thumbprint' {
-        $ExpectedPublisher | Should -Be '*O=glueckkanja AG*'
+        $ExpectedPublisher | Should -Be '*O=Clefsoft Lab*'
         $ExpectedPublisher | Should -Not -Match '^[0-9A-Fa-f]{40}$'
     }
 

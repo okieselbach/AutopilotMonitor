@@ -42,17 +42,17 @@ Describe 'Test-BootstrapSignature' {
     }
 
     It 'accepts a valid signature from the expected publisher' {
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject 'CN=glueckkanja AG, O=glueckkanja AG, C=DE' }
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE' }
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeTrue
     }
 
     # An EV subject is a line of street address and registration numbers; the log gets the CN.
     It 'logs the signer CN, not the whole subject' {
         Mock Get-AuthenticodeSignature {
-            New-FakeSignature -Status 'Valid' -Subject 'CN=glueckkanja AG, O=glueckkanja AG, L=Offenbach am Main, C=DE, SERIALNUMBER=HRB 12381'
+            New-FakeSignature -Status 'Valid' -Subject 'CN=Clefsoft Lab, O=Clefsoft Lab, L=Offenbach am Main, C=DE, SERIALNUMBER=HRB 12381'
         }
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeTrue
-        Should -Invoke Write-Log -ParameterFilter { $Message -eq 'Signature status: Valid. Signer: glueckkanja AG' }
+        Should -Invoke Write-Log -ParameterFilter { $Message -eq 'Signature status: Valid. Signer: Clefsoft Lab' }
     }
 
     It 'refuses an unsigned script' {
@@ -61,12 +61,12 @@ Describe 'Test-BootstrapSignature' {
     }
 
     It 'refuses a tampered script (hash mismatch)' {
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'HashMismatch' -Subject 'CN=glueckkanja AG, O=glueckkanja AG, C=DE' }
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'HashMismatch' -Subject 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE' }
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeFalse
     }
 
     It 'refuses a signature whose chain does not validate' {
-        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'UnknownError' -Subject 'CN=glueckkanja AG, O=glueckkanja AG, C=DE' }
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'UnknownError' -Subject 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE' }
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeFalse
     }
 
@@ -442,7 +442,7 @@ Describe 'publish contract' {
     # literal and fails the publish when it is gone. Catching that here means the PR fails
     # instead of the publish.
     It 'carries the dev-render anchor the publisher substitutes' {
-        $anchor = '$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1"'
+        $anchor = '$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1"'
         $script:loaderText.Contains($anchor) | Should -BeTrue
     }
 

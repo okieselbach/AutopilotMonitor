@@ -84,7 +84,7 @@ function global:HarnessTestFileCatalog {
     Write-HarnessTrace 'Test-FileCatalog' $Path
     return [pscustomobject]@{
         Status       = $(if ($global:HarnessOptions.CatalogValid) { 'Valid' } else { 'ValidationFailed' })
-        Signature    = [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=glueckkanja AG, O=glueckkanja AG, C=DE' } }
+        Signature    = [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE' } }
         CatalogItems = @{}
         PathItems    = @{}
     }
@@ -262,7 +262,7 @@ exit $LASTEXITCODE
             TaskPresent     = $false
             InstallExitCode = 0
             SignatureStatus = 'Valid'
-            SignerSubject   = 'CN=glueckkanja AG, O=glueckkanja AG, C=DE'
+            SignerSubject   = 'CN=Clefsoft Lab, O=Clefsoft Lab, C=DE'
             CatalogValid    = $true
             Elevated        = $true
             Iex             = $false
@@ -405,9 +405,9 @@ Describe 'loader 1.4' {
         Get-Tree $s.ProgramData | Should -Be (Join-Tree ($script:installedTree + 'AutopilotMonitor\Logs\bootstrap-loader.log' + 'AutopilotMonitor\Logs\bootstrap-script.log'))
         Get-Tree $s.Temp | Should -BeNullOrEmpty
         $run.Trace | Should -Contain 'Get-BootstrapDecision|MaxBootstrapWindowHours=24'
-        $run.Trace | Should -Contain 'Invoke-WebRequest|https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1'
-        $run.Trace | Should -Contain 'Invoke-WebRequest|https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip'
-        $run.Trace | Should -Contain 'Invoke-RestMethod|https://download.autopilotmonitor.com/agent/version.json'
+        $run.Trace | Should -Contain 'Invoke-WebRequest|https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1'
+        $run.Trace | Should -Contain 'Invoke-WebRequest|https://monitor-dl.clefsoft.co.uk/agent/AutopilotMonitor-Agent.zip'
+        $run.Trace | Should -Contain 'Invoke-RestMethod|https://monitor-dl.clefsoft.co.uk/agent/version.json'
         @($run.Trace | Where-Object { $_ -like 'Test-FileCatalog|*' }).Count | Should -Be 1
         @($run.Trace | Where-Object { $_ -like 'Invoke-AgentInstallMode|*\AutopilotMonitor\Agent\AutopilotMonitor.Agent.exe --install exists=True' }).Count | Should -Be 1
         $run.StdOut | Should -Match 'Bootstrap Completed Successfully'
@@ -967,9 +967,9 @@ Describe 'publish pipeline and dev channel' {
         $run.ExitCode | Should -Be 0
         $run.StdErr | Should -BeNullOrEmpty
         @($run.Trace | Where-Object { $_ -like 'Invoke-*' }) | Should -Be @(
-            'Invoke-WebRequest|https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor-Dev.ps1'
-            'Invoke-RestMethod|https://download.autopilotmonitor.com/agent/version-dev.json'
-            'Invoke-WebRequest|https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent-dev.zip'
+            'Invoke-WebRequest|https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor-Dev.ps1'
+            'Invoke-RestMethod|https://monitor-dl.clefsoft.co.uk/agent/version-dev.json'
+            'Invoke-WebRequest|https://monitor-dl.clefsoft.co.uk/agent/AutopilotMonitor-Agent-dev.zip'
             ('Invoke-AgentInstallMode|' + $s.Base + '\Agent\AutopilotMonitor.Agent.exe --install exists=True')
         )
         Get-Tree $s.ProgramData | Should -Be (Join-Tree ($script:installedTree + 'AutopilotMonitor\Logs\bootstrap-loader.log' + 'AutopilotMonitor\Logs\bootstrap-script.log'))

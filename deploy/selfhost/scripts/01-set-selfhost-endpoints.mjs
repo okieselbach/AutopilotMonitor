@@ -30,6 +30,9 @@ const opt = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 
 const repo = opt('repo');
 const cfgPath = opt('config');
 const apply = flag('apply');
+// The Bootstrap Pester tests (and their frozen TestData loaders) assert the vendor's publisher and download URL.
+// They run in CI as "Bootstrap script gates", so they must follow the patched scripts. Default ON.
+const includeBootstrapTests = !flag('skip-bootstrap-tests');
 if (!repo || !cfgPath) {
   console.error('Usage: node 01-set-selfhost-endpoints.mjs --repo <fork-dir> --config <json> [--apply]');
   process.exit(2);
@@ -65,6 +68,8 @@ const replacements = [
   ['https://go.autopilotmonitor.com', goBase],
   // Authenticode publisher pin (subject pattern, so renewals keep working)
   ['O=glueckkanja AG', `O=${cfg.publisherOrg}`],
+  ['CN=glueckkanja AG', `CN=${cfg.publisherOrg}`],        // test fixtures (fake signer subjects)
+  ['Signer: glueckkanja AG', `Signer: ${cfg.publisherOrg}`], // asserted log line in the loader tests
 ];
 // CI endpoint registry: account names are bare identifiers there.
 const regexReplacements = [
@@ -79,12 +84,19 @@ const SKIP_FILE = [
 const EXT = new Set(['.cs', '.ts', '.tsx', '.js', '.mjs', '.json', '.ps1', '.wxs', '.yml', '.yaml', '.props']);
 const ROOTS = ['src', 'scripts', '.github/scripts', 'tools'];
 
+// scripts/Bootstrap/*.Tests.ps1, scripts/Bootstrap/Bootstrap.Integration.Tests.ps1 and scripts/Bootstrap/TestData/*.ps1 only.
+function isBootstrapTestFile(p) {
+  if (!includeBootstrapTests) return false;
+  const n = p.replace(/\\/g, '/');
+  return /\/scripts\/Bootstrap\/(TestData\/[^/]+\.ps1|[^/]+\.Tests\.ps1)$/.test(n);
+}
+
 function* walk(dir) {
   if (!fs.existsSync(dir)) return;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) { if (!SKIP_DIR.has(e.name)) yield* walk(p); }
-    else if (EXT.has(path.extname(e.name)) && !SKIP_FILE.some((r) => r.test(p))) yield p;
+    else if (EXT.has(path.extname(e.name)) && (!SKIP_FILE.some((r) => r.test(p)) || isBootstrapTestFile(p))) yield p;
   }
 }
 

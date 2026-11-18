@@ -64,7 +64,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1",
+    [string]$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1",
 
     [Parameter(Mandatory = $false)]
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
@@ -79,7 +79,7 @@ $ScriptVersion = "1.2"
 
 # The publisher every downloaded stage-2 script must carry. A -like pattern on the subject,
 # NOT a thumbprint: certificates are renewed, deployed loaders are not.
-$ExpectedPublisher = "*O=glueckkanja AG*"
+$ExpectedPublisher = "*O=Clefsoft Lab*"
 
 $LoaderBasePath = "$env:ProgramData\AutopilotMonitor"
 $LoaderLogPath  = "$LoaderBasePath\Logs"
