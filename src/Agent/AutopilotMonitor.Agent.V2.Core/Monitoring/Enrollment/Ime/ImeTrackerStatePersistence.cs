@@ -167,6 +167,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // one-shot degraded event must not fire twice. Null on older state files → zero.
         public TrackerHealthData Health { get; set; }
         public Dictionary<string, int> PatternHits { get; set; }
+
+        // Session total of emitted download_progress events and the throttle stage reached. Restart-
+        // and WhiteGlove-safe on purpose: the event limit counts the whole session, and a restart must
+        // not reset a throttled session to the 3 s interval. Null on older state files → zero.
+        public DownloadProgressBudgetState DownloadProgress { get; set; }
+    }
+
+    public class DownloadProgressBudgetState
+    {
+        public int EventsSent { get; set; }
+        public int Stage { get; set; }
     }
 
     public class TrackerHealthData

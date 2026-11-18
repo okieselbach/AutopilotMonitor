@@ -660,6 +660,9 @@ namespace AutopilotMonitor.Shared
             public const string LogEntry            = "log_entry";
             public const string EspStateChange      = "esp_state_change";
             public const string DownloadProgress    = "download_progress";
+            // One per stage change: download_progress is now reported less often per app because the
+            // session's progress volume crossed a stage threshold (long downloads, event-limit guard).
+            public const string DownloadProgressThrottled = "download_progress_throttled";
             public const string CertValidation      = "cert_validation";
             public const string EspUiState          = "esp_ui_state";
             public const string GatherResult        = "gather_result";

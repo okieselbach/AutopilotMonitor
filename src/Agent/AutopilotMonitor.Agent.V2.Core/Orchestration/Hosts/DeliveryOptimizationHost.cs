@@ -60,7 +60,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 onOfficeDoSample: officeHost != null ? officeHost.SubmitDoSample : (Action<OfficeDoSample>?)null,
                 bandwidthStatePersistence: stateDirectory != null
                     ? new BandwidthStatePersistence(stateDirectory, logger)
-                    : null);
+                    : null,
+                // Live progress: the IME adapter's publisher is the one sender of download_progress
+                // (one stream per download, interval per session stage — D-444).
+                onDoProgressSample: (pkg, sample) => imeHost.DownloadProgress.OfferDoSample(pkg, sample),
+                onDownloadsIdle: () => imeHost.DownloadProgress.FlushPending());
         }
 
         public void Start()

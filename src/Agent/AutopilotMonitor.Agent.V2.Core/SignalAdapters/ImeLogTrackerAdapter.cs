@@ -68,6 +68,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
         private readonly InformationalEventPost _post;
+        // The one sender of download_progress; the DO collector feeds it through ImeLogHost.
+        private readonly DownloadProgressPublisher _downloadProgress;
         private readonly HashSet<string> _whiteGloveSealingPatternIds;
         private readonly object _lock = new object();
         // PR3-D4: optional logger so the largest signal adapter (777 LOC, 0 logger calls
@@ -185,6 +187,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _post = new InformationalEventPost(ingress, clock);
             _logger = logger;
+            _downloadProgress = new DownloadProgressPublisher(_post, clock, tracker.DownloadProgressBudget, logger);
 
             _whiteGloveSealingPatternIds = whiteGloveSealingPatternIds == null
                 ? new HashSet<string>(StringComparer.Ordinal)
@@ -856,18 +859,30 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var (eventType, severity) = mapped.Value;
             var payload = BuildAppStatePayload(app, newState, timing);
             TagDerivedTimestamp(payload, derivedFromClock, rawSourceTs);
-            // All app-state transitions flush immediately, including `download_progress`:
-            // progress ticks run every 3s and only while a download is actively in flight
-            // (bounded by download duration), so live UI responsiveness wins over the small
-            // extra request volume.
-            _post.Emit(
-                eventType: eventType,
-                source: SourceLabel,
-                message: BuildAppStateMessage(app, newState, eventType),
-                severity: severity,
-                immediateUpload: true,
-                data: payload,
-                occurredAtUtc: now);
+            var message = BuildAppStateMessage(app, newState, eventType);
+
+            if (string.Equals(eventType, SharedEventTypes.DownloadProgress, StringComparison.Ordinal))
+            {
+                // A progress line: the publisher decides (one stream per download, interval per
+                // session stage — D-444).
+                _downloadProgress.OfferImeSample(app, payload, message, now);
+            }
+            else
+            {
+                // Leaving Downloading: the last held progress sample goes out before the state event.
+                if (oldState == AppInstallationState.Downloading && newState != AppInstallationState.Downloading)
+                    _downloadProgress.EndDownload(app.Id);
+
+                // All app-state transitions flush immediately: the live panels show them within seconds.
+                _post.Emit(
+                    eventType: eventType,
+                    source: SourceLabel,
+                    message: message,
+                    severity: severity,
+                    immediateUpload: true,
+                    data: payload,
+                    occurredAtUtc: now);
+            }
 
             // V1 parity: on terminal Installed/Error transitions, also emit a shadow
             // `download_progress` event tagged with status=completed/failed. The Web UI's
@@ -881,14 +896,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 var shadowPayload = new Dictionary<string, string>(payload.Count + 1, StringComparer.Ordinal);
                 foreach (var kv in payload) shadowPayload[kv.Key] = kv.Value;
                 shadowPayload["status"] = status;
-                _post.Emit(
-                    eventType: SharedEventTypes.DownloadProgress,
-                    source: SourceLabel,
-                    message: $"{app.Name ?? app.Id}: {status}",
-                    severity: EventSeverity.Debug,
-                    immediateUpload: true,
-                    data: shadowPayload,
-                    occurredAtUtc: now);
+                _downloadProgress.EmitTerminalTick(app, shadowPayload, $"{app.Name ?? app.Id}: {status}", now);
             }
 
             // Event-driven `app_tracking_summary` snapshot: emit a fresh aggregate after
@@ -962,6 +970,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 return new AppInstallTiming(current.Started, current.Completed);
             }
         }
+
+        /// <summary>
+        /// The sender of every <c>download_progress</c> event. <c>DeliveryOptimizationHost</c> hands
+        /// the DO collector's samples to it.
+        /// </summary>
+        internal DownloadProgressPublisher DownloadProgress => _downloadProgress;
 
         /// <summary>
         /// Snapshot of per-app install timings captured during this agent run. Fire-once

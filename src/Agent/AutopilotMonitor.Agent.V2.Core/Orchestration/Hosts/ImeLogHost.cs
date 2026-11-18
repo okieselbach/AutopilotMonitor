@@ -59,6 +59,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         internal ImeLogTracker Tracker => _tracker;
 
         /// <summary>
+        /// The one sender of <c>download_progress</c> (owned by the adapter). Used by
+        /// <c>DeliveryOptimizationHost</c> to hand over the DO collector's samples.
+        /// </summary>
+        internal DownloadProgressPublisher DownloadProgress => _adapter.DownloadProgress;
+
+        /// <summary>
         /// Session caa6cf50 gate-starvation fix (2026-06-11) — bridge for the
         /// <c>EspAndHelloTracker</c> user-ESP-apps-settled probe. True when the tracker's
         /// current ESP phase is AccountSetup and every tracked user-phase app is terminal

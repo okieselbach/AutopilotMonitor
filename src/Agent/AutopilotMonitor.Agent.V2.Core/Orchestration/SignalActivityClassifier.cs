@@ -92,6 +92,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             SharedConstants.EventTypes.ImePatternHits,
             // Bookkeeping of runs that were deliberately not reported as activity.
             SharedConstants.EventTypes.ScriptRecurrenceSummary,
+            // Notice that download_progress is now sent less often — about the agent, not progress.
+            // The progress events themselves stay activity.
+            SharedConstants.EventTypes.DownloadProgressThrottled,
             // A correction of an already reported script run from IME's saved result (D-316):
             // registry observation after the fact, not progress.
             SharedConstants.EventTypes.ScriptOutputReconciliation,

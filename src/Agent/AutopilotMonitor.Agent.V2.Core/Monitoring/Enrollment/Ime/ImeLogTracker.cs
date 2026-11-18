@@ -221,6 +221,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // Collapses recurring health-script runs; persisted with the file positions.
         private readonly RecurringScriptGate _recurringScripts = new RecurringScriptGate();
 
+        /// <summary>
+        /// Session count of emitted download_progress events and the throttle stage reached. The
+        /// download-progress publisher writes it; the tracker only persists it with its state.
+        /// </summary>
+        internal DownloadProgressBudget DownloadProgressBudget { get; } = new DownloadProgressBudget();
+
         // Set for the duration of one pattern dispatch: the matched line is older than
         // HistoricReplayThreshold, so the adapter drops whatever it produces.
         private bool _currentLineIsHistoricReplay;
@@ -1044,7 +1050,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 try { FlushRecurringScripts(UtcNowProvider(), shuttingDown: true); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: shutdown recurring-script flush failed: {ex.Message}"); }
 
-                // Final state save on shutdown
+                // Final state save on shutdown. The download-progress budget is written from the DO
+                // poll thread too, so a change after the last pass is picked up here.
+                if (DownloadProgressBudget.ConsumeDirty()) _stateDirty = true;
                 if (_stateDirty)
                 {
                     SaveState();
@@ -1083,6 +1091,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // registry reconciliation waits for such a pass before it pairs an IME save with a run.
             if (!token.IsCancellationRequested) ScriptRuns.NotePassCompleted(passStartedUtc);
             if (ScriptRuns.ConsumeCountersChanged()) _stateDirty = true;
+            if (DownloadProgressBudget.ConsumeDirty()) _stateDirty = true;
 
             var endMs = MonotonicMillisProvider();
             if (endMs - startMs > _passMaxMs)
@@ -1233,6 +1242,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
 
             _recurringScripts.Restore(state.RecurringScripts);
+            DownloadProgressBudget.Restore(state.DownloadProgress);
 
             // Health counters + histogram: a restart (or WhiteGlove Part 2) must report the
             // whole session, not only the lines seen since the last start. Null on state files
@@ -1313,6 +1323,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ParkedPlatformScripts = _parkedPlatformScripts.ToList(),
                 ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
                 RecurringScripts = _recurringScripts.ToPersisted(),
+                DownloadProgress = DownloadProgressBudget.ToPersisted(),
             };
 
             lock (_healthLock)

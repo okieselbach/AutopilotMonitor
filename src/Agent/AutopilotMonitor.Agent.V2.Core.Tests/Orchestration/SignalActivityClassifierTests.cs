@@ -43,6 +43,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [InlineData("network_connectivity_check")]
         // Bookkeeping of health-script runs that were deliberately not reported.
         [InlineData("script_recurrence_summary")]
+        // Notice that download_progress is now sent less often (D-444).
+        [InlineData("download_progress_throttled")]
         // Counted short-lived console processes — a spawning script is not enrollment progress.
         [InlineData("console_script_activity")]
         // Agent health / control / transport — not device/enrollment progress (P2).
@@ -68,10 +70,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             Assert.False(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
         }
 
-        [Fact]
-        public void Non_periodic_informational_event_is_activity()
+        [Theory]
+        [InlineData("esp_phase_changed")]
+        // Progress itself stays activity: a moving download must keep the stall clock at zero,
+        // also at the slowest throttle stage (60 s < first 2-minute probe, D-444).
+        [InlineData("download_progress")]
+        public void Non_periodic_informational_event_is_activity(string eventType)
         {
-            var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = "esp_phase_changed" };
+            var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = eventType };
             Assert.True(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
         }
 

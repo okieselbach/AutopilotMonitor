@@ -22,8 +22,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
     /// <summary>
     /// Polls OS-level Delivery Optimization status via a persistent PowerShell Runspace.
     /// Matches DO entries to tracked IME app downloads using the intunewin-bin FileId format.
-    /// Emits download_progress events on every poll (for live UI) and do_telemetry once per app
-    /// when the download completes.
+    /// Hands every changed byte count to the download-progress publisher, which sends the
+    /// download_progress events (D-444), and triggers do_telemetry once per app when the download
+    /// completes.
     ///
     /// Lifecycle: starts dormant, wakes up when ImeLogTracker detects a download,
     /// goes dormant again when all downloads are enriched.
@@ -35,6 +36,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         private readonly Func<AppPackageStateList> _getPackageStates;
         private readonly Action<AppPackageState> _onDoTelemetryReceived;
+        // Live progress goes through the publisher; it is told when the collector goes idle or
+        // stops, so a sample it held back is still sent.
+        private readonly Action<AppPackageState, DoProgressSample> _onDoProgressSample;
+        private readonly Action _onDownloadsIdle;
         private readonly string _logFilePath;
 
         // Office C2R DO support (Rev 3): the Office-CDN download is visible in DO long before the
@@ -101,11 +106,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             Action<AppPackageState> onDoTelemetryReceived,
             string logDirectory,
             Action<OfficeDoSample> onOfficeDoSample = null,
-            BandwidthStatePersistence bandwidthStatePersistence = null)
+            BandwidthStatePersistence bandwidthStatePersistence = null,
+            Action<AppPackageState, DoProgressSample> onDoProgressSample = null,
+            Action onDownloadsIdle = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
             _getPackageStates = getPackageStates ?? throw new ArgumentNullException(nameof(getPackageStates));
             _onDoTelemetryReceived = onDoTelemetryReceived;
+            _onDoProgressSample = onDoProgressSample;
+            _onDownloadsIdle = onDownloadsIdle;
             _logFilePath = Path.Combine(logDirectory, LogFileName);
             _onOfficeDoSample = onOfficeDoSample;
             _pollIntervalSeconds = intervalSeconds;
@@ -136,6 +145,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void OnAfterStop()
         {
+            NotifyDownloadsIdle();
             // Emit before the runspace teardown: the termination handler stops peripheral
             // collectors BEFORE the diagnostics ZIP is built, so this one-shot still lands
             // ahead of diagnostics_collecting in the timeline.
@@ -246,6 +256,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 Logger.Debug("[DeliveryOptimizationCollector] Going dormant — no active downloads, pending enrichment or Office install");
                 _dormant = true;
                 PauseTimer();
+                NotifyDownloadsIdle();
                 // Natural persistence point: all downloads are done — which is exactly when an
                 // app-forced reboot becomes possible. Saves the accumulated samples so a reboot
                 // before the interim/final emission does not discard them (reboot survivor).
@@ -471,7 +482,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     continue;
                 }
 
-                // --- Live download_progress (every poll where bytes changed) ---
+                // --- Live progress (every poll where bytes changed) → the publisher decides ---
                 long lastBytes;
                 _lastBytesPerApp.TryGetValue(appId, out lastBytes);
 
@@ -480,24 +491,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     _lastBytesPerApp[appId] = totalBytes;
                     progressCount++;
 
-                    int percentComplete = fileSize > 0 ? (int)((totalBytes * 100) / fileSize) : 0;
-
-                    Post.Emit(new EnrollmentEvent
+                    if (_onDoProgressSample != null)
                     {
-                        SessionId = SessionId,
-                        TenantId = TenantId,
-                        EventType = Constants.EventTypes.DownloadProgress,
-                        Severity = EventSeverity.Debug,
-                        Source = "DeliveryOptimizationCollector",
-                        Phase = EnrollmentPhase.Unknown,
-                        Message = $"{pkg.Name ?? appId}: {percentComplete}% ({totalBytes}/{fileSize}) peers={peerCachingPct}% mode={downloadMode}",
-                        Data = BuildDoEventData(
-                            appId, pkg.Name, totalBytes, fileSize, percentComplete,
-                            bytesFromPeers, bytesFromHttp, peerCachingPct, downloadMode,
-                            bytesLanPeers, bytesGroupPeers, bytesInternetPeers, bytesLinkLocalPeers,
-                            bytesFromCacheServer, cacheHost),
-                        ImmediateUpload = true
-                    });
+                        try
+                        {
+                            _onDoProgressSample(pkg, new DoProgressSample(
+                                totalBytes, fileSize,
+                                bytesFromPeers, bytesFromHttp, peerCachingPct, downloadMode,
+                                bytesLanPeers, bytesGroupPeers, bytesInternetPeers,
+                                bytesLinkLocalPeers, bytesFromCacheServer, cacheHost));
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warning($"[DeliveryOptimizationCollector] onDoProgressSample threw: {ex.Message}");
+                        }
+                    }
                 }
 
                 // --- Final DO telemetry (once per app when download is complete) ---
@@ -520,7 +528,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                                 $"size={fileSize}, peers={bytesFromPeers} ({peerCachingPct}%), " +
                                 $"http={bytesFromHttp}, mode={downloadMode}, duration={durationStr}");
 
-                    // Fire callback → EnrollmentTracker emits do_telemetry + download_progress events
+                    // Fire callback → the IME adapter emits do_telemetry
                     _onDoTelemetryReceived?.Invoke(pkg);
                 }
             }
@@ -792,43 +800,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             return string.IsNullOrWhiteSpace(s) ? null : s;
         }
 
-        // Builds the Data dictionary for download_progress events. Centralised so the
-        // download_progress (in-flight) and (potentially future) periodic-snapshot emissions
-        // stay symmetric on the breakdown / cache fields the UI now consumes.
-        private static Dictionary<string, object> BuildDoEventData(
-            string appId, string appName, long totalBytes, long fileSize, int percentComplete,
-            long bytesFromPeers, long bytesFromHttp, int peerCachingPct, int downloadMode,
-            long bytesLanPeers, long bytesGroupPeers, long bytesInternetPeers, long bytesLinkLocalPeers,
-            long bytesFromCacheServer, string cacheHost)
+        // Tells the publisher that no DO sample follows for now (dormant or stopped), so it sends
+        // the samples it held back. Fail-soft like the other callbacks.
+        private void NotifyDownloadsIdle()
         {
-            var data = new Dictionary<string, object>
-            {
-                ["appId"] = appId,
-                ["appName"] = appName,
-                // UI-compatible fields (DownloadProgress.tsx reads these)
-                ["bytesDownloaded"] = totalBytes,
-                ["bytesTotal"] = fileSize,
-                ["progressPercent"] = percentComplete,
-                // DO-specific fields
-                ["doFileSize"] = fileSize,
-                ["doTotalBytesDownloaded"] = totalBytes,
-                ["doPercentComplete"] = percentComplete,
-                ["doBytesFromPeers"] = bytesFromPeers,
-                ["doBytesFromHttp"] = bytesFromHttp,
-                ["doPercentPeerCaching"] = peerCachingPct,
-                ["doDownloadMode"] = downloadMode,
-                // Per-source breakdown — the customer-visible bug was these being absent on
-                // download_progress while present on do_telemetry, leaving the UI at 0/0/0 mid-flight.
-                ["doBytesFromLanPeers"] = bytesLanPeers,
-                ["doBytesFromGroupPeers"] = bytesGroupPeers,
-                ["doBytesFromInternetPeers"] = bytesInternetPeers,
-                ["doBytesFromLinkLocalPeers"] = bytesLinkLocalPeers,
-                ["doBytesFromCacheServer"] = bytesFromCacheServer,
-                ["doSource"] = "os_cmdlet"
-            };
-            if (!string.IsNullOrEmpty(cacheHost))
-                data["doCacheHost"] = cacheHost;
-            return data;
+            if (_onDownloadsIdle == null) return;
+            try { _onDownloadsIdle(); }
+            catch (Exception ex) { Logger.Warning($"[DeliveryOptimizationCollector] onDownloadsIdle threw: {ex.Message}"); }
         }
 
         // -----------------------------------------------------------------------

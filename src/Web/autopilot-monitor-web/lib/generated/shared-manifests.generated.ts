@@ -1103,6 +1103,7 @@ export const SHARED_MANIFEST = {
     "do_group_id_auto_set",
     "do_telemetry",
     "download_progress",
+    "download_progress_throttled",
     "enrollment_complete",
     "enrollment_failed",
     "enrollment_summary_shown",
