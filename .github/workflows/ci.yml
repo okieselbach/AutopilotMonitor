@@ -182,7 +182,14 @@ jobs:
           cache: npm
           cache-dependency-path: src/McpServer/autopilot-monitor-mcp/package-lock.json
 
+      # On Linux x64, onnxruntime-node's install script downloads its CUDA build
+      # from the onnxruntime GitHub releases. The server and the tests only run
+      # the CPU build that ships inside the npm package (the Dockerfile skips
+      # install scripts altogether), so the download adds nothing, and while the
+      # release is unreachable it failed npm ci with a 404 (run 44386157129).
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
       # tsconfig.json covers sources, tests and scripts; the build emits via
       # tsconfig.build.json.
