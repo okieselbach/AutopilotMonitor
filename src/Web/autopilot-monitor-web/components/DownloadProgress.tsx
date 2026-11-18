@@ -9,8 +9,12 @@ import ProgressPanelHeader from "@/components/ProgressPanelHeader";
 import AssignmentPill from "@/components/AssignmentPill";
 import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
+import { pushRateSample, windowedRateBps, type RateSample } from "@/lib/downloadProgressRate";
+import { deriveDownloadProgressThrottle, DOWNLOAD_PROGRESS_THROTTLED, type DownloadProgressThrottle } from "@/lib/downloadProgressThrottle";
 import { frozenRowText } from "@/lib/sessionStatus";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 import DoBreakdownBar from "./DoBreakdownBar";
 
 // Same minimal structural event view every replay-aware panel uses.
@@ -96,8 +100,6 @@ interface DownloadItem {
   bytesDownloaded: number;
   bytesTotal: number;
   downloadRateBps: number;
-  lastUpdated: string;
-  lastUpdatedMs: number;
   startedMs: number;
   completedMs: number | null;
   isComplete: boolean;
@@ -176,9 +178,12 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
     );
 
     const downloadMap = new Map<string, DownloadItem>();
+    // Recent ticks per app for the windowed speed; bars and bytes still follow every tick.
+    const rateSamples = new Map<string, RateSample[]>();
     let insertionIndex = 0;
 
     for (const evt of sortedEvents) {
+      if (evt.eventType === DOWNLOAD_PROGRESS_THROTTLED) continue;
       const d = evt.data as DownloadEventData | undefined;
       if (!d) continue;
 
@@ -220,12 +225,16 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
       let effectiveRateBps = isNaN(reportedRateBps) ? 0 : reportedRateBps;
       if (effectiveRateBps > MAX_PLAUSIBLE_BPS) effectiveRateBps = 0;
 
-      if (effectiveRateBps <= 0 && existing && Number.isFinite(eventTs) && Number.isFinite(existing.lastUpdatedMs)) {
-        const elapsedSeconds = (eventTs - existing.lastUpdatedMs) / 1000;
-        const deltaBytes = (isNaN(bytesDownloaded) ? 0 : bytesDownloaded) - existing.bytesDownloaded;
-        if (elapsedSeconds > 0 && deltaBytes > 0) {
-          const calculatedRate = deltaBytes / elapsedSeconds;
-          effectiveRateBps = calculatedRate <= MAX_PLAUSIBLE_BPS ? calculatedRate : 0;
+      let samples = rateSamples.get(appName) ?? [];
+      if (Number.isFinite(eventTs)) {
+        samples = pushRateSample(samples, { tMs: eventTs, bytes: isNaN(bytesDownloaded) ? 0 : bytesDownloaded });
+        rateSamples.set(appName, samples);
+      }
+      if (effectiveRateBps <= 0 && existing) {
+        // Averaged over the last 20 s: DO reports bytes in 1 MiB steps, a single 3 s pair swings.
+        const windowed = windowedRateBps(samples);
+        if (windowed != null) {
+          effectiveRateBps = windowed <= MAX_PLAUSIBLE_BPS ? windowed : 0;
         } else {
           effectiveRateBps = existing.downloadRateBps;
         }
@@ -255,12 +264,6 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
         bytesDownloaded: isNaN(bytesDownloaded) ? 0 : bytesDownloaded,
         bytesTotal: isNaN(bytesTotal) ? 0 : bytesTotal,
         downloadRateBps: effectiveRateBps,
-        lastUpdated: evt.timestamp,
-        // NaN when no event ever carried a parseable timestamp: the rate
-        // fallback above guards with Number.isFinite, and wall-clock time at
-        // memo-recompute would be an arbitrary base for event-time deltas
-        // anyway (render must also stay pure — react-hooks/purity).
-        lastUpdatedMs: Number.isFinite(eventTs) ? eventTs : (existing?.lastUpdatedMs ?? NaN),
         startedMs: existing?.startedMs ?? (Number.isFinite(eventTs) ? eventTs : NaN),
         completedMs: existing?.completedMs ?? (isComplete && Number.isFinite(eventTs) ? eventTs : null),
         isComplete,
@@ -293,6 +296,10 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
   // so every row IME reported stays accountable instead of silently disappearing.
   const [showNoDownload, setShowNoDownload] = useState(false);
   const [showPending, setShowPending] = useState(false);
+
+  // Long downloads: the agent reports progress less often from a session-wide threshold on, so the
+  // bars move in larger steps — the panel says so.
+  const throttle = useMemo(() => deriveDownloadProgressThrottle(events), [events]);
 
   // Tracker-known apps without any event yet (dedupe against event-backed rows).
   const pendingNames = useMemo(() => {
@@ -464,6 +471,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
       </ProgressPanelHeader>
 
       {expanded && <div className="space-y-3 mt-4">
+        {throttle && <ThrottleNotice throttle={throttle} />}
         {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}
         {filteredDownloads.map((dl, i) => {
           const progressPercent = dl.bytesTotal > 0
@@ -482,6 +490,24 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
         ))}
       </div>}
     </div>
+  );
+}
+
+function ThrottleNotice({ throttle }: { throttle: DownloadProgressThrottle }) {
+  const since = new Date(throttle.sinceMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const live = throttle.liveStartSeconds == null
+    ? ""
+    : `, each download's ${throttle.liveStartSeconds === 60 ? "first minute" : `first ${throttle.liveStartSeconds} s`} stays live`;
+  return (
+    <p className="flex items-start gap-1.5 text-xs text-gray-500">
+      <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>
+        {`Long downloads: progress updates reduced since ${since} to stay within the event limit — now every ${throttle.intervalSeconds} s per app${live}.`}{" "}
+        <DocsLink path={DOCS_PATHS.protectiveLimits} label="Learn more" />
+      </span>
+    </p>
   );
 }
 

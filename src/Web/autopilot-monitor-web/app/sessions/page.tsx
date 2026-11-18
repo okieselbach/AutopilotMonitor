@@ -257,6 +257,8 @@ function SessionDetailContent() {
   const downloadEvents = useMemo(
     () => events.filter(
       e => e.eventType === "download_progress" || e.eventType === "app_download_started" || e.eventType === "app_install_skipped"
+        // Long downloads: the panel says when progress was reported less often (D-444).
+        || e.eventType === "download_progress_throttled"
     ),
     [events]
   );
@@ -798,7 +800,7 @@ function SessionDetailContent() {
             </div>
           )}
 
-          {/* Download Progress (from download_progress, app_download_started, app_install_skipped events) */}
+          {/* Download Progress (from download_progress, app_download_started, app_install_skipped and download_progress_throttled events) */}
           {!isGatherRulesSession && (
             <div id="section-downloads">
             <DownloadProgress
