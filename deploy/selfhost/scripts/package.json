@@ -1,0 +1,14 @@
+{
+  "name": "autopilotmonitor-selfhost-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Helper scripts for the self-hosted Autopilot Monitor lab (table seeding, fork patching).",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@azure/data-tables": "^13.3.0",
+    "@azure/identity": "^4.5.0"
+  },
+  "devDependencies": {
+    "azurite": "^3.33.0"
+  }
+}

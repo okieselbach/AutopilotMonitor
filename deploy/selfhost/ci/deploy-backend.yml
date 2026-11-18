@@ -1,0 +1,68 @@
+# Copy to <your fork>/.github/workflows/deploy-backend.yml
+# Simplified from upstream's deploy-backend.yml (which reserves build numbers from a counter blob and writes
+# a versions/backend.json manifest to ITS storage). This keeps the part that matters: build, deploy, verify
+# /api/health reports the commit you just shipped.
+#
+# Repository SECRETS: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# Repository VARIABLES: FUNCTION_APP (func-autopilotmonitor-prod), API_BASE_URL (https://<function default host>)
+name: Deploy backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CSPROJ: src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore ${{ env.CSPROJ }}
+      - run: dotnet build ${{ env.CSPROJ }} -c Release --no-restore -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ github.run_number }}
+      - run: dotnet publish ${{ env.CSPROJ }} -c Release --no-build -o ./publish -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ github.run_number }}
+      # tar, not a folder upload: upload-artifact skips hidden files and the isolated worker needs .azurefunctions/
+      - run: tar -czf "$RUNNER_TEMP/backend-publish.tgz" -C publish .
+      - uses: actions/upload-artifact@v4
+        with: { name: backend-publish, path: '${{ runner.temp }}/backend-publish.tgz', if-no-files-found: error, retention-days: 1 }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: backend-publish, path: '${{ runner.temp }}/artifact' }
+      - run: mkdir "$RUNNER_TEMP/publish" && tar -xzf "$RUNNER_TEMP/artifact/backend-publish.tgz" -C "$RUNNER_TEMP/publish"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ vars.FUNCTION_APP }}
+          package: ${{ runner.temp }}/publish
+      - name: Verify the new build is live
+        shell: pwsh
+        run: |
+          $expected = '${{ github.sha }}'.Substring(0, 7)
+          $deadline = [DateTime]::UtcNow.AddMinutes(5)
+          while ([DateTime]::UtcNow -lt $deadline) {
+            try {
+              $h = Invoke-RestMethod -Uri "${{ vars.API_BASE_URL }}/api/health" -TimeoutSec 30
+              if ($h.commitHash -eq $expected) { Write-Host "Live: $($h.version) @ $($h.commitHash)"; exit 0 }
+              Write-Host "Serving $($h.commitHash), waiting for $expected"
+            } catch { Write-Host "health not answering yet: $($_.Exception.Message)" }
+            Start-Sleep -Seconds 10
+          }
+          throw "Backend did not report $expected within 5 minutes"

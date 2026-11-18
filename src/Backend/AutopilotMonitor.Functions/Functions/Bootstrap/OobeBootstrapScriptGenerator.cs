@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 {
     /// <summary>
     /// Generates the OOBE bootstrap PowerShell script served at /api/bootstrap/go/{code}
-    /// (customer-facing: irm https://go.autopilotmonitor.com/{code} | iex).
+    /// (customer-facing: irm https://monitor-api.clefsoft.co.uk/api/bootstrap/go/{code} | iex).
     /// Ported 1:1 from the portal's app/go/[code]/route.ts when the endpoint moved into
     /// the backend for the static-export migration.
     /// </summary>

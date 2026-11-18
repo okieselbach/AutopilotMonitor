@@ -1,0 +1,81 @@
+# Copy to <your fork>/.github/workflows/deploy-web.yml
+# Next.js static export -> Azure Static Web Apps, uploaded with the SWA CLI.
+# Mirrors upstream's build recipe (Node 22, npm ci, docs bundle checkout for the "What's new" panel).
+#
+# Repository SECRETS: AZURE_SWA_DEPLOY_TOKEN   (az staticwebapp secrets list --name <swa> --query properties.apiKey -o tsv)
+# Repository VARIABLES: API_BASE_URL, PORTAL_URL, STATS_URL, NEXT_PUBLIC_ENTRA_CLIENT_ID
+name: Deploy web
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/Web/autopilot-monitor-web/**']
+
+permissions:
+  contents: read
+
+env:
+  WEB_DIR: src/Web/autopilot-monitor-web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false, fetch-depth: 0 }   # full history: sitemap lastmod via git
+      # The prebuild step (scripts/whats-new) FAILS IN CI without this bundle. Public repo, no token.
+      - uses: actions/checkout@v4
+        with: { repository: autopilotmonitor/autopilotmonitor-docs, path: whats-new-docs, fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: '${{ env.WEB_DIR }}/package-lock.json' }
+      - run: npm ci
+        working-directory: ${{ env.WEB_DIR }}
+      - name: Build static export
+        working-directory: ${{ env.WEB_DIR }}
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL }}
+          NEXT_PUBLIC_ENTRA_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
+          NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${{ vars.PORTAL_URL }}
+          NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ vars.PORTAL_URL }}
+          NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL: ${{ vars.STATS_URL }}
+          WHATS_NEW_DOCS_DIR: ${{ github.workspace }}/whats-new-docs
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          test -n "$NEXT_PUBLIC_API_BASE_URL" || { echo "API_BASE_URL empty: the portal would call localhost"; exit 1; }
+          test -n "$NEXT_PUBLIC_ENTRA_CLIENT_ID" || { echo "NEXT_PUBLIC_ENTRA_CLIENT_ID empty: sign-in would use YOUR_CLIENT_ID_HERE"; exit 1; }
+          npm run build
+          test -f out/version.json
+      - uses: actions/upload-artifact@v4
+        with: { name: portal, path: '${{ env.WEB_DIR }}/out', if-no-files-found: error, retention-days: 1 }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@v4
+        with: { name: portal, path: '${{ env.WEB_DIR }}/out' }
+      # swa-cli pinned by lockfile (tools/swa-cli in the fork). npm ci, never npx.
+      - run: npm ci --ignore-scripts
+        working-directory: tools/swa-cli
+      - name: Deploy
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
+        run: |
+          tools/swa-cli/node_modules/.bin/swa deploy \
+            --app-location "$WEB_DIR" --output-location out \
+            --swa-config-location "$WEB_DIR" --env production --no-use-keychain
+      - name: Verify live commit
+        shell: pwsh
+        run: |
+          $expected = '${{ github.sha }}'.Substring(0, 7)
+          $deadline = [DateTime]::UtcNow.AddMinutes(5)
+          while ([DateTime]::UtcNow -lt $deadline) {
+            try { $v = Invoke-RestMethod -Uri "${{ vars.PORTAL_URL }}/version.json" -Headers @{ 'Cache-Control' = 'no-cache' }
+                  if ($v.commit -eq $expected) { Write-Host "Live: $($v.commit)"; exit 0 } } catch { }
+            Start-Sleep -Seconds 15
+          }
+          throw "Portal did not serve $expected within 5 minutes"

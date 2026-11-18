@@ -1,0 +1,10 @@
+{
+  // Deploy:  npx wrangler deploy   (from this folder, after `npx wrangler login`)
+  // Or paste download-worker.mjs into Workers & Pages > Create > Worker in the dashboard.
+  "name": "autopilotmonitor-download",
+  "main": "download-worker.mjs",
+  "compatibility_date": "2025-01-01",
+  "vars": { "BLOB_ORIGIN": "https://stautopilotmonitorprod.blob.core.windows.net" },
+  // Custom domain: Cloudflare creates the DNS record and certificate for you. The zone must be on Cloudflare.
+  "routes": [{ "pattern": "monitor-dl.clefsoft.co.uk", "custom_domain": true }]
+}

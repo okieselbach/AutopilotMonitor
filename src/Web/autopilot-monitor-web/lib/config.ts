@@ -11,7 +11,7 @@
  * 2. Default: http://localhost:7071 (local development)
  *
  * Production: Set NEXT_PUBLIC_API_BASE_URL in your environment
- * Example: https://autopilotmonitor-api-eu.azurewebsites.net
+ * Example: https://monitor-api.clefsoft.co.uk
  */
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7071";
 
@@ -27,7 +27,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://loca
 export const DOCS_URL = "https://docs.autopilotmonitor.com";
 
 /** Public marketing/product website (also feeds metadataBase/sitemap/robots). */
-export const SITE_URL = "https://www.autopilotmonitor.com";
+export const SITE_URL = "https://monitor.clefsoft.co.uk";
 
 /**
  * Absolute URL of a public page in the /page/ form the site serves: the static
@@ -43,7 +43,7 @@ export function sitePageUrl(path: `/${string}`): string {
 }
 
 /** Customer portal (deep links rendered into generated bootstrap scripts). */
-export const PORTAL_URL = "https://portal.autopilotmonitor.com";
+export const PORTAL_URL = "https://monitor.clefsoft.co.uk";
 
 /**
  * Customer-facing OOBE bootstrap short-URL base (irm {BOOTSTRAP_GO_URL}/{code} | iex).
@@ -51,7 +51,7 @@ export const PORTAL_URL = "https://portal.autopilotmonitor.com";
  * Constants.BootstrapGoBaseUrl on the C# side, which is the single URL producer —
  * this constant exists only for display in the sessions list.
  */
-export const BOOTSTRAP_GO_URL = "https://go.autopilotmonitor.com";
+export const BOOTSTRAP_GO_URL = "https://monitor-api.clefsoft.co.uk/api/bootstrap/go";
 
 /** Entra ID login/token authority host (no trailing slash). */
 export const ENTRA_LOGIN_URL = "https://login.microsoftonline.com";
@@ -60,17 +60,17 @@ export const ENTRA_LOGIN_URL = "https://login.microsoftonline.com";
 export const GRAPH_URL = "https://graph.microsoft.com";
 
 /** Production backend origin (CSP connect-src + server-side env fallback). */
-export const API_URL_PROD = "https://autopilotmonitor-api-eu.azurewebsites.net";
+export const API_URL_PROD = "https://monitor-api.clefsoft.co.uk";
 
 /** Production blob origin (CSP connect-src: diagnostics SAS uploads). */
-export const BLOB_URL_PROD = "https://autopilotmonitoreu.blob.core.windows.net";
+export const BLOB_URL_PROD = "https://stautopilotmonitorprod.blob.core.windows.net";
 
 /**
  * Customer-facing download alias for agent artifacts and helper scripts
  * (Front Door in front of the blob origin). Counterpart of
  * Constants.AgentDownloadBaseUrl on the C# side.
  */
-export const AGENT_DOWNLOAD_URL = "https://download.autopilotmonitor.com/agent";
+export const AGENT_DOWNLOAD_URL = "https://monitor-dl.clefsoft.co.uk/agent";
 
 /** The MCP endpoint every AI client connects to. Counterpart of Constants.McpServerBaseUrl + "/mcp". */
-export const MCP_SERVER_URL = "https://mcp.autopilotmonitor.com/mcp";
+export const MCP_SERVER_URL = "https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io/mcp";

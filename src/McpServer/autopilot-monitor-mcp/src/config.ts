@@ -11,7 +11,7 @@
  */
 import type { Request } from 'express';
 
-const DEFAULT_API_BASE_URL = 'https://autopilotmonitor-api-eu.azurewebsites.net';
+const DEFAULT_API_BASE_URL = 'https://monitor-api.clefsoft.co.uk';
 
 function resolveApiBaseUrl(): string {
   const fromEnv = process.env.AUTOPILOT_API_URL?.trim();
@@ -32,23 +32,23 @@ export const API_BASE_URL = resolveApiBaseUrl();
 export const ENTRA_LOGIN_BASE_URL = 'https://login.microsoftonline.com';
 
 /** The product homepage — advertised as serverInfo.websiteUrl. */
-export const WEBSITE_BASE_URL = 'https://www.autopilotmonitor.com';
+export const WEBSITE_BASE_URL = 'https://monitor.clefsoft.co.uk';
 
 /** Published customer documentation — base for citable search_docs links. */
 export const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
 
 /** The customer portal (SWA); serves /version.json with the deployed commit. */
-export const PORTAL_BASE_URL = 'https://portal.autopilotmonitor.com';
+export const PORTAL_BASE_URL = 'https://monitor.clefsoft.co.uk';
 
 /**
  * Cross-component deploy records (versions/{backend,mcp,web}.json), written by each deploy
  * workflow only after it verified the live endpoint. Blob origin on purpose: the pipelines and
  * the operator skill read the same URL, and the download. alias is documented for /agent only.
  */
-export const VERSIONS_BASE_URL = 'https://autopilotmonitoreu.blob.core.windows.net/versions';
+export const VERSIONS_BASE_URL = 'https://stautopilotmonitorprod.blob.core.windows.net/versions';
 
 /** Agent release line (Front Door alias, route caching disabled): version.json is the current manifest. */
-export const AGENT_DOWNLOAD_BASE_URL = 'https://download.autopilotmonitor.com/agent';
+export const AGENT_DOWNLOAD_BASE_URL = 'https://monitor-dl.clefsoft.co.uk/agent';
 
 /**
  * Pretty-print EVERY tool result (2-space indentation) instead of compact JSON. Off by default:

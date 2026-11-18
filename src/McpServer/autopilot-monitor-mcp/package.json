@@ -14,7 +14,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "docker:build": "docker build -f Dockerfile -t autopilotmonitor-mcp:local ../../../",
-    "docker:run": "docker run --rm -p 8080:8080 -e AUTOPILOT_API_URL=https://autopilotmonitor-api-eu.azurewebsites.net autopilotmonitor-mcp:local",
+    "docker:run": "docker run --rm -p 8080:8080 -e AUTOPILOT_API_URL=https://monitor-api.clefsoft.co.uk autopilotmonitor-mcp:local",
     "lint": "eslint .",
     "knip": "knip",
     "test": "vitest run",

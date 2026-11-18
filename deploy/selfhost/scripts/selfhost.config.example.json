@@ -1,0 +1,11 @@
+{
+  "apiBaseUrl": "https://func-autopilotmonitor-prod.azurewebsites.net",
+  "portalUrl": "https://swa-autopilotmonitor-prod.azurestaticapps.net",
+  "mcpUrl": "https://ca-autopilotmonitor-mcp-prod.<env-default-domain>.uksouth.azurecontainerapps.io",
+  "dataStorageAccount": "stautopilotmonitorprod",
+  "publisherOrg": "Clefsoft Lab",
+
+  "_optional_with_cloudflare": "Delete the two lines below if you are not using Cloudflare custom domains.",
+  "downloadBaseUrl": "https://download.clefsoft.co.uk/agent",
+  "bootstrapGoBaseUrl": "https://go.clefsoft.co.uk"
+}

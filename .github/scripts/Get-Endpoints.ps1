@@ -33,7 +33,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$storageAccount = 'autopilotmonitoreu'
+$storageAccount = 'stautopilotmonitorprod'
 # Pre-migration account in another tenant; only the fail-soft legacy mirror still writes there.
 $legacyStorageAccount = 'autopilotmonitor'
 
@@ -50,11 +50,11 @@ $endpoints = [ordered]@{
     ADMIN_CONFIG_URL           = "$table/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')"
     LEGACY_AGENT_CONTAINER_URL = "https://$legacyStorageAccount.blob.core.windows.net/agent"
     # Front Door in front of the agent container: what customer scripts download from.
-    DOWNLOAD_ALIAS_URL         = 'https://download.autopilotmonitor.com/agent'
-    API_BASE_URL               = 'https://autopilotmonitor-api-eu.azurewebsites.net'
-    MCP_BASE_URL               = 'https://mcp.autopilotmonitor.com'
-    PORTAL_BASE_URL            = 'https://portal.autopilotmonitor.com'
-    WWW_BASE_URL               = 'https://www.autopilotmonitor.com'
+    DOWNLOAD_ALIAS_URL         = 'https://monitor-dl.clefsoft.co.uk/agent'
+    API_BASE_URL               = 'https://monitor-api.clefsoft.co.uk'
+    MCP_BASE_URL               = 'https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io'
+    PORTAL_BASE_URL            = 'https://monitor.clefsoft.co.uk'
+    WWW_BASE_URL               = 'https://monitor.clefsoft.co.uk'
     DOCS_BASE_URL              = 'https://docs.autopilotmonitor.com'
     CODE_SIGN_TIMESTAMP_URL    = 'http://timestamp.acs.microsoft.com'
 }

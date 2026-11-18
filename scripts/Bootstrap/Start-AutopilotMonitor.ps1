@@ -32,7 +32,7 @@
 #>
 
 param(
-    [string]$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1",
+    [string]$BootstrapUrl = "https://monitor-dl.clefsoft.co.uk/agent/Install-AutopilotMonitor.ps1",
 
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$LogFileName = "bootstrap-loader.log"
@@ -45,7 +45,7 @@ $InstallerArguments = $args
 $ScriptVersion = "1.4"
 
 # A subject pattern, not a thumbprint, so a certificate renewal keeps deployed loaders working.
-$ExpectedPublisher = "*O=glueckkanja AG*"
+$ExpectedPublisher = "*O=Clefsoft Lab*"
 
 $ExpectedInstallerRole = "AutopilotMonitor-Installer"
 $MinimumInstallerVersion = [version]"2.8"

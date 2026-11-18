@@ -14,7 +14,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 {
     /// <summary>
     /// GET /api/bootstrap/go/{code} — the OOBE bootstrap script endpoint.
-    /// Customer-facing as <c>irm https://go.autopilotmonitor.com/{code} | iex</c>
+    /// Customer-facing as <c>irm https://monitor-api.clefsoft.co.uk/api/bootstrap/go/{code} | iex</c>
     /// (Front Door rewrites /{code} on the go domain to this route). Successor of the
     /// portal's Next.js /go/[code] route, moved here so the portal can become a static
     /// export; validation happens in-process (BootstrapSessionService), no HTTP hop.

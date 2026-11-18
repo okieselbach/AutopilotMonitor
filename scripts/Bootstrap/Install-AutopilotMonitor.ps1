@@ -41,7 +41,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip",
+    [string]$AgentDownloadUrl = "https://monitor-dl.clefsoft.co.uk/agent/AutopilotMonitor-Agent.zip",
 
     [Parameter(Mandatory = $false)]
     [string]$VersionJsonName = "version.json",
@@ -58,7 +58,7 @@ $ScriptVersion = "2.9"
 $ScriptRole = "AutopilotMonitor-Installer"
 
 # Signer of the agent's file catalog; a subject pattern, so certificate renewals keep working.
-$ExpectedPublisher = "*O=glueckkanja AG*"
+$ExpectedPublisher = "*O=Clefsoft Lab*"
 $AgentCatalogName = "AutopilotMonitor.Agent.cat"
 
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"

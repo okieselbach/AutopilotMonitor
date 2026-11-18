@@ -1,0 +1,60 @@
+# Copy to <your fork>/.github/workflows/deploy-infra.yml
+# Infra as code for the self-hosted platform (Bicep in deploy/selfhost/bicep).
+# Auth: GitHub OIDC federated credential (no secrets). See docs/04, section "GitHub Actions identity".
+#
+# Required repository SECRETS (identifiers, not credentials): AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# Required repository VARIABLES: AZURE_RESOURCE_GROUP (rg-autopilotmonitor-prod-uks)
+name: Deploy infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: what-if only, or deploy
+        type: choice
+        options: [what-if, deploy]
+        default: what-if
+  pull_request:
+    paths: ['deploy/selfhost/bicep/**']
+
+permissions:
+  contents: read
+
+jobs:
+  bicep:
+    runs-on: ubuntu-latest
+    environment: production        # protect with required reviewers
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+
+      - name: Build + lint Bicep
+        run: |
+          az bicep install
+          az bicep build --file deploy/selfhost/bicep/main.bicep --stdout > /dev/null
+          az bicep lint  --file deploy/selfhost/bicep/main.bicep
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file deploy/selfhost/bicep/main.bicep \
+            --parameters deploy/selfhost/bicep/main.bicepparam
+
+      - name: Deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy'
+        run: |
+          az deployment group create \
+            --name "autopilotmonitor-${{ github.run_number }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file deploy/selfhost/bicep/main.bicep \
+            --parameters deploy/selfhost/bicep/main.bicepparam

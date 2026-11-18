@@ -1,0 +1,20 @@
+# Azure Developer CLI manifest. Scope: PROVISIONING ONLY.
+#
+# azd is used for `azd provision` (Bicep + the post-provision hook). Code deployment is done by the
+# GitHub Actions workflows in ./ci, because the build has repo-specific steps (docs bundle checkout,
+# NEXT_PUBLIC_* env, rules/dist embedding) that azd's generic service deploy does not know about.
+#
+# NOT TESTED: azd is not installed in the authoring environment. The Bicep itself was compiled and
+# linted with Bicep CLI 0.49.2. Run `azd provision --preview` first.
+#
+# Copy this file to the root of your fork's deploy folder and keep `infra.path` pointing at ./bicep.
+# Do NOT use the fork's `infra/` directory: upstream mounts a private git submodule there.
+
+name: autopilotmonitor-selfhost
+metadata:
+  template: autopilotmonitor-selfhost@0.1.0
+
+infra:
+  provider: bicep
+  path: bicep
+  module: main

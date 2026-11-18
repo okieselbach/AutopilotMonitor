@@ -88,7 +88,7 @@ namespace AutopilotMonitor.Shared
         /// <summary>
         /// Default backend API base URL (overridable via AUTOPILOT_MONITOR_API env var or --api-url CLI arg)
         /// </summary>
-        public const string ApiBaseUrl = "https://autopilotmonitor-api-eu.azurewebsites.net";
+        public const string ApiBaseUrl = "https://monitor-api.clefsoft.co.uk";
 
         /// <summary>
         /// Public base URL of the MCP server (no trailing slash, no /mcp suffix). Stable custom
@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Shared
         /// first probe after idle may incur a cold start. Overridable via the
         /// <c>McpServerUrl</c> app setting (e.g. for dev).
         /// </summary>
-        public const string McpServerBaseUrl = "https://mcp.autopilotmonitor.com";
+        public const string McpServerBaseUrl = "https://ca-autopilotmonitor-mcp-prod.ashybeach-700e1175.uksouth.azurecontainerapps.io";
 
         // -----------------------------------------------------------------------
         // Well-known base URLs — single registry. Every own or Microsoft host used
@@ -108,7 +108,7 @@ namespace AutopilotMonitor.Shared
         // -----------------------------------------------------------------------
 
         /// <summary>Customer portal (deep links in notifications and e-mails).</summary>
-        public const string PortalBaseUrl = "https://portal.autopilotmonitor.com";
+        public const string PortalBaseUrl = "https://monitor.clefsoft.co.uk";
 
         /// <summary>
         /// The session deep link used in outbound notifications (Teams/Slack/webhook
@@ -156,7 +156,7 @@ namespace AutopilotMonitor.Shared
             $"{PortalBaseUrl}/push/#e/{System.Uri.EscapeDataString(entryId ?? string.Empty)}";
 
         /// <summary>Public marketing/product website.</summary>
-        public const string WebsiteBaseUrl = "https://www.autopilotmonitor.com";
+        public const string WebsiteBaseUrl = "https://monitor.clefsoft.co.uk";
 
         /// <summary>
         /// Web Push channel (plan push-relay): the wire-visible shapes the receiver app and the
@@ -222,7 +222,7 @@ namespace AutopilotMonitor.Shared
 
         /// <summary>
         /// Customer-facing base URL for the OOBE bootstrap script:
-        /// <c>irm https://go.autopilotmonitor.com/{code} | iex</c>, typed by hand at
+        /// <c>irm https://monitor-api.clefsoft.co.uk/api/bootstrap/go/{code} | iex</c>, typed by hand at
         /// Shift+F10 during OOBE — kept deliberately short. Front Door route on the
         /// go custom domain rewrites <c>/{code}</c> to <c>/api/bootstrap/go/{code}</c>
         /// on the Function App (GetBootstrapScriptFunction). Deliberately NOT
@@ -230,7 +230,7 @@ namespace AutopilotMonitor.Shared
         /// URLs issued before the migration, and WebsiteBaseUrl is also the base for
         /// the SLA dashboard link.
         /// </summary>
-        public const string BootstrapGoBaseUrl = "https://go.autopilotmonitor.com";
+        public const string BootstrapGoBaseUrl = "https://monitor-api.clefsoft.co.uk/api/bootstrap/go";
 
         /// <summary>Microsoft Graph API root (no version segment).</summary>
         public const string GraphBaseUrl = "https://graph.microsoft.com";
@@ -248,7 +248,7 @@ namespace AutopilotMonitor.Shared
         /// happen behind this name without touching customers. New bootstrap scripts and all
         /// availability probes use this URL.
         /// </summary>
-        public const string AgentDownloadBaseUrl = "https://download.autopilotmonitor.com/agent";
+        public const string AgentDownloadBaseUrl = "https://monitor-dl.clefsoft.co.uk/agent";
 
         /// <summary>
         /// LEGACY base URL for agent binaries: the pre-migration storage account, kept alive
@@ -256,7 +256,7 @@ namespace AutopilotMonitor.Shared
         /// Intune tenants still download from it. Remove only after the customer migration to
         /// <see cref="AgentDownloadBaseUrl"/> is complete and the legacy account is torn down.
         /// </summary>
-        public const string AgentBlobBaseUrl = "https://autopilotmonitor.blob.core.windows.net/agent";
+        public const string AgentBlobBaseUrl = "https://stautopilotmonitorprod.blob.core.windows.net/agent";
 
         // =====================================================================
         // Stable namespace — what customer Intune Platform Scripts download.
@@ -340,7 +340,7 @@ namespace AutopilotMonitor.Shared
         /// verifiers are not). The bootstrap loader and installer carry the same literal as
         /// <c>$ExpectedPublisher</c>; a parity test keeps all three in step.
         /// </summary>
-        public const string CodeSigningPublisherPattern = "*O=glueckkanja AG*";
+        public const string CodeSigningPublisherPattern = "*O=Clefsoft Lab*";
 
         /// <summary>
         /// Signed catalog at the root of every agent ZIP, holding the SHA-256 of every other file
