@@ -1,305 +1,81 @@
-name: Deploy Web (Static Web App)
-
-# Build here, upload with the SWA CLI from its own lockfile (tools/swa-cli). No
-# third-party action sees the deploy token, the build runs on the same path ci.yml tests
-# (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the action's container,
-# and the exported site is attested like the agent ZIP and the MSI.
+# Copy to <your fork>/.github/workflows/deploy-web.yml
+# Next.js static export -> Azure Static Web Apps, uploaded with the SWA CLI.
+# Mirrors upstream's build recipe (Node 22, npm ci, docs bundle checkout for the "What's new" panel).
 #
-# Three jobs, each holding only what it needs: build runs the third-party build code without
-# any credential, deploy holds the SWA token alone and runs nothing but the locked CLI, record
-# attests, verifies and writes the manifest. A failed record job is re-run on its own; it
-# writes only once the live site serves this commit.
-#
-# PR preview environments were dropped with the action: their per-PR URLs are never
-# registered as redirect URIs, so nobody could log in on them anyway.
+# Repository SECRETS: AZURE_SWA_DEPLOY_TOKEN   (az staticwebapp secrets list --name <swa> --query properties.apiKey -o tsv)
+# Repository VARIABLES: API_BASE_URL, PORTAL_URL, STATS_URL, NEXT_PUBLIC_ENTRA_CLIENT_ID
+name: Deploy web
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/Web/autopilot-monitor-web/**'
-      - 'tools/swa-cli/**'
-      - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/Web/autopilot-monitor-web/**']
 
-# Every job states its own permissions. This default is what the build job runs with: npm ci
-# (install scripts included) and next build execute third-party code and must never hold more
-# than a read-only token.
 permissions:
   contents: read
 
-# Hosts (API, portal, storage) come from .github/scripts/Get-Endpoints.ps1, never from a
-# repository variable.
 env:
   WEB_DIR: src/Web/autopilot-monitor-web
 
 jobs:
-  # Build zone: no login, no id-token. The one secret here is the Application Insights
-  # connection string, which ships inside the public bundle anyway.
   build:
-    name: Build
     runs-on: ubuntu-latest
-    outputs:
-      docs_sha: ${{ steps.docs.outputs.sha }}
-
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          lfs: false
-          fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
-
-      - name: Load endpoints
-        shell: pwsh
-        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
-
-      # The customer docs repo is the single source of the "What's new" panel: the prebuild
-      # step (scripts/whats-new/build-whats-new.js) turns changelog/*.md into
-      # public/whats-new.json and dates every bullet via git blame — hence the full history.
-      # Public repo, no token. Editing the docs does NOT update the live panel until this
-      # workflow runs again (push under src/Web/** or a manual dispatch); versions/web.json
-      # records which docs commit is live.
-      - name: Check out documentation bundle
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          repository: autopilotmonitor/autopilotmonitor-docs
-          path: whats-new-docs
-          fetch-depth: 0
-
-      - name: Resolve docs commit
-        id: docs
-        run: echo "sha=$(git -C whats-new-docs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: ${{ env.WEB_DIR }}/package-lock.json
-
-      - name: Install dependencies
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false, fetch-depth: 0 }   # full history: sitemap lastmod via git
+      # The prebuild step (scripts/whats-new) FAILS IN CI without this bundle. Public repo, no token.
+      - uses: actions/checkout@v4
+        with: { repository: autopilotmonitor/autopilotmonitor-docs, path: whats-new-docs, fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: '${{ env.WEB_DIR }}/package-lock.json' }
+      - run: npm ci
         working-directory: ${{ env.WEB_DIR }}
-        run: npm ci
-
-      # Star counter for the GitHub star link (utils/githubStars.ts). Baked into the static HTML
-      # so visitors' browsers never call GitHub; stale until the next web deploy. The token stays
-      # in this step, never in the build. Fail-soft: without a number the link has no counter.
-      - name: Read GitHub star count (fail-soft)
-        id: stars
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          count=$(gh api "repos/$REPO" --jq .stargazers_count 2>/dev/null || true)
-          if [[ "$count" =~ ^[0-9]+$ ]]; then
-            echo "count=$count" >> "$GITHUB_OUTPUT"
-            echo "GitHub stars: $count"
-          else
-            echo "::warning::GitHub star count unavailable - the star link renders without a counter"
-          fi
-
-      # next.config output:'export' -- `next build` writes the static site to out/
-      # (prebuild: sync-error-codes, generate-lastmod, generate-version, whats-new).
-      - name: Build
+      - name: Build static export
         working-directory: ${{ env.WEB_DIR }}
         env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL }}
           NEXT_PUBLIC_ENTRA_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
-          # Dual app-reg window: previous app registration (unset = single-app behaviour)
-          # and the default app for browsers without a stored selection (legacy|primary).
-          NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID }}
-          NEXT_PUBLIC_ENTRA_DEFAULT_APP: ${{ vars.NEXT_PUBLIC_ENTRA_DEFAULT_APP }}
-          NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING }}
-          # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
-          # the verify step below polls the deployed file for exactly this commit.
-          GITHUB_SHA: ${{ github.sha }}
-          # Docs checkout for public/whats-new.json; the prebuild fails in CI without it.
+          NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${{ vars.PORTAL_URL }}
+          NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ vars.PORTAL_URL }}
+          NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL: ${{ vars.STATS_URL }}
           WHATS_NEW_DOCS_DIR: ${{ github.workspace }}/whats-new-docs
-          # Star counter from the step above; empty when the lookup failed.
-          NEXT_PUBLIC_GITHUB_STARS: ${{ steps.stars.outputs.count }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
-          # All from the endpoint registry (Load endpoints). Empty, the portal would silently call
-          # localhost:7071. The stats manifest is what browsers load the live numbers from, and the
-          # build reads it once to bake the numbers of this moment into the landing page's static
-          # HTML (lib/platformStats.ts). The redirect URIs are only the fallback for the static
-          # render; in the browser lib/msalConfig.ts uses window.location.origin.
-          export NEXT_PUBLIC_API_BASE_URL="$API_BASE_URL"
-          export NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL="$STATS_CONTAINER_URL"
-          export NEXT_PUBLIC_ENTRA_REDIRECT_URI="$WWW_BASE_URL"
-          export NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI="$WWW_BASE_URL"
-          test -n "$NEXT_PUBLIC_API_BASE_URL" || { echo "::error::API_BASE_URL is empty - the portal would call localhost"; exit 1; }
-          test -n "$NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL" || { echo "::error::STATS_CONTAINER_URL is empty"; exit 1; }
-          test -n "$NEXT_PUBLIC_ENTRA_REDIRECT_URI" || { echo "::error::WWW_BASE_URL is empty"; exit 1; }
+          test -n "$NEXT_PUBLIC_API_BASE_URL" || { echo "API_BASE_URL empty: the portal would call localhost"; exit 1; }
+          test -n "$NEXT_PUBLIC_ENTRA_CLIENT_ID" || { echo "NEXT_PUBLIC_ENTRA_CLIENT_ID empty: sign-in would use YOUR_CLIENT_ID_HERE"; exit 1; }
           npm run build
-          test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
-          test -f out/whats-new.json || { echo "out/whats-new.json missing - whats-new prebuild did not run"; exit 1; }
-          # Fail-soft like the star count: browsers still load the stats live; only crawlers and
-          # LLM fetchers, which run no JS, see no numbers until the next deploy.
-          grep -q 'data-stats-snapshot=' out/index.html || echo "::warning::Platform stats were not baked into the landing page (reason in the build log) - crawlers and LLM fetchers see no numbers until the next deploy"
+          test -f out/version.json
+      - uses: actions/upload-artifact@v4
+        with: { name: portal, path: '${{ env.WEB_DIR }}/out', if-no-files-found: error, retention-days: 1 }
 
-      # One archive of the exact bytes that get uploaded, so the attestation has a single subject.
-      - name: Package export
-        id: package
-        run: |
-          archive="portal-${GITHUB_SHA::7}.tar.gz"
-          tar -C "$WEB_DIR/out" -czf "$archive" .
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          sha256sum "$archive"
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: portal-${{ github.sha }}
-          path: ${{ steps.package.outputs.archive }}
-          if-no-files-found: error
-
-  # Holds the SWA deployment token and nothing else -- deliberately no id-token. The token alone
-  # can replace the portal, so the SWA CLI, the one third-party code here, comes from a committed
-  # lockfile: a version published after the last reviewed bump never runs next to it.
   deploy:
-    name: Deploy to Static Web App
     needs: build
     runs-on: ubuntu-latest
     environment: production
-
     steps:
-      # For staticwebapp.config.json and the CLI's lockfile.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # npm ci, never npx or npm install: the lockfile pins every transitive package by hash.
-      # No lifecycle scripts: keytar, the only package with one, serves the keychain, which
-      # --no-use-keychain keeps unloaded. Before the artifact arrives, so nothing from the
-      # build zone can touch the install.
-      - name: Install the SWA CLI from its lockfile
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@v4
+        with: { name: portal, path: '${{ env.WEB_DIR }}/out' }
+      # swa-cli pinned by lockfile (tools/swa-cli in the fork). npm ci, never npx.
+      - run: npm ci --ignore-scripts
         working-directory: tools/swa-cli
-        run: npm ci --ignore-scripts
-
-      - name: Download build artifact
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: portal-${{ github.sha }}
-          path: ${{ runner.temp }}/portal
-
-      - name: Unpack export
-        run: |
-          mkdir "$WEB_DIR/out"
-          tar -xzf "$RUNNER_TEMP/portal/portal-${GITHUB_SHA::7}.tar.gz" -C "$WEB_DIR/out"
-
-      # Upload only -- out/ is already built. --swa-config-location points at the app root,
-      # where staticwebapp.config.json lives (next export does not copy it into out/).
-      - name: Deploy to Static Web App
+      - name: Deploy
         env:
           SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
         run: |
           tools/swa-cli/node_modules/.bin/swa deploy \
-            --app-location "$WEB_DIR" \
-            --output-location out \
-            --swa-config-location "$WEB_DIR" \
-            --env production \
-            --no-use-keychain
-
-  # Trust zone: only this repository's scripts and pinned actions run here. The deploy
-  # identity trusts the `production` environment, which admits main only.
-  record:
-    name: Attest, verify and record
-    needs: [build, deploy]
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-      id-token: write      # keyless Sigstore signing, OIDC login for the manifest
-      attestations: write  # store the provenance attestation
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Load endpoints
-        shell: pwsh
-        run: ./.github/scripts/Get-Endpoints.ps1 -ExportToGitHubEnv
-
-      - name: Download build artifact
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: portal-${{ github.sha }}
-          path: ${{ runner.temp }}/portal
-
-      - name: Locate the export archive
-        id: archive
-        run: |
-          path="$RUNNER_TEMP/portal/portal-${GITHUB_SHA::7}.tar.gz"
-          test -f "$path" || { echo "::error::Export archive for this commit is missing"; exit 1; }
-          echo "path=$path" >> "$GITHUB_OUTPUT"
-
-      # Sigstore keyless provenance: binds the export digest to this workflow run (repo, ref,
-      # commit, workflow file) in a public transparency log.
-      # Verify: gh attestation verify portal-<sha>.tar.gz --repo okieselbach/AutopilotMonitor
-      - name: Attest build provenance (portal export)
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: ${{ steps.archive.outputs.path }}
-
-      # The CLI reporting success proves the upload, not that the production host serves the
-      # new build -- verify against the live /version.json (Cache-Control: no-store via
-      # staticwebapp.config.json) before publishing the version manifest.
-      - name: Verify deployed portal build is live
+            --app-location "$WEB_DIR" --output-location out \
+            --swa-config-location "$WEB_DIR" --env production --no-use-keychain
+      - name: Verify live commit
         shell: pwsh
         run: |
-          $expectedCommit = '${{ github.sha }}'.Substring(0, 7)
+          $expected = '${{ github.sha }}'.Substring(0, 7)
           $deadline = [DateTime]::UtcNow.AddMinutes(5)
-          $attempt = 0
-
           while ([DateTime]::UtcNow -lt $deadline) {
-            $attempt++
-            try {
-              $v = Invoke-RestMethod -Uri "$env:PORTAL_BASE_URL/version.json" -Method Get -TimeoutSec 30 -Headers @{ 'Cache-Control' = 'no-cache' }
-              if ($v.commit -eq $expectedCommit) {
-                Write-Host "Live after $attempt attempt(s): web @ $($v.commit), built $($v.buildUtc)"
-                exit 0
-              }
-              Write-Host "Attempt ${attempt}: serving $($v.commit) -- waiting for $expectedCommit"
-            } catch {
-              Write-Host "Attempt ${attempt}: /version.json not answering yet -- $($_.Exception.Message)"
-            }
+            try { $v = Invoke-RestMethod -Uri "${{ vars.PORTAL_URL }}/version.json" -Headers @{ 'Cache-Control' = 'no-cache' }
+                  if ($v.commit -eq $expected) { Write-Host "Live: $($v.commit)"; exit 0 } } catch { }
             Start-Sleep -Seconds 15
           }
-
-          throw "Portal did not serve commit $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
-
-      - name: Login to Azure (OIDC)
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # Cross-component deploy record, written last and only on a verified deploy --
-      # same contract as versions/backend.json and versions/mcp.json. docsCommit says which
-      # docs revision the live What's new panel was generated from (as for the MCP corpus).
-      # The docs commit comes from the build job, so it arrives as data and is checked
-      # against the shape of a commit id before it is used.
-      - name: Publish version manifest
-        shell: pwsh
-        env:
-          DOCS_SHA: ${{ needs.build.outputs.docs_sha }}
-        run: |
-          if ($env:DOCS_SHA -notmatch '^[0-9a-f]{40}$') {
-            throw "The build job handed over no valid docs commit -- version manifest NOT published."
-          }
-          $manifest = [ordered]@{
-            component   = 'web'
-            commit      = '${{ github.sha }}'.Substring(0, 7)
-            deployedUtc = [DateTime]::UtcNow.ToString('o')
-            runId       = '${{ github.run_id }}'
-            docsCommit  = $env:DOCS_SHA.Substring(0, 7)
-          } | ConvertTo-Json
-
-          $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
-          $url = "$env:VERSIONS_CONTAINER_URL/web.json"
-          # no-cache: rotating pointer, must never be served stale by any fronting cache.
-          Invoke-RestMethod -Uri $url -Method Put -Headers ($authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' }) -Body $manifest -ContentType 'application/json' | Out-Null
-          Write-Host "Published versions/web.json"
-          Write-Host $manifest
+          throw "Portal did not serve $expected within 5 minutes"
