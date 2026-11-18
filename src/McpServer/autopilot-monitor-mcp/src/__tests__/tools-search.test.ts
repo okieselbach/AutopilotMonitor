@@ -612,6 +612,13 @@ describe('computeKeywordSpecificity', () => {
     expect(spec.get('failed')!).toBeGreaterThan(spec.get('bitlocker')!);
     expect(spec.get('failed')!).toBeGreaterThan(RARE_THRESHOLD_FOR_TEST);
   });
+
+  it('keeps a notice type searchable without diluting its entity keyword', () => {
+    // download_progress_throttled only qualifies download_progress: a "download" query still finds
+    // it, and "download" stays a rare named entity.
+    expect(extractEventTypeCandidates(['download'])).toContain('download_progress_throttled');
+    expect(computeKeywordSpecificity(['download']).get('download')!).toBeLessThanOrEqual(RARE_THRESHOLD_FOR_TEST);
+  });
 });
 
 describe('dedupeSynonymConcepts', () => {

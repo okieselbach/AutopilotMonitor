@@ -33,6 +33,7 @@ export const COVERAGE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'diagnostics_uploaded',
   'diagnostics_upload_failed',
   'app_tracking_summary',
+  'download_progress_throttled',
   'script_started',
   'script_completed',
   'script_failed',
@@ -54,6 +55,7 @@ export const COVERAGE_EVENT_FIELDS =
   'data.priorRegistrationFailedRuns,data.priorRegistrationInterceptedRuns,data.priorRegistrationLastOutcome,data.priorRegistrationNetworkChanged,' +
   'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
   'data.installingNames,data.downloadingNames,' +
+  'data.stage,data.intervalSeconds,data.liveStartSeconds,' +
   // Scripts block; scriptType/script_type already ride in SUMMARY_EVENT_FIELDS' own list.
   'data.policyId,data.policy_id';
 
@@ -590,6 +592,22 @@ export function buildSessionCoverage(
     };
     inFlight('installing', apps.stillInstalling);
     inFlight('downloading', apps.stillDownloading);
+  }
+
+  // ── Download progress reported less often ───────────────────────────────────
+  // Long downloads: from a session-wide threshold on the agent sends download_progress less often
+  // per app (one download_progress_throttled per stage). Sparse ticks after that are by design.
+  const throttled = of('download_progress_throttled');
+  if (throttled.length > 0) {
+    const highest = throttled.reduce((a, b) => ((num(b.data?.stage) ?? 0) > (num(a.data?.stage) ?? 0) ? b : a));
+    const interval = num(highest.data?.intervalSeconds);
+    const live = num(highest.data?.liveStartSeconds);
+    gaps.push(
+      `Download progress was reported less often from ${str(throttled[0].timestamp) ?? 'an unknown time'} on (long downloads, kept below the event limit)` +
+        `${interval !== null ? `: at most every ${interval} s per app` : ''}` +
+        `${live !== null ? `, each download's first ${live} s still every 3 s` : ''}` +
+        '. Sparse download_progress after that point is by design, not missing data.',
+    );
   }
 
   // ── Scripts without a terminal state ────────────────────────────────────────

@@ -440,6 +440,23 @@ describe('buildSessionCoverage — apps without a terminal state', () => {
   });
 });
 
+describe('buildSessionCoverage — download progress reported less often', () => {
+  it('names the start and the highest stage, so sparse progress does not read as lost data', () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'InProgress' }, [
+      ev('agent_started', 5),
+      ev('download_progress_throttled', 3_000, { stage: '2', intervalSeconds: '30', liveStartSeconds: '60' }),
+      ev('download_progress_throttled', 1_200, { stage: '1', intervalSeconds: '10', liveStartSeconds: '60' }),
+    ]);
+    expect(c.gaps).toEqual([
+      `Download progress was reported less often from ${at(1_200)} on (long downloads, kept below the event limit): at most every 30 s per app, each download's first 60 s still every 3 s. Sparse download_progress after that point is by design, not missing data.`,
+    ]);
+  });
+
+  it('stays silent for a session that was never throttled', () => {
+    expect(buildSessionCoverage(SESSION, [ev('agent_started', 5)]).gaps).toEqual([]);
+  });
+});
+
 describe('buildSessionCoverage — scripts without a terminal state', () => {
   // Shape of session 2ebcd480: the session's last event was a platform script's start line.
   // There is no shutdown summary for scripts — the stream itself is the evidence.
@@ -495,7 +512,7 @@ describe('coverage wiring', () => {
       'agent_started', 'agent_late_start', 'historic_ime_replay_detected', 'ime_tracker_degraded', 'ime_pattern_hits',
       'collector_degraded', 'spool_pressure_detected', 'telemetry_upload_poisoned', 'telemetry_upload_blocked',
       'ingress_backpressure', 'disk_space_low', 'diagnostics_collecting', 'diagnostics_uploaded', 'diagnostics_upload_failed',
-      'app_tracking_summary',
+      'app_tracking_summary', 'download_progress_throttled',
       'script_started', 'script_completed', 'script_failed',
     ];
     expect([...COVERAGE_EVENT_TYPES].sort()).toEqual([...consulted].sort());

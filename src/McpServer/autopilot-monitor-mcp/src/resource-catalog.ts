@@ -88,6 +88,7 @@ export const EVENT_TYPES_CATALOG = {
     'esp_apps_failure_correlation',
     'esp_appx_failure_analysis',
     'download_progress',
+    'download_progress_throttled',
     'do_telemetry',
     'all_apps_completed',
     'app_tracking_summary',

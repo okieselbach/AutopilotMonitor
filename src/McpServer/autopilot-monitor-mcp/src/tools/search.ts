@@ -696,10 +696,20 @@ export function computeKeywordSpecificity(keywords: string[]): Map<string, numbe
   const m = new Map<string, number>();
   for (const kw of keywords) {
     if (m.has(kw)) continue;
-    m.set(kw, KNOWN_EVENT_TYPES_SPLIT.reduce((n, { et, words }) => n + (prefixAwareMatchPreSplit(et, words, kw) ? 1 : 0), 0));
+    m.set(kw, KNOWN_EVENT_TYPES_SPLIT.reduce(
+      (n, { et, words }) => n + (!SPECIFICITY_EXCLUDED_TYPES.has(et) && prefixAwareMatchPreSplit(et, words, kw) ? 1 : 0),
+      0,
+    ));
   }
   return m;
 }
+
+/**
+ * Notice types that only qualify another type of the same family. They stay search candidates
+ * (extractEventTypeCandidates) but do not count toward a keyword's specificity: "download" names one
+ * entity family whether or not the agent also sent its throttle notice.
+ */
+const SPECIFICITY_EXCLUDED_TYPES: ReadonlySet<string> = new Set(['download_progress_throttled']);
 
 /** Keyword type-match count at/below this is treated as a discriminating named entity (e.g. "bitlocker"=1, "download"=2). */
 const RARE_THRESHOLD = 3;
