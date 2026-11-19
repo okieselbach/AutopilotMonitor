@@ -455,15 +455,25 @@ public class DistressValidationTests
     [InlineData(DistressErrorType.SessionRegistrationDenied)]
     [InlineData(DistressErrorType.TpmPssUnsupported)]
     [InlineData(DistressErrorType.ClientCertificateNotReceived)]
+    [InlineData(DistressErrorType.TenantGraphAccessLost)]
     public void EnumIsDefined_AllValidErrorTypes_ReturnsTrue(DistressErrorType errorType)
     {
         Assert.True(Enum.IsDefined(typeof(DistressErrorType), errorType));
     }
 
+    [Fact]
+    public void IsAgentReportable_RefusesTheValueOnlyTheEndpointAssigns()
+    {
+        Assert.False(ReportDistressFunction.IsAgentReportable(DistressErrorType.TenantGraphAccessLost));
+        Assert.False(ReportDistressFunction.IsAgentReportable((DistressErrorType)99));
+        foreach (var type in Enum.GetValues<DistressErrorType>().Where(t => t != DistressErrorType.TenantGraphAccessLost))
+            Assert.True(ReportDistressFunction.IsAgentReportable(type));
+    }
+
     [Theory]
     [InlineData(99)]
     [InlineData(-1)]
-    [InlineData(10)]
+    [InlineData(11)]
     [InlineData(999)]
     public void EnumIsDefined_InvalidValues_ReturnsFalse(int rawValue)
     {
@@ -471,11 +481,11 @@ public class DistressValidationTests
     }
 
     [Fact]
-    public void DistressErrorType_HasExactly10Values()
+    public void DistressErrorType_HasExactly11Values()
     {
         // If someone adds a new enum value, this test forces them to also add test coverage
         var values = Enum.GetValues(typeof(DistressErrorType));
-        Assert.Equal(10, values.Length);
+        Assert.Equal(11, values.Length);
     }
 
     // =========================================================================
@@ -731,6 +741,32 @@ public class DistressValidationTests
         });
 
         Assert.Equal(DistressErrorType.HardwareNotAllowed, Resolve(config));
+    }
+
+    [Fact]
+    public void ResolveErrorType_ConfirmedGraphAccessLoss_IsTenantGraphAccessLost()
+    {
+        // The validator refuses such a tenant right after the hardware check: the device was never
+        // looked up, so it must not land in the not-registered list.
+        var config = ValidatingTenant(c =>
+        {
+            c.GraphAccessRejectedSince = new DateTime(2026, 11, 2, 21, 4, 0, DateTimeKind.Utc);
+            c.GraphAccessRejectionConfirmedAt = new DateTime(2026, 11, 2, 22, 4, 0, DateTimeKind.Utc);
+            c.GraphAccessRejectedCode = "AADSTS7000229";
+        });
+
+        Assert.Equal(DistressErrorType.TenantGraphAccessLost, Resolve(config, "Dell Inc.", "Latitude 5440"));
+        // Hardware outside the whitelist is refused before, and stays a hardware rejection.
+        Assert.Equal(DistressErrorType.HardwareNotAllowed, Resolve(config));
+    }
+
+    [Fact]
+    public void ResolveErrorType_GraphAccessOnlySuspected_StaysDeviceNotRegistered()
+    {
+        // A suspicion alone does not stop the chain, so the device was looked up.
+        var config = ValidatingTenant(c => c.GraphAccessRejectedSince = new DateTime(2026, 11, 2, 21, 4, 0, DateTimeKind.Utc));
+
+        Assert.Equal(DistressErrorType.DeviceNotRegistered, Resolve(config, "Dell Inc.", "Latitude 5440"));
     }
 
     [Fact]

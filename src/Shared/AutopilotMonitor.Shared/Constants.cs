@@ -476,6 +476,15 @@ namespace AutopilotMonitor.Shared
             /// </summary>
             public const string SessionOwnerMismatch = "SessionOwnerMismatch";
 
+            /// <summary>
+            /// 403 on the certificate-authenticated agent routes: Microsoft Entra keeps refusing this
+            /// tenant's app token (<c>TenantConfiguration.IsGraphAccessConfirmedLost</c>), so no device
+            /// validation can succeed until a tenant admin restores the consent. Answered before the
+            /// validator chain, without asking Entra. The agent ends monitoring on it; older agents
+            /// treat it as any other 403 and stop retrying.
+            /// </summary>
+            public const string TenantGraphAccessLost = "TenantGraphAccessLost";
+
             // ── identity binding (grant endpoints, HTTP 422) ──
             public const string HomeTenantUnresolved = "HomeTenantUnresolved";
 

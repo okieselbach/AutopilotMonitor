@@ -46,9 +46,9 @@ namespace AutopilotMonitor.Functions.Security
             if (!validation.IsValid)
             {
                 // Agent-facing error envelope. The agent acts on the status and the Retry-After header
-                // (503 retry loop, 429 backoff) and never parses these bodies beyond `errorCode` on the
-                // RegisterSession response — so the envelope carries the human message (details folded
-                // in) plus the retry window, nothing agent-specific.
+                // (503 retry loop, 429 backoff); of the body it reads only `code`, and only for a
+                // refusal that sets one (validation.Code, e.g. TenantGraphAccessLost). Everything else
+                // carries the status default, the human message (details folded in) and the retry window.
                 var message = string.IsNullOrEmpty(validation.Details)
                     ? validation.ErrorMessage ?? "Request rejected."
                     : $"{validation.ErrorMessage} ({validation.Details})";
@@ -61,7 +61,7 @@ namespace AutopilotMonitor.Functions.Security
                 };
 
                 var response = await req.ErrorAsync(
-                    validation.StatusCode, ApiErrorWriter.DefaultCode(validation.StatusCode), message,
+                    validation.StatusCode, validation.Code ?? ApiErrorWriter.DefaultCode(validation.StatusCode), message,
                     retryAfterSeconds: retryAfterSeconds);
                 return (validation, response);
             }

@@ -174,8 +174,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 if (report == null)
                     return req.CreateResponse(HttpStatusCode.OK);
 
-                // Validate enum (reject unknown values)
-                if (!Enum.IsDefined(typeof(DistressErrorType), report.ErrorType))
+                // Validate enum (reject unknown values and the ones only this endpoint assigns)
+                if (!IsAgentReportable(report.ErrorType))
                     return req.CreateResponse(HttpStatusCode.OK);
 
                 // Validate timestamp (reject stale/future)
@@ -389,12 +389,23 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
+        /// A defined value an agent may send. <see cref="DistressErrorType.TenantGraphAccessLost"/> is
+        /// assigned here by <see cref="ResolveErrorType"/> and never reported by an agent.
+        /// </summary>
+        internal static bool IsAgentReportable(DistressErrorType errorType)
+            => Enum.IsDefined(typeof(DistressErrorType), errorType)
+               && errorType != DistressErrorType.TenantGraphAccessLost;
+
+        /// <summary>
         /// The error type to store and act on. The agent reports every backend 403 as
         /// <see cref="DistressErrorType.DeviceNotRegistered"/>, but <c>SecurityValidator</c> checks the
         /// hardware whitelist before it looks up the device's registration: a 403 for hardware
         /// outside the whitelist is a hardware rejection, and only as one does it reach the bell,
-        /// the webhook and the rejected-hardware list. The conditions follow the validator's order:
-        /// a suspended tenant, a tenant without any validation and bootstrap-token auth (no
+        /// the webhook and the rejected-hardware list. Right after the hardware check comes the
+        /// confirmed Graph access loss: a 403 for allowed hardware from such a tenant is
+        /// <see cref="DistressErrorType.TenantGraphAccessLost"/>, never an unregistered device, so it
+        /// stays out of the not-registered list. The conditions follow the validator's order: a
+        /// suspended tenant, a tenant without any validation and bootstrap-token auth (no
         /// certificate) are refused or let through before the hardware check, so their 403 stays as
         /// reported. If that order changes, this has to change with it.
         /// </summary>
@@ -410,7 +421,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
             var hardware = HardwareWhitelistValidator.ValidateHardware(
                 manufacturer, model, config.GetManufacturerWhitelist(), config.GetModelWhitelist());
-            return hardware.IsValid ? reported : DistressErrorType.HardwareNotAllowed;
+            if (!hardware.IsValid) return DistressErrorType.HardwareNotAllowed;
+            return config.IsGraphAccessConfirmedLost() ? DistressErrorType.TenantGraphAccessLost : reported;
         }
 
         /// <summary>

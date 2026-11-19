@@ -1059,6 +1059,16 @@ namespace AutopilotMonitor.Shared.Models
                || ValidateIntuneDeviceBinding;
 
         /// <summary>
+        /// True when Microsoft Entra's refusal of the tenant's app token is confirmed
+        /// (<see cref="GraphAccessRejectionConfirmedAt"/>) while a device validation is switched on:
+        /// no validator can get a token. The agent gate refuses on it without asking Entra, and the
+        /// portal shows its notice on it. A suspicion alone (only <see cref="GraphAccessRejectedSince"/>)
+        /// is not enough.
+        /// </summary>
+        public bool IsGraphAccessConfirmedLost()
+            => GraphAccessRejectionConfirmedAt != null && HasAnyDeviceValidation();
+
+        /// <summary>
         /// Checks if the tenant is currently disabled
         /// Takes into account DisabledUntil if set
         /// </summary>

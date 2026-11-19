@@ -22,10 +22,10 @@ public sealed class ConfigConfirmBeforeRefusalTests
 {
     private static readonly string TenantId = CertTenantBindingTests.SampleCertTenantId.ToString();
 
-    private sealed record Gate(SecurityValidator Validator, Mock<TenantConfigurationService> Config, Dictionary<object, object> Items);
+    internal sealed record Gate(SecurityValidator Validator, Mock<TenantConfigurationService> Config, Dictionary<object, object> Items);
 
     /// <summary>A permissive tenant: no device validator needed, every hardware allowed.</summary>
-    private static TenantConfiguration Admitting(Action<TenantConfiguration>? change = null)
+    internal static TenantConfiguration Admitting(Action<TenantConfiguration>? change = null)
     {
         var config = new TenantConfiguration
         {
@@ -43,7 +43,7 @@ public sealed class ConfigConfirmBeforeRefusalTests
     /// before a refusal returns (null: nothing to read, as inside the confirm interval). Like the real
     /// service, a confirming read makes the stored row the cached one.
     /// </summary>
-    private static Gate Build(TenantConfiguration cached, TenantConfiguration? stored)
+    internal static Gate Build(TenantConfiguration cached, TenantConfiguration? stored)
     {
         var configRepo = Mock.Of<IConfigRepository>();
         var cache = new MemoryCache(new MemoryCacheOptions());
@@ -74,11 +74,11 @@ public sealed class ConfigConfirmBeforeRefusalTests
         return new Gate(validator, config, new Dictionary<object, object>());
     }
 
-    private static Task<SecurityValidationResult> Validate(Gate gate)
+    internal static Task<SecurityValidationResult> Validate(Gate gate)
         => gate.Validator.ValidateRequestAsync(
             CertTenantBindingTests.BuildRequestWithCert(CertTenantBindingTests.SampleCertBase64(), gate.Items), TenantId);
 
-    private static string? Stamp(Gate gate)
+    internal static string? Stamp(Gate gate)
         => gate.Items.TryGetValue(RequestRowMarkers.ConfigConfirmKey, out var value) ? value as string : null;
 
     // ---------------------------------------------------------------- a refusal is confirmed first
@@ -89,6 +89,7 @@ public sealed class ConfigConfirmBeforeRefusalTests
         { "model just allowed", Admitting(c => c.ModelWhitelist = "Latitude*"), "Hardware not authorized" },
         { "validation requirement just met", Admitting(c => c.AllowInsecureAgentRequests = false), "Device validation is required" },
         { "tenant just re-enabled", Admitting(c => { c.Disabled = true; c.DisabledReason = "paused"; }), "Tenant is suspended" },
+        { "graph access just restored", GraphAccessLostGateTests.Lost(), GraphAccessLostGateTests.Refusal },
     };
 
     [Theory]

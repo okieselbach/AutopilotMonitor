@@ -5,6 +5,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -145,9 +146,9 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Whether a gate the tenant configuration alone decides would refuse this request: the
         /// suspension, the bootstrap feature for a token request, "no validation switched on", the
-        /// hardware whitelist. Mirrors those gates of the validation below in their order; pure, logs
-        /// nothing. A gate added there that the configuration decides belongs here too, or it keeps
-        /// refusing on an outdated copy.
+        /// hardware whitelist, the confirmed Graph access loss. Mirrors those gates of the validation
+        /// below in their order; pure, logs nothing. A gate added there that the configuration decides
+        /// belongs here too, or it keeps refusing on an outdated copy.
         /// </summary>
         internal bool RefusesByConfiguration(TenantConfiguration config, HttpRequestData req)
         {
@@ -161,11 +162,13 @@ namespace AutopilotMonitor.Functions.Security
             if (!config.HasAnyDeviceValidation() && !config.AllowInsecureAgentRequests)
                 return true;
 
-            return !HardwareWhitelistValidator.ValidateHardware(
+            var hardwareAllowed = HardwareWhitelistValidator.ValidateHardware(
                 req.Headers.Contains("X-Device-Manufacturer") ? req.Headers.GetValues("X-Device-Manufacturer").FirstOrDefault() : null,
                 req.Headers.Contains("X-Device-Model") ? req.Headers.GetValues("X-Device-Model").FirstOrDefault() : null,
                 config.GetManufacturerWhitelist(),
                 config.GetModelWhitelist()).IsValid;
+
+            return !hardwareAllowed || config.IsGraphAccessConfirmedLost();
         }
 
         /// <summary>
@@ -473,6 +476,28 @@ namespace AutopilotMonitor.Functions.Security
                     StatusCode = HttpStatusCode.Forbidden,
                     ErrorMessage = "Hardware not authorized",
                     Details = hardwareValidation.ErrorMessage
+                };
+            }
+
+            // 3b. CONFIRMED GRAPH ACCESS LOSS — Entra keeps refusing the tenant's app token, so every
+            // validator below would fail on its token. Refused here without asking Entra: the chain
+            // would spend its budget on token retries that cannot succeed. A 403 with its own code,
+            // not a faster 503 (D-403): the agent ends monitoring on it, older agents stop retrying.
+            // Only the maintenance recheck and a fresh portal token end the state.
+            if (config.IsGraphAccessConfirmedLost())
+            {
+                LogRequestRejection("graphaccess", tenantId, req, sessionId,
+                    extraReason: $"Graph access confirmed lost ({config.GraphAccessRejectedCode ?? "no code"})",
+                    thumbprint: certValidation.Thumbprint);
+                RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey, RequestRowMarkers.DeviceValidation.AccessLost);
+                return new SecurityValidationResult
+                {
+                    IsValid = false,
+                    StatusCode = HttpStatusCode.Forbidden,
+                    Code = Constants.ApiErrorCodes.TenantGraphAccessLost,
+                    ErrorMessage = "Tenant access to Microsoft Graph is lost",
+                    Details = $"Microsoft Entra keeps rejecting the app token of this tenant ({config.GraphAccessRejectedCode ?? "no code"}). "
+                        + "No device can be validated until a tenant admin restores the consent in the Autopilot Monitor portal."
                 };
             }
 
@@ -921,6 +946,12 @@ namespace AutopilotMonitor.Functions.Security
         /// Suggested retry delay in seconds (set when StatusCode is 503 ServiceUnavailable)
         /// </summary>
         public int? RetryAfterSeconds { get; set; }
+
+        /// <summary>
+        /// The envelope's <c>code</c> for a refusal the agent branches on (<c>Constants.ApiErrorCodes</c>);
+        /// null = the status default.
+        /// </summary>
+        public string? Code { get; set; }
 
         /// <summary>
         /// Whether this request was authenticated via a bootstrap token (pre-MDM OOBE auth)

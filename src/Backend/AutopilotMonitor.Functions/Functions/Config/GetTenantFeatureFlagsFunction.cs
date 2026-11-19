@@ -111,7 +111,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var resolution = FeatureEntitlementCatalog.Resolve(config, nowUtc);
             var entitlements = FeatureEntitlementCatalog.Get(resolution);
             var isTrial = resolution.IsTrial;
-            var graphAccessRejected = config.HasAnyDeviceValidation() && config.GraphAccessRejectionConfirmedAt != null;
+            var graphAccessRejected = config.IsGraphAccessConfirmedLost();
 
             return new TenantFeatureFlagsResponse
             {

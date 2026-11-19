@@ -52,6 +52,13 @@ namespace AutopilotMonitor.Shared.Models
         /// certificate the agent saw.
         /// </summary>
         ClientCertificateNotReceived = 9,
+
+        /// <summary>
+        /// Set by the distress endpoint, never sent by an agent: a 403 reported as
+        /// <see cref="DeviceNotRegistered"/> while the tenant's Graph access was confirmed lost.
+        /// The device was refused because no validation can run, not because it is unknown.
+        /// </summary>
+        TenantGraphAccessLost = 10,
     }
 
     /// <summary>

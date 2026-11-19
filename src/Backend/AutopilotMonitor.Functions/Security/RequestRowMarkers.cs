@@ -23,7 +23,8 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Outcome of the device-validation chain: the admitting <see cref="ValidatorType"/> name,
         /// or one of <see cref="DeviceValidation"/>. Absent when an earlier stage (certificate,
-        /// certificate tenant, hardware, rate limit) ended the request — the chain never ran.
+        /// certificate tenant, hardware, rate limit) ended the request — the chain never ran
+        /// (<see cref="DeviceValidation.AccessLost"/> marks the one case that ends it unrun).
         /// </summary>
         public const string DeviceValidationKey = "DeviceValidation";
 
@@ -36,6 +37,11 @@ namespace AutopilotMonitor.Functions.Security
             public const string Transient = "Transient";
             /// <summary>Every enabled validator missed definitively — the agent got 403.</summary>
             public const string Rejected = "Rejected";
+            /// <summary>
+            /// The tenant's Graph access is confirmed lost: the chain did not run, the agent got 403
+            /// <c>TenantGraphAccessLost</c>.
+            /// </summary>
+            public const string AccessLost = "AccessLost";
         }
 
         public static string DeviceValidationValue(ValidatorType validatedBy)

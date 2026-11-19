@@ -68,11 +68,12 @@ public class RequestRowMarkersTests
         foreach (var validator in Enum.GetValues<ValidatorType>().Where(v => v != ValidatorType.Unknown))
             Assert.Equal(validator.ToString(), RequestRowMarkers.DeviceValidationValue(validator));
 
-        // The three non-validator values must never collide with a validator name.
+        // The non-validator values must never collide with a validator name.
         var validatorNames = Enum.GetNames<ValidatorType>();
         Assert.DoesNotContain(RequestRowMarkers.DeviceValidation.None, validatorNames);
         Assert.DoesNotContain(RequestRowMarkers.DeviceValidation.Transient, validatorNames);
         Assert.DoesNotContain(RequestRowMarkers.DeviceValidation.Rejected, validatorNames);
+        Assert.DoesNotContain(RequestRowMarkers.DeviceValidation.AccessLost, validatorNames);
     }
 
     // ---------------------------------------------------------------- middleware attribution
