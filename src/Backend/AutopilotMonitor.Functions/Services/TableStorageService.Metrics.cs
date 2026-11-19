@@ -4,7 +4,6 @@ using Azure.Data.Tables;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using System.Threading;
 using AutopilotMonitor.Functions.Helpers;
-using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
@@ -1063,8 +1062,9 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
                 var partitionFilter = $"PartitionKey eq '{PlatformPartitionKey}'";
+                PlatformStats? written = null;
 
-                for (var attempt = 1; attempt <= PlatformRollupCasRetries; attempt++)
+                var landed = await TableCasRetry.RunAsync(async () =>
                 {
                     TableEntity? currentRow = null;
                     PlatformRollupSources? baseline = null;
@@ -1117,34 +1117,16 @@ namespace AutopilotMonitor.Functions.Services
                         platformAction = new TableTransactionAction(TableTransactionActionType.Add, platformEntity);
                     }
 
-                    try
+                    await tableClient.SubmitTransactionAsync(new[]
                     {
-                        await tableClient.SubmitTransactionAsync(new[]
-                        {
-                            platformAction,
-                            new TableTransactionAction(TableTransactionActionType.UpsertReplace, baselineEntity),
-                        }).ConfigureAwait(false);
-                        return stats;
-                    }
-                    catch (RequestFailedException ex) when (ex.Status == 412 || StorageErrors.IsAlreadyExists(ex))
-                    {
-                        var exhausted = attempt == PlatformRollupCasRetries;
-                        _metrics?.CasConflict("RollupPlatformStats", Constants.TableNames.PlatformStats,
-                            exhausted ? CasOutcome.Exhausted : CasOutcome.Retried);
-                        if (exhausted)
-                        {
-                            _logger.LogWarning(
-                                "Platform stats rollup lost the CAS race {Retries} times — giving up (status {Status})",
-                                PlatformRollupCasRetries, ex.Status);
-                            return null;
-                        }
+                        platformAction,
+                        new TableTransactionAction(TableTransactionActionType.UpsertReplace, baselineEntity),
+                    }).ConfigureAwait(false);
+                    written = stats;
+                    return true;
+                }, "RollupPlatformStats", Constants.TableNames.PlatformStats, PlatformPartitionKey, _metrics, _logger, PlatformRollupCasRetries).ConfigureAwait(false);
 
-                        var delay = 50 * attempt;
-                        await Task.Delay(delay + Random.Shared.Next(0, delay)).ConfigureAwait(false);
-                    }
-                }
-
-                return null;
+                return landed ? written : null;
             }
             catch (Exception ex)
             {
@@ -1870,7 +1852,14 @@ namespace AutopilotMonitor.Functions.Services
         // Readers: PartitionKey ranges. Legacy rows (PartitionKey = date) are consulted until
         // RuleStatsKeys.LegacyLayoutUntil.
 
-        private const int RuleStatsCasRetries = 4;
+        /// <summary>
+        /// Above <see cref="TableCasRetry.DefaultRetries"/>: when the hourly sweep closes several
+        /// sessions of one tenant at once, their analyses run in parallel on several instances and
+        /// all write the same partition, and only one transaction wins per round. The write runs
+        /// off the request path (queue function, fire-and-forget at ingest), so the longer backoff
+        /// is invisible.
+        /// </summary>
+        internal const int RuleStatsCasRetries = 8;
 
         /// <summary>
         /// Folds a session's rule evaluations into the daily counters of one scope. Increments
@@ -1900,11 +1889,11 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private async Task RecordRuleStatsChunkAsync(TableClient tableClient, string partitionKey, RuleStatDelta[] chunk)
+        private Task RecordRuleStatsChunkAsync(TableClient tableClient, string partitionKey, RuleStatDelta[] chunk)
         {
             var partitionFilter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(partitionKey)}'";
 
-            for (var attempt = 1; attempt <= RuleStatsCasRetries; attempt++)
+            return TableCasRetry.RunAsync(async () =>
             {
                 var existing = new Dictionary<string, TableEntity>(StringComparer.Ordinal);
                 await foreach (var row in tableClient.QueryAsync<TableEntity>(filter: partitionFilter).ConfigureAwait(false))
@@ -1937,28 +1926,9 @@ namespace AutopilotMonitor.Functions.Services
                     }
                 }
 
-                try
-                {
-                    await tableClient.SubmitTransactionAsync(actions).ConfigureAwait(false);
-                    return;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 412 || StorageErrors.IsAlreadyExists(ex))
-                {
-                    var exhausted = attempt == RuleStatsCasRetries;
-                    _metrics?.CasConflict("RecordRuleStats", Constants.TableNames.RuleStats,
-                        exhausted ? CasOutcome.Exhausted : CasOutcome.Retried);
-                    if (exhausted)
-                    {
-                        _logger.LogWarning(
-                            "Rule stats for {PartitionKey} lost the CAS race {Retries} times — giving up (status {Status})",
-                            partitionKey, RuleStatsCasRetries, ex.Status);
-                        return;
-                    }
-
-                    var delay = 50 * attempt;
-                    await Task.Delay(delay + Random.Shared.Next(0, delay)).ConfigureAwait(false);
-                }
-            }
+                await tableClient.SubmitTransactionAsync(actions).ConfigureAwait(false);
+                return true;
+            }, "RecordRuleStats", Constants.TableNames.RuleStats, partitionKey, _metrics, _logger, RuleStatsCasRetries);
         }
 
         private static void ApplyRuleStatDelta(TableEntity entity, RuleStatDelta delta, DateTime now)

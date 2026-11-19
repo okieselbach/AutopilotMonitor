@@ -127,6 +127,72 @@ public class TableCasRetryTests
         Assert.Equal(3, h.Updates.Count);
     }
 
+    // ---------- RunAsync: the loop for multi-row transactions ----------
+
+    private static Task<bool> Run(Func<Task<bool>> attempt, int retries = TableCasRetry.DefaultRetries)
+        => TableCasRetry.RunAsync(attempt, operation: "test", tableName: "T", target: "pk", metrics: null, logger: NullLogger.Instance, retries: retries);
+
+    [Fact]
+    public async Task Run_repeats_the_attempt_after_a_precondition_failure_and_an_already_exists()
+    {
+        var conflicts = new Queue<Exception>(new Exception[]
+        {
+            new RequestFailedException(412, "precondition failed"),
+            new RequestFailedException(409, "exists", "EntityAlreadyExists", null),
+        });
+        var attempts = 0;
+
+        var landed = await Run(() =>
+        {
+            attempts++;
+            if (conflicts.Count > 0) throw conflicts.Dequeue();
+            return Task.FromResult(true);
+        });
+
+        Assert.True(landed);
+        Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public async Task Run_gives_up_after_the_budget()
+    {
+        var attempts = 0;
+
+        var landed = await Run(() =>
+        {
+            attempts++;
+            throw new RequestFailedException(412, "precondition failed");
+        }, retries: 3);
+
+        Assert.False(landed);
+        Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public async Task Run_lets_a_non_conflict_failure_through_to_the_caller()
+    {
+        var attempts = 0;
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => Run(() =>
+        {
+            attempts++;
+            throw new RequestFailedException(500, "server error");
+        }));
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task Run_passes_an_attempt_with_nothing_to_write_through()
+    {
+        var attempts = 0;
+
+        var landed = await Run(() => { attempts++; return Task.FromResult(false); });
+
+        Assert.False(landed);
+        Assert.Equal(1, attempts);
+    }
+
     [Fact]
     public async Task No_op_patch_writes_nothing()
     {

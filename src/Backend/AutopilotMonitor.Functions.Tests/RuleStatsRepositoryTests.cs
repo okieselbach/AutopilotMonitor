@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -137,6 +138,27 @@ public class RuleStatsRepositoryTests
         Assert.Equal(2, h.Filters.Count);
         Assert.Equal(2, h.Submitted.Count);
         Assert.Equal(new ETag("e2"), h.Submitted[1].Single().ETag);
+    }
+
+    [Fact]
+    public async Task Writer_gives_up_after_the_rule_stats_budget_without_throwing()
+    {
+        var pk = $"{Tenant}_{Date}";
+        var h = new Harness { RowsFor = _ => new[] { ExistingRow(pk, "A", fires: 0, evals: 1, confSum: 0, etag: "e") } };
+        for (var i = 0; i < TableStorageService.RuleStatsCasRetries; i++)
+            h.SubmitBehaviors.Enqueue(() => throw new RequestFailedException(412, "precondition failed"));
+
+        await h.Sut.RecordRuleStatsAsync(Date, Tenant, new[] { new RuleStatIncrement("A", "analyze", "t", "c", "s", fired: false, confidenceScore: null) });
+
+        Assert.Equal(TableStorageService.RuleStatsCasRetries, h.Filters.Count);
+        Assert.Equal(TableStorageService.RuleStatsCasRetries, h.Submitted.Count);
+    }
+
+    [Fact]
+    public void Rule_stats_budget_is_sized_for_parallel_analyses_of_one_tenant()
+    {
+        Assert.Equal(8, TableStorageService.RuleStatsCasRetries);
+        Assert.True(TableStorageService.RuleStatsCasRetries > TableCasRetry.DefaultRetries);
     }
 
     [Fact]

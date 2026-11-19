@@ -8,17 +8,17 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Helpers
 {
     /// <summary>
-    /// The one compare-and-swap loop for single-row counters. Reads the row, lets the caller
-    /// derive a merge patch from what it read, and writes the patch with the read ETag; a 412
-    /// (row changed) or 409 (concurrent creator) re-reads and retries with backoff. A missing
-    /// row is created with <c>AddEntity</c>, never upsert, so two first writers cannot clobber
-    /// each other. Every conflict is reported to <see cref="StorageMetrics"/>.
+    /// The one compare-and-swap loop: single rows through <see cref="MutateAsync"/>, multi-row
+    /// transactions through <see cref="RunAsync"/>. An attempt reads, derives its write from
+    /// what it read and writes with the read ETags; a 412 (row changed) or 409 (concurrent
+    /// creator) runs the attempt again after a jittered backoff. Every conflict is reported to
+    /// <see cref="StorageMetrics"/>.
     /// <para>
     /// Replaces the last-writer-wins read-modify-write that PlatformStats and RuleStats used
     /// (audit 2026-09-05 F06): a lost increment there was permanent for counters without a
     /// recompute source, and the full-entity write-back clobbered fields other writers had
     /// changed in between. Callers keep their own fail-soft wrapper; the helper only returns
-    /// <c>false</c> when the row did not need a change or the retries were exhausted.
+    /// <c>false</c> when there was nothing to change or the retries were exhausted.
     /// </para>
     /// </summary>
     internal static class TableCasRetry
@@ -30,7 +30,7 @@ namespace AutopilotMonitor.Functions.Helpers
         /// (null = nothing to change). <paramref name="createMissing"/> builds the whole row for
         /// the 404 case. Returns true when a write landed.
         /// </summary>
-        public static async Task<bool> MutateAsync(
+        public static Task<bool> MutateAsync(
             TableClient table,
             string partitionKey,
             string rowKey,
@@ -41,10 +41,8 @@ namespace AutopilotMonitor.Functions.Helpers
             StorageMetrics? metrics,
             ILogger logger,
             int retries = DefaultRetries)
-        {
-            for (var attempt = 1; attempt <= retries; attempt++)
-            {
-                try
+            => RunAsync(
+                async () =>
                 {
                     TableEntity read;
                     try
@@ -65,20 +63,44 @@ namespace AutopilotMonitor.Functions.Helpers
 
                     await table.UpdateEntityAsync(update, read.ETag, TableUpdateMode.Merge).ConfigureAwait(false);
                     return true;
+                },
+                operation, tableName, $"{partitionKey}/{rowKey}", metrics, logger, retries);
+
+        /// <summary>
+        /// Runs <paramref name="attempt"/> until it completes without a write conflict. The
+        /// attempt does one full read-derive-write pass and returns true when a write landed,
+        /// false when there was nothing to write. A 412 or 409-already-exists from the attempt
+        /// is a conflict; any other exception propagates. <paramref name="target"/> names the
+        /// row or partition in the warning when the retries are exhausted.
+        /// </summary>
+        public static async Task<bool> RunAsync(
+            Func<Task<bool>> attempt,
+            string operation,
+            string tableName,
+            string target,
+            StorageMetrics? metrics,
+            ILogger logger,
+            int retries = DefaultRetries)
+        {
+            for (var round = 1; round <= retries; round++)
+            {
+                try
+                {
+                    return await attempt().ConfigureAwait(false);
                 }
                 catch (RequestFailedException ex) when (ex.Status == 412 || StorageErrors.IsAlreadyExists(ex))
                 {
-                    var exhausted = attempt == retries;
+                    var exhausted = round == retries;
                     metrics?.CasConflict(operation, tableName, exhausted ? CasOutcome.Exhausted : CasOutcome.Retried);
                     if (exhausted)
                     {
                         logger.LogWarning(
-                            "{Operation} on {Table} {PartitionKey}/{RowKey} lost the CAS race {Retries} times — giving up (status {Status})",
-                            operation, tableName, partitionKey, rowKey, retries, ex.Status);
+                            "{Operation} on {Table} {Target} lost the CAS race {Retries} times — giving up (status {Status})",
+                            operation, tableName, target, retries, ex.Status);
                         return false;
                     }
 
-                    var delay = 50 * attempt;
+                    var delay = 50 * round;
                     await Task.Delay(delay + Random.Shared.Next(0, delay)).ConfigureAwait(false);
                 }
             }
