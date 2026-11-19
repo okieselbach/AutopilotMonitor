@@ -32,6 +32,7 @@ const ERROR_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   SessionRegistrationDenied: { label: "Session Denied", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" },
   TpmPssUnsupported:       { label: "TPM Incompatible", color: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300" },
   ClientCertificateNotReceived: { label: "Cert Not Received", color: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300" },
+  TenantGraphAccessLost:   { label: "Graph Access Lost", color: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" },
 };
 
 function ErrorTypeBadge({ errorType }: { errorType: string }) {

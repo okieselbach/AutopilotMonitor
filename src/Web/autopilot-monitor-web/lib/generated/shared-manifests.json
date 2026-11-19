@@ -757,6 +757,7 @@
     "PayloadTooLarge",
     "TelemetryItemsRejected",
     "SessionOwnerMismatch",
+    "TenantGraphAccessLost",
     "HomeTenantUnresolved",
     "TrialAlreadyConsumed",
     "AlreadyPro",

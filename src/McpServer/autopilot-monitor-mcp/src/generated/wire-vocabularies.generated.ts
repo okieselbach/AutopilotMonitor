@@ -273,6 +273,7 @@ export const API_ERROR_CODES = [
   "PayloadTooLarge",
   "TelemetryItemsRejected",
   "SessionOwnerMismatch",
+  "TenantGraphAccessLost",
   "HomeTenantUnresolved",
   "TrialAlreadyConsumed",
   "AlreadyPro",
