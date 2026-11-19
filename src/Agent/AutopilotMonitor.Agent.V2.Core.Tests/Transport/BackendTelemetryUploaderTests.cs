@@ -401,6 +401,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task Backend_403_TenantGraphAccessLost_is_not_counted_and_sends_no_distress()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueStatus(HttpStatusCode.Forbidden,
+                body: "{\"error\":\"Tenant access to Microsoft Graph is lost\",\"code\":\"TenantGraphAccessLost\",\"correlationId\":\"c\"}");
+
+            var result = await rig.UploadAsync();
+
+            Assert.True(result.IsTenantGraphAccessLost);
+            Assert.False(result.IsAuthFailure);
+            Assert.False(result.IsTransient);
+            Assert.Equal(0, rig.Tracker.ConsecutiveFailures);
+            Assert.Empty(rig.Distress.Calls);
+        }
+
+        [Fact]
+        public async Task TenantGraphAccessLost_without_the_backends_echo_is_an_interception()
+        {
+            using var rig = new OriginRig();
+            rig.Upload.Handler.QueueForeign(HttpStatusCode.Forbidden,
+                "{\"error\":\"Tenant access to Microsoft Graph is lost\",\"code\":\"TenantGraphAccessLost\"}");
+
+            var result = await rig.UploadAsync();
+
+            Assert.False(result.IsTenantGraphAccessLost);
+        }
+
+        [Fact]
         public async Task Stopped_app_403_counts_like_an_auth_failure_without_distress()
         {
             using var rig = new OriginRig();

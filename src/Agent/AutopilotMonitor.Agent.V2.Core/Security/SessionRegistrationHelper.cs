@@ -46,6 +46,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///     authorized agent.</item>
     ///   <item>Any other coded 409 (<see cref="BackendRefusalException"/>) → <see cref="SessionRegistrationOutcome.Failed"/>
     ///     without retrying — a refusal with a code does not clear by waiting.</item>
+    ///   <item>A 403 with the envelope code <c>TenantGraphAccessLost</c> (the tenant's Graph access is
+    ///     confirmed lost) → <see cref="SessionRegistrationOutcome.TenantGraphAccessLost"/> without
+    ///     retrying, rotating or feeding the tracker — the caller ends monitoring.</item>
     ///   <item>410 from the backend (<see cref="BackendSessionGoneException"/>): the persisted
     ///     session was deleted. With <c>rotateOnSessionGone</c> (a WhiteGlove Part 2 start, whose
     ///     enrollment is only now continuing) the session is rotated like above and registered
@@ -200,6 +203,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     logger.Error($"Session registration refused ({ex.StatusCode}, {ex.ErrorCode}): {ex.Message}");
                     return SessionRegistrationResult.Failed(ex.Message);
                 }
+                catch (BackendAuthException ex) when (ex.IsTenantGraphAccessLost)
+                {
+                    // The tenant cannot validate any device: no retry, no tracker, no rotation.
+                    logger.Debug($"Session registration refused: {ex.Message}");
+                    return SessionRegistrationResult.TenantGraphAccessLost(ex.StatusCode, ex.Message);
+                }
                 catch (BackendAuthException ex)
                 {
                     logger.Error(ex.IsForeignResponse
@@ -343,6 +352,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// caller ends monitoring and cleans up.
         /// </summary>
         SessionGone = 3,
+
+        /// <summary>
+        /// 403 <c>TenantGraphAccessLost</c> from the backend: the tenant's Graph access is confirmed
+        /// lost, so no device can be validated. No retry was attempted; the caller ends monitoring.
+        /// </summary>
+        TenantGraphAccessLost = 4,
     }
 
     /// <summary>Why a run registered under a new SessionId (<see cref="SessionRegistrationResult.RotationReason"/>).</summary>
@@ -408,6 +423,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
         public static SessionRegistrationResult SessionGone(int statusCode, string message)
             => new SessionRegistrationResult(SessionRegistrationOutcome.SessionGone, null, statusCode, message);
+
+        public static SessionRegistrationResult TenantGraphAccessLost(int statusCode, string message)
+            => new SessionRegistrationResult(SessionRegistrationOutcome.TenantGraphAccessLost, null, statusCode, message);
 
         public static SessionRegistrationResult AuthFailed(int statusCode, string message, bool intercepted = false)
             => new SessionRegistrationResult(SessionRegistrationOutcome.AuthFailed, null, statusCode, message, isIntercepted: intercepted);

@@ -343,14 +343,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             // Backend JSON bodies may carry a machine-readable errorCode (Shared
             // Constants.AgentErrorCodes) that tells the caller how to react — e.g.
             // session_owner_mismatch → rotate the session id instead of treating this as a
-            // certificate rejection. Absent/unparseable → null, classic auth failure.
+            // certificate rejection — and the envelope's code (Constants.ApiErrorCodes), of which
+            // only TenantGraphAccessLost changes the reaction. Absent/unparseable → null.
+            var apiCode = TryExtractStringField(body, "code");
+            var message = IsTenantGraphAccessLost(statusCode, classification, apiCode)
+                ? $"Backend returned {statusText} ({apiCode}): the tenant's access to Microsoft Graph is lost, " +
+                  "so no device can be validated until a tenant admin restores the consent."
+                : $"Backend returned {statusText}. " +
+                  "The device is not authorized. Check client certificate and Autopilot device validation.";
             throw new BackendAuthException(
-                $"Backend returned {statusText}. " +
-                "The device is not authorized. Check client certificate and Autopilot device validation.",
+                message,
                 statusCode,
                 errorCode: TryExtractErrorCode(body),
-                classification: classification);
+                classification: classification,
+                apiCode: apiCode);
         }
+
+        /// <summary>
+        /// The backend's verdict that the tenant's Graph access is confirmed lost: a 403 the backend
+        /// authored (correlation echo) with the envelope code <c>TenantGraphAccessLost</c>. No device
+        /// of the tenant can be validated, so the caller ends monitoring instead of retrying. Shared
+        /// by the RPC paths here and the telemetry upload.
+        /// </summary>
+        internal static bool IsTenantGraphAccessLost(int statusCode, ResponseClassification classification, string apiCode)
+            => statusCode == (int)HttpStatusCode.Forbidden
+               && classification != null
+               && classification.Origin == ResponseOrigin.Backend
+               && string.Equals(apiCode, Constants.ApiErrorCodes.TenantGraphAccessLost, StringComparison.Ordinal);
 
         /// <summary>
         /// Message for a 401/403 the backend did not author. The cause leads because
@@ -436,17 +455,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// or a non-string value yields null, never an exception.
         /// </summary>
         internal static string TryExtractErrorCode(string body)
+            => TryExtractStringField(body, "errorCode", "ErrorCode");
+
+        /// <summary>
+        /// The first of <paramref name="names"/> that a backend JSON body carries as a non-empty
+        /// string, trimmed. Tolerant: any parse failure or a non-string value yields null.
+        /// </summary>
+        internal static string TryExtractStringField(string body, params string[] names)
         {
-            if (string.IsNullOrWhiteSpace(body) || body.TrimStart().Length == 0 || body.TrimStart()[0] != '{')
+            if (string.IsNullOrWhiteSpace(body) || body.TrimStart()[0] != '{')
                 return null;
             try
             {
                 var obj = Newtonsoft.Json.Linq.JObject.Parse(body);
-                var token = obj["errorCode"] ?? obj["ErrorCode"];
-                if (token == null || token.Type != Newtonsoft.Json.Linq.JTokenType.String)
-                    return null;
-                var value = (string)token;
-                return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+                foreach (var name in names)
+                {
+                    var token = obj[name];
+                    if (token == null)
+                        continue;
+                    if (token.Type != Newtonsoft.Json.Linq.JTokenType.String)
+                        return null;
+                    var value = (string)token;
+                    return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+                }
+                return null;
             }
             catch
             {
@@ -529,10 +561,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         public string ErrorCode { get; }
 
-        public BackendAuthException(string message, int statusCode = 0, string errorCode = null, ResponseClassification classification = null) : base(message)
+        /// <summary>The <c>code</c> of the backend's error envelope (Shared <c>Constants.ApiErrorCodes</c>), or null.</summary>
+        public string ApiCode { get; }
+
+        /// <summary>
+        /// The backend refused because the tenant's Graph access is confirmed lost
+        /// (<see cref="BackendApiClient.IsTenantGraphAccessLost"/>): not a verdict on this device,
+        /// never fed to the auth-failure tracker; the caller ends monitoring.
+        /// </summary>
+        public bool IsTenantGraphAccessLost => BackendApiClient.IsTenantGraphAccessLost(StatusCode, Classification, ApiCode);
+
+        public BackendAuthException(string message, int statusCode = 0, string errorCode = null, ResponseClassification classification = null, string apiCode = null) : base(message)
         {
             StatusCode = statusCode;
             ErrorCode = errorCode;
+            ApiCode = apiCode;
             Classification = classification ?? ResponseClassification.ForBackend(statusCode);
         }
     }

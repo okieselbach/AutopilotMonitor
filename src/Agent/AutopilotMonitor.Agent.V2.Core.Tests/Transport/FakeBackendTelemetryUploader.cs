@@ -74,6 +74,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             return this;
         }
 
+        public FakeBackendTelemetryUploader QueueTenantGraphAccessLost(string reason = "tenant graph access lost: http 403")
+        {
+            _script.Enqueue(_ => UploadResult.TenantGraphAccessLost(reason));
+            return this;
+        }
+
         /// <summary>Queues a 403 the platform's "Client Certificate Required" page answered (an interception).</summary>
         public FakeBackendTelemetryUploader QueueIntercepted(int times = 1)
         {

@@ -103,6 +103,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         }
 
         [Fact]
+        public async Task FetchConfig_TenantGraphAccessLost_FallsBack_WithoutCounting_OrDistress()
+        {
+            // No verdict on this device: the registration that follows ends monitoring on the same answer.
+            var distress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                AutopilotMonitor.DecisionCore.Engine.SystemClock.Instance, _logger, distress);
+            var svc = NewService(BackendBehaviour.AlwaysTenantGraphAccessLost403, tracker);
+
+            var result = await svc.FetchConfigAsync(retryOnTransientErrors: true);
+
+            Assert.NotNull(result);
+            Assert.Equal(1, svc.LastFetchAttempts);
+            Assert.Equal(403, svc.LastFetchAuthStatusCode);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            Assert.Empty(distress.Calls);
+        }
+
+        [Fact]
         public async Task FetchConfig_InterceptedAnswer_FallsBack_WithoutCounting_AndReportsOnce()
         {
             // A 403 something on the network path answered (TLS inspection): same fallback as an
@@ -276,6 +294,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             FailAllThenSucceed,
             AlwaysAuthFailure401,
             AlwaysIntercepted403,
+            AlwaysTenantGraphAccessLost403,
             AlwaysReturnNull,
         }
 
@@ -332,6 +351,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                     case BackendBehaviour.AlwaysIntercepted403:
                         throw new BackendAuthException("The device certificate did not reach the backend.", 403,
                             classification: InterceptionFixtures.CertificateRequired());
+                    case BackendBehaviour.AlwaysTenantGraphAccessLost403:
+                        throw new BackendAuthException("Backend returned 403 Forbidden (TenantGraphAccessLost)", 403,
+                            apiCode: AutopilotMonitor.Shared.Constants.ApiErrorCodes.TenantGraphAccessLost);
                     case BackendBehaviour.AlwaysReturnNull:
                         return Task.FromResult<AgentConfigResponse>(null!);
                     default:

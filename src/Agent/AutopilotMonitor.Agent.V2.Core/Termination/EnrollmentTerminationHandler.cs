@@ -981,11 +981,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// </param>
         private void RunUploadDiagnosticsWithEvents(EnrollmentTerminatedEventArgs args, string suffixOverride = null)
         {
-            if (IsSessionGone(args))
+            if (BackendRefusesSession(args))
             {
-                // The backend answered 410 for this session: the package would describe a session
-                // that no longer exists, and its diagnostics_* events could never be accepted.
-                _logger.Info("EnrollmentTerminationHandler: diagnostics upload skipped — backend no longer knows this session.");
+                // The backend answered 410 for this session, or refuses the tenant's uploads (Graph
+                // access lost): the package's diagnostics_* events could never be accepted.
+                _logger.Info($"EnrollmentTerminationHandler: diagnostics upload skipped — backend refuses this session ({args.Origin}).");
                 return;
             }
 
@@ -1329,19 +1329,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         }
 
         /// <summary>
-        /// <see cref="TerminationOrigins.SessionGone"/>: the backend no longer knows the session.
-        /// Every drain would only collect more 410s against a bounded budget, and a diagnostics
-        /// package would describe a deleted session — both are skipped; marker, cleanup and
+        /// <see cref="TerminationOrigins.SessionGone"/> (the backend no longer knows the session) or
+        /// <see cref="TerminationOrigins.TenantGraphAccessLost"/> (it refuses every upload of the
+        /// tenant): every drain would only collect more refusals against a bounded budget, and a
+        /// diagnostics package could never be reported — both are skipped; marker, cleanup and
         /// self-destruct run as usual.
         /// </summary>
-        private static bool IsSessionGone(EnrollmentTerminatedEventArgs args) =>
-            string.Equals(args.Origin, TerminationOrigins.SessionGone, StringComparison.Ordinal);
+        private static bool BackendRefusesSession(EnrollmentTerminatedEventArgs args) =>
+            string.Equals(args.Origin, TerminationOrigins.SessionGone, StringComparison.Ordinal)
+            || string.Equals(args.Origin, TerminationOrigins.TenantGraphAccessLost, StringComparison.Ordinal);
 
         private void DrainSpool(EnrollmentTerminatedEventArgs args)
         {
-            if (IsSessionGone(args))
+            if (BackendRefusesSession(args))
             {
-                _logger.Info("EnrollmentTerminationHandler: spool drain skipped — backend no longer knows this session.");
+                _logger.Info($"EnrollmentTerminationHandler: spool drain skipped — backend refuses this session ({args.Origin}).");
                 return;
             }
 

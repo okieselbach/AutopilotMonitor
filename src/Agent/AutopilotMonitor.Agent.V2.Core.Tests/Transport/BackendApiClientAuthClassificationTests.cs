@@ -169,6 +169,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                 () => client.RegisterSessionAsync(new AutopilotMonitor.Shared.Models.SessionRegistration()));
         }
 
+        // ── 403 TenantGraphAccessLost: the tenant cannot validate any device ──
+
+        private const string AccessLostEnvelope =
+            "{\"error\":\"Tenant access to Microsoft Graph is lost (Microsoft Entra keeps rejecting the app token of this tenant (AADSTS7000229). " +
+            "No device can be validated until a tenant admin restores the consent in the Autopilot Monitor portal.)\"," +
+            "\"code\":\"TenantGraphAccessLost\",\"correlationId\":\"cid-1\"}";
+
+        [Fact]
+        public async Task Backend_403_with_TenantGraphAccessLost_is_recognised_on_every_rpc_path()
+        {
+            using var client = BuildClient(HttpStatusCode.Forbidden, AccessLostEnvelope, "application/json");
+
+            var config = await Assert.ThrowsAsync<BackendAuthException>(() => client.GetAgentConfigAsync("tenant-1"));
+            var register = await Assert.ThrowsAsync<BackendAuthException>(
+                () => client.RegisterSessionAsync(new AutopilotMonitor.Shared.Models.SessionRegistration()));
+
+            foreach (var ex in new[] { config, register })
+            {
+                Assert.True(ex.IsTenantGraphAccessLost);
+                Assert.Equal("TenantGraphAccessLost", ex.ApiCode);
+                Assert.Null(ex.ErrorCode);
+                Assert.Contains("access to Microsoft Graph is lost", ex.Message);
+                Assert.DoesNotContain("The device is not authorized", ex.Message);
+            }
+        }
+
+        [Fact]
+        public async Task TenantGraphAccessLost_without_the_backends_echo_is_not_recognised()
+        {
+            // The caller ends monitoring on it, so only the backend may say it.
+            using var client = BuildClient(HttpStatusCode.Forbidden, AccessLostEnvelope, "application/json", fromBackend: false);
+
+            var ex = await Assert.ThrowsAsync<BackendAuthException>(() => client.GetAgentConfigAsync("tenant-1"));
+
+            Assert.False(ex.IsTenantGraphAccessLost);
+        }
+
+        [Theory]
+        [InlineData(HttpStatusCode.Forbidden, "{\"error\":\"Device not registered\",\"code\":\"Forbidden\"}")]
+        [InlineData(HttpStatusCode.Unauthorized, "{\"error\":\"x\",\"code\":\"TenantGraphAccessLost\"}")]
+        public async Task Any_other_code_or_status_stays_an_ordinary_auth_failure(HttpStatusCode status, string body)
+        {
+            using var client = BuildClient(status, body, "application/json");
+
+            var ex = await Assert.ThrowsAsync<BackendAuthException>(() => client.GetAgentConfigAsync("tenant-1"));
+
+            Assert.False(ex.IsTenantGraphAccessLost);
+            Assert.Contains("The device is not authorized", ex.Message);
+        }
+
+        [Theory]
+        [InlineData("{\"code\":\"TenantGraphAccessLost\"}", "TenantGraphAccessLost")]
+        [InlineData("{\"code\":7}", null)]
+        [InlineData("{\"error\":\"no code\"}", null)]
+        public void TryExtractStringField_reads_the_envelope_code(string body, string? expected)
+            => Assert.Equal(expected, BackendApiClient.TryExtractStringField(body, "code"));
+
         [Theory]
         [InlineData(null, null)]
         [InlineData("", null)]

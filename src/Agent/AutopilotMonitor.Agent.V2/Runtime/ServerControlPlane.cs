@@ -128,6 +128,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         {
             orchestrator.Transport.SessionGone += (sender, reason) =>
                 HandleSessionGone(reason, emergencyReporter, dispatcher, shutdown, shutdownComplete, logger);
+            orchestrator.Transport.TenantGraphAccessLost += (sender, reason) =>
+                HandleTenantGraphAccessLost(reason, dispatcher, shutdown, shutdownComplete, logger);
 
             var adminActionLatch = new AdminActionLatch();
 
@@ -224,20 +226,62 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 $"Telemetry upload rejected with HTTP 410 — backend no longer knows this session ({reason}). Agent terminating with self-destruct.",
                 logger);
 
+            DispatchSyntheticTerminate(
+                dispatcher, "Backend no longer knows this session (HTTP 410)",
+                forceSelfDestruct: true, TerminationOrigins.SessionGone, logger);
+        }
+
+        /// <summary>
+        /// The backend refused the current session's telemetry with HTTP 403
+        /// <c>TenantGraphAccessLost</c>: the tenant's Graph access is confirmed lost and no batch can
+        /// be accepted. No report — the emergency channel would get the same refusal, and the backend
+        /// decided it. Terminates through the synthesised <c>terminate_session</c> path, tagged
+        /// <see cref="TerminationOrigins.TenantGraphAccessLost"/> so the termination handler skips the
+        /// spool drain and the diagnostics upload; cleanup follows <c>SelfDestructOnComplete</c>. A
+        /// shutdown that is already in progress owns the outcome.
+        /// </summary>
+        internal static void HandleTenantGraphAccessLost(
+            string reason,
+            ServerActionDispatcher dispatcher,
+            ManualResetEventSlim shutdown,
+            ManualResetEventSlim shutdownComplete,
+            AgentLogger logger)
+        {
+            if (shutdownComplete.IsSet || shutdown.IsSet)
+            {
+                logger.Debug("ServerControlPlane: tenant Graph access lost while shutdown is already in progress — ignoring.");
+                return;
+            }
+
+            logger.Warning($"The backend cannot validate any device of this tenant until a tenant admin restores the consent ({reason}) — ending monitoring.");
+
+            DispatchSyntheticTerminate(
+                dispatcher, "The tenant's access to Microsoft Graph is lost (HTTP 403 TenantGraphAccessLost)",
+                forceSelfDestruct: false, TerminationOrigins.TenantGraphAccessLost, logger);
+        }
+
+        /// <summary>
+        /// A <c>terminate_session</c> without grace, tagged with <paramref name="origin"/>, through the
+        /// dispatcher like a backend-queued one. <paramref name="forceSelfDestruct"/> false leaves the
+        /// cleanup to <c>SelfDestructOnComplete</c>.
+        /// </summary>
+        private static void DispatchSyntheticTerminate(
+            ServerActionDispatcher dispatcher, string reason, bool forceSelfDestruct, string origin, AgentLogger logger)
+        {
             var terminateAction = new ServerAction
             {
                 Type = ServerActionTypes.TerminateSession,
-                Reason = "Backend no longer knows this session (HTTP 410)",
+                Reason = reason,
                 QueuedAt = DateTime.UtcNow,
                 Params = new Dictionary<string, string>
                 {
-                    { "forceSelfDestruct", "true" },
+                    { "forceSelfDestruct", forceSelfDestruct ? "true" : "false" },
                     { "gracePeriodSeconds", "0" },
-                    { "origin", TerminationOrigins.SessionGone },
+                    { "origin", origin },
                 },
             };
             try { dispatcher.DispatchAsync(new List<ServerAction> { terminateAction }).GetAwaiter().GetResult(); }
-            catch (Exception ex) { logger.Error("ServerActionDispatcher.DispatchAsync (session gone) threw during server-response wiring.", ex); }
+            catch (Exception ex) { logger.Error($"ServerActionDispatcher.DispatchAsync ({origin}) threw during server-response wiring.", ex); }
         }
 
         /// <summary>

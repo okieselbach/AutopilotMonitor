@@ -114,6 +114,15 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 return SessionRegistrationOutcomeResult.Exit(exitCode);
             }
 
+            if (registrationResult.Outcome == SessionRegistrationOutcome.TenantGraphAccessLost)
+            {
+                var exitCode = ConcludeTenantGraphAccessLost(
+                    agentConfig, sessionPersistence, stateDirectory, cleanupServiceFactory, consoleMode, logger);
+                try { mtlsHttpClient?.Dispose(); } catch { }
+                try { auth.BackendApiClient?.Dispose(); } catch { }
+                return SessionRegistrationOutcomeResult.Exit(exitCode);
+            }
+
             var record = RecordFailedRun(
                 sessionPersistence, registrationResult, startedUtc, DateTime.UtcNow,
                 linkUpAtStart, TryIsNetworkLinkUp(), configFetchOutcome, NetworkFingerprint.TryCapture(), logger,
@@ -313,6 +322,35 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 stateDirectory, sessionPersistence, runSelfDestruct: true, cleanupServiceFactory, logger,
                 markerText: $"Session gone at {DateTime.UtcNow:O} (registration refused with HTTP 410)",
                 cleanupReason: "session_gone");
+            return 0;
+        }
+
+        /// <summary>
+        /// The end of a start whose registration the backend refused with <c>TenantGraphAccessLost</c>:
+        /// the tenant's Graph access is confirmed lost and no device of it can be validated. No report
+        /// (the emergency channel would get the same refusal, and the backend decided it), then
+        /// monitoring ends like the emergency break — marker first, cleanup per
+        /// <c>SelfDestructOnComplete</c>, session files deleted (<see cref="Program.EndMonitoringAtStart"/>).
+        /// The marker also ends a WhiteGlove resume, which the 48-hour break never reaches. Exit code 0.
+        /// </summary>
+        internal static int ConcludeTenantGraphAccessLost(
+            AgentConfiguration agentConfig,
+            SessionIdPersistence sessionPersistence,
+            string stateDirectory,
+            Func<CleanupService> cleanupServiceFactory,
+            bool consoleMode,
+            AgentLogger logger)
+        {
+            logger.Warning(
+                "=== TENANT GRAPH ACCESS LOST: the backend cannot validate any device of this tenant until a tenant admin " +
+                "restores the consent — ending monitoring for this enrollment. ===");
+            if (consoleMode)
+                Console.Error.WriteLine("The tenant's access to Microsoft Graph is lost. Monitoring ends for this enrollment.");
+
+            Program.EndMonitoringAtStart(
+                stateDirectory, sessionPersistence, agentConfig.SelfDestructOnComplete, cleanupServiceFactory, logger,
+                markerText: $"Tenant Graph access lost at {DateTime.UtcNow:O} (registration refused with HTTP 403 TenantGraphAccessLost)",
+                cleanupReason: "tenant_graph_access_lost");
             return 0;
         }
 

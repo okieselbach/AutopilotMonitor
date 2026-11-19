@@ -202,6 +202,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task TenantGraphAccessLost_stops_drain_retains_cursor_and_raises_once()
+        {
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(Draft("a"));
+
+            var uploader = new FakeBackendTelemetryUploader().QueueTenantGraphAccessLost().QueueTenantGraphAccessLost();
+            using var sut = new TelemetryUploadOrchestrator(spool, uploader, Clock(), currentPartitionKey: OwnKey);
+            var lost = new System.Collections.Generic.List<string>();
+            int blockedCount = 0, goneCount = 0;
+            sut.TenantGraphAccessLost += (_, reason) => lost.Add(reason);
+            sut.UploadBlocked += (_, __) => blockedCount++;
+            sut.SessionGone += (_, __) => goneCount++;
+
+            var first = await sut.DrainAllAsync();
+            var second = await sut.DrainAllAsync();
+
+            Assert.False(first.Success);
+            Assert.False(second.Success);
+            Assert.Equal(2, uploader.CallCount);       // one attempt per drain, never retried inside it
+            Assert.Equal(-1, sut.LastUploadedItemId);  // retained
+            Assert.Single(lost);                       // raised once per process
+            Assert.Contains("403", lost[0]);
+            Assert.Equal(0, blockedCount);
+            Assert.Equal(0, goneCount);
+        }
+
+        [Fact]
         public async Task SessionGone_for_leading_foreign_items_drops_only_them_and_continues()
         {
             // Leftovers of a previous session id at the head of the spool (defence in depth — the

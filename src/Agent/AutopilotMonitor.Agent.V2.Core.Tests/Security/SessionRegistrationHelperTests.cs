@@ -316,6 +316,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
 
         // ── 410 at registration: the backend deleted the session ────────────
 
+        private static BackendAuthException TenantGraphAccessLost()
+            => new BackendAuthException("Backend returned 403 Forbidden (TenantGraphAccessLost)", 403,
+                apiCode: AutopilotMonitor.Shared.Constants.ApiErrorCodes.TenantGraphAccessLost);
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]   // a WhiteGlove Part 2 start ends the same way: no rotation helps
+        public async Task Tenant_graph_access_lost_ends_the_run_at_once_without_retry_rotation_or_auth_failure(bool whiteGloveResume)
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var rotations = 0;
+
+            var apiClient = new FakeApiClient(_ => throw TenantGraphAccessLost());
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, NewConfig(), agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker,
+                backoffDelay: _ => throw new InvalidOperationException("a TenantGraphAccessLost must not be retried"),
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { rotations++; return Guid.NewGuid().ToString(); },
+                rotateOnSessionGone: whiteGloveResume);
+
+            Assert.Equal(SessionRegistrationOutcome.TenantGraphAccessLost, result.Outcome);
+            Assert.Equal(403, result.HttpStatusCode);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Equal(0, rotations);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            Assert.False(result.IsIntercepted);
+        }
+
         private static BackendSessionGoneException SessionGone()
             => new BackendSessionGoneException("Backend returned 410 Gone: the session was deleted or is being deleted.", 410);
 

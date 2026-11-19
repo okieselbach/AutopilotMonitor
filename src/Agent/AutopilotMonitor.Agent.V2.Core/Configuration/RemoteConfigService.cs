@@ -181,10 +181,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                     // see the distress signal without 100 s of needless retry delay. A 401/403
                     // from something on the network path is not counted by the tracker; it
                     // reports ClientCertificateNotReceived instead.
-                    _logger.Warning(ex.IsForeignResponse
-                        ? $"Config fetch intercepted on the network path: {ex.Message}"
-                        : $"Config fetch authentication failed: {ex.Message}");
-                    _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config", ex.Classification);
+                    // A confirmed Graph access loss is no verdict on this device: not counted, no
+                    // distress. The registration that follows gets the same answer and ends monitoring.
+                    if (ex.IsTenantGraphAccessLost)
+                    {
+                        _logger.Debug($"Config fetch refused: {ex.Message}");
+                    }
+                    else
+                    {
+                        _logger.Warning(ex.IsForeignResponse
+                            ? $"Config fetch intercepted on the network path: {ex.Message}"
+                            : $"Config fetch authentication failed: {ex.Message}");
+                        _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config", ex.Classification);
+                    }
                     lastException = ex;
                     LastFetchAuthStatusCode = ex.StatusCode;
                     break;

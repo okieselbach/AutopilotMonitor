@@ -112,5 +112,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         /// <summary>The backend answered HTTP 410 for the current session's telemetry.</summary>
         public const string SessionGone = "session_gone";
+
+        /// <summary>The backend refused the current session's telemetry with HTTP 403 <c>TenantGraphAccessLost</c>.</summary>
+        public const string TenantGraphAccessLost = "tenant_graph_access_lost";
     }
 }

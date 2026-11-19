@@ -32,7 +32,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             bool isPoison = false,
             IReadOnlyList<string>? poisonRowKeys = null,
             bool isSessionGone = false,
-            ResponseClassification? interception = null)
+            ResponseClassification? interception = null,
+            bool isTenantGraphAccessLost = false)
         {
             Success = success;
             ErrorReason = errorReason;
@@ -48,6 +49,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             PoisonRowKeys = poisonRowKeys;
             IsSessionGone = isSessionGone;
             Interception = interception;
+            IsTenantGraphAccessLost = isTenantGraphAccessLost;
         }
 
         public bool Success { get; }
@@ -94,6 +96,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         /// previous session id.
         /// </summary>
         public bool IsSessionGone { get; }
+
+        /// <summary>
+        /// HTTP 403 with the envelope code <c>TenantGraphAccessLost</c> from the backend: the
+        /// tenant's Graph access is confirmed lost and no batch of it can be accepted. Not an auth
+        /// failure (never counted by the <c>AuthFailureTracker</c>), never retried. The orchestrator
+        /// stops the drain (cursor stays) and raises
+        /// <see cref="TelemetryUploadOrchestrator.TenantGraphAccessLost"/>.
+        /// </summary>
+        public bool IsTenantGraphAccessLost { get; }
 
         /// <summary>
         /// A 401/403 that did not come from the backend (no <c>X-Correlation-ID</c> echo): the
@@ -199,6 +210,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
                 deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
                 isSessionGone: true);
+
+        /// <summary>
+        /// HTTP 403 <c>TenantGraphAccessLost</c> — flagged <see cref="IsTenantGraphAccessLost"/>;
+        /// never retried, never counted as an auth failure.
+        /// </summary>
+        public static UploadResult TenantGraphAccessLost(string reason) =>
+            new UploadResult(false, reason ?? throw new ArgumentNullException(nameof(reason)), isTransient: false,
+                deviceBlocked: false, unblockAt: null, deviceKillSignal: false, adminAction: null, actions: null,
+                isTenantGraphAccessLost: true);
 
         /// <summary>
         /// A 401/403 something on the network path answered (<see cref="ResponseOrigin.Foreign"/>).

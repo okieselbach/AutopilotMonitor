@@ -205,6 +205,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     {
                         _logger?.Error($"BackendTelemetryUploader: ingest rejected — backend no longer knows this session (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
                     }
+                    else if (result.IsTenantGraphAccessLost)
+                    {
+                        // The termination path logs the Warning; this is the request's detail.
+                        _logger?.Debug($"BackendTelemetryUploader: ingest refused — the tenant's Graph access is lost (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}): {result.ErrorReason}");
+                    }
                     else
                     {
                         _logger?.Error($"BackendTelemetryUploader: ingest PERMANENT fail (corr={correlationId}, items={items.Count}, durationMs={sw.ElapsedMilliseconds}, status={(int)response.StatusCode}): {result.ErrorReason}");
@@ -253,6 +258,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     // answer from the network path is reported once and never counted.
                     var classification = ResponseOriginClassifier.Classify(
                         response, correlationId, body, _serverCertificates?.LastIssuer);
+                    // The tenant's Graph access is confirmed lost: no verdict on this device, so
+                    // not counted — the session ends through its own path.
+                    if (BackendApiClient.IsTenantGraphAccessLost(
+                            statusCode, classification, BackendApiClient.TryExtractStringField(body, "code")))
+                        return UploadResult.TenantGraphAccessLost($"tenant graph access lost: {shortReason}");
                     _authFailureTracker?.RecordFailure(statusCode, "agent/telemetry", classification);
                     return classification.IsForeign
                         ? UploadResult.Intercepted($"intercepted: http {statusCode} ({classification.ForeignReason})", classification)

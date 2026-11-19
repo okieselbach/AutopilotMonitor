@@ -83,6 +83,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         // drain must not be swallowed before anyone listens.
         private bool _sessionGoneReported;
 
+        // Same one-shot latch for TenantGraphAccessLost.
+        private bool _tenantGraphAccessLostReported;
+
         /// <param name="currentPartitionKey">
         /// <see cref="TelemetryPartitionKey.ForSession"/> of the registered session. A 410 on a
         /// batch that starts with this key ends the session (<see cref="SessionGone"/>); a 410 on
@@ -161,6 +164,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         public event EventHandler<string>? SessionGone;
 
         /// <summary>
+        /// Raised once per process (after the drain guard releases) when the backend refused a
+        /// batch with HTTP 403 <c>TenantGraphAccessLost</c>: the tenant's Graph access is confirmed
+        /// lost and no retry can succeed. The batch is retained (cursor stays) and the drain stops;
+        /// the host terminates the agent. Carries the backend error reason.
+        /// </summary>
+        public event EventHandler<string>? TenantGraphAccessLost;
+
+        /// <summary>
         /// <c>true</c> when the last successful upload returned <see cref="UploadResult.DeviceBlocked"/>
         /// and the paused-until window has not expired. Drain is a no-op in this state.
         /// </summary>
@@ -220,6 +231,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             List<PoisonReport>? pendingPoison = null;
             string? pendingBlockedReason = null;
             string? pendingSessionGoneReason = null;
+            string? pendingTenantGraphAccessLostReason = null;
             InterceptionReport? pendingInterception = null;
             DrainResult result;
 
@@ -399,6 +411,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                         }
                         break;
                     }
+                    else if (outcome.IsTenantGraphAccessLost)
+                    {
+                        // HTTP 403 TenantGraphAccessLost — no batch of this tenant can be accepted.
+                        // RETAIN (cursor stays), stop this drain, surface it once.
+                        failedBatches++;
+                        lastError = outcome.ErrorReason;
+                        if (!_tenantGraphAccessLostReported && TenantGraphAccessLost != null)
+                        {
+                            _tenantGraphAccessLostReported = true;
+                            pendingTenantGraphAccessLostReason = outcome.ErrorReason;
+                        }
+                        break;
+                    }
                     else
                     {
                         // P1 — RETAIN. Transient (retry next drain), auth-permanent (uploader already
@@ -450,6 +475,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
             if (pendingSessionGoneReason != null)
                 RaiseSafely(nameof(SessionGone), () => SessionGone?.Invoke(this, pendingSessionGoneReason));
+
+            if (pendingTenantGraphAccessLostReason != null)
+                RaiseSafely(nameof(TenantGraphAccessLost), () => TenantGraphAccessLost?.Invoke(this, pendingTenantGraphAccessLostReason));
 
             if (pendingInterception != null)
                 RaiseSafely(nameof(UploadIntercepted), () => UploadIntercepted?.Invoke(this, pendingInterception));

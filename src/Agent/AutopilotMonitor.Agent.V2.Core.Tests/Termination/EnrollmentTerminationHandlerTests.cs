@@ -480,8 +480,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
 
         // ============================================================= origin=session_gone (HTTP 410)
 
-        [Fact]
-        public void Handle_session_gone_skips_spool_drain_and_diagnostics_but_still_cleans_up()
+        [Theory]
+        [InlineData(TerminationOrigins.SessionGone)]
+        [InlineData(TerminationOrigins.TenantGraphAccessLost)]   // every upload of the tenant is refused alike
+        public void Handle_session_gone_skips_spool_drain_and_diagnostics_but_still_cleans_up(string origin)
         {
             // The backend no longer knows the session: every drain would only burn its budget on
             // 410s and a diagnostics package would describe a deleted session. Marker, cleanup
@@ -493,7 +495,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             rig.PendingItemCountAccessor = () => { spoolPolls++; return 5; }; // never drains — a poll would burn the budget
             var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: true);
 
-            rig.Build(cfg).Handle(sender: null!, ServerArgs(TerminationOrigins.SessionGone));
+            rig.Build(cfg).Handle(sender: null!, ServerArgs(origin));
 
             Assert.Equal(0, spoolPolls);
             Assert.Equal(0, rig.TerminalUploadAttemptRequests);
@@ -554,7 +556,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         [Fact]
         public void Handle_kill_signal_origin_still_drains_spool_and_uploads_diagnostics()
         {
-            // The administrator kill signal keeps its full sequence — only session_gone skips.
+            // The administrator kill signal keeps its full sequence — only session_gone and
+            // tenant_graph_access_lost skip.
             using var rig = new Rig();
             rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Failed }.Build();
             rig.SpoolDrainPeriodOverride = TimeSpan.FromSeconds(5);
