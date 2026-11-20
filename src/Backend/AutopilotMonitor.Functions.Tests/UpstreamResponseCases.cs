@@ -228,4 +228,19 @@ internal sealed class UpstreamResponseCases
         Prop("id", Str("s1")),
         Prop("displayName", Text()),
         Prop("fileName", Text())));
+
+    // The OpenID discovery document of a tenant: region codes of every shape around the ones Entra sends.
+    public string RegionBody() => Root(Obj(
+        Prop("issuer", Str("https://issuer.example/6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d/v2.0")),
+        Prop("tenant_region_scope", Value(
+            new[]
+            {
+                Str("EU"), Str("NA"), Str("OC"), Str("WW"), Str("JPR"), Str("USGov"), Str("eu"),
+                Str(""), Str(" EU"), Str("EU\n"), Str("E"), Str("TOOLONGCODE"), Str("E-U"), "null",
+            },
+            "42", "true", "{}", "[]", "[" + Str("EU") + "]", "\"E\\ud800U\""), 10),
+        Prop("tenant_region_sub_scope", Value(
+            new[] { Str("GCC"), Str("DODCON"), Str(""), Str("G C C"), "null" },
+            "1", "{}", "\"G\\ud800\""), 70),
+        Prop("cloud_instance_name", Str("microsoftonline.com"))));
 }

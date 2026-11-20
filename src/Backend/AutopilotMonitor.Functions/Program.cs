@@ -495,6 +495,10 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Security.IGraphAccessHealthRecorder,
     AutopilotMonitor.Functions.Security.GraphAccessHealthRecorder>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.GraphAccessRecheckMaintenance>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.IEntraTenantRegionLookup,
+    AutopilotMonitor.Functions.Services.EntraTenantRegionLookup>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.TenantRegionMaintenance>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.GraphTokenService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.AutopilotDeviceValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CorporateIdentifierValidator>();

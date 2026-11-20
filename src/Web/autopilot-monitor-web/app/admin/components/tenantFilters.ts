@@ -1,7 +1,7 @@
 /**
  * Facet filters for the Tenant Management list.
  *
- * Five facets, each a set of values: AND between facets, OR within one facet, an empty
+ * Six facets, each a set of values: AND between facets, OR within one facet, an empty
  * selection means "no restriction". The list badge, the filter and the statistics all
  * derive a tenant's plan through `effectiveEdition` so they can never disagree (the list
  * badge used to show a trial-only tenant as "Community" while the edit modal said
@@ -14,6 +14,7 @@
 
 import { hasAnyDeviceValidation } from "@/lib/deviceValidation";
 import { SHARED_MANIFEST } from "@/lib/generated/shared-manifests.generated";
+import { KNOWN_REGIONS, regionFacetValue } from "./tenantRegions";
 
 /** The plan facet values — the backend's edition names (C# TenantEditionNames), so the two cannot drift. */
 export type PlanEdition = (typeof SHARED_MANIFEST.tenantEditions)[number];
@@ -25,7 +26,7 @@ export function planEditionOf(name: string): PlanEdition {
 export type TrialState = "active" | "expired" | "never";
 export type AppValue = "primary" | "legacy" | "unknown";
 
-export type FacetKey = "plan" | "paying" | "trial" | "app" | "status";
+export type FacetKey = "plan" | "paying" | "trial" | "app" | "status" | "region";
 
 /** The subset of the tenant row the facets read. */
 export interface TenantFilterFields {
@@ -45,6 +46,7 @@ export interface TenantFilterFields {
   validateDeviceAssociation?: boolean;
   validateCloudPcDevice?: boolean;
   validateIntuneDeviceBinding?: boolean;
+  tenantRegionScope?: string | null;
 }
 
 export interface TenantFilterContext {
@@ -77,6 +79,7 @@ export const EMPTY_FILTERS: TenantFilters = {
   trial: NONE,
   app: NONE,
   status: NONE,
+  region: NONE,
 };
 
 const PURPLE = "bg-purple-100 text-purple-800";
@@ -129,6 +132,16 @@ export const FACETS: readonly FacetDefinition[] = [
       { value: "offboarding", label: "Offboarding", badgeClass: "bg-orange-100 text-orange-800" },
       { value: "suspended", label: "Suspended", badgeClass: "bg-red-100 text-red-800" },
       { value: "mcp-off", label: "MCP off", badgeClass: AMBER },
+    ],
+  },
+  {
+    // Context, not a state: every region option is the neutral gray (D-100).
+    key: "region",
+    label: "Region",
+    options: [
+      ...KNOWN_REGIONS.filter((r) => r.anchor).map((r) => ({ value: r.code, label: r.label, badgeClass: GRAY })),
+      { value: "other", label: "Other", badgeClass: GRAY },
+      { value: "none", label: "Not resolved", badgeClass: GRAY },
     ],
   },
 ];
@@ -203,6 +216,7 @@ export function tenantFacetValues(t: TenantFilterFields, ctx: TenantFilterContex
     trial: [trialState(t, ctx.nowMs)],
     app: ctx.classifyApp ? [ctx.classifyApp(t.homedAppClientId)] : [],
     status,
+    region: [regionFacetValue(t)],
   };
 }
 

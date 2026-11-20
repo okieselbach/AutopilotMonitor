@@ -176,6 +176,7 @@ export const TENANT_SAFE_FIELDS: ReadonlySet<string> = new Set([
   'disabled', 'disabledReason',
   'onboardedAt', 'onboardedBy', 'dpaVersion', 'lastUpdated', 'dataRetentionDays',
   'dpaAcceptancePending', 'dpaAcceptedBy', 'dpaAcceptedAt',
+  'tenantRegionScope', 'tenantRegionSubScope',
 ]);
 
 /**
@@ -805,7 +806,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
             'own home tenant (marked "isHome": true — queryable only if you are a member there). Use this to ' +
             'resolve a tenant\'s display name (domainName) to the tenantId that every other tool requires ' +
             '(e.g. "sessions of tenant contoso.com" → look up its tenantId here first). '
-          : 'List onboarded tenants with their identity, plan tier, and lifecycle status (onboarded/disabled dates). ' +
+          : 'List onboarded tenants with their identity, plan tier, Entra region (tenantRegionScope) and lifecycle ' +
+            'status (onboarded/disabled dates). ' +
             'Use it to discover tenant IDs for the tenantId parameter of other tools. ') +
         'Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped server-side. ' +
         'Tenants are sorted by tenantId. For lean ID discovery pass `fields=tenantId,domainName`. ' +

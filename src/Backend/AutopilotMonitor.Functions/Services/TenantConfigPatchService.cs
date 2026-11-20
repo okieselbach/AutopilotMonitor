@@ -104,8 +104,9 @@ namespace AutopilotMonitor.Functions.Services
         /// with dedicated endpoints (plan/trial), and system-written provenance:
         /// HomedAppClientId caused the 2026-07-31 prod incident when a stale round-trip
         /// reverted it — only the app-homing flow writes it; LastAuthClientId*/OnboardedBy/
-        /// OnboardedAt/DpaVersion/DpaAccept* are AuthFunction-owned; SetupGuide* belong to the setup-guide
-        /// endpoint; LastUpdated/UpdatedBy are stamped server-side.
+        /// OnboardedAt/DpaVersion/DpaAccept* are AuthFunction-owned; TenantRegion* follow what Microsoft
+        /// Entra publishes; SetupGuide* belong to the setup-guide endpoint; LastUpdated/UpdatedBy are
+        /// stamped server-side.
         /// </summary>
         internal static readonly HashSet<string> BaseDeniedFields = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -114,6 +115,7 @@ namespace AutopilotMonitor.Functions.Services
             "DpaAcceptancePending", "DpaAcceptedBy", "DpaAcceptedAt",
             "SetupGuideSettingsReviewedAt", "SetupGuideHardwareReviewedAt", "SetupGuideDismissedAt", "SetupGuideDismissedBy",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
+            "TenantRegionScope", "TenantRegionSubScope",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
             "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
@@ -166,6 +168,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly HashSet<string> RevertProtectedFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
+            "TenantRegionScope", "TenantRegionSubScope",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
             "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
@@ -525,6 +528,7 @@ namespace AutopilotMonitor.Functions.Services
                 => "system-owned — written by the setup guide endpoint",
             "HomedAppClientId" => "system-owned — written only by the app-homing flow",
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
+            "TenantRegionScope" or "TenantRegionSubScope" => "system-owned — the region Microsoft Entra publishes for the tenant",
             "GraphAccessRejectedSince" or "GraphAccessRejectedCode" or "GraphAccessRejectionConfirmedAt"
                 => "system-owned — follows what Microsoft Entra answers for the tenant's app token",
             "IntuneDeviceBindingPermissionMissingSince" or "IntuneDeviceBindingPermissionMissingConfirmedAt"

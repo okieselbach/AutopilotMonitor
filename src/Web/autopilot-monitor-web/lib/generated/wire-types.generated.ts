@@ -5854,6 +5854,10 @@ export interface TenantConfiguration {
   lastAuthClientId?: string | null;
   /** When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field. */
   lastAuthClientIdSince?: string | null;
+  /** The region Microsoft Entra ID publishes for this tenant in its sign-in metadata (tenant_region_scope, for example EU, NA or OC). Microsoft documents no fixed list of values, so the raw code is stored and nothing routes or gates on it. System-owned: written by the first login and the maintenance fill, never through the field patch. Null until looked up. */
+  tenantRegionScope?: string | null;
+  /** Microsoft's tenant_region_sub_scope next to TenantRegionScope: set only for US government community tenants (for example GCC), null otherwise. System-owned. */
+  tenantRegionSubScope?: string | null;
   /** When Microsoft Entra first refused this tenant's app token on an agent request, in the current episode. Only a suspicion: nothing is shown until GraphAccessRejectionConfirmedAt is set. System-owned, cleared by the next freshly issued token that carries an application permission. */
   graphAccessRejectedSince?: string | null;
   /** The Entra error of the rejection (for example AADSTS7000229), or NoApplicationRole for a token without any application permission; null when the response carried no code. System-owned. */

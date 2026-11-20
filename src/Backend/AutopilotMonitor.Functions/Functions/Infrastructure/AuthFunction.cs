@@ -41,6 +41,13 @@ public class AuthFunction
     private readonly IOffboardingAuditRepository _offboardingRepo;
     private readonly Services.Push.PushOwnerSignInService? _pushSignIn;
     private readonly OpsEventService _opsEvents;
+    private readonly IEntraTenantRegionLookup _regionLookup;
+
+    /// <summary>
+    /// The first login waits at most this long for the tenant's Entra region; the authentication
+    /// middleware fetched the same metadata host moments before, and the maintenance run fills a miss.
+    /// </summary>
+    internal static readonly TimeSpan FirstLoginRegionBudget = TimeSpan.FromSeconds(2);
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -59,11 +66,13 @@ public class AuthFunction
         AdminConfigurationService adminConfigService,
         IOffboardingAuditRepository offboardingRepo,
         OpsEventService opsEvents,
+        IEntraTenantRegionLookup regionLookup,
         Services.Push.PushOwnerSignInService? pushSignIn = null)
     {
         _logger = logger;
         _pushSignIn = pushSignIn;
         _opsEvents = opsEvents;
+        _regionLookup = regionLookup;
         _offboardingRepo = offboardingRepo;
         _adminConfigService = adminConfigService;
         _identityResolver = identityResolver;
@@ -516,6 +525,10 @@ public class AuthFunction
             return;
         }
 
+        // The tenant's Entra region rides along in the same first write. It runs next to the offboarding
+        // lookup, so the login does not wait for both in turn, and it never throws.
+        var regionTask = LookUpFirstLoginRegionAsync(tenantId);
+
         // A returning tenant: the offboarding deleted its configuration, so the pointer is the only
         // record of a consumed self-service trial. Carried over in this same write as OnboardedBy, so
         // no onboarded row (and no auto-promoted admin) ever exists without it (D-288). Unreadable ⇒
@@ -531,6 +544,7 @@ public class AuthFunction
             return;
         }
 
+        var region = await regionTask;
         var onboardingClientId = EntraAppRegistry.NormalizeAudience(tokenAudience);
         var seededAt = DateTime.UtcNow;
         void Seed(TenantConfiguration row)
@@ -573,6 +587,7 @@ public class AuthFunction
                 row.LastAuthClientId = onboardingClientId;
                 row.LastAuthClientIdSince = seededAt;
             }
+            region?.ApplyTo(row);
         }
 
         TenantConfigUpdate update;
@@ -632,6 +647,23 @@ public class AuthFunction
             .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                 "Fire-and-forget auto-approve enqueue failed for tenant {TenantId}", tenantId),
                 TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>
+    /// The tenant's Entra region for the first-login seed, or null without an answer within
+    /// <see cref="FirstLoginRegionBudget"/>. Never throws; the maintenance run fills a miss.
+    /// </summary>
+    private async Task<EntraTenantRegion?> LookUpFirstLoginRegionAsync(string tenantId)
+    {
+        using var budget = new CancellationTokenSource(FirstLoginRegionBudget);
+        var lookup = await _regionLookup.LookupAsync(tenantId, budget.Token);
+        if (lookup.Region == null)
+        {
+            _logger.LogWarning(
+                "First-login Entra region lookup for tenant {TenantId} failed ({Reason}); the maintenance run fills it",
+                tenantId, lookup.Failure);
+        }
+        return lookup.Region;
     }
 
     /// <summary>

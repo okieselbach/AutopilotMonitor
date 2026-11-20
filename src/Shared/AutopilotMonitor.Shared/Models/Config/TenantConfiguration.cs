@@ -155,6 +155,22 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public DateTime? LastAuthClientIdSince { get; set; }
 
+        // ===== ENTRA TENANT REGION =====
+
+        /// <summary>
+        /// The region Microsoft Entra ID publishes for this tenant in its sign-in metadata
+        /// (<c>tenant_region_scope</c>, for example EU, NA or OC). Microsoft documents no fixed list of
+        /// values, so the raw code is stored and nothing routes or gates on it. System-owned: written by
+        /// the first login and the maintenance fill, never through the field patch. Null until looked up.
+        /// </summary>
+        public string? TenantRegionScope { get; set; }
+
+        /// <summary>
+        /// Microsoft's <c>tenant_region_sub_scope</c> next to <see cref="TenantRegionScope"/>: set only
+        /// for US government community tenants (for example GCC), null otherwise. System-owned.
+        /// </summary>
+        public string? TenantRegionSubScope { get; set; }
+
         /// <summary>
         /// When Microsoft Entra first refused this tenant's app token on an agent request, in the
         /// current episode. Only a suspicion: nothing is shown until

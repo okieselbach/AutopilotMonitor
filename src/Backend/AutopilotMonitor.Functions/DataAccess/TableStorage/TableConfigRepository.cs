@@ -32,13 +32,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         /// <summary>
         /// Changes to ONLY these properties do not snapshot the tenant-config row: the
-        /// LastAuthClientId pair flips as an auth-flow side effect and the Graph access state as
-        /// a token side effect; both would flood the two backup slots with states nobody ever
-        /// wants to revert to.
+        /// LastAuthClientId pair flips as an auth-flow side effect, the Graph access state as
+        /// a token side effect and the Entra region pair is filled once for every tenant; all of
+        /// them would flood the two backup slots with states nobody ever wants to revert to.
         /// </summary>
         private static readonly HashSet<string> TenantBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
         {
             "LastUpdated", "UpdatedBy", "LastAuthClientId", "LastAuthClientIdSince",
+            "TenantRegionScope", "TenantRegionSubScope",
             "GraphAccessRejectedSince", "GraphAccessRejectedCode", "GraphAccessRejectionConfirmedAt",
             "IntuneDeviceBindingPermissionMissingSince", "IntuneDeviceBindingPermissionMissingConfirmedAt",
             "CloudPcPermissionMissingSince", "CloudPcPermissionMissingConfirmedAt",
@@ -824,6 +825,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "HomedAppClientId", config.HomedAppClientId },
                 { "LastAuthClientId", config.LastAuthClientId },
                 { "LastAuthClientIdSince", config.LastAuthClientIdSince },
+                { "TenantRegionScope", config.TenantRegionScope },
+                { "TenantRegionSubScope", config.TenantRegionSubScope },
                 { "GraphAccessRejectedSince", config.GraphAccessRejectedSince },
                 { "GraphAccessRejectedCode", config.GraphAccessRejectedCode },
                 { "GraphAccessRejectionConfirmedAt", config.GraphAccessRejectionConfirmedAt },
@@ -958,6 +961,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 HomedAppClientId = entity.GetString("HomedAppClientId"),
                 LastAuthClientId = entity.GetString("LastAuthClientId"),
                 LastAuthClientIdSince = entity.GetDateTime("LastAuthClientIdSince"),
+                TenantRegionScope = entity.GetString("TenantRegionScope"),
+                TenantRegionSubScope = entity.GetString("TenantRegionSubScope"),
                 GraphAccessRejectedSince = entity.GetDateTime("GraphAccessRejectedSince"),
                 GraphAccessRejectedCode = entity.GetString("GraphAccessRejectedCode"),
                 GraphAccessRejectionConfirmedAt = entity.GetDateTime("GraphAccessRejectionConfirmedAt"),

@@ -214,6 +214,37 @@ public class TenantConfigTableSerializationTests
     }
 
     [Fact]
+    public void Roundtrip_TenantRegionFields_SurviveStoreAndMap()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            TenantRegionScope = "NA",
+            TenantRegionSubScope = "GCC"
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal("NA", mapped.TenantRegionScope);
+        Assert.Equal("GCC", mapped.TenantRegionSubScope);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutTenantRegionColumns_ReadsNull()
+    {
+        // Every row written before the region existed lacks both columns: null = not looked up yet.
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(entity);
+
+        Assert.Null(mapped.TenantRegionScope);
+        Assert.Null(mapped.TenantRegionSubScope);
+    }
+
+    [Fact]
     public void Roundtrip_GraphAccessFields_SurviveStoreAndMap()
     {
         var since = new DateTime(2026, 11, 2, 8, 0, 0, DateTimeKind.Utc);

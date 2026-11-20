@@ -16,6 +16,11 @@ export interface SignupRow {
   onboardedAt?: string | null;
 }
 
+/** A customer: a configuration row with a domain (see the module comment). */
+export function isSignupRow(row: SignupRow): boolean {
+  return !!row.domainName;
+}
+
 export interface Signup<T> {
   row: T;
   atMs: number;
@@ -71,7 +76,7 @@ export function customerGrowth<T extends SignupRow>(rows: readonly T[], days: nu
   let last7Days = 0;
   const byDay = new Map<string, Signup<T>[]>();
   for (const row of rows) {
-    if (!row.domainName) continue;
+    if (!isSignupRow(row)) continue;
     total++;
     const atMs = parseUtcMs(row.onboardedAt);
     if (atMs == null) continue;

@@ -102,6 +102,8 @@ export const TENANT_FIELDS: Record<keyof TenantConfiguration, TenantRow | Exclud
   mcpDisabledReason: { section: "Tenant Status", label: "MCP Disabled Reason", informational: true },
   onboardedAt: { section: "Tenant Status", label: "Onboarded At", kind: "date", informational: true },
   onboardedBy: { section: "Tenant Status", label: "Onboarded By", informational: true },
+  tenantRegionScope: { section: "Tenant Status", label: "Entra Region", informational: true },
+  tenantRegionSubScope: { section: "Tenant Status", label: "Entra Region Sub-Scope", informational: true },
   dpaVersion: { section: "Tenant Status", label: "DPA Version", informational: true },
   dpaAcceptancePending: { section: "Tenant Status", label: "DPA Acceptance Pending", informational: true },
   dpaAcceptedBy: { section: "Tenant Status", label: "DPA Accepted By", informational: true },

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.GraphResolution;
 using Xunit;
 using static AutopilotMonitor.Functions.Tests.UpstreamParserReadings;
@@ -101,6 +102,10 @@ public class UpstreamJsonInvariantTests
         ["script-name"] = new(4309, g => g.ScriptNameBody(),
             b => Describe(ScriptDisplayNameResolver.ReadScriptDisplayName(b)),
             b => new[] { ScriptDisplayNameResolver.ReadScriptDisplayName(b) },
+            new[] { Unreadable }),
+        ["region"] = new(4311, g => g.RegionBody(),
+            b => Describe(EntraTenantRegionLookup.ReadRegion(b)),
+            b => EntraTenantRegionLookup.ReadRegion(b) is { } r ? new[] { r.Scope, r.SubScope } : Array.Empty<string?>(),
             new[] { Unreadable }),
     };
 

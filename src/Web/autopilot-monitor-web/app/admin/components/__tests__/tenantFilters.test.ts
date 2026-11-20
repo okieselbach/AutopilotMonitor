@@ -150,10 +150,33 @@ describe("matchesTenantFilters", () => {
 
   it("hides the App facet and matches nothing on it outside the legacy window", () => {
     const noWindow = ctx({ classifyApp: null });
-    expect(visibleFacets(noWindow).map((f) => f.key)).toEqual(["plan", "paying", "trial", "status"]);
-    expect(visibleFacets(ctx()).map((f) => f.key)).toEqual(["plan", "paying", "trial", "app", "status"]);
+    expect(visibleFacets(noWindow).map((f) => f.key)).toEqual(["plan", "paying", "trial", "status", "region"]);
+    expect(visibleFacets(ctx()).map((f) => f.key)).toEqual(["plan", "paying", "trial", "app", "status", "region"]);
     // A stale app selection cannot match once the facet is gone.
     expect(matchesTenantFilters(tenant({ homedAppClientId: PRIMARY }), filters({ app: ["primary"] }), noWindow)).toBe(false);
+  });
+});
+
+describe("region facet", () => {
+  it("files a tenant under its continent, any other code under Other and no region under Not resolved", () => {
+    expect(tenantFacetValues(tenant({ tenantRegionScope: "EU" }), ctx()).region).toEqual(["EU"]);
+    expect(tenantFacetValues(tenant({ tenantRegionScope: "oc" }), ctx()).region).toEqual(["OC"]);
+    expect(tenantFacetValues(tenant({ tenantRegionScope: "WW" }), ctx()).region).toEqual(["other"]);
+    expect(tenantFacetValues(tenant({ tenantRegionScope: "JPR" }), ctx()).region).toEqual(["other"]);
+    expect(tenantFacetValues(tenant({ tenantRegionScope: null }), ctx()).region).toEqual(["none"]);
+  });
+
+  it("filters and counts like every other facet", () => {
+    const list = [
+      tenant({ tenantId: "a", tenantRegionScope: "EU", planTier: "pro" }),
+      tenant({ tenantId: "b", tenantRegionScope: "EU" }),
+      tenant({ tenantId: "c", tenantRegionScope: "NA", planTier: "pro" }),
+      tenant({ tenantId: "d" }),
+    ];
+    expect(list.filter((t) => matchesTenantFilters(t, filters({ region: ["EU", "NA"] }), ctx())).map((t) => t.tenantId))
+      .toEqual(["a", "b", "c"]);
+    expect(facetCounts(list, filters({ plan: ["pro"] }), ctx()).region).toEqual({ EU: 1, NA: 1 });
+    expect(activeSelections(filters({ region: ["none"] })).map((s) => s.option.label)).toEqual(["Not resolved"]);
   });
 });
 

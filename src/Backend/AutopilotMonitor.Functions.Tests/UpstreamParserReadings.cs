@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.GraphResolution;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -62,4 +63,6 @@ internal static class UpstreamParserReadings
         string.Join(";", r.Scripts.Select(s => $"{Text(s.Id)}={Text(s.DisplayName)}/{Text(s.FileName)}")) + $" next={Text(string.IsNullOrEmpty(r.NextUrl) ? null : r.NextUrl)}";
 
     internal static string Describe(string? scriptName) => scriptName ?? "<null>";
+
+    internal static string Describe(EntraTenantRegion? r) => r is null ? "<no region>" : $"scope={Text(r.Scope)} sub={Text(r.SubScope)}";
 }

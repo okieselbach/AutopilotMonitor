@@ -539,6 +539,8 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
     dpaAcceptedAt: '2026-01-15T00:00:00Z',
     lastUpdated: '2026-05-01T00:00:00Z',
     dataRetentionDays: 90,
+    tenantRegionScope: 'NA',
+    tenantRegionSubScope: 'GCC',
     // ── sensitive / must NOT leak ──
     teamsWebhookUrl: 'https://contoso.webhook.office.com/secret-token',
     webhookUrl: 'https://example.com/hook?key=supersecret',
@@ -559,6 +561,7 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
       'tenantId', 'domainName', 'planTier', 'disabled',
       'onboardedAt', 'onboardedBy', 'dpaVersion', 'lastUpdated', 'dataRetentionDays',
       'dpaAcceptancePending', 'dpaAcceptedBy', 'dpaAcceptedAt',
+      'tenantRegionScope', 'tenantRegionSubScope',
     ]) {
       expect(t).toHaveProperty(present);
     }

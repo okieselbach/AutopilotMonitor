@@ -33,6 +33,7 @@ public class TenantConfigProjectionTests
         "onboardedAt", "onboardedBy", "dpaVersion", "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
         "lastUpdated", "dataRetentionDays",
         "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
+        "tenantRegionScope", "tenantRegionSubScope",
         "graphAccessRejectedSince", "graphAccessRejectedCode", "graphAccessRejectionConfirmedAt",
         "intuneDeviceBindingPermissionMissingSince", "intuneDeviceBindingPermissionMissingConfirmedAt",
         "cloudPcPermissionMissingSince", "cloudPcPermissionMissingConfirmedAt",

@@ -14,8 +14,10 @@ import { useWindowDays } from "@/hooks/useWindowDays";
 import { PLATFORM_MAX_WINDOW_DAYS, WINDOW_PRESET_OPTIONS } from "@/lib/timeWindow";
 import type { TenantConfiguration } from "@/lib/generated/wire-types.generated";
 import { editionLabel, effectiveEdition, facetOption } from "../../components/tenantFilters";
+import { regionOverview } from "../../components/tenantRegions";
+import { RegionBreakdown } from "../../components/RegionBreakdown";
 import { formatDayKey } from "../lib/format";
-import { customerGrowth, type GrowthBucket } from "./customerGrowthLogic";
+import { customerGrowth, isSignupRow, type GrowthBucket } from "./customerGrowthLogic";
 import { Stat } from "./Stat";
 
 function ChartPlaceholder() {
@@ -25,6 +27,8 @@ function ChartPlaceholder() {
 // recharts (~300 kB) loads only here: SectionClient imports every metrics section statically.
 const AppBarChart = dynamic(() => import("@/components/charts/AppBarChart"), { ssr: false, loading: ChartPlaceholder });
 const AppLineChart = dynamic(() => import("@/components/charts/AppLineChart"), { ssr: false, loading: ChartPlaceholder });
+// Leaflet needs the browser (window) and loads only with this card.
+const CustomerRegionMap = dynamic(() => import("./CustomerRegionMap"), { ssr: false, loading: ChartPlaceholder });
 
 /** The portal presets plus the year. */
 const RANGE_OPTIONS = [...WINDOW_PRESET_OPTIONS, { value: PLATFORM_MAX_WINDOW_DAYS, label: `${PLATFORM_MAX_WINDOW_DAYS} Days` }];
@@ -92,6 +96,11 @@ function CustomersContent() {
   const growth = useMemo(
     () => (snapshot ? customerGrowth(snapshot.tenants, days, snapshot.nowMs) : null),
     [snapshot, days],
+  );
+  // The same customers as "Total customers" (rows with a domain), whatever the window.
+  const regions = useMemo(
+    () => (snapshot ? regionOverview(snapshot.tenants.filter(isSignupRow)) : null),
+    [snapshot],
   );
   const selectedKey = selection?.days === days ? selection.key : null;
   const selectedBucket = growth?.buckets.find((b) => b.key === selectedKey) ?? null;
@@ -190,6 +199,20 @@ function CustomersContent() {
             <Stat label="Last 7 days" value={growth.last7Days.toLocaleString()} hint="new" />
             <Stat label="Total customers" value={growth.total.toLocaleString()} hint="all time" />
           </div>
+
+          {regions && (
+            <div className="bg-white shadow rounded-lg p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <h3 className="text-sm font-medium text-gray-500">Customers by region</h3>
+                <span className="text-xs text-gray-500">Entra tenant region · all time</span>
+              </div>
+              {/* On a phone the whole world fits only at zoom 0, which is 256 px high: lower, no empty band. */}
+              <div className="mt-4 h-56 sm:h-96">
+                <CustomerRegionMap regions={regions.regions} />
+              </div>
+              <RegionBreakdown overview={regions} className="mt-3 text-sm text-gray-600" />
+            </div>
+          )}
 
           <div className="bg-white shadow rounded-lg p-6">
             <div className="flex items-baseline justify-between gap-3">

@@ -52,6 +52,8 @@ import {
   type TenantFilters,
 } from "./tenantFilters";
 import { TenantFilterChips, TenantFilterMenu } from "./TenantFilterMenu";
+import { regionCode, regionOverview, regionTitle, type TenantRegionFields } from "./tenantRegions";
+import { RegionBreakdown } from "./RegionBreakdown";
 import { ModalPortal } from "@/components/ModalPortal";
 
 /** "Pro (MSP)" / "Pro (Trial)" / "Pro" / "Community" for the plan-save confirmation. */
@@ -80,6 +82,22 @@ function HomingBadge({ clientId }: { clientId?: string | null }) {
   return (
     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${styles}`}>
       {label}
+    </span>
+  );
+}
+
+/** The tenant's Entra region as a neutral context pill (D-100); nothing until the region is known. */
+function RegionPill({ tenant }: { tenant: TenantRegionFields }) {
+  const code = regionCode(tenant);
+  if (!code) return null;
+  // A fixed height keeps the outline pill as high as the filled badges beside it at any zoom
+  // (the browser rounds a 1px border to device pixels).
+  return (
+    <span
+      className="inline-flex h-6 items-center px-2 rounded-full text-xs font-medium border border-gray-300 bg-gray-100 text-gray-600"
+      title={regionTitle(tenant) ?? undefined}
+    >
+      {code}
     </span>
   );
 }
@@ -716,6 +734,7 @@ function TenantManagementSectionInner({
                                 </span>
                               )}
                               {legacyConfigured() && <HomingBadge clientId={tenant.homedAppClientId} />}
+                              <RegionPill tenant={tenant} />
                             </div>
                             <div className="flex items-center gap-2">
                               <button
@@ -822,6 +841,8 @@ function TenantManagementSectionInner({
                     <span aria-hidden="true">·</span>
                     <span>Pro (MSP) <span className="font-semibold text-purple-700">{plans.proMsp}</span></span>
                   </div>
+                  {/* Entra region breakdown over all tenants (never filtered), the largest first */}
+                  <RegionBreakdown overview={regionOverview(tenants)} />
                 </div>
               )}
             </div>

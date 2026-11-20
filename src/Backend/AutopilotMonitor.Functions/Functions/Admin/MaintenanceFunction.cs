@@ -15,6 +15,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         private readonly Services.Push.PushMaintenanceService _pushMaintenance;
         private readonly Services.Notifications.NotificationChannelHealthMaintenance _channelHealthMaintenance;
         private readonly GraphAccessRecheckMaintenance _graphAccessRecheck;
+        private readonly TenantRegionMaintenance _tenantRegion;
         private readonly ILogger<MaintenanceFunction> _logger;
 
         public MaintenanceFunction(
@@ -22,12 +23,14 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             Services.Push.PushMaintenanceService pushMaintenance,
             Services.Notifications.NotificationChannelHealthMaintenance channelHealthMaintenance,
             GraphAccessRecheckMaintenance graphAccessRecheck,
+            TenantRegionMaintenance tenantRegion,
             ILogger<MaintenanceFunction> logger)
         {
             _maintenanceService = maintenanceService;
             _pushMaintenance = pushMaintenance;
             _channelHealthMaintenance = channelHealthMaintenance;
             _graphAccessRecheck = graphAccessRecheck;
+            _tenantRegion = tenantRegion;
             _logger = logger;
         }
 
@@ -50,6 +53,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             await _channelHealthMaintenance.RunAsync();
             // Confirms or clears Graph access suspicions without waiting for device traffic; fail-soft inside.
             await _graphAccessRecheck.RunAsync();
+            // Fills the Entra region of tenants that have none (the backfill, and a failed first-login lookup); fail-soft inside.
+            await _tenantRegion.RunAsync();
         }
     }
 }

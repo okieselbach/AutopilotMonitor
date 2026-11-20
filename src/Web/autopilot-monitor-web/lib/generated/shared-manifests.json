@@ -128,6 +128,8 @@
       "homedAppClientId",
       "lastAuthClientId",
       "lastAuthClientIdSince",
+      "tenantRegionScope",
+      "tenantRegionSubScope",
       "graphAccessRejectedSince",
       "graphAccessRejectedCode",
       "graphAccessRejectionConfirmedAt",
@@ -245,6 +247,8 @@
       "homedAppClientId": null,
       "lastAuthClientId": null,
       "lastAuthClientIdSince": null,
+      "tenantRegionScope": null,
+      "tenantRegionSubScope": null,
       "graphAccessRejectedSince": null,
       "graphAccessRejectedCode": null,
       "graphAccessRejectionConfirmedAt": null,
@@ -26770,6 +26774,26 @@
           },
           "optional": true,
           "doc": "When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field."
+        },
+        {
+          "name": "tenantRegionScope",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The region Microsoft Entra ID publishes for this tenant in its sign-in metadata (tenant_region_scope, for example EU, NA or OC). Microsoft documents no fixed list of values, so the raw code is stored and nothing routes or gates on it. System-owned: written by the first login and the maintenance fill, never through the field patch. Null until looked up."
+        },
+        {
+          "name": "tenantRegionSubScope",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Microsoft's tenant_region_sub_scope next to TenantRegionScope: set only for US government community tenants (for example GCC), null otherwise. System-owned."
         },
         {
           "name": "graphAccessRejectedSince",

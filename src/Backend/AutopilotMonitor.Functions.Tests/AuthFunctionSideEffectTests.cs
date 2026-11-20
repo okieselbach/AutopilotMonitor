@@ -43,6 +43,8 @@ public class AuthFunctionSideEffectTests
     private readonly FakeOffboardingAuditRepository _offboardingRepo = new();
     private readonly StoredTenantConfig _store;
     private readonly Mock<GlobalAdminService> _globalAdminMock;
+    /// <summary>Microsoft's answer for the tenant's region; by default none (a timeout).</summary>
+    private readonly Mock<IEntraTenantRegionLookup> _regionLookup = new();
     /// <summary>Builds the function; null arguments fall back to the class mocks.</summary>
     private readonly Func<PushOwnerSignInService?, TenantAdminsService?, PreviewWhitelistService?, AuthFunction> _buildSut;
     private readonly AuthFunction _sut;
@@ -124,8 +126,12 @@ public class AuthFunctionSideEffectTests
             adminConfigService.Object,
             _offboardingRepo,
             pushSignIn: pushSignIn,
-            opsEvents: _opsEventsMock.Object);
+            opsEvents: _opsEventsMock.Object,
+            regionLookup: _regionLookup.Object);
         _sut = _buildSut(null, null, null);
+        _regionLookup
+            .Setup(x => x.LookupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EntraTenantRegionLookupResult.Failed("timed out"));
 
         // Writes go through UpdateAsync / CreateOrUpdateAsync over one stored row (none by default:
         // a brand-new tenant). Default: all fire-and-forget calls succeed.
@@ -382,6 +388,76 @@ public class AuthFunctionSideEffectTests
 
         Assert.Empty(_store.Writes);
         _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // -------------------------------------------------------------------------
+    // The Entra region rides along in the first-login write
+    // -------------------------------------------------------------------------
+
+    private void AnswerRegion(string scope, string? subScope = null) =>
+        _regionLookup
+            .Setup(x => x.LookupAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EntraTenantRegionLookupResult.Found(new EntraTenantRegion(scope, subScope)));
+
+    [Fact]
+    public async Task HandleNewTenantDomain_WritesTheEntraRegionInTheSameFirstWrite()
+    {
+        AnswerRegion("NA", "GCC");
+        var config = DefaultConfig();
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.Equal("contoso.com", written.DomainName);
+        Assert.Equal("NA", written.TenantRegionScope);
+        Assert.Equal("GCC", written.TenantRegionSubScope);
+        // This login's view follows what was stored.
+        Assert.Equal("NA", config.TenantRegionScope);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_RegionLookupWithoutAnswer_StillOnboardsWithoutRegion()
+    {
+        // Default script: the lookup timed out. The onboarding must not depend on Microsoft's metadata.
+        var config = DefaultConfig();
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        var written = Assert.Single(_store.Writes).Row;
+        Assert.Equal("contoso.com", written.DomainName);
+        Assert.Equal(Upn, written.OnboardedBy);
+        Assert.Null(written.TenantRegionScope);
+        Assert.Null(written.TenantRegionSubScope);
+        _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_RegionLookupRunsWithTheBudget()
+    {
+        CancellationToken seen = default;
+        _regionLookup
+            .Setup(x => x.LookupAsync(TenantId, It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((_, ct) => seen = ct)
+            .ReturnsAsync(EntraTenantRegionLookupResult.Failed("timed out"));
+
+        await _sut.HandleNewTenantDomainAsync(DefaultConfig(), TenantId, Upn);
+
+        // A bounded wait: the token can be cancelled (the budget), it is not CancellationToken.None.
+        Assert.True(seen.CanBeCanceled);
+        Assert.Equal(TimeSpan.FromSeconds(2), AuthFunction.FirstLoginRegionBudget);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_TenantAlreadyOnboarded_DoesNotAskForTheRegion()
+    {
+        // Later logins stamp nothing (D-252): the lookup belongs to the first write only.
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        _regionLookup.Verify(x => x.LookupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Empty(_store.Writes);
     }
 
     // -------------------------------------------------------------------------
@@ -930,6 +1006,8 @@ public class AuthFunctionSideEffectTests
             It.IsAny<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(),
             It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()), external ? Times.Never() : Times.Once());
         _opsEventsMock.Verify(x => x.RecordTenantSignupAsync(TenantId, Upn), external ? Times.Never() : Times.Once());
+        // The region lookup belongs to the member's first write; a guest's sign-in never asks.
+        _regionLookup.Verify(x => x.LookupAsync(TenantId, It.IsAny<CancellationToken>()), external ? Times.Never() : Times.Once());
         if (!external)
             Assert.Equal(Upn, _store.Row!.OnboardedBy);
     }

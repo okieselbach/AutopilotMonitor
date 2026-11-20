@@ -321,6 +321,8 @@ public class TenantConfigPatchServiceTests
     [InlineData("setupGuideHardwareReviewedAt")]
     [InlineData("setupGuideDismissedAt")]
     [InlineData("setupGuideDismissedBy")]
+    [InlineData("tenantRegionScope")]
+    [InlineData("tenantRegionSubScope")]
     public async Task Patch_DeniedField_Returns400WithFieldName(string field)
     {
         var harness = new Harness(Stored());

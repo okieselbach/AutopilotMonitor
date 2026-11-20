@@ -15,6 +15,7 @@ const SERVER_DENIED_FIELDS = new Set([
   "dpaAcceptancePending", "dpaAcceptedBy", "dpaAcceptedAt",
   "setupGuideSettingsReviewedAt", "setupGuideHardwareReviewedAt", "setupGuideDismissedAt", "setupGuideDismissedBy",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
+  "tenantRegionScope", "tenantRegionSubScope",
   "graphAccessRejectedSince", "graphAccessRejectedCode", "graphAccessRejectionConfirmedAt",
   "intuneDeviceBindingPermissionMissingSince", "intuneDeviceBindingPermissionMissingConfirmedAt",
   "cloudPcPermissionMissingSince", "cloudPcPermissionMissingConfirmedAt",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { customerGrowth } from "../customerGrowthLogic";
+import { regionOverview } from "../../../components/tenantRegions";
+import { customerGrowth, isSignupRow } from "../customerGrowthLogic";
 
 interface Row {
   tenantId: string;
@@ -164,5 +165,19 @@ describe("customer growth figures", () => {
     const growth = customerGrowth([], 30, NOW);
     expect(growth).toMatchObject({ windowCount: 0, bestDay: null, weeklyAverage: 0, last7Days: 0, total: 0 });
     expect(growth.buckets).toHaveLength(30);
+  });
+
+  it("the region map counts the same customers as the total", () => {
+    const rows = [
+      { ...row("2026-10-19T08:00:00Z", ""), tenantRegionScope: "EU" }, // a default row: no customer
+      { ...row("2026-10-19T09:00:00Z"), tenantRegionScope: "EU" },
+      { ...row(null), tenantRegionScope: "NA" },
+      { ...row("not-a-date"), tenantRegionScope: null },
+    ];
+    const regions = regionOverview(rows.filter(isSignupRow));
+    const mapped = regions.regions.reduce((n, r) => n + r.count, 0) + regions.unresolved;
+    expect(mapped).toBe(customerGrowth(rows, 30, NOW).total);
+    expect(regions.regions.map((r) => [r.code, r.count])).toEqual([["EU", 1], ["NA", 1]]);
+    expect(regions.unresolved).toBe(1);
   });
 });

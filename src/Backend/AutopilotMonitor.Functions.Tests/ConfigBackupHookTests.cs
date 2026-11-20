@@ -203,6 +203,27 @@ public class ConfigBackupHookTests
     }
 
     [Fact]
+    public async Task NoiseOnlyChange_TenantRegion_NoSnapshot()
+    {
+        // The region fill writes every tenant once; with two backup slots per tenant it would
+        // otherwise push a real configuration backup out of every tenant's history.
+        var stored = StoredConfig();
+        var harness = new Harness(TableConfigRepository.ConvertToTenantTableEntity(stored));
+
+        var incoming = RoundtripClone(stored);
+        incoming.TenantRegionScope = "EU";
+        incoming.TenantRegionSubScope = null;
+        incoming.LastUpdated = DateTime.UtcNow;
+
+        var saved = await harness.Sut.TryReplaceTenantConfigurationAsync(incoming, "\"etag\"", "maintenance", "Entra tenant region");
+
+        Assert.True(saved);
+        Assert.Single(harness.Upserts);
+        harness.Backup.Verify(
+            b => b.UpsertAsync(It.IsAny<ConfigBackupEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task NoiseOnlyChange_SetupGuideMarkers_NoSnapshot()
     {
         // The setup guide's markers would otherwise push real settings out of the two backup slots.
