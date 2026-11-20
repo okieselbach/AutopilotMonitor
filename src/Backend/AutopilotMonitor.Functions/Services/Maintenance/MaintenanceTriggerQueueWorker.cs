@@ -23,14 +23,17 @@ namespace AutopilotMonitor.Functions.Services.Maintenance
     public sealed class MaintenanceTriggerQueueWorker : QueuePollingWorker<MaintenanceTriggerEnvelope>
     {
         private readonly MaintenanceService _maintenance;
+        private readonly TenantRegionMaintenance _tenantRegion;
 
         public MaintenanceTriggerQueueWorker(
             QueueClientFactory queueFactory,
             MaintenanceService maintenance,
+            TenantRegionMaintenance tenantRegion,
             ILogger<MaintenanceTriggerQueueWorker> logger)
             : base(queueFactory, Constants.QueueNames.MaintenanceTrigger, logger, Constants.QueueNames.MaintenanceTriggerPoison)
         {
             _maintenance = maintenance ?? throw new ArgumentNullException(nameof(maintenance));
+            _tenantRegion = tenantRegion ?? throw new ArgumentNullException(nameof(tenantRegion));
         }
 
         // The host functionTimeout (60min) is the upper bound of a run; the message must not
@@ -43,7 +46,14 @@ namespace AutopilotMonitor.Functions.Services.Maintenance
         protected override string DescribeForLog(MaintenanceTriggerEnvelope envelope)
             => $"triggeredBy={envelope.TriggeredBy} targetDate={envelope.TargetDate:yyyy-MM-dd} aggregateOnly={envelope.AggregateOnly}";
 
-        protected override Task HandleAsync(MaintenanceTriggerEnvelope envelope, CancellationToken ct)
-            => _maintenance.RunManualAsync(envelope.TargetDate, envelope.AggregateOnly, envelope.TriggeredBy);
+        protected override async Task HandleAsync(MaintenanceTriggerEnvelope envelope, CancellationToken ct)
+        {
+            // Like the 2-hour timer (MaintenanceFunction), the manual run fills the Entra region of tenants
+            // that have none; here first, because the operator who pressed the button waits for it and the
+            // rest of the run takes many minutes. Fail-soft inside. An aggregation-only run stays one.
+            if (!envelope.AggregateOnly)
+                await _tenantRegion.RunAsync();
+            await _maintenance.RunManualAsync(envelope.TargetDate, envelope.AggregateOnly, envelope.TriggeredBy);
+        }
     }
 }
