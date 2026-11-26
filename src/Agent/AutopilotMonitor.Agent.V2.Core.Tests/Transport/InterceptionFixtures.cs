@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Security.Authentication;
 using AutopilotMonitor.Agent.V2.Core.Transport;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
@@ -44,5 +47,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 
         public static ResponseClassification StoppedApp(int statusCode = 403) =>
             ResponseClassification.ForPlatformStopped(statusCode, PlatformPageTitle, isHtml: true, serverCertIssuer: null);
+
+        /// <summary>
+        /// The exception chain .NET Framework's HttpClient throws when the server certificate fails
+        /// validation: types, messages and status as an agent log shows them.
+        /// </summary>
+        public static HttpRequestException TrustFailure() =>
+            new HttpRequestException(
+                "An error occurred while sending the request.",
+                new WebException(
+                    "The underlying connection was closed: Could not establish trust relationship for the SSL/TLS secure channel.",
+                    new AuthenticationException("The remote certificate is invalid according to the validation procedure."),
+                    WebExceptionStatus.TrustFailure,
+                    null));
+
+        /// <summary>A failed name lookup: a transport failure that no server certificate explains.</summary>
+        public static HttpRequestException NameResolutionFailure() =>
+            new HttpRequestException(
+                "An error occurred while sending the request.",
+                new WebException("The remote name could not be resolved: 'backend.example'", WebExceptionStatus.NameResolutionFailure));
     }
 }

@@ -119,18 +119,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     var correlationId = AddSecurityHeaders(httpRequest);
                     _logger?.Debug($"GetAgentConfigAsync: GET {url} (attempt {attempt}/{maxAttempts})");
 
-                    HttpResponseMessage response;
-                    try
-                    {
-                        response = await _httpClient.SendAsync(httpRequest).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogTransportFailure($"GetAgentConfigAsync GET {url}", ex);
-                        throw;
-                    }
-
-                    using (response)
+                    using (var response = await SendAsync(httpRequest, $"GetAgentConfigAsync GET {url}").ConfigureAwait(false))
                     {
                         if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable && attempt < maxAttempts)
                         {
@@ -245,18 +234,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             {
                 var correlationId = AddSecurityHeaders(httpRequest);
 
-                HttpResponseMessage response;
-                try
-                {
-                    response = await _httpClient.SendAsync(httpRequest).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    LogTransportFailure($"PostAsync POST {url}", ex);
-                    throw;
-                }
-
-                using (response)
+                using (var response = await SendAsync(httpRequest, $"PostAsync POST {url}").ConfigureAwait(false))
                 {
                     await ThrowOnAuthFailureAsync(response, correlationId).ConfigureAwait(false);
                     await ThrowOnCodedConflictAsync(response).ConfigureAwait(false);
@@ -270,14 +248,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         }
 
         /// <summary>
+        /// Sends through the shared client and logs a transport failure with its exception chain.
+        /// A failure caused by a rejected server certificate is rethrown as
+        /// <see cref="BackendServerCertificateException"/>: callers log and record
+        /// <c>ex.Message</c>, so the retry lines, the final registration line and the failed-run
+        /// record name who issued the certificate instead of a generic send error.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, string operation)
+        {
+            try
+            {
+                return await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var rejection = _serverCertificates?.RejectionBehind(ex);
+                var finding = rejection?.Describe(request.RequestUri?.Host ?? "(unknown host)");
+                LogTransportFailure(operation, ex, finding);
+                if (finding != null)
+                    throw new BackendServerCertificateException(finding, ex, rejection);
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Walks the inner-exception chain of a transport failure and logs every link with
         /// type, message, and (for <see cref="System.Net.WebException"/>) the
         /// <see cref="System.Net.WebException.Status"/> code. The status code distinguishes
         /// TLS-layer failures (<c>SecureChannelFailure</c>) from network/timeout/DNS failures
         /// — useful for any future transport-failure investigation, not just the TPM-PSS one
-        /// this was originally added for.
+        /// this was originally added for. <paramref name="finding"/>, when the cause is known,
+        /// closes the block.
         /// </summary>
-        private void LogTransportFailure(string operation, Exception ex)
+        private void LogTransportFailure(string operation, Exception ex, string finding)
         {
             try
             {
@@ -298,6 +301,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     }
                     current = current.InnerException;
                     depth++;
+                }
+                if (finding != null)
+                {
+                    sb.AppendLine($"  => {finding}");
                 }
                 _logger?.Error(sb.ToString());
             }
@@ -577,6 +584,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             ErrorCode = errorCode;
             ApiCode = apiCode;
             Classification = classification ?? ResponseClassification.ForBackend(statusCode);
+        }
+    }
+
+    /// <summary>
+    /// Thrown when a send failed because this device rejected the server certificate it was shown
+    /// (<c>WebExceptionStatus.TrustFailure</c>). The message names the issuer and the reason. It
+    /// is an <see cref="HttpRequestException"/> like the failure it wraps, so callers retry it as
+    /// the transport failure it is; it says nothing about the device's authorization and does not
+    /// count as an intercepted registration.
+    /// </summary>
+    public class BackendServerCertificateException : HttpRequestException
+    {
+        /// <summary>The certificate the handshake rejected.</summary>
+        public ServerCertificateRejection Rejection { get; }
+
+        public BackendServerCertificateException(string message, Exception inner, ServerCertificateRejection rejection)
+            : base(message, inner)
+        {
+            Rejection = rejection;
         }
     }
 

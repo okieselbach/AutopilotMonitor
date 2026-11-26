@@ -372,7 +372,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
                 var serverCertificates = new ServerCertificateObserver();
                 using (var cert = ServerCertificateObserverTests.SelfSigned("CN=Example Inspection CA"))
                 {
-                    serverCertificates.Validate(cert, System.Net.Security.SslPolicyErrors.None);
+                    serverCertificates.Validate(cert, null, System.Net.Security.SslPolicyErrors.None);
                 }
                 Upload = new Rig(tracker: Tracker, serverCertificates: serverCertificates);
             }

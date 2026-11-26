@@ -565,6 +565,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
+        public async Task A_rejected_server_certificate_is_the_failure_message_and_not_an_interception()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var rejection = new AutopilotMonitor.Agent.V2.Core.Transport.ServerCertificateRejection(
+                InterceptionFixtures.InspectionIssuer,
+                System.Net.Security.SslPolicyErrors.RemoteCertificateChainErrors,
+                System.Security.Cryptography.X509Certificates.X509ChainStatusFlags.UntrustedRoot);
+            var finding = rejection.Describe("backend.example");
+
+            var apiClient = new FakeApiClient(_ =>
+                throw new BackendServerCertificateException(finding, InterceptionFixtures.TrustFailure(), rejection));
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask);
+
+            // Retried like every transport failure and never an intercepted registration: the
+            // give-up buffer is for a 401/403 from the network path, this start keeps its boots.
+            Assert.Equal(SessionRegistrationOutcome.Failed, result.Outcome);
+            Assert.False(result.IsIntercepted);
+            Assert.Equal(6, apiClient.CallCount);
+            Assert.Equal(finding, result.ErrorMessage);
+        }
+
+        [Fact]
         public async Task Waits_for_network_link_before_first_attempt()
         {
             using var tmp = new TempDirectory();

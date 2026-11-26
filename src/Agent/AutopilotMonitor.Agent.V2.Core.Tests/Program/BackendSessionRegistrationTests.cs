@@ -1,11 +1,15 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
+using AutopilotMonitor.Agent.V2.Core.Transport;
 using AutopilotMonitor.Agent.V2.Runtime;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
@@ -146,6 +150,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal(started.AddSeconds(1204.46), record.LastFailedAtUtc);
             // The caller decides on the record as written, including this run.
             Assert.Equal(1, returned!.FailedRuns);
+        }
+
+        [Fact]
+        public void RecordFailedRun_keeps_host_and_issuer_of_a_rejected_server_certificate()
+        {
+            using var tmp = new TempDirectory();
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var at = new DateTime(2026, 11, 26, 9, 0, 0, DateTimeKind.Utc);
+            // The backend's host and the longest issuer the observer keeps: both must survive the
+            // cut of the record, they are what tells TLS inspection from a network outage.
+            var host = new Uri(Constants.ApiBaseUrl).Host;
+            const string issuerStart = "CN=Example Inspection CA, O=";
+            var issuer = issuerStart + new string('o', ServerCertificateObserver.MaxIssuerLength - issuerStart.Length);
+            var finding = new ServerCertificateRejection(
+                issuer, SslPolicyErrors.RemoteCertificateChainErrors, X509ChainStatusFlags.UntrustedRoot).Describe(host);
+
+            BackendSessionRegistration.RecordFailedRun(
+                persistence, SessionRegistrationResult.Failed(finding),
+                at, at.AddSeconds(62), true, true, "UsedDefaults", null, NewLogger(tmp.Path));
+
+            var record = persistence.LoadRegistrationFailure()!;
+            Assert.Equal(0, record.InterceptedRuns);
+            Assert.Contains(host, record.LastError);
+            Assert.Contains(issuer, record.LastError);
         }
 
         [Fact]

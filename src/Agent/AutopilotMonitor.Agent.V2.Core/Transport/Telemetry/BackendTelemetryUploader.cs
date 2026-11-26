@@ -168,7 +168,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 catch (HttpRequestException ex)
                 {
                     sw.Stop();
-                    var cause = TransportErrorCodes.DescribeSendFailure(ex);
+                    // A rejected server certificate is named with its issuer; every other failure
+                    // keeps the status and native code.
+                    var cause = _serverCertificates?.RejectionBehind(ex)?.Describe(request.RequestUri?.Host ?? "(unknown host)")
+                        ?? TransportErrorCodes.DescribeSendFailure(ex);
                     _logger?.Warning($"BackendTelemetryUploader: ingest NETWORK fail after {sw.ElapsedMilliseconds}ms (corr={correlationId}, items={items.Count}{RouteSuffix()}): {cause}");
                     _proxy?.OnSendFailed(sw.Elapsed);
                     // DNS failure, socket error, etc. — network-layer is retryable.

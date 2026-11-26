@@ -25,6 +25,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             return code;
         }
 
+        /// <summary>
+        /// True when the chain carries a <see cref="WebException"/> with <paramref name="status"/>, the
+        /// only place .NET Framework says which kind of transport failure it was (TLS handshake,
+        /// certificate trust, DNS, timeout).
+        /// </summary>
+        public static bool HasWebStatus(Exception ex, WebExceptionStatus status)
+        {
+            for (var current = ex; current != null; current = current.InnerException)
+            {
+                if (current is WebException web && web.Status == status)
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary><paramref name="ex"/>'s message with the innermost native code appended as <c>(win32 0x80090326)</c>.</summary>
         public static string MessageWithNativeCode(Exception ex)
         {
