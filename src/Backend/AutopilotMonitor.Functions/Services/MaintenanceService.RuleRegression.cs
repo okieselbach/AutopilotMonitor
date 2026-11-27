@@ -245,23 +245,30 @@ namespace AutopilotMonitor.Functions.Services
                 LastEvaluatedAt = DateTime.UtcNow,
             };
 
-        /// <summary>Correlation sentence for bell + ops event — wording contract: "correlated — not necessarily causal" (rule 6).</summary>
+        /// <summary>
+        /// Correlation sentence for bell + ops event — wording contract: "correlated — not necessarily causal" (rule 6).
+        /// Invariant culture, like every number in these English messages.
+        /// </summary>
         internal static string? DescribeDimension(RuleRegressionDimension? dimension)
             => dimension == null
                 ? null
-                : $"{dimension.HitSharePct}% of affected sessions are on {dimension.Dimension} {dimension.Value} " +
-                  $"vs {dimension.AllSharePct}% of all sessions (lift {dimension.Lift}x) — correlated, not necessarily causal";
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"{dimension.HitSharePct}% of affected sessions are on {dimension.Dimension} {dimension.Value} " +
+                    $"vs {dimension.AllSharePct}% of all sessions (lift {dimension.Lift}x) — correlated, not necessarily causal");
 
-        /// <summary>Bell message with the full numbers (spec: the admin can verify without a portal round-trip).</summary>
+        /// <summary>Bell message with the full numbers (spec: the admin can verify without a portal round-trip). Invariant culture.</summary>
         internal static string BuildRegressionMessage(RuleRegressionFinding finding, string? dimensionSummary)
         {
             var baseline = finding.Lift.HasValue
-                ? $"baseline {finding.BaselineRatePct}% ({finding.BaselineFireCount}/{finding.BaselineSessionCount} over the prior 28 days) — lift {finding.Lift.Value}x"
-                : $"baseline {finding.BaselineRatePct}% ({finding.BaselineFireCount}/{finding.BaselineSessionCount} over the prior 28 days) — new signal";
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"baseline {finding.BaselineRatePct}% ({finding.BaselineFireCount}/{finding.BaselineSessionCount} over the prior 28 days) — lift {finding.Lift.Value}x")
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"baseline {finding.BaselineRatePct}% ({finding.BaselineFireCount}/{finding.BaselineSessionCount} over the prior 28 days) — new signal");
             var dimension = dimensionSummary != null ? $" {dimensionSummary}." : " No clear dimension concentration.";
-            return $"Fired in {finding.WindowFireCount} of {finding.WindowSessionCount} evaluated sessions " +
-                   $"({finding.WindowRatePct}%) in the last 7 days ({finding.WindowStartDate} to {finding.WindowEndDate}); " +
-                   $"{baseline}.{dimension}";
+            return string.Create(CultureInfo.InvariantCulture,
+                $"Fired in {finding.WindowFireCount} of {finding.WindowSessionCount} evaluated sessions " +
+                $"({finding.WindowRatePct}%) in the last 7 days ({finding.WindowStartDate} to {finding.WindowEndDate}); " +
+                $"{baseline}.{dimension}");
         }
     }
 }

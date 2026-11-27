@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Concurrent;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using Microsoft.Extensions.Logging;
 
@@ -30,7 +30,7 @@ namespace AutopilotMonitor.Functions.Services
         // or from a second instance is harmless, a per-request event from a kill-blind old
         // agent is not.
         private static readonly TimeSpan OpsEventThrottleWindow = TimeSpan.FromHours(24);
-        private readonly ConcurrentDictionary<string, DateTime> _lastOpsEvent = new(StringComparer.OrdinalIgnoreCase);
+        private readonly OncePerWindowGate _opsEventGate = new(OpsEventThrottleWindow);
 
         public KillSwitchEvaluator(
             BlockedDeviceService blockedDeviceService,
@@ -158,21 +158,10 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        // Thread-safe claim of the throttle slot (AddOrUpdate — at most one concurrent caller
-        // per key wins), mirroring HardwareRejectionThrottleService.
+        // Thread-safe claim of the throttle slot (at most one concurrent caller per key wins),
+        // the same gate as HardwareRejectionThrottleService.
         internal bool ShouldRecordOpsEvent(string tenantId, string? serialNumber, string? matchedPattern)
-        {
-            var key = $"{tenantId}|{serialNumber ?? ""}|{matchedPattern ?? ""}";
-            var now = DateTime.UtcNow;
-
-            var stored = _lastOpsEvent.AddOrUpdate(
-                key,
-                addValueFactory: _ => now,
-                updateValueFactory: (_, existing) =>
-                    (now - existing) >= OpsEventThrottleWindow ? now : existing);
-
-            return stored == now;
-        }
+            => _opsEventGate.TryClaim($"{tenantId}|{serialNumber ?? ""}|{matchedPattern ?? ""}");
     }
 
     /// <summary>

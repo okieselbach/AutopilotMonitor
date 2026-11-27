@@ -83,7 +83,10 @@ public class MaintenanceStepTimerTests
 
         var reading = MaintenanceMemoryReading.Capture();
 
-        Assert.True(reading.PeakWorkingSetBytes > 0);
+        // .NET has no peak working set on macOS (Process.PeakWorkingSet64 is 0 there). The backend runs on
+        // Linux, where it reads the process's high-water mark; CI runs these tests on Windows.
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
+            Assert.True(reading.PeakWorkingSetBytes > 0);
         Assert.True(reading.AllocatedBytes > 0);
         Assert.True(reading.GcHeapLimitBytes > 0);
         Assert.True(reading.GcHighLoadBytes > 0);

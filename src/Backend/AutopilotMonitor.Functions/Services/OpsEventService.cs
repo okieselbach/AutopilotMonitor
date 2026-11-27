@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -1120,9 +1121,10 @@ namespace AutopilotMonitor.Functions.Services
             int baselineFireCount, int baselineSessionCount, double baselineRatePct,
             double? lift, string? dimensionSummary)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.RuleFrequencyRegression, OpsEventSeverity.Warning,
-                $"Rule '{ruleTitle}' ({ruleId}) fired in {windowFireCount}/{windowSessionCount} sessions ({windowRatePct}%) over 7d " +
-                $"vs {baselineRatePct}% baseline ({baselineFireCount}/{baselineSessionCount} over 28d)" +
-                (lift.HasValue ? $" — lift {lift.Value}x" : " — new signal (no baseline fires)") +
+                string.Create(CultureInfo.InvariantCulture,
+                    $"Rule '{ruleTitle}' ({ruleId}) fired in {windowFireCount}/{windowSessionCount} sessions ({windowRatePct}%) over 7d " +
+                    $"vs {baselineRatePct}% baseline ({baselineFireCount}/{baselineSessionCount} over 28d)") +
+                LiftSuffix(lift, " — new signal (no baseline fires)") +
                 (string.IsNullOrEmpty(dimensionSummary) ? string.Empty : $". {dimensionSummary}"),
                 tenantId, "System.Maintenance",
                 new
@@ -1184,9 +1186,10 @@ namespace AutopilotMonitor.Functions.Services
             int currentMedianSeconds, int previousMedianSeconds,
             int currentMeasuredCount, int previousMeasuredCount, double lift)
             => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.AppVersionDurationRegression, OpsEventSeverity.Warning,
-                $"App '{appName}' median install duration rose from {Math.Round(previousMedianSeconds / 60.0, 1)} to " +
-                $"{Math.Round(currentMedianSeconds / 60.0, 1)} min after version {currentVersion} " +
-                $"({currentMeasuredCount} measured installs vs {previousMeasuredCount} on {previousVersion}) — lift {lift}x",
+                string.Create(CultureInfo.InvariantCulture,
+                    $"App '{appName}' median install duration rose from {Math.Round(previousMedianSeconds / 60.0, 1)} to " +
+                    $"{Math.Round(currentMedianSeconds / 60.0, 1)} min after version {currentVersion} " +
+                    $"({currentMeasuredCount} measured installs vs {previousMeasuredCount} on {previousVersion}) — lift {lift}x"),
                 tenantId, "System.Maintenance",
                 new
                 {
@@ -1216,9 +1219,10 @@ namespace AutopilotMonitor.Functions.Services
             int baselineHitCount, int baselineSessionCount, double baselineRatePct,
             double? lift, string? dimensionSummary)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.VerdictCalibrationDrift, OpsEventSeverity.Warning,
-                $"Verdict calibration [{kind}] {verdictPath}/{status}: {windowHitCount}/{windowSessionCount} ({windowRatePct}%) over 7d " +
-                $"vs {baselineRatePct}% baseline ({baselineHitCount}/{baselineSessionCount} over 28d)" +
-                (lift.HasValue ? $" — lift {lift.Value}x" : string.Empty) +
+                string.Create(CultureInfo.InvariantCulture,
+                    $"Verdict calibration [{kind}] {verdictPath}/{status}: {windowHitCount}/{windowSessionCount} ({windowRatePct}%) over 7d " +
+                    $"vs {baselineRatePct}% baseline ({baselineHitCount}/{baselineSessionCount} over 28d)") +
+                LiftSuffix(lift, string.Empty) +
                 (string.IsNullOrEmpty(dimensionSummary) ? string.Empty : $". {dimensionSummary}"),
                 tenantId, "System.Maintenance",
                 new
@@ -1234,6 +1238,10 @@ namespace AutopilotMonitor.Functions.Services
                     baselineRatePct,
                     lift,
                 });
+
+        /// <summary>The regression messages' " — lift 2.6x" in invariant culture, or <paramref name="withoutLift"/>.</summary>
+        private static string LiftSuffix(double? lift, string withoutLift)
+            => lift.HasValue ? string.Create(CultureInfo.InvariantCulture, $" — lift {lift.Value}x") : withoutLift;
 
         /// <summary>
         /// A tenant admin turned on-demand diagnostics upload on or off — the capability behind

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
@@ -230,14 +231,18 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
-        /// <summary>Bell message with the full numbers (the admin can verify without a portal round-trip). Minutes, one decimal.</summary>
+        /// <summary>
+        /// Bell message with the full numbers (the admin can verify without a portal round-trip). Minutes, one decimal.
+        /// Invariant culture: the message is English text, never "2,6x" on a host with a decimal comma.
+        /// </summary>
         internal static string BuildAppVersionRegressionMessage(AppVersionDurationRegressionFinding finding)
         {
             var fromMin = Math.Round(finding.PreviousMedianSeconds / 60.0, 1);
             var toMin = Math.Round(finding.CurrentMedianSeconds / 60.0, 1);
-            return $"Median install duration rose from {fromMin} to {toMin} min after version {finding.CurrentVersion} " +
-                   $"({finding.CurrentMeasuredCount} measured installs vs {finding.PreviousMeasuredCount} on version {finding.PreviousVersion}) " +
-                   $"— lift {finding.Lift}x over the last {AppVersionRegressionRadar.HorizonDays} days.";
+            return string.Create(CultureInfo.InvariantCulture,
+                $"Median install duration rose from {fromMin} to {toMin} min after version {finding.CurrentVersion} " +
+                $"({finding.CurrentMeasuredCount} measured installs vs {finding.PreviousMeasuredCount} on version {finding.PreviousVersion}) " +
+                $"— lift {finding.Lift}x over the last {AppVersionRegressionRadar.HorizonDays} days.");
         }
     }
 }

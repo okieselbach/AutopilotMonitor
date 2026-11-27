@@ -1,35 +1,24 @@
 using System;
-using System.Collections.Concurrent;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// In-memory throttle for hardware rejection webhook notifications.
-    /// Ensures at most one notification per 24 hours per tenant+manufacturer+model combination.
+    /// Ensures at most one notification per 24 hours per tenant+manufacturer+model combination,
+    /// also for concurrent distress reports (<see cref="OncePerWindowGate"/>).
     /// Registered as singleton; state resets on Function App restart (acceptable trade-off).
     /// </summary>
     public class HardwareRejectionThrottleService
     {
         private static readonly TimeSpan ThrottleWindow = TimeSpan.FromHours(24);
-        private readonly ConcurrentDictionary<string, DateTime> _lastNotified = new(StringComparer.OrdinalIgnoreCase);
+        private readonly OncePerWindowGate _gate = new(ThrottleWindow);
 
         /// <summary>
-        /// Returns true if a notification should be sent for this combination.
-        /// Thread-safe: uses AddOrUpdate to atomically check the throttle window and claim
-        /// the notification slot. At most one concurrent caller per key wins.
+        /// Returns true if a notification should be sent for this combination. Thread-safe: at most
+        /// one concurrent caller per key wins.
         /// </summary>
         public bool ShouldNotify(string tenantId, string? manufacturer, string? model)
-        {
-            var key = $"{tenantId}|{manufacturer ?? ""}|{model ?? ""}";
-            var now = DateTime.UtcNow;
-
-            var stored = _lastNotified.AddOrUpdate(
-                key,
-                addValueFactory: _ => now,
-                updateValueFactory: (_, existing) =>
-                    (now - existing) >= ThrottleWindow ? now : existing);
-
-            return stored == now;
-        }
+            => _gate.TryClaim($"{tenantId}|{manufacturer ?? ""}|{model ?? ""}");
     }
 }
