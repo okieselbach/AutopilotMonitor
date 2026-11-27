@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers;
-using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
@@ -299,8 +298,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
             // WMI failed: the split cannot recognise "backdoor" as local and allows it dynamically.
             // The dynamic entry is folder-only, so the signed-in backdoor administrator is still found.
             var split = LocalAdminAnalyzer.SplitLoggedInUsers(new[] { "backdoor" }, null!);
-            var entries = Entries();
-            entries.AddRange(split.Allowed.Select(u => new LocalAdminAnalyzer.AllowedEntry(u, LocalAccountRole.Any, profileFolderOnly: true)));
+            var entries = LocalAdminAnalyzer.BuildEffectiveEntries(Entries(), split.Allowed, null!);
 
             var result = Evaluate(new List<LocalAdminAnalyzer.LocalAccountInfo>(), new List<LocalGroupMember> { Member("backdoor", 1011) }, entries);
 

@@ -50,6 +50,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     /// to catch and is never exempted by its own login (CWE-807: the login state is under the
     /// adversary's control); it is reported as <c>logged_in_local_accounts</c>.
     ///
+    /// Windows LAPS: at every run the account the device's own Windows LAPS policy manages is allowed in
+    /// any role — only when the active policy names it (automatic account management, default
+    /// <c>WLapsAdmin</c>, or <c>AdministratorAccountName</c>) AND LAPS's state records that very RID as the
+    /// account whose password it last set. The entry is bound to the account's SID, never a glob. A
+    /// squatter holding the name is therefore allowed only once LAPS has overwritten its password (in
+    /// automatic mode LAPS renames it to <c>WLapsDefuncted…</c> instead, which stays reported). Reported
+    /// as <c>windows_laps</c>.
+    ///
     /// Emits a single "local_admin_analysis" event at startup and at shutdown,
     /// enabling delta detection between pre- and post-enrollment state.
     /// </summary>
@@ -121,23 +129,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
                 foreach (var user in loggedIn.LocalAccounts)
                     _logger.Warning($"{Name}: Logged-in user '{user}' is a local account — not allowed dynamically");
+                foreach (var user in loggedIn.Allowed)
+                    _logger.Info($"{Name}: Dynamically allowing profile folder of logged-in user: {user}");
 
                 // Effective list: static entries + the profile folders of non-local logged-in users at
-                // shutdown. Folder-only: a login never allows a local ACCOUNT — not even when the WMI
-                // inventory failed and the split above could not recognise a local name.
-                var effectiveEntries = _allowedEntries;
-                if (loggedIn.Allowed.Count > 0)
-                {
-                    effectiveEntries = new List<AllowedEntry>(_allowedEntries);
-                    foreach (var user in loggedIn.Allowed)
-                    {
-                        if (!effectiveEntries.Any(e => string.Equals(e.Pattern, user, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            effectiveEntries.Add(new AllowedEntry(user, LocalAccountRole.Any, profileFolderOnly: true));
-                            _logger.Info($"{Name}: Dynamically allowing profile folder of logged-in user: {user}");
-                        }
-                    }
-                }
+                // shutdown + the account the device's Windows LAPS manages. Folder-only for logins: a
+                // login never allows a local ACCOUNT — not even when the WMI inventory failed and the
+                // split above could not recognise a local name.
+                var laps = CheckWindowsLaps(localAccounts, out var lapsPolicy);
+                var effectiveEntries = BuildEffectiveEntries(_allowedEntries, loggedIn.Allowed, laps.Entry);
 
                 var bypassNroResult  = CheckBypassNroRegistry();
                 var accountsResult   = CheckLocalAdminAccounts(localAccounts, effectiveEntries);
@@ -187,11 +187,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     { "finding",                    findingLabel },
                     { "triggered_at",               trigger },
                     { "enrollment_phase_at_check",  phase.ToString() },
-                    // Account entries in canonical form ("Guest|user"); the folder-only entries are
-                    // constant or listed in dynamically_allowed_users.
+                    // The static account entries (built-ins and the tenant's list) in canonical form
+                    // ("Guest|user"); the per-run allowances have their own keys: the folder-only entries of
+                    // logged-in users in dynamically_allowed_users, the LAPS account in windows_laps.
                     { "allowed_accounts",           _allowedEntries.Where(e => !e.ProfileFolderOnly).Select(e => e.Display).ToList() },
                     { "dynamically_allowed_users",  loggedIn.Allowed },
                     { "logged_in_local_accounts",   loggedIn.LocalAccounts },
+                    { "windows_laps",               BuildLapsPayload(lapsPolicy, laps) },
                     { "checks", new Dictionary<string, object>
                         {
                             { "bypass_nro", new Dictionary<string, object>
@@ -352,9 +354,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         /// Decides one local account. The built-in accounts are decided by their RID alone: 500 in any
         /// role, 501/503/504 never as an administrator — no name entry, built-in or tenant, lifts or
         /// imposes a role on them. Without a SID (a WMI corner case) the English name stands in for the
-        /// RID. Every other account is allowed when an account entry matches it, unless it is an
-        /// administrator and ANY matching entry is standard-user only: a restriction always wins.
-        /// Pure; internal for unit-testing.
+        /// RID. Every other account is allowed when an account entry matches it (an entry bound to a SID
+        /// matches that account only), unless it is an administrator and ANY matching entry is
+        /// standard-user only: a restriction always wins. Pure; internal for unit-testing.
         /// </summary>
         internal static AccountDecision Decide(string name, string sid, bool isAdmin, IReadOnlyList<AllowedEntry> allowed)
         {
@@ -366,7 +368,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             var restricted = false;
             foreach (var entry in allowed)
             {
-                if (entry.ProfileFolderOnly || !MatchesAllowedEntry(name, entry.Pattern))
+                if (entry.ProfileFolderOnly || !entry.MatchesAccount(name, sid))
                     continue;
                 covered = true;
                 if (entry.Role == LocalAccountRole.StandardUser)
@@ -412,7 +414,96 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         /// <summary>A profile folder has no role: any entry of the same name allows it.</summary>
         private static bool IsAllowedFolder(string folderName, IReadOnlyList<AllowedEntry> allowed)
-            => allowed.Any(e => MatchesAllowedEntry(folderName, e.Pattern));
+            => allowed.Any(e => e.MatchesFolder(folderName));
+
+        /// <summary>
+        /// The effective list of one run: the static entries, the profile folders of the non-local
+        /// logged-in users (folder-only) and the Windows LAPS account (bound to its SID). Always a new
+        /// list — the static list is shared by every run of this analyzer and never changes.
+        /// Pure; internal for unit-testing.
+        /// </summary>
+        internal static List<AllowedEntry> BuildEffectiveEntries(
+            IReadOnlyList<AllowedEntry> staticEntries, IEnumerable<string> profileFolderUsers, AllowedEntry lapsEntry)
+        {
+            var entries = new List<AllowedEntry>(staticEntries);
+            foreach (var user in profileFolderUsers ?? Enumerable.Empty<string>())
+            {
+                if (!entries.Any(e => string.Equals(e.Pattern, user, StringComparison.OrdinalIgnoreCase)))
+                    entries.Add(new AllowedEntry(user, LocalAccountRole.Any, profileFolderOnly: true));
+            }
+
+            if (lapsEntry != null)
+                entries.Add(lapsEntry);
+            return entries;
+        }
+
+        // -----------------------------------------------------------------------
+        // Windows LAPS: the account the device's own LAPS manages
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// The account the device's Windows LAPS manages, decided against the WMI inventory of the same
+        /// run. Allowed only when the active policy names it AND LAPS's state records its RID as the
+        /// account whose password LAPS last set: the documented policy grounds the allowance, the
+        /// undocumented state only narrows it (absent or different → nothing, as before this existed).
+        /// The four built-in RIDs stay with their RID entries. Pure; internal for unit-testing.
+        /// </summary>
+        internal static LapsResolution ResolveLapsManagedAccount(WindowsLapsPolicy policy, IList<LocalAccountInfo> accounts)
+        {
+            if (policy == null || !policy.NamesAccount)
+                return new LapsResolution(LapsOutcome.NotApplicable);
+            if (!policy.StateRid.HasValue)
+                return new LapsResolution(LapsOutcome.NotRotated);
+
+            var account = (accounts ?? new List<LocalAccountInfo>())
+                .FirstOrDefault(a => MachineAccountRid(a.Sid) == policy.StateRid.Value);
+            if (account == null)
+                return new LapsResolution(LapsOutcome.Absent);
+            if (FindBuiltInRidEntry(account.Name, account.Sid) != null)
+                return new LapsResolution(LapsOutcome.Builtin, account.Name);
+            if (!MatchesLapsName(account.Name, policy.AccountName, policy.Randomized == true))
+                return new LapsResolution(LapsOutcome.NameMismatch, account.Name);
+
+            return new LapsResolution(LapsOutcome.Matched, account.Name,
+                new AllowedEntry(account.Name, LocalAccountRole.Any, profileFolderOnly: false, accountSid: account.Sid));
+        }
+
+        /// <summary>
+        /// Whether an account name is the one the LAPS policy names: the name itself (case-insensitive),
+        /// or with a randomized name the prefix followed by exactly six ASCII digits.
+        /// Internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static bool MatchesLapsName(string accountName, string policyName, bool randomized)
+        {
+            if (string.IsNullOrEmpty(accountName) || string.IsNullOrEmpty(policyName))
+                return false;
+            if (!randomized)
+                return string.Equals(accountName, policyName, StringComparison.OrdinalIgnoreCase);
+
+            return accountName.Length == policyName.Length + 6
+                   && accountName.StartsWith(policyName, StringComparison.OrdinalIgnoreCase)
+                   && accountName.Skip(policyName.Length).All(c => c >= '0' && c <= '9');
+        }
+
+        /// <summary>The <c>windows_laps</c> payload block; every field nullable. Pure; internal for unit-testing.</summary>
+        internal static Dictionary<string, object> BuildLapsPayload(WindowsLapsPolicy policy, LapsResolution resolution)
+        {
+            return new Dictionary<string, object>
+            {
+                { "root",                policy?.Root },
+                { "mode",                policy?.Mode },
+                { "backup_directory",    policy?.BackupDirectory },
+                { "account_name",        policy?.AccountName },
+                { "randomized",          policy?.Randomized },
+                { "os_build",            policy?.OsBuild },
+                { "state_rid",           policy?.StateRid },
+                { "state_managed_rid",   policy?.StateManagedRid },
+                { "state_policy_source", policy?.StatePolicySource },
+                { "problem",             resolution.Problem ?? policy?.Problem },
+                { "outcome",             resolution.Outcome },
+                { "managed_account",     resolution.Outcome == LapsOutcome.Matched ? resolution.Account : null },
+            };
+        }
 
         /// <summary>
         /// Splits the logged-in user names into those that may be allowed dynamically (not a
@@ -497,6 +588,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             {
                 _logger.Warning($"{Name}: Failed to read BypassNRO registry: {ex.Message}");
                 return new BypassNroCheckResult { Value = 0, KeyExists = false };
+            }
+        }
+
+        /// <summary>
+        /// Reads the device's Windows LAPS policy and state and resolves the account it manages. Fail-closed:
+        /// any exception means no LAPS allowance for this run, never a missing event.
+        /// </summary>
+        private LapsResolution CheckWindowsLaps(List<LocalAccountInfo> localAccounts, out WindowsLapsPolicy policy)
+        {
+            policy = null;
+            try
+            {
+                policy = WindowsLapsPolicyReader.Read();
+                var resolution = ResolveLapsManagedAccount(policy, localAccounts);
+
+                _logger.Debug(
+                    $"{Name}: Windows LAPS policy: root={policy.Root ?? "none"}, mode={policy.Mode}, " +
+                    $"backupDirectory={policy.BackupDirectory?.ToString() ?? "-"}, account={policy.AccountName ?? "-"}, " +
+                    $"randomized={policy.Randomized?.ToString() ?? "-"}, osBuild={policy.OsBuild?.ToString() ?? "unknown"}, " +
+                    $"stateRid={policy.StateRid?.ToString() ?? "-"}, outcome={resolution.Outcome}");
+
+                if (policy.Problem != null)
+                    _logger.Warning($"{Name}: Windows LAPS {(policy.Mode == WindowsLapsMode.Unreadable ? "policy could not be read" : "value not understood")} ({policy.Problem}) — no LAPS allowance");
+
+                if (resolution.Outcome == LapsOutcome.Matched)
+                    _logger.Info($"{Name}: Allowing '{resolution.Account}' — the account the device's Windows LAPS policy manages and LAPS last rotated ({policy.Root}, {policy.Mode})");
+                else if (resolution.Outcome == LapsOutcome.NameMismatch)
+                    _logger.Warning(
+                        $"{Name}: Windows LAPS last rotated '{resolution.Account}' (RID {policy.StateRid}), but the {policy.Root} policy names " +
+                        $"'{policy.AccountName}'{(policy.Randomized == true ? " plus six digits" : string.Empty)} — not allowed");
+
+                return resolution;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"{Name}: Windows LAPS check failed — no LAPS allowance this run: {ex.Message}");
+                return new LapsResolution(LapsOutcome.Error, problem: ex.GetType().Name);
             }
         }
 
@@ -834,11 +962,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         /// <summary>One effective allowed-list entry: a name or glob and what it may allow.</summary>
         internal sealed class AllowedEntry
         {
-            public AllowedEntry(string pattern, LocalAccountRole role, bool profileFolderOnly)
+            public AllowedEntry(string pattern, LocalAccountRole role, bool profileFolderOnly, string accountSid = null)
             {
                 Pattern = pattern;
                 Role = role;
                 ProfileFolderOnly = profileFolderOnly;
+                AccountSid = accountSid;
             }
 
             public string Pattern { get; }
@@ -848,8 +977,69 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             /// <summary>Allows the C:\Users folder of this name, never a local account.</summary>
             public bool ProfileFolderOnly { get; }
 
+            /// <summary>
+            /// Set for an entry bound to one account (the Windows LAPS account): it matches that SID only,
+            /// and the profile folder of exactly its name — the pattern is never a glob.
+            /// </summary>
+            public string AccountSid { get; }
+
             /// <summary>Canonical entry text as the event lists it ("Guest|user").</summary>
             public string Display => LocalAdminAllowList.Format(Pattern, Role);
+
+            public bool MatchesAccount(string name, string sid)
+                => AccountSid != null
+                    ? !string.IsNullOrEmpty(sid) && string.Equals(AccountSid, sid, StringComparison.OrdinalIgnoreCase)
+                    : MatchesAllowedEntry(name, Pattern);
+
+            public bool MatchesFolder(string folderName)
+                => AccountSid != null
+                    ? string.Equals(Pattern, folderName, StringComparison.OrdinalIgnoreCase)
+                    : MatchesAllowedEntry(folderName, Pattern);
+        }
+
+        /// <summary>Wire values of <see cref="LapsResolution.Outcome"/> (<c>windows_laps.outcome</c>).</summary>
+        internal static class LapsOutcome
+        {
+            /// <summary>The policy names no account (none, disabled, built-in Administrator, legacy, invalid, unreadable).</summary>
+            public const string NotApplicable = "not_applicable";
+
+            /// <summary>LAPS has not recorded a password update for any account yet.</summary>
+            public const string NotRotated = "not_rotated";
+
+            /// <summary>No local account carries the RID LAPS last rotated (or the WMI inventory failed).</summary>
+            public const string Absent = "absent";
+
+            /// <summary>LAPS last rotated one of the four built-in accounts; its RID entry decides it.</summary>
+            public const string Builtin = "builtin";
+
+            /// <summary>LAPS last rotated an account the active policy does not name (e.g. after a policy change).</summary>
+            public const string NameMismatch = "name_mismatch";
+
+            public const string Matched = "matched";
+
+            /// <summary>The LAPS check threw; no allowance this run.</summary>
+            public const string Error = "error";
+        }
+
+        /// <summary>The outcome of <see cref="ResolveLapsManagedAccount"/>; <see cref="Entry"/> is set only when matched.</summary>
+        internal sealed class LapsResolution
+        {
+            public LapsResolution(string outcome, string account = null, AllowedEntry entry = null, string problem = null)
+            {
+                Outcome = outcome;
+                Account = account;
+                Entry = entry;
+                Problem = problem;
+            }
+
+            public string Outcome { get; }
+
+            /// <summary>The account carrying the RID LAPS last rotated, when one was found.</summary>
+            public string Account { get; }
+
+            public AllowedEntry Entry { get; }
+
+            public string Problem { get; }
         }
 
         internal enum AccountDecision
