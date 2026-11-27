@@ -350,10 +350,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Version pinned; roll-forward because the tool targets an older runtime than the SDK above.
+      # Version pinned, and it runs on the SDK pinned above: the tool ships a build for it.
       - name: Install AzureSignTool
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
       # Authenticode over everything we author; third-party assemblies keep their own signature.
@@ -365,8 +363,6 @@ jobs:
       # $LASTEXITCODE is checked explicitly: PowerShell does not throw on a native non-zero exit.
       - name: Sign agent binaries (Authenticode)
         shell: pwsh
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -497,8 +493,6 @@ jobs:
       # BEFORE the ZIP -- the same load-bearing position as the signing step above.
       - name: Create and sign payload catalog
         shell: pwsh
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
         run: |
           $ErrorActionPreference = 'Stop'
           $stagingDir = 'staging/agent'
