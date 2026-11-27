@@ -455,7 +455,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             var failureDetectedUtc = DateTime.UtcNow;
             try
             {
-                if (!IsSecureChannelFailure(ex))
+                // The .NET surface of a TLS handshake or credential rejection. Timeout, DNS and a
+                // rejected server certificate (TrustFailure) carry other statuses and end here.
+                if (!TransportErrorCodes.HasWebStatus(ex, WebExceptionStatus.SecureChannelFailure))
                     return Task.CompletedTask;
 
                 if (auth?.DistressReporter == null || !auth.HasClientCertificate)
@@ -585,24 +587,6 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 ? $"TPM-PSS report: {what} read failed ({read.Exception?.GetBaseException().Message})."
                 : $"TPM-PSS report: {what} read still running — sending without it.");
             return read.IsFaulted ? faulted : unfinished;
-        }
-
-        /// <summary>
-        /// Walks the inner-exception chain looking for <c>WebException.Status == SecureChannelFailure</c>,
-        /// which is the .NET surface of a TLS handshake/credential rejection. Other failure modes
-        /// (timeout, DNS, connect-refused) surface as different statuses and are not classified
-        /// here.
-        /// </summary>
-        private static bool IsSecureChannelFailure(Exception ex)
-        {
-            var current = ex;
-            while (current != null)
-            {
-                if (current is WebException we && we.Status == WebExceptionStatus.SecureChannelFailure)
-                    return true;
-                current = current.InnerException;
-            }
-            return false;
         }
     }
 

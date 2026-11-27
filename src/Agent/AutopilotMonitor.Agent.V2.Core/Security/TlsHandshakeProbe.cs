@@ -258,7 +258,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             if (certificate == null) return null;
             try
             {
-                if (certificate.Issuer.IndexOf("O=Microsoft Corporation", StringComparison.Ordinal) >= 0)
+                if (ServerCertificateObserver.IsMicrosoftIssuer(certificate.Issuer))
                     return null;
                 string cn;
                 using (var cert2 = new X509Certificate2(certificate))

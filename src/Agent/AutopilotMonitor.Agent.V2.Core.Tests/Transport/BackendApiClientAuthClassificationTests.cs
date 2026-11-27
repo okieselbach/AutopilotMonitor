@@ -336,7 +336,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             var observer = new ServerCertificateObserver();
             using (var cert = ServerCertificateObserverTests.SelfSigned("CN=Example Inspection CA"))
             {
-                observer.Validate(cert, System.Net.Security.SslPolicyErrors.None);
+                observer.Validate(cert, null, System.Net.Security.SslPolicyErrors.None);
             }
             using var client = BuildClient(
                 Answer(HttpStatusCode.Forbidden, InterceptionFixtures.CertificateRequiredPage, "text/html", fromBackend: false),

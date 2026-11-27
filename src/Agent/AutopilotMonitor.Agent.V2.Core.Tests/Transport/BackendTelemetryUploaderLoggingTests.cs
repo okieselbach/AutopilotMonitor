@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -264,6 +265,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.Contains("ingest NETWORK fail after", logContent);
             Assert.Contains("items=1, route=direct): ", logContent);
             Assert.Contains("ProxyObserver: uploads are failing since", logContent);
+        }
+
+        [Fact]
+        public async Task A_rejected_server_certificate_is_named_in_the_network_line()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            using var certificate = ServerCertificateObserverTests.SelfSigned("CN=Example Inspection CA");
+            var observer = new ServerCertificateObserver();
+            observer.Validate(certificate, null, SslPolicyErrors.RemoteCertificateChainErrors);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(InterceptionFixtures.TrustFailure());
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, serverCertificates: observer);
+
+            var result = await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            // Unchanged: retried like every network failure, never an interception pause.
+            Assert.True(result.IsTransient);
+            Assert.False(result.IsIntercepted);
+            var logContent = ReadLogs(tmp.Path);
+            Assert.Contains("ingest NETWORK fail after", logContent);
+            Assert.Contains(
+                "TLS trust failure: backend.test presented a server certificate issued by \"CN=Example Inspection CA\" (RemoteCertificateChainErrors), not by Microsoft.",
+                logContent);
+            Assert.DoesNotContain("status=TrustFailure", logContent);
+        }
+
+        [Fact]
+        public async Task A_trust_failure_without_a_seen_certificate_keeps_the_status_line()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+
+            var handler = new RecordingHttpMessageHandler();
+            handler.QueueThrow(InterceptionFixtures.TrustFailure());
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+
+            var sut = new BackendTelemetryUploader(
+                httpClient: http, baseUrl: "https://backend.test", tenantId: "T1", logger: logger, serverCertificates: new ServerCertificateObserver());
+
+            await sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+
+            Assert.Contains(
+                "status=TrustFailure: The remote certificate is invalid according to the validation procedure.",
+                ReadLogs(tmp.Path));
         }
 
         [Fact]

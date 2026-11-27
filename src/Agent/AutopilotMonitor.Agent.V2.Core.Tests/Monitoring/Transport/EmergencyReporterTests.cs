@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Shared.Models;
@@ -154,6 +156,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Transport
 
             // Old behaviour: second call suppressed as "already reported" ⇒ 1 call.
             Assert.Equal(2, client.Calls);
+        }
+
+        [Fact]
+        public async Task A_report_that_did_not_arrive_says_so_at_info()
+        {
+            using var tmp = new TempDirectory();
+            var client = new FakeApiClient();
+            client.Results.Enqueue(false); // not delivered
+            client.Results.Enqueue(true);  // delivered
+            var reporter = new EmergencyReporter(
+                client, "session", "tenant", "0.0.0", new AgentLogger(tmp.Path, AgentLogLevel.Info));
+
+            await reporter.TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
+            await reporter.TrySendAsync(AgentErrorType.ConfigFetchFailed, "m");
+
+            // Without the line the "Sending report" warning reads as delivered; a delivered
+            // report adds none.
+            var notDelivered = Array.FindAll(
+                File.ReadAllLines(Path.Combine(tmp.Path, "agent.log")),
+                line => line.Contains("Report not delivered"));
+            var only = Assert.Single(notDelivered);
+            Assert.Contains("[INFO] [EmergencyChannel] Report not delivered: ConfigFetchFailed", only);
         }
 
         [Fact]

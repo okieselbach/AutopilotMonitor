@@ -56,6 +56,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public void Web_status_is_found_anywhere_in_the_chain()
+        {
+            var tls = TlsFailureChain();
+
+            Assert.True(TransportErrorCodes.HasWebStatus(tls, WebExceptionStatus.SecureChannelFailure));
+            Assert.True(TransportErrorCodes.HasWebStatus(new InvalidOperationException("outer", tls), WebExceptionStatus.SecureChannelFailure));
+            // The status decides, not the kind of exception around it: a handshake failure is no trust failure.
+            Assert.False(TransportErrorCodes.HasWebStatus(tls, WebExceptionStatus.TrustFailure));
+            Assert.False(TransportErrorCodes.HasWebStatus(new InvalidOperationException("boom"), WebExceptionStatus.TrustFailure));
+            Assert.False(TransportErrorCodes.HasWebStatus(null!, WebExceptionStatus.TrustFailure));
+        }
+
+        [Fact]
         public void Message_gets_the_code_appended()
         {
             var chain = TlsFailureChain(new Win32Exception(IllegalMessage));

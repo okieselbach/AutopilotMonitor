@@ -193,7 +193,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     _reportCount--;
                     _lastReportTime = previousLastReportTime;
                 }
-                _logger?.Debug($"[EmergencyChannel] Report not delivered — reservation rolled back: {key}");
+                // The result of the "Sending report" line above: without it the log reads as delivered.
+                _logger?.Info(
+                    $"[EmergencyChannel] Report not delivered: {errorType}{statusText} — it did not reach the backend.",
+                    repeatKey: $"emergency-not-delivered:{key}");
             }
         }
     }

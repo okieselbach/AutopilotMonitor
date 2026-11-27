@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared;
 using Newtonsoft.Json.Linq;
@@ -491,7 +492,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
             catch (Exception ex)
             {
-                log($"Self-update: version check failed — {ex.Message}");
+                log($"Self-update: version check failed — {TransportErrorCodes.DescribeSendFailure(ex)}");
                 return (null, null);
             }
         }
@@ -610,7 +611,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
             catch (Exception ex)
             {
-                log($"Self-update: ZIP download failed — {ex.Message}");
+                log($"Self-update: ZIP download failed — {TransportErrorCodes.DescribeSendFailure(ex)}");
                 try { File.Delete(zipPath); } catch { }
                 return false;
             }
