@@ -5,7 +5,7 @@
   "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts on the device, including accounts allowed only as standard users that hold local admin rights. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
   "severity": "high",
   "category": "identity",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
@@ -92,7 +92,7 @@
     }
   ],
   "confidenceThreshold": 50,
-  "explanation": "The agent detected unexpected local user accounts on this device: accounts the built-in or tenant-configured allowed list does not allow, or accounts it allows only as standard users that are members of the local Administrators group.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not allowed by the list — disabled accounts included, a dormant account can be re-enabled later), unexpected_admin_members (unexpected accounts that are members of the local Administrators group — the actual backdoor), role_violations (accounts allowed only as standard users that are members of Administrators — Windows never puts Guest, kioskUser0 or WsiAccount there), account_details (per account: disabled state, Administrators membership and RID — 500 is the built-in Administrator), unexpected_profiles (C:\\Users profile directories not on the allowed list), logged_in_local_accounts (local accounts that were signed in when the shutdown scan ran — a signed-in local account is never exempted, only Entra/domain users are), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list under Settings → Agent Analyzers. Choose Standard user only for an account that must never be a local administrator.",
+  "explanation": "The agent detected unexpected local user accounts on this device: accounts the built-in or tenant-configured allowed list does not allow, or accounts it allows only as standard users that are members of the local Administrators group. The account the device's own Windows LAPS policy manages is allowed without an entry once Windows LAPS has set its password.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not allowed by the list — disabled accounts included, a dormant account can be re-enabled later), unexpected_admin_members (unexpected accounts that are members of the local Administrators group — the actual backdoor), role_violations (accounts allowed only as standard users that are members of Administrators — Windows never puts Guest, kioskUser0 or WsiAccount there), account_details (per account: disabled state, Administrators membership and RID — 500 is the built-in Administrator), unexpected_profiles (C:\\Users profile directories not on the allowed list), logged_in_local_accounts (local accounts that were signed in when the shutdown scan ran — a signed-in local account is never exempted, only Entra/domain users are), windows_laps (the device's Windows LAPS policy and the account it allowed — managed_account — or why it allowed none: outcome), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list under Settings → Agent Analyzers. Choose Standard user only for an account that must never be a local administrator.",
   "remediation": [
     {
       "title": "Review the unexpected accounts",
@@ -109,6 +109,16 @@
         "Under 'Allowed Local Accounts', add the account names that are expected in your environment",
         "Choose 'Standard user only' for an account that must not be a local administrator — it is still reported if it ever joins the Administrators group",
         "Save the settings — future enrollments will no longer flag these accounts"
+      ]
+    },
+    {
+      "title": "Accounts of Windows LAPS",
+      "steps": [
+        "The account Windows LAPS manages (automatic account management, WLapsAdmin by default, or the account named in Administrator Account Name) needs no entry: the agent allows it once Windows LAPS has set its password — 'windows_laps' in the event data shows what the agent read",
+        "An account your own script creates for Windows LAPS is reported until Windows LAPS has set its password; keep its entry if the script runs late in the enrollment",
+        "WLapsDefuncted… is an account that already carried the managed account's name when Windows LAPS took the name over; Windows LAPS renamed it aside and it can still be an administrator — remove it, or allow it with WLapsDefuncted* as 'Standard user only' if it is expected",
+        "WLapsPending… is left behind when Windows LAPS could not finish creating its account — check the Windows LAPS event log on the device (Applications and Services Logs → Microsoft → Windows → LAPS → Operational)",
+        "Do not mark a pattern that also covers the Windows LAPS account (such as WLaps* or WLapsAdmin) as 'Standard user only': that account is an administrator by design and would then be reported"
       ]
     },
     {

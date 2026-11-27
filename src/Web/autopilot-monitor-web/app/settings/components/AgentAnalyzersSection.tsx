@@ -162,6 +162,11 @@ export default function AgentAnalyzersSection({
               Built-in accounts are recognised in every language. Other accounts that only carry the name{" "}
               {namesOf(BUILT_IN_GROUPS.sharedNames).join(", ")} are allowed as standard users.
             </p>
+            <p className="text-xs text-gray-500">
+              The account managed by the Windows LAPS policy on the device (by default{" "}
+              <code className="px-1 bg-gray-100 rounded">WLapsAdmin</code>) is allowed as an administrator once Windows LAPS
+              has set its password. The agent checks this on the device at every scan, so the account needs no entry.
+            </p>
           </div>
 
           {/* Custom allowed accounts */}
