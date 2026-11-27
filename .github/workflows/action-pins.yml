@@ -12,7 +12,8 @@ name: Workflow gates
 #                    comes from .github/scripts/Get-Endpoints.ps1, CI's member of the URL
 #                    registry (the C#, web and MCP registries have guard tests of their own).
 #   * packages    -- no workflow or helper fetches a package at a version the repository
-#                    does not fix, in the forms zizmor's adhoc-packages audit does not see.
+#                    does not fix, in the forms zizmor's adhoc-packages audit does not see,
+#                    and none lets the runner image choose the .NET runtime.
 #
 # Every third-party action must be referenced by a full commit SHA, never by a tag.
 # Tags are mutable: whoever controls an action repository can repoint v4 at new code,
@@ -142,6 +143,9 @@ jobs:
       #     The -- is load-bearing: without it npx hands the tool's own flags to npm.
       #   * a .NET tool without an exact --version, a PowerShell module without -RequiredVersion.
       # Other package managers (pip, cargo, dlx runners) are covered by neither check.
+      #   * DOTNET_ROLL_FORWARD / DOTNET_ROLL_FORWARD_TO_PRERELEASE: they move a .NET program to
+      #     the newest runtime the runner image carries, the dotnet CLI itself included, so an
+      #     image update changes what runs. The SDK comes from setup-dotnet at a fixed major.
       - name: No package fetched at a version the repository does not fix
         run: |
           set -uo pipefail
@@ -161,12 +165,16 @@ jobs:
               fail "$file" "$line" "Give the .NET tool an exact --version X.Y.Z on the same line; a range or a missing version resolves at run time."
             fi
 
+            if [[ "$text" =~ DOTNET_ROLL[_]FORWARD ]]; then
+              fail "$file" "$line" "Remove the .NET roll-forward variable: it lets the runner image choose the runtime. Pin the SDK with setup-dotnet and use a tool version that ships a build for it."
+            fi
+
             if [[ "$text" =~ Install-(Module|PSResource)[[:space:]] ]] &&
                ! [[ "$text" =~ -RequiredVersion[[:space:]]+[^[:space:]] || "$text" =~ -Version[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([^0-9.*]|$) ]]; then
               fail "$file" "$line" "Give the PowerShell module an exact version on the same line, -RequiredVersion for Install-Module, -Version X.Y.Z for Install-PSResource; -MinimumVersion resolves at run time."
             fi
           # -H is load-bearing, as in verify-pins: with a single matching file grep omits the name.
-          done < <(grep -nHE 'npx|npm[[:space:]]+(exec|x)([[:space:]]|$)|dotnet[[:space:]]+tool[[:space:]]+(install|update)|Install-(Module|PSResource)' \
+          done < <(grep -nHE 'npx|npm[[:space:]]+(exec|x)([[:space:]]|$)|dotnet[[:space:]]+tool[[:space:]]+(install|update)|Install-(Module|PSResource)|DOTNET_ROLL[_]FORWARD' \
                    .github/workflows/*.yml .github/scripts/*.ps1)
 
           if [ "$failed" -ne 0 ]; then

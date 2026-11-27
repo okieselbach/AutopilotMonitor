@@ -118,19 +118,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # The signing tool runs on this SDK, not on whatever the runner image carries.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
       # Version pinned so a new or compromised NuGet release cannot flow into signing
-      # unreviewed; roll-forward because the tool targets an older runtime than the SDK
-      # preinstalled on the runner.
+      # unreviewed; the tool ships a build for the SDK pinned above.
       - name: Install AzureSignTool
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
       # A push publishes the release channel; only a dispatch can choose dev.
       - name: Publish bootstrap + customer scripts
         shell: pwsh
         env:
-          DOTNET_ROLL_FORWARD: LatestMajor
           PUBLISH_CHANNEL: ${{ inputs.channel || 'release' }}
         run: |
           $dryRun = '${{ inputs.dry_run }}' -eq 'true'
